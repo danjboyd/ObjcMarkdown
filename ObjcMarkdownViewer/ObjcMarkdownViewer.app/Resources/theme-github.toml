@@ -1,0 +1,26 @@
+# Default GitHub-like theme (placeholder; not yet wired into renderer)
+
+[base]
+font_family = "Helvetica"
+font_size = 14
+text_color = "#24292f"
+background = "#ffffff"
+
+[heading]
+font_family = "Helvetica-Bold"
+color = "#24292f"
+
+[code]
+font_family = "Menlo"
+background = "#f6f8fa"
+color = "#24292f"
+
+[blockquote]
+border_color = "#d0d7de"
+text_color = "#57606a"
+
+[link]
+color = "#0969da"
+
+[hr]
+color = "#d0d7de"
