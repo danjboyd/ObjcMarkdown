@@ -39,3 +39,24 @@
 - **Expected**: Print current document using standard print dialog.
 - **Notes**: Likely viewer-only feature; reuse text layout without UI overlays.
 
+## 5) Make library general‑purpose (reduce optional deps)
+
+- **Status**: Open
+- **Area**: Library architecture
+- **Description**: Refactor so the core library has minimal dependencies (ideally only cmark). Move TOML/theme parsing to viewer or an extras target.
+- **Notes**: Provide programmatic theme defaults; add compile flags for optional features.
+
+## 6) Open source license alignment (GNUstep)
+
+- **Status**: Open
+- **Area**: Project licensing
+- **Description**: Choose license consistent with GNUstep (likely LGPL‑2.1+ for libraries).
+- **Notes**: Evaluate GNUstep’s recommended license; update LICENSE + headers accordingly.
+
+## 7) Markdown parsing options API (NSAttributedStringMarkdownParsingOptions equivalent)
+
+- **Status**: Open
+- **Area**: Library API
+- **Description**: Explore an API that mirrors Apple’s `NSAttributedStringMarkdownParsingOptions` for compatibility and configurability.
+- **Notes**: Define a struct/class with options (flavor, base URL, inline HTML handling, etc.).
+
