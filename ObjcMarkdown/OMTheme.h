@@ -15,6 +15,7 @@
 @property (nonatomic, readonly) NSColor *codeTextColor;
 @property (nonatomic, readonly) NSColor *codeBackgroundColor;
 @property (nonatomic, readonly) NSColor *linkColor;
+@property (nonatomic, readonly) NSColor *hrColor;
 
 + (instancetype)defaultTheme;
 + (instancetype)themeWithContentsOfFile:(NSString *)path error:(NSError **)error;

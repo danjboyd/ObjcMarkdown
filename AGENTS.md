@@ -33,6 +33,7 @@ Workflow:
 
 ## Process
 - Before asking the user to run the app, the agent should build and get tests green.
+- Track bugs in `OpenIssues.md`. When resolved, move them to `ClosedIssues.md`.
 
 ## Build (macOS)
 TBD: add separate build instructions when macOS target is set up.

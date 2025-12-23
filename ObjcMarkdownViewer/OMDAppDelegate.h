@@ -5,7 +5,7 @@
 
 @class OMMarkdownRenderer;
 
-@interface OMDAppDelegate : NSObject <NSApplicationDelegate, NSToolbarDelegate>
+@interface OMDAppDelegate : NSObject <NSApplicationDelegate, NSToolbarDelegate, NSWindowDelegate, NSTextViewDelegate>
 {
     NSWindow *_window;
     NSTextView *_textView;
@@ -18,6 +18,7 @@
     NSButton *_zoomResetButton;
     NSView *_zoomContainer;
     CGFloat _zoomScale;
+    NSMutableArray *_codeBlockButtons;
 }
 
 @end

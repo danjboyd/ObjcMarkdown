@@ -3,6 +3,7 @@
 
 #import "OMDAppDelegate.h"
 #import "OMMarkdownRenderer.h"
+#import "OMDTextView.h"
 
 #include <math.h>
 
@@ -16,6 +17,7 @@
     [_zoomLabel release];
     [_zoomResetButton release];
     [_zoomContainer release];
+    [_codeBlockButtons release];
     [_renderer release];
     [_textView release];
     [_window release];
@@ -87,18 +89,34 @@
                       defer:NO];
     [_window setFrameAutosaveName:@"ObjcMarkdownViewerMainWindow"];
     [_window setTitle:@"ObjcMarkdownViewer"];
+    [_window setDelegate:self];
     _zoomScale = 1.0;
+    NSNumber *savedZoom = [[NSUserDefaults standardUserDefaults] objectForKey:@"ObjcMarkdownZoomScale"];
+    if (savedZoom != nil) {
+        double value = [savedZoom doubleValue];
+        if (value > 0.25 && value < 4.0) {
+            _zoomScale = value;
+        }
+    }
     [self setupToolbar];
 
     NSScrollView *scrollView = [[[NSScrollView alloc] initWithFrame:[[_window contentView] bounds]] autorelease];
     [scrollView setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable)];
     [scrollView setHasVerticalScroller:YES];
 
-    _textView = [[NSTextView alloc] initWithFrame:[[scrollView contentView] bounds]];
+    _textView = [[OMDTextView alloc] initWithFrame:[[scrollView contentView] bounds]];
     [_textView setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable)];
     [_textView setEditable:NO];
     [_textView setSelectable:YES];
     [_textView setRichText:YES];
+    [_textView setTextContainerInset:NSMakeSize(20.0, 16.0)];
+    [[_textView textContainer] setLineFragmentPadding:0.0];
+    [_textView setDelegate:self];
+
+    [_textView setLinkTextAttributes:@{
+        NSForegroundColorAttributeName: [NSColor colorWithCalibratedRed:0.03 green:0.41 blue:0.85 alpha:1.0],
+        NSUnderlineStyleAttributeName: [NSNumber numberWithInt:NSUnderlineStyleSingle]
+    }];
 
     [scrollView setDocumentView:_textView];
     [[_window contentView] addSubview:scrollView];
@@ -136,7 +154,7 @@
             _zoomSlider = [[NSSlider alloc] initWithFrame:NSMakeRect(60, 2, 160, 22)];
             [_zoomSlider setMinValue:50];
             [_zoomSlider setMaxValue:200];
-            [_zoomSlider setDoubleValue:100];
+            [_zoomSlider setDoubleValue:_zoomScale * 100.0];
             [_zoomSlider setTarget:self];
             [_zoomSlider setAction:@selector(zoomSliderChanged:)];
 
@@ -184,6 +202,7 @@
 - (void)zoomSliderChanged:(id)sender
 {
     _zoomScale = [_zoomSlider doubleValue] / 100.0;
+    [[NSUserDefaults standardUserDefaults] setDouble:_zoomScale forKey:@"ObjcMarkdownZoomScale"];
     [self updateZoomLabel];
     [self renderCurrentMarkdown];
 }
@@ -191,6 +210,7 @@
 - (void)zoomReset:(id)sender
 {
     _zoomScale = 1.0;
+    [[NSUserDefaults standardUserDefaults] setDouble:_zoomScale forKey:@"ObjcMarkdownZoomScale"];
     [_zoomSlider setDoubleValue:100.0];
     [self updateZoomLabel];
     [self renderCurrentMarkdown];
@@ -222,8 +242,20 @@
         return;
     }
     [_renderer setZoomScale:_zoomScale];
+    [self updateRendererLayoutWidth];
     NSAttributedString *rendered = [_renderer attributedStringFromMarkdown:_currentMarkdown];
     [[_textView textStorage] setAttributedString:rendered];
+    [self updateCodeBlockButtons];
+    if ([_textView isKindOfClass:[OMDTextView class]]) {
+        OMDTextView *codeView = (OMDTextView *)_textView;
+        [codeView setCodeBlockRanges:[_renderer codeBlockRanges]];
+        [codeView setCodeBlockBackgroundColor:[NSColor colorWithCalibratedWhite:0.97 alpha:1.0]];
+        [codeView setCodeBlockPadding:NSMakeSize(14.0, 8.0)];
+        [codeView setBlockquoteRanges:[_renderer blockquoteRanges]];
+        [codeView setBlockquoteLineColor:[NSColor colorWithCalibratedWhite:0.82 alpha:1.0]];
+        [codeView setBlockquoteLineWidth:3.0];
+        [codeView setNeedsDisplay:YES];
+    }
     NSColor *bg = [_renderer backgroundColor];
     if (bg != nil) {
         [_textView setDrawsBackground:YES];
@@ -232,6 +264,126 @@
     if (_currentPath != nil) {
         [_window setTitle:[_currentPath lastPathComponent]];
     }
+}
+
+- (void)updateRendererLayoutWidth
+{
+    NSRect bounds = [_textView bounds];
+    NSSize inset = [_textView textContainerInset];
+    CGFloat padding = [[_textView textContainer] lineFragmentPadding];
+    CGFloat width = bounds.size.width - (inset.width * 2.0) - (padding * 2.0);
+    if (width < 0.0) {
+        width = 0.0;
+    }
+    [_renderer setLayoutWidth:width];
+}
+
+- (void)windowDidResize:(NSNotification *)notification
+{
+    if (_currentMarkdown == nil) {
+        return;
+    }
+    [self renderCurrentMarkdown];
+}
+
+- (void)updateCodeBlockButtons
+{
+    if (_codeBlockButtons == nil) {
+        _codeBlockButtons = [[NSMutableArray alloc] init];
+    }
+    for (NSButton *button in _codeBlockButtons) {
+        [button removeFromSuperview];
+    }
+    [_codeBlockButtons removeAllObjects];
+
+    NSArray *ranges = [_renderer codeBlockRanges];
+    if ([ranges count] == 0) {
+        return;
+    }
+
+    NSLayoutManager *layoutManager = [_textView layoutManager];
+    NSTextContainer *container = [_textView textContainer];
+    if (layoutManager == nil || container == nil) {
+        return;
+    }
+    [layoutManager ensureLayoutForTextContainer:container];
+
+    NSInteger index = 0;
+    for (NSValue *value in ranges) {
+        NSRange charRange = [value rangeValue];
+        if (charRange.length == 0) {
+            index++;
+            continue;
+        }
+
+        NSRange glyphRange = [layoutManager glyphRangeForCharacterRange:charRange actualCharacterRange:NULL];
+        if (glyphRange.length == 0) {
+            continue;
+        }
+
+        NSRect blockRect = [layoutManager boundingRectForGlyphRange:glyphRange inTextContainer:container];
+        NSRect lineRect = [layoutManager lineFragmentRectForGlyphAtIndex:glyphRange.location effectiveRange:NULL];
+
+        CGFloat buttonWidth = 48.0;
+        CGFloat buttonHeight = 18.0;
+        CGFloat x = blockRect.origin.x + blockRect.size.width - buttonWidth - 6.0;
+        if (x < blockRect.origin.x) {
+            x = blockRect.origin.x;
+        }
+        CGFloat y = lineRect.origin.y + 2.0;
+
+        NSButton *button = [[NSButton alloc] initWithFrame:NSMakeRect(x, y, buttonWidth, buttonHeight)];
+        [button setTitle:@"Copy"];
+        [button setBezelStyle:NSRoundedBezelStyle];
+        [button setFont:[NSFont systemFontOfSize:11.0]];
+        [button setTarget:self];
+        [button setAction:@selector(copyCodeBlock:)];
+        [button setTag:index];
+        [_textView addSubview:button];
+        [_codeBlockButtons addObject:button];
+        [button release];
+        index++;
+    }
+}
+
+- (void)copyCodeBlock:(id)sender
+{
+    NSInteger index = [sender tag];
+    NSArray *ranges = [_renderer codeBlockRanges];
+    if (index < 0 || index >= (NSInteger)[ranges count]) {
+        return;
+    }
+    NSRange range = [[ranges objectAtIndex:index] rangeValue];
+    NSString *fullText = [[_textView textStorage] string];
+    if (fullText == nil || NSMaxRange(range) > [fullText length]) {
+        return;
+    }
+
+    NSString *snippet = [fullText substringWithRange:range];
+    NSPasteboard *pasteboard = [NSPasteboard generalPasteboard];
+    [pasteboard declareTypes:[NSArray arrayWithObject:NSStringPboardType] owner:nil];
+    [pasteboard setString:snippet forType:NSStringPboardType];
+}
+
+- (BOOL)textView:(NSTextView *)textView clickedOnLink:(id)link
+{
+    NSURL *url = nil;
+    if ([link isKindOfClass:[NSURL class]]) {
+        url = (NSURL *)link;
+    } else if ([link isKindOfClass:[NSString class]]) {
+        NSString *linkString = (NSString *)link;
+        url = [NSURL URLWithString:linkString];
+        if (url == nil) {
+            url = [NSURL fileURLWithPath:linkString];
+        }
+    }
+
+    if (url != nil) {
+        [[NSWorkspace sharedWorkspace] openURL:url];
+        return YES;
+    }
+
+    return NO;
 }
 
 - (BOOL)openDocumentFromArguments

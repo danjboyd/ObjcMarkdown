@@ -30,14 +30,24 @@ static void OMAppendString(NSMutableAttributedString *output,
     [output appendAttributedString:segment];
 }
 
-static NSParagraphStyle *OMParagraphStyleWithIndent(CGFloat firstIndent,
-                                                    CGFloat headIndent,
-                                                    CGFloat spacingAfter)
+static NSMutableParagraphStyle *OMParagraphStyleWithIndent(CGFloat firstIndent,
+                                                           CGFloat headIndent,
+                                                           CGFloat spacingAfter,
+                                                           CGFloat lineSpacing,
+                                                           CGFloat lineHeightMultiple,
+                                                           CGFloat fontSize)
 {
     NSMutableParagraphStyle *style = [[[NSMutableParagraphStyle alloc] init] autorelease];
     [style setFirstLineHeadIndent:firstIndent];
     [style setHeadIndent:headIndent];
     [style setParagraphSpacing:spacingAfter];
+    [style setLineSpacing:lineSpacing];
+    [style setLineHeightMultiple:lineHeightMultiple];
+    if (fontSize > 0.0 && lineHeightMultiple > 0.0) {
+        CGFloat lineHeight = fontSize * lineHeightMultiple;
+        [style setMinimumLineHeight:lineHeight];
+        [style setMaximumLineHeight:lineHeight];
+    }
     return style;
 }
 
@@ -63,9 +73,12 @@ static void OMRenderBlocks(cmark_node *node,
                            OMTheme *theme,
                            NSMutableAttributedString *output,
                            NSMutableDictionary *attributes,
+                           NSMutableArray *codeRanges,
+                           NSMutableArray *blockquoteRanges,
                            NSMutableArray *listStack,
                            NSUInteger quoteLevel,
-                           CGFloat scale);
+                           CGFloat scale,
+                           CGFloat layoutWidth);
 
 static NSMutableDictionary *OMListContext(NSMutableArray *listStack)
 {
@@ -124,13 +137,39 @@ static NSDictionary *OMHeadingAttributes(OMTheme *theme, NSUInteger level, CGFlo
     return [theme headingAttributesForSize:(baseSize * scales[idx] * scale)];
 }
 
+static NSString *OMRuleLineString(NSFont *font, CGFloat width)
+{
+    if (font == nil || width <= 0.0) {
+        return @"────────────────────────────────────────────────────────";
+    }
+
+    NSDictionary *attrs = [NSDictionary dictionaryWithObject:font forKey:NSFontAttributeName];
+    NSSize charSize = [@"─" sizeWithAttributes:attrs];
+    CGFloat charWidth = charSize.width > 0.0 ? charSize.width : 6.0;
+    NSInteger count = (NSInteger)floor(width / charWidth);
+    if (count < 8) {
+        count = 8;
+    }
+
+    NSMutableString *rule = [NSMutableString stringWithCapacity:(NSUInteger)count];
+    for (NSInteger i = 0; i < count; i++) {
+        [rule appendString:@"─"];
+    }
+    return rule;
+}
+
 @interface OMMarkdownRenderer ()
 @property (nonatomic, retain) OMTheme *theme;
+@property (nonatomic, retain) NSArray *codeBlockRanges;
+@property (nonatomic, retain) NSArray *blockquoteRanges;
 @end
 
 @implementation OMMarkdownRenderer
 
 @synthesize zoomScale = _zoomScale;
+@synthesize layoutWidth = _layoutWidth;
+@synthesize codeBlockRanges = _codeBlockRanges;
+@synthesize blockquoteRanges = _blockquoteRanges;
 
 - (instancetype)init
 {
@@ -146,12 +185,15 @@ static NSDictionary *OMHeadingAttributes(OMTheme *theme, NSUInteger level, CGFlo
         }
         _theme = [theme retain];
         _zoomScale = 1.0;
+        _layoutWidth = 0.0;
     }
     return self;
 }
 
 - (void)dealloc
 {
+    [_codeBlockRanges release];
+    [_blockquoteRanges release];
     [_theme release];
     [super dealloc];
 }
@@ -191,7 +233,11 @@ static NSDictionary *OMHeadingAttributes(OMTheme *theme, NSUInteger level, CGFlo
     }
 
     NSMutableArray *listStack = [NSMutableArray array];
-    OMRenderBlocks(document, self.theme, output, attributes, listStack, 0, scale);
+    NSMutableArray *codeRanges = [NSMutableArray array];
+    NSMutableArray *blockquoteRanges = [NSMutableArray array];
+    OMRenderBlocks(document, self.theme, output, attributes, codeRanges, blockquoteRanges, listStack, 0, scale, self.layoutWidth);
+    [self setCodeBlockRanges:codeRanges];
+    [self setBlockquoteRanges:blockquoteRanges];
     OMTrimTrailingNewlines(output);
     cmark_node_free(document);
     return output;
@@ -212,7 +258,9 @@ static void OMRenderParagraph(cmark_node *node,
 {
     NSMutableDictionary *paraAttrs = [attributes mutableCopy];
     CGFloat indent = (CGFloat)(quoteLevel * 20.0 * scale);
-    NSParagraphStyle *style = OMParagraphStyleWithIndent(indent, indent, 4.0 * scale);
+    NSFont *font = [attributes objectForKey:NSFontAttributeName];
+    CGFloat fontSize = font != nil ? [font pointSize] : (theme.baseFont != nil ? [theme.baseFont pointSize] * scale : 16.0 * scale);
+    NSParagraphStyle *style = OMParagraphStyleWithIndent(indent, indent, 12.0 * scale, 0.0, 1.725, fontSize);
     [paraAttrs setObject:style forKey:NSParagraphStyleAttributeName];
 
     OMRenderInlines(node, theme, output, paraAttrs, scale);
@@ -230,7 +278,8 @@ static void OMRenderHeading(cmark_node *node,
                             NSMutableAttributedString *output,
                             NSMutableDictionary *attributes,
                             NSUInteger quoteLevel,
-                            CGFloat scale)
+                            CGFloat scale,
+                            CGFloat layoutWidth)
 {
     int level = cmark_node_get_heading_level(node);
     NSMutableDictionary *headingAttrs = [attributes mutableCopy];
@@ -238,12 +287,38 @@ static void OMRenderHeading(cmark_node *node,
     [headingAttrs addEntriesFromDictionary:headingStyle];
 
     CGFloat indent = (CGFloat)(quoteLevel * 20.0 * scale);
-    NSParagraphStyle *style = OMParagraphStyleWithIndent(indent, indent, 6.0 * scale);
+    NSFont *font = [headingAttrs objectForKey:NSFontAttributeName];
+    CGFloat fontSize = font != nil ? [font pointSize] : (theme.baseFont != nil ? [theme.baseFont pointSize] * scale : 16.0 * scale);
+    NSMutableParagraphStyle *style = OMParagraphStyleWithIndent(indent, indent, 14.0 * scale, 0.0, 1.38, fontSize);
+    CGFloat spacingBefore = (level >= 2 && level <= 3) ? 20.0 * scale : 10.0 * scale;
+    [style setParagraphSpacingBefore:spacingBefore];
     [headingAttrs setObject:style forKey:NSParagraphStyleAttributeName];
 
     OMRenderInlines(node, theme, output, headingAttrs, scale);
     [headingAttrs release];
-    OMAppendString(output, @"\n\n", attributes);
+    OMAppendString(output, @"\n", attributes);
+
+    if (level <= 3 && theme.hrColor != nil) {
+        NSMutableDictionary *ruleAttrs = [attributes mutableCopy];
+        NSFont *font = [attributes objectForKey:NSFontAttributeName];
+        CGFloat size = font != nil ? [font pointSize] : (theme.baseFont != nil ? [theme.baseFont pointSize] * scale : 16.0 * scale);
+        NSFont *ruleFont = [NSFont systemFontOfSize:MAX(1.0, size * 0.35)];
+        if (ruleFont != nil) {
+            [ruleAttrs setObject:ruleFont forKey:NSFontAttributeName];
+        }
+        [ruleAttrs setObject:theme.hrColor forKey:NSForegroundColorAttributeName];
+        NSMutableParagraphStyle *ruleStyle = OMParagraphStyleWithIndent(indent, indent, 12.0 * scale, 0.0, 1.15, size);
+        [ruleStyle setMinimumLineHeight:MAX(1.0, size * 0.5)];
+        [ruleAttrs setObject:ruleStyle forKey:NSParagraphStyleAttributeName];
+
+        CGFloat availableWidth = layoutWidth > 0.0 ? (layoutWidth - indent) : 0.0;
+        NSString *rule = OMRuleLineString(ruleFont, availableWidth);
+        OMAppendString(output, rule, ruleAttrs);
+        OMAppendString(output, @"\n\n", attributes);
+        [ruleAttrs release];
+    } else {
+        OMAppendString(output, @"\n", attributes);
+    }
 }
 
 static void OMRenderCodeBlock(cmark_node *node,
@@ -251,7 +326,8 @@ static void OMRenderCodeBlock(cmark_node *node,
                               NSMutableAttributedString *output,
                               NSMutableDictionary *attributes,
                               NSUInteger quoteLevel,
-                              CGFloat scale)
+                              CGFloat scale,
+                              NSMutableArray *codeRanges)
 {
     const char *literal = cmark_node_get_literal(node);
     NSString *code = literal != NULL ? [NSString stringWithUTF8String:literal] : @"";
@@ -263,11 +339,23 @@ static void OMRenderCodeBlock(cmark_node *node,
     NSMutableDictionary *blockAttrs = [attributes mutableCopy];
     [blockAttrs addEntriesFromDictionary:codeAttrs];
 
-    CGFloat indent = (CGFloat)(quoteLevel * 20.0 * scale) + 12.0 * scale;
-    NSParagraphStyle *style = OMParagraphStyleWithIndent(indent, indent, 6.0 * scale);
+    CGFloat indent = (CGFloat)(quoteLevel * 20.0 * scale) + 20.0 * scale;
+    CGFloat padding = 16.0 * scale;
+    NSMutableParagraphStyle *style = OMParagraphStyleWithIndent(indent + padding,
+                                                                indent + padding,
+                                                                14.0 * scale,
+                                                                0.0,
+                                                                1.5,
+                                                                size);
+    [style setParagraphSpacingBefore:10.0 * scale];
+    [style setTailIndent:-padding];
     [blockAttrs setObject:style forKey:NSParagraphStyleAttributeName];
 
+    NSUInteger startLocation = [output length];
     OMAppendString(output, code, blockAttrs);
+    if ([code length] > 0) {
+        [codeRanges addObject:[NSValue valueWithRange:NSMakeRange(startLocation, [code length])]];
+    }
     if (![code hasSuffix:@"\n"]) {
         OMAppendString(output, @"\n", blockAttrs);
     }
@@ -277,9 +365,11 @@ static void OMRenderCodeBlock(cmark_node *node,
 
 static void OMRenderThematicBreak(OMTheme *theme,
                                   NSMutableAttributedString *output,
-                                  NSMutableDictionary *attributes)
+                                  NSMutableDictionary *attributes,
+                                  CGFloat layoutWidth)
 {
-    NSString *rule = @"──────────────";
+    NSFont *font = [attributes objectForKey:NSFontAttributeName];
+    NSString *rule = OMRuleLineString(font, layoutWidth);
     OMAppendString(output, rule, attributes);
     OMAppendString(output, @"\n\n", attributes);
 }
@@ -288,9 +378,12 @@ static void OMRenderList(cmark_node *node,
                          OMTheme *theme,
                          NSMutableAttributedString *output,
                          NSMutableDictionary *attributes,
+                         NSMutableArray *codeRanges,
+                         NSMutableArray *blockquoteRanges,
                          NSMutableArray *listStack,
                          NSUInteger quoteLevel,
-                         CGFloat scale)
+                         CGFloat scale,
+                         CGFloat layoutWidth)
 {
     cmark_list_type type = cmark_node_get_list_type(node);
     int start = cmark_node_get_list_start(node);
@@ -304,13 +397,24 @@ static void OMRenderList(cmark_node *node,
 
     cmark_node *child = cmark_node_first_child(node);
     while (child != NULL) {
-        OMRenderBlocks(child, theme, output, attributes, listStack, quoteLevel, scale);
+        OMRenderBlocks(child, theme, output, attributes, codeRanges, blockquoteRanges, listStack, quoteLevel, scale, layoutWidth);
         child = cmark_node_next(child);
     }
 
     [listStack removeLastObject];
-    if (!tight) {
+    BOOL nested = [listStack count] > 0;
+    BOOL parentIsItem = NO;
+    cmark_node *parent = cmark_node_parent(node);
+    if (parent != NULL && cmark_node_get_type(parent) == CMARK_NODE_ITEM) {
+        parentIsItem = YES;
+    }
+    if (parentIsItem) {
+        return;
+    }
+    if (nested || tight) {
         OMAppendString(output, @"\n", attributes);
+    } else {
+        OMAppendString(output, @"\n\n", attributes);
     }
 }
 
@@ -318,9 +422,12 @@ static void OMRenderListItem(cmark_node *node,
                              OMTheme *theme,
                              NSMutableAttributedString *output,
                              NSMutableDictionary *attributes,
+                             NSMutableArray *codeRanges,
+                             NSMutableArray *blockquoteRanges,
                              NSMutableArray *listStack,
                              NSUInteger quoteLevel,
-                             CGFloat scale)
+                             CGFloat scale,
+                             CGFloat layoutWidth)
 {
     NSUInteger startLocation = [output length];
     NSString *prefix = OMListPrefix(listStack);
@@ -328,20 +435,44 @@ static void OMRenderListItem(cmark_node *node,
 
     cmark_node *child = cmark_node_first_child(node);
     while (child != NULL) {
-        OMRenderBlocks(child, theme, output, attributes, listStack, quoteLevel, scale);
+        OMRenderBlocks(child, theme, output, attributes, codeRanges, blockquoteRanges, listStack, quoteLevel, scale, layoutWidth);
         child = cmark_node_next(child);
     }
 
     NSUInteger endLocation = [output length];
     CGFloat baseIndent = (CGFloat)(quoteLevel * 20.0 * scale);
     CGFloat listIndent = (CGFloat)([listStack count] * 18.0 * scale);
+    NSFont *font = [attributes objectForKey:NSFontAttributeName];
+    CGFloat fontSize = font != nil ? [font pointSize] : (theme.baseFont != nil ? [theme.baseFont pointSize] * scale : 16.0 * scale);
+    BOOL hasNestedList = NO;
+    cmark_node *scan = cmark_node_first_child(node);
+    while (scan != NULL) {
+        if (cmark_node_get_type(scan) == CMARK_NODE_LIST) {
+            hasNestedList = YES;
+            break;
+        }
+        scan = cmark_node_next(scan);
+    }
+    CGFloat spacingAfter = [listStack count] > 1 ? 2.0 * scale : 8.0 * scale;
+    if (hasNestedList) {
+        spacingAfter = 2.0 * scale;
+    }
     NSParagraphStyle *style = OMParagraphStyleWithIndent(baseIndent + listIndent,
-                                                        baseIndent + listIndent + 18.0 * scale,
-                                                        2.0 * scale);
+                                                        baseIndent + listIndent + 20.0 * scale,
+                                                        spacingAfter,
+                                                        0.0,
+                                                        1.61,
+                                                        fontSize);
     if (endLocation > startLocation) {
-        [output addAttribute:NSParagraphStyleAttributeName
-                       value:style
-                       range:NSMakeRange(startLocation, endLocation - startLocation)];
+        NSString *text = [output string];
+        NSRange searchRange = NSMakeRange(startLocation, endLocation - startLocation);
+        NSRange newlineRange = [text rangeOfString:@"\n" options:0 range:searchRange];
+        NSUInteger lineEnd = newlineRange.location != NSNotFound ? newlineRange.location : endLocation;
+        if (lineEnd > startLocation) {
+            [output addAttribute:NSParagraphStyleAttributeName
+                           value:style
+                           range:NSMakeRange(startLocation, lineEnd - startLocation)];
+        }
     }
     OMIncrementListIndex(listStack);
 }
@@ -350,11 +481,27 @@ static void OMRenderBlocks(cmark_node *node,
                            OMTheme *theme,
                            NSMutableAttributedString *output,
                            NSMutableDictionary *attributes,
+                           NSMutableArray *codeRanges,
+                           NSMutableArray *blockquoteRanges,
                            NSMutableArray *listStack,
                            NSUInteger quoteLevel,
-                           CGFloat scale)
+                           CGFloat scale,
+                           CGFloat layoutWidth)
 {
     cmark_node_type type = cmark_node_get_type(node);
+    if (type == CMARK_NODE_BLOCK_QUOTE) {
+        NSUInteger startLocation = [output length];
+        cmark_node *child = cmark_node_first_child(node);
+        while (child != NULL) {
+            OMRenderBlocks(child, theme, output, attributes, codeRanges, blockquoteRanges, listStack, quoteLevel + 1, scale, layoutWidth);
+            child = cmark_node_next(child);
+        }
+        NSUInteger endLocation = [output length];
+        if (endLocation > startLocation) {
+            [blockquoteRanges addObject:[NSValue valueWithRange:NSMakeRange(startLocation, endLocation - startLocation)]];
+        }
+        return;
+    }
     switch (type) {
         case CMARK_NODE_DOCUMENT:
             break;
@@ -362,22 +509,22 @@ static void OMRenderBlocks(cmark_node *node,
             OMRenderParagraph(node, theme, output, attributes, listStack, quoteLevel, scale);
             return;
         case CMARK_NODE_HEADING:
-            OMRenderHeading(node, theme, output, attributes, quoteLevel, scale);
+            OMRenderHeading(node, theme, output, attributes, quoteLevel, scale, layoutWidth);
             return;
         case CMARK_NODE_CODE_BLOCK:
-            OMRenderCodeBlock(node, theme, output, attributes, quoteLevel, scale);
+            OMRenderCodeBlock(node, theme, output, attributes, quoteLevel, scale, codeRanges);
             return;
         case CMARK_NODE_THEMATIC_BREAK:
-            OMRenderThematicBreak(theme, output, attributes);
+            OMRenderThematicBreak(theme, output, attributes, layoutWidth);
             return;
         case CMARK_NODE_BLOCK_QUOTE:
             quoteLevel += 1;
             break;
         case CMARK_NODE_LIST:
-            OMRenderList(node, theme, output, attributes, listStack, quoteLevel, scale);
+            OMRenderList(node, theme, output, attributes, codeRanges, blockquoteRanges, listStack, quoteLevel, scale, layoutWidth);
             return;
         case CMARK_NODE_ITEM:
-            OMRenderListItem(node, theme, output, attributes, listStack, quoteLevel, scale);
+            OMRenderListItem(node, theme, output, attributes, codeRanges, blockquoteRanges, listStack, quoteLevel, scale, layoutWidth);
             return;
         case CMARK_NODE_HTML_BLOCK:
         case CMARK_NODE_CUSTOM_BLOCK:
@@ -388,7 +535,7 @@ static void OMRenderBlocks(cmark_node *node,
 
     cmark_node *child = cmark_node_first_child(node);
     while (child != NULL) {
-        OMRenderBlocks(child, theme, output, attributes, listStack, quoteLevel, scale);
+        OMRenderBlocks(child, theme, output, attributes, codeRanges, blockquoteRanges, listStack, quoteLevel, scale, layoutWidth);
         child = cmark_node_next(child);
     }
 }
@@ -410,6 +557,8 @@ static void OMRenderInlines(cmark_node *node,
                 break;
             }
             case CMARK_NODE_SOFTBREAK:
+                OMAppendString(output, @" ", attributes);
+                break;
             case CMARK_NODE_LINEBREAK:
                 OMAppendString(output, @"\n", attributes);
                 break;
@@ -452,7 +601,13 @@ static void OMRenderInlines(cmark_node *node,
                 NSString *urlString = url != NULL ? [NSString stringWithUTF8String:url] : @"";
                 NSMutableDictionary *linkAttrs = [attributes mutableCopy];
                 if ([urlString length] > 0) {
-                    [linkAttrs setObject:urlString forKey:NSLinkAttributeName];
+                    NSURL *linkURL = [NSURL URLWithString:urlString];
+                    if (linkURL == nil) {
+                        linkURL = [NSURL fileURLWithPath:urlString];
+                    }
+                    if (linkURL != nil) {
+                        [linkAttrs setObject:linkURL forKey:NSLinkAttributeName];
+                    }
                 }
                 if (theme.linkColor != nil) {
                     [linkAttrs setObject:theme.linkColor forKey:NSForegroundColorAttributeName];

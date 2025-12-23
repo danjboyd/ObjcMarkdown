@@ -1,0 +1,17 @@
+# GNUstep build artifacts
+obj/
+*.d
+*.o
+*.so
+*.so.*
+*.a
+*.dll
+*.dylib
+
+# App and bundle outputs
+*.app/
+*.bundle/
+
+# Editor swap files
+*~
+

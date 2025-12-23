@@ -17,6 +17,7 @@
 @property (nonatomic, retain) NSColor *codeTextColor;
 @property (nonatomic, retain) NSColor *codeBackgroundColor;
 @property (nonatomic, retain) NSColor *linkColor;
+@property (nonatomic, retain) NSColor *hrColor;
 @end
 
 @implementation OMTheme
@@ -116,6 +117,9 @@
         NSString *colorValue = [self stringInTable:heading key:"color"];
         if (fontFamily != nil) {
             NSFont *font = [NSFont fontWithName:fontFamily size:theme.baseFont.pointSize];
+            if (font == nil) {
+                font = [NSFont boldSystemFontOfSize:theme.baseFont.pointSize];
+            }
             if (font != nil) {
                 theme.headingFont = font;
             }
@@ -135,6 +139,9 @@
         NSString *backgroundValue = [self stringInTable:code key:"background"];
         if (fontFamily != nil) {
             NSFont *font = [NSFont fontWithName:fontFamily size:theme.baseFont.pointSize];
+            if (font == nil) {
+                font = [NSFont userFixedPitchFontOfSize:theme.baseFont.pointSize];
+            }
             if (font != nil) {
                 theme.codeFont = font;
             }
@@ -164,6 +171,17 @@
         }
     }
 
+    toml_table_t *hr = toml_table_in(root, "hr");
+    if (hr != NULL) {
+        NSString *colorValue = [self stringInTable:hr key:"color"];
+        if (colorValue != nil) {
+            NSColor *color = [self colorFromHexString:colorValue];
+            if (color != nil) {
+                theme.hrColor = color;
+            }
+        }
+    }
+
     toml_free(root);
     return theme;
 }
@@ -172,10 +190,7 @@
 {
     self = [super init];
     if (self) {
-        _baseFont = [[NSFont fontWithName:@"Helvetica" size:14.0] retain];
-        if (_baseFont == nil) {
-            _baseFont = [[NSFont systemFontOfSize:14.0] retain];
-        }
+        _baseFont = [[NSFont systemFontOfSize:20.0] retain];
         _baseTextColor = [[self class] colorFromHexString:@"#24292f"];
         if (_baseTextColor == nil) {
             _baseTextColor = [[NSColor blackColor] retain];
@@ -188,14 +203,14 @@
         } else {
             [_baseBackgroundColor retain];
         }
-        _headingFont = [[NSFont fontWithName:@"Helvetica-Bold" size:_baseFont.pointSize] retain];
+        _headingFont = [[NSFont boldSystemFontOfSize:[_baseFont pointSize]] retain];
         _headingColor = [[self class] colorFromHexString:@"#24292f"];
         if (_headingColor == nil) {
             _headingColor = [[NSColor blackColor] retain];
         } else {
             [_headingColor retain];
         }
-        _codeFont = [[NSFont fontWithName:@"Menlo" size:_baseFont.pointSize] retain];
+        _codeFont = [[NSFont userFixedPitchFontOfSize:[_baseFont pointSize]] retain];
         _codeTextColor = [[self class] colorFromHexString:@"#24292f"];
         if (_codeTextColor == nil) {
             _codeTextColor = [[NSColor blackColor] retain];
@@ -214,6 +229,12 @@
         } else {
             [_linkColor retain];
         }
+        _hrColor = [[self class] colorFromHexString:@"#d0d7de"];
+        if (_hrColor == nil) {
+            _hrColor = [[NSColor lightGrayColor] retain];
+        } else {
+            [_hrColor retain];
+        }
     }
     return self;
 }
@@ -229,6 +250,7 @@
     [_codeTextColor release];
     [_codeBackgroundColor release];
     [_linkColor release];
+    [_hrColor release];
     [super dealloc];
 }
 
@@ -249,6 +271,9 @@
     NSMutableDictionary *attributes = [NSMutableDictionary dictionary];
     if (self.headingFont != nil) {
         NSFont *font = [NSFont fontWithName:[self.headingFont fontName] size:size];
+        if (font == nil) {
+            font = [NSFont boldSystemFontOfSize:size];
+        }
         if (font != nil) {
             [attributes setObject:font forKey:NSFontAttributeName];
         }
@@ -264,6 +289,9 @@
     NSMutableDictionary *attributes = [NSMutableDictionary dictionary];
     if (self.codeFont != nil) {
         NSFont *font = [NSFont fontWithName:[self.codeFont fontName] size:size];
+        if (font == nil) {
+            font = [NSFont userFixedPitchFontOfSize:size];
+        }
         if (font != nil) {
             [attributes setObject:font forKey:NSFontAttributeName];
         }
