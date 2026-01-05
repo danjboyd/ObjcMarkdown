@@ -1,6 +1,6 @@
 include $(GNUSTEP_MAKEFILES)/common.make
 
-SUBPROJECTS = ObjcMarkdown ObjcMarkdownViewer ObjcMarkdownTests
+SUBPROJECTS = third_party/libs-OpenSave/Source ObjcMarkdown ObjcMarkdownViewer ObjcMarkdownTests
 
 include $(GNUSTEP_MAKEFILES)/aggregate.make
 

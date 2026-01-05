@@ -9,8 +9,36 @@
 
 @implementation OMDAppDelegate
 
+static NSMutableArray *OMDSecondaryWindows(void)
+{
+    static NSMutableArray *windows = nil;
+    if (windows == nil) {
+        windows = [[NSMutableArray alloc] init];
+    }
+    return windows;
+}
+
+- (void)registerAsSecondaryWindow
+{
+    if (_isSecondaryWindow) {
+        return;
+    }
+    _isSecondaryWindow = YES;
+    [OMDSecondaryWindows() addObject:self];
+}
+
+- (void)unregisterAsSecondaryWindow
+{
+    if (!_isSecondaryWindow) {
+        return;
+    }
+    [OMDSecondaryWindows() removeObject:self];
+    _isSecondaryWindow = NO;
+}
+
 - (void)dealloc
 {
+    [self unregisterAsSecondaryWindow];
     [_currentMarkdown release];
     [_currentPath release];
     [_zoomSlider release];
@@ -55,8 +83,8 @@
     [menubar addItem:appMenuItem];
     [NSApp setMainMenu:menubar];
 
-    NSMenu *appMenu = [[[NSMenu alloc] initWithTitle:@"ObjcMarkdownViewer"] autorelease];
-    [appMenu addItemWithTitle:@"Quit ObjcMarkdownViewer"
+    NSMenu *appMenu = [[[NSMenu alloc] initWithTitle:@"Markdown Viewer"] autorelease];
+    [appMenu addItemWithTitle:@"Quit Markdown Viewer"
                        action:@selector(terminate:)
                 keyEquivalent:@"q"];
     [appMenuItem setSubmenu:appMenu];
@@ -88,7 +116,7 @@
                     backing:NSBackingStoreBuffered
                       defer:NO];
     [_window setFrameAutosaveName:@"ObjcMarkdownViewerMainWindow"];
-    [_window setTitle:@"ObjcMarkdownViewer"];
+    [_window setTitle:@"Markdown Viewer"];
     [_window setDelegate:self];
     _zoomScale = 1.0;
     NSNumber *savedZoom = [[NSUserDefaults standardUserDefaults] objectForKey:@"ObjcMarkdownZoomScale"];
@@ -140,6 +168,22 @@
       itemForItemIdentifier:(NSString *)identifier
   willBeInsertedIntoToolbar:(BOOL)flag
 {
+    if ([identifier isEqualToString:@"OpenDocument"]) {
+        NSToolbarItem *item = [[[NSToolbarItem alloc] initWithItemIdentifier:@"OpenDocument"] autorelease];
+        [item setLabel:@"Open"];
+        [item setPaletteLabel:@"Open"];
+        [item setTarget:self];
+        [item setAction:@selector(openDocument:)];
+        NSImage *image = [NSImage imageNamed:@"open-icon.png"];
+        if (image == nil) {
+            image = [NSImage imageNamed:@"NSOpen"];
+        }
+        if (image != nil) {
+            [item setImage:image];
+        }
+        return item;
+    }
+
     if ([identifier isEqualToString:@"ZoomControls"]) {
         if (_zoomContainer == nil) {
             _zoomContainer = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 280, 26)];
@@ -182,12 +226,12 @@
 
 - (NSArray *)toolbarAllowedItemIdentifiers:(NSToolbar *)toolbar
 {
-    return [NSArray arrayWithObject:@"ZoomControls"];
+    return [NSArray arrayWithObjects:@"OpenDocument", @"ZoomControls", nil];
 }
 
 - (NSArray *)toolbarDefaultItemIdentifiers:(NSToolbar *)toolbar
 {
-    return [NSArray arrayWithObject:@"ZoomControls"];
+    return [NSArray arrayWithObjects:@"OpenDocument", @"ZoomControls", nil];
 }
 
 - (void)updateZoomLabel
@@ -222,6 +266,18 @@
     [panel setAllowsMultipleSelection:NO];
     [panel setCanChooseFiles:YES];
     [panel setCanChooseDirectories:NO];
+    NSString *lastDir = [[NSUserDefaults standardUserDefaults] objectForKey:@"ObjcMarkdownLastOpenDir"];
+    if (lastDir != nil) {
+        [panel setDirectory:lastDir];
+    } else {
+        NSString *home = NSHomeDirectory();
+        NSString *documents = [home stringByAppendingPathComponent:@"Documents"];
+        if ([[NSFileManager defaultManager] fileExistsAtPath:documents]) {
+            [panel setDirectory:documents];
+        } else if (home != nil) {
+            [panel setDirectory:home];
+        }
+    }
 
     NSInteger result = [panel runModal];
     if (result != NSOKButton && result != NSFileHandlingPanelOKButton) {
@@ -233,7 +289,12 @@
         return;
     }
 
-    [self openDocumentAtPath:[filenames objectAtIndex:0]];
+    NSString *path = [filenames objectAtIndex:0];
+    if (_currentPath == nil && _currentMarkdown == nil) {
+        [self openDocumentAtPath:path];
+    } else {
+        [self openDocumentAtPathInNewWindow:path];
+    }
 }
 
 - (void)renderCurrentMarkdown
@@ -436,11 +497,29 @@
         return;
     }
 
+    NSString *lastDir = [resolvedPath stringByDeletingLastPathComponent];
+    if (lastDir != nil) {
+        [[NSUserDefaults standardUserDefaults] setObject:lastDir forKey:@"ObjcMarkdownLastOpenDir"];
+    }
     [_currentMarkdown release];
     _currentMarkdown = [markdown retain];
     [_currentPath release];
     _currentPath = [resolvedPath retain];
     [self renderCurrentMarkdown];
+}
+
+- (void)openDocumentAtPathInNewWindow:(NSString *)path
+{
+    OMDAppDelegate *controller = [[OMDAppDelegate alloc] init];
+    [controller setupWindow];
+    [controller openDocumentAtPath:path];
+    [controller registerAsSecondaryWindow];
+    [controller release];
+}
+
+- (void)windowWillClose:(NSNotification *)notification
+{
+    [self unregisterAsSecondaryWindow];
 }
 
 @end

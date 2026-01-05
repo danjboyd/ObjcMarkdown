@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Markdown Viewer
+Comment=View Markdown with ObjcMarkdownViewer
+Exec=@EXEC@ %F
+Terminal=false
+Categories=Office;Viewer;TextTools;
+MimeType=text/markdown;
+Icon=@ICON@

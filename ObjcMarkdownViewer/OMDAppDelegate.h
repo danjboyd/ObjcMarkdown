@@ -19,6 +19,7 @@
     NSView *_zoomContainer;
     CGFloat _zoomScale;
     NSMutableArray *_codeBlockButtons;
+    BOOL _isSecondaryWindow;
 }
 
 @end

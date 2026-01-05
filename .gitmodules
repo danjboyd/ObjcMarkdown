@@ -1,0 +1,3 @@
+[submodule "third_party/libs-OpenSave"]
+	path = third_party/libs-OpenSave
+	url = https://github.com/danjboyd/libs-OpenSave.git
