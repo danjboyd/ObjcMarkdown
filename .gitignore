@@ -15,3 +15,5 @@ obj/
 # Editor swap files
 *~
 
+# Local secrets / env overrides
+local.env

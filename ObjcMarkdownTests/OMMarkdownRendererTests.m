@@ -42,4 +42,129 @@
     XCTAssertNotNil(color);
 }
 
+- (void)testInlineMathDollarsAreStyled
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    NSString *markdown = @"Inline math: $a^2+b^2=c^2$.";
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
+    XCTAssertNotNil(rendered);
+
+    NSString *text = [rendered string];
+    XCTAssertTrue([text rangeOfString:@"$a^2+b^2=c^2$"].location == NSNotFound);
+
+    if ([rendered containsAttachments]) {
+        NSString *attachmentMarker = [NSString stringWithCharacters:(unichar[]){NSAttachmentCharacter} length:1];
+        NSRange attachmentRange = [text rangeOfString:attachmentMarker];
+        XCTAssertTrue(attachmentRange.location != NSNotFound);
+        if (attachmentRange.location != NSNotFound) {
+            NSDictionary *attrs = [rendered attributesAtIndex:attachmentRange.location effectiveRange:NULL];
+            NSTextAttachment *attachment = [attrs objectForKey:NSAttachmentAttributeName];
+            XCTAssertNotNil(attachment);
+            if (attachment != nil) {
+                id cell = [attachment attachmentCell];
+                if (cell != nil && [cell respondsToSelector:@selector(cellSize)]) {
+                    NSSize cellSize = [cell cellSize];
+                    XCTAssertTrue(cellSize.width > 0.0);
+                    XCTAssertTrue(cellSize.height > 0.0);
+                }
+            }
+        }
+    } else {
+        NSRange formulaRange = [text rangeOfString:@"a^2+b^2=c^2"];
+        XCTAssertTrue(formulaRange.location != NSNotFound);
+        if (formulaRange.location != NSNotFound) {
+            NSDictionary *formulaAttrs = [rendered attributesAtIndex:formulaRange.location effectiveRange:NULL];
+            NSColor *background = [formulaAttrs objectForKey:NSBackgroundColorAttributeName];
+            XCTAssertNotNil(background);
+        }
+    }
+}
+
+- (void)testDisplayMathDollarsAreStyled
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    NSString *markdown = @"$$\\int_0^1 x^2 dx$$";
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
+    XCTAssertNotNil(rendered);
+
+    NSString *text = [rendered string];
+    XCTAssertTrue([text rangeOfString:@"$$"].location == NSNotFound);
+
+    if ([rendered containsAttachments]) {
+        NSString *attachmentMarker = [NSString stringWithCharacters:(unichar[]){NSAttachmentCharacter} length:1];
+        NSRange attachmentRange = [text rangeOfString:attachmentMarker];
+        XCTAssertTrue(attachmentRange.location != NSNotFound);
+        if (attachmentRange.location != NSNotFound) {
+            NSDictionary *attrs = [rendered attributesAtIndex:attachmentRange.location effectiveRange:NULL];
+            NSTextAttachment *attachment = [attrs objectForKey:NSAttachmentAttributeName];
+            XCTAssertNotNil(attachment);
+            if (attachment != nil) {
+                id cell = [attachment attachmentCell];
+                if (cell != nil && [cell respondsToSelector:@selector(cellSize)]) {
+                    NSSize cellSize = [cell cellSize];
+                    XCTAssertTrue(cellSize.width > 0.0);
+                    XCTAssertTrue(cellSize.height > 0.0);
+                }
+            }
+        }
+    } else {
+        NSRange formulaRange = [text rangeOfString:@"\\int_0^1 x^2 dx"];
+        XCTAssertTrue(formulaRange.location != NSNotFound);
+        if (formulaRange.location != NSNotFound) {
+            NSDictionary *formulaAttrs = [rendered attributesAtIndex:formulaRange.location effectiveRange:NULL];
+            NSColor *background = [formulaAttrs objectForKey:NSBackgroundColorAttributeName];
+            XCTAssertNotNil(background);
+        }
+    }
+}
+
+- (void)testCurrencyTextIsNotParsedAsMath
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    NSString *markdown = @"Price is $5 and tip is $2.";
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
+    XCTAssertNotNil(rendered);
+
+    NSString *text = [rendered string];
+    XCTAssertTrue([text rangeOfString:@"$5 and tip is $2"].location != NSNotFound);
+}
+
+- (void)testDisplayMathAcrossLinesIsStyled
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    NSString *markdown = @"$$\n\\int_0^1 x^2 dx\n$$";
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
+    XCTAssertNotNil(rendered);
+
+    NSString *text = [rendered string];
+    XCTAssertTrue([text rangeOfString:@"$$"].location == NSNotFound);
+
+    if ([rendered containsAttachments]) {
+        NSString *attachmentMarker = [NSString stringWithCharacters:(unichar[]){NSAttachmentCharacter} length:1];
+        NSRange attachmentRange = [text rangeOfString:attachmentMarker];
+        XCTAssertTrue(attachmentRange.location != NSNotFound);
+        if (attachmentRange.location != NSNotFound) {
+            NSDictionary *attrs = [rendered attributesAtIndex:attachmentRange.location effectiveRange:NULL];
+            NSTextAttachment *attachment = [attrs objectForKey:NSAttachmentAttributeName];
+            XCTAssertNotNil(attachment);
+            if (attachment != nil) {
+                id cell = [attachment attachmentCell];
+                if (cell != nil && [cell respondsToSelector:@selector(cellSize)]) {
+                    NSSize cellSize = [cell cellSize];
+                    XCTAssertTrue(cellSize.width > 0.0);
+                    XCTAssertTrue(cellSize.height > 0.0);
+                }
+            }
+        }
+    } else {
+        NSRange formulaRange = [text rangeOfString:@"\\int_0^1 x^2 dx"];
+        XCTAssertTrue(formulaRange.location != NSNotFound);
+        if (formulaRange.location != NSNotFound) {
+            NSDictionary *formulaAttrs = [rendered attributesAtIndex:formulaRange.location effectiveRange:NULL];
+            NSColor *background = [formulaAttrs objectForKey:NSBackgroundColorAttributeName];
+            XCTAssertNotNil(background);
+        }
+    }
+}
+
 @end

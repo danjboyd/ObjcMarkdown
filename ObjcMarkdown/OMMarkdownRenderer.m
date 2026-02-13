@@ -4,9 +4,131 @@
 #import "OMMarkdownRenderer.h"
 #import "OMTheme.h"
 
+#import <dispatch/dispatch.h>
+
 #include <cmark.h>
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
+
+NSString * const OMMarkdownRendererMathArtifactsDidWarmNotification = @"OMMarkdownRendererMathArtifactsDidWarmNotification";
+
+typedef struct {
+    NSUInteger mathRequests;
+    NSUInteger mathCacheHits;
+    NSUInteger mathCacheMisses;
+    NSUInteger mathAssetCacheHits;
+    NSUInteger mathAssetCacheMisses;
+    NSUInteger mathRendered;
+    NSUInteger mathFailures;
+    NSUInteger latexRuns;
+    NSUInteger dvisvgmRuns;
+    NSTimeInterval latexSeconds;
+    NSTimeInterval dvisvgmSeconds;
+    NSTimeInterval svgDecodeSeconds;
+    NSTimeInterval mathTotalSeconds;
+} OMMathPerfStats;
+
+static OMMathPerfStats *OMCurrentMathPerfStats = NULL;
+static BOOL OMCurrentAsyncMathGenerationEnabled = NO;
+
+static NSTimeInterval OMNow(void)
+{
+    return [NSDate timeIntervalSinceReferenceDate];
+}
+
+static BOOL OMTruthyFlagValue(NSString *value)
+{
+    if (value == nil) {
+        return NO;
+    }
+    NSString *lower = [[value stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] lowercaseString];
+    return [lower isEqualToString:@"1"] ||
+           [lower isEqualToString:@"true"] ||
+           [lower isEqualToString:@"yes"] ||
+           [lower isEqualToString:@"on"];
+}
+
+static BOOL OMPerformanceLoggingEnabled(void)
+{
+    static BOOL resolved = NO;
+    static BOOL enabled = NO;
+    if (!resolved) {
+        NSDictionary *environment = [[NSProcessInfo processInfo] environment];
+        NSString *flag = [environment objectForKey:@"OMD_PERF_LOG"];
+        if (flag == nil || [flag length] == 0) {
+            flag = [environment objectForKey:@"OBJCMARKDOWN_PERF_LOG"];
+        }
+        if (flag != nil && [flag length] > 0) {
+            enabled = OMTruthyFlagValue(flag);
+        } else {
+            enabled = [[NSUserDefaults standardUserDefaults] boolForKey:@"ObjcMarkdownPerfLog"];
+        }
+        resolved = YES;
+    }
+    return enabled;
+}
+
+static CGFloat OMMathRasterOversampleFactor(void)
+{
+    static BOOL resolved = NO;
+    static CGFloat factor = 2.0;
+    if (!resolved) {
+        NSDictionary *environment = [[NSProcessInfo processInfo] environment];
+        NSString *value = [environment objectForKey:@"OMD_MATH_OVERSAMPLE"];
+        if (value == nil || [value length] == 0) {
+            value = [environment objectForKey:@"OBJCMARKDOWN_MATH_OVERSAMPLE"];
+        }
+        if (value != nil && [value length] > 0) {
+            factor = (CGFloat)[value doubleValue];
+        } else {
+            id defaultsValue = [[NSUserDefaults standardUserDefaults] objectForKey:@"ObjcMarkdownMathOversample"];
+            if ([defaultsValue respondsToSelector:@selector(doubleValue)]) {
+                factor = (CGFloat)[defaultsValue doubleValue];
+            }
+        }
+
+        if (factor < 1.0) {
+            factor = 1.0;
+        } else if (factor > 4.0) {
+            factor = 4.0;
+        }
+        resolved = YES;
+    }
+    return factor;
+}
+
+static NSString *OMMathAssetCacheKey(NSString *formula, BOOL displayMath, CGFloat renderZoom)
+{
+    return [NSString stringWithFormat:@"%@|%.2f|%@",
+            displayMath ? @"display" : @"inline",
+            renderZoom,
+            formula];
+}
+
+static NSString *OMMathFormulaCacheKey(NSString *formula, BOOL displayMath)
+{
+    return [NSString stringWithFormat:@"%@|%@",
+            displayMath ? @"display" : @"inline",
+            formula];
+}
+
+static CGFloat OMMathQuantizedRenderZoom(CGFloat zoom, CGFloat oversample)
+{
+    CGFloat target = zoom;
+    if (target < oversample) {
+        target = oversample;
+    }
+
+    // Quantize upward to limit cache cardinality while avoiding upscale blur.
+    CGFloat quantized = (CGFloat)(ceil(target * 4.0) / 4.0);
+    if (quantized < 0.5) {
+        quantized = 0.5;
+    } else if (quantized > 10.0) {
+        quantized = 10.0;
+    }
+    return quantized;
+}
 
 static NSFont *OMFontWithTraits(NSFont *font, NSFontTraitMask traits)
 {
@@ -27,6 +149,15 @@ static void OMAppendString(NSMutableAttributedString *output,
     }
     NSAttributedString *segment = [[[NSAttributedString alloc] initWithString:string
                                                                     attributes:attributes] autorelease];
+    [output appendAttributedString:segment];
+}
+
+static void OMAppendAttributedSegment(NSMutableAttributedString *output,
+                                      NSAttributedString *segment)
+{
+    if (segment == nil || [segment length] == 0) {
+        return;
+    }
     [output appendAttributedString:segment];
 }
 
@@ -158,6 +289,794 @@ static NSString *OMRuleLineString(NSFont *font, CGFloat width)
     return rule;
 }
 
+static BOOL OMCharacterIsWhitespaceOrNewline(unichar ch)
+{
+    static NSCharacterSet *whitespaceSet = nil;
+    if (whitespaceSet == nil) {
+        whitespaceSet = [[NSCharacterSet whitespaceAndNewlineCharacterSet] retain];
+    }
+    return [whitespaceSet characterIsMember:ch];
+}
+
+static BOOL OMCharacterIsDigit(unichar ch)
+{
+    return ch >= '0' && ch <= '9';
+}
+
+static BOOL OMDollarIsEscaped(NSString *text, NSUInteger location)
+{
+    if (text == nil || [text length] == 0 || location == 0 || location >= [text length]) {
+        return NO;
+    }
+
+    NSUInteger backslashCount = 0;
+    NSInteger index = (NSInteger)location - 1;
+    while (index >= 0) {
+        if ([text characterAtIndex:(NSUInteger)index] != '\\') {
+            break;
+        }
+        backslashCount += 1;
+        index -= 1;
+    }
+
+    return (backslashCount % 2) == 1;
+}
+
+static NSDictionary *OMMathAttributes(OMTheme *theme,
+                                      NSMutableDictionary *attributes,
+                                      CGFloat scale,
+                                      BOOL displayMath)
+{
+    NSMutableDictionary *mathAttrs = [attributes mutableCopy];
+    NSFont *font = [attributes objectForKey:NSFontAttributeName];
+    CGFloat size = font != nil ? [font pointSize] : (theme.baseFont != nil ? [theme.baseFont pointSize] * scale : 14.0 * scale);
+    NSDictionary *codeAttrs = [theme codeAttributesForSize:size];
+    [mathAttrs addEntriesFromDictionary:codeAttrs];
+
+    NSFont *mathFont = [mathAttrs objectForKey:NSFontAttributeName];
+    NSFont *italicFont = OMFontWithTraits(mathFont, NSItalicFontMask);
+    if (italicFont != nil) {
+        [mathAttrs setObject:italicFont forKey:NSFontAttributeName];
+    }
+
+    if (displayMath) {
+        NSParagraphStyle *current = [attributes objectForKey:NSParagraphStyleAttributeName];
+        NSMutableParagraphStyle *style = nil;
+        if (current != nil) {
+            style = [current mutableCopy];
+        } else {
+            style = [[NSMutableParagraphStyle alloc] init];
+        }
+        [style setAlignment:NSCenterTextAlignment];
+        [style setParagraphSpacingBefore:8.0 * scale];
+        [style setParagraphSpacing:8.0 * scale];
+        [mathAttrs setObject:style forKey:NSParagraphStyleAttributeName];
+        [style release];
+    }
+
+    return [mathAttrs autorelease];
+}
+
+static NSString *OMExecutablePathNamed(NSString *name)
+{
+    if (name == nil || [name length] == 0) {
+        return nil;
+    }
+
+    NSDictionary *environment = [[NSProcessInfo processInfo] environment];
+    NSString *pathValue = [environment objectForKey:@"PATH"];
+    if (pathValue != nil && [pathValue length] > 0) {
+        NSArray *searchPaths = [pathValue componentsSeparatedByString:@":"];
+        NSFileManager *fileManager = [NSFileManager defaultManager];
+        for (NSString *searchPath in searchPaths) {
+            if (searchPath == nil || [searchPath length] == 0) {
+                continue;
+            }
+            NSString *candidate = [searchPath stringByAppendingPathComponent:name];
+            if ([fileManager isExecutableFileAtPath:candidate]) {
+                return candidate;
+            }
+        }
+    }
+
+    NSString *fallback = [@"/usr/bin" stringByAppendingPathComponent:name];
+    if ([[NSFileManager defaultManager] isExecutableFileAtPath:fallback]) {
+        return fallback;
+    }
+    return nil;
+}
+
+static NSString *OMLaTeXExecutablePath(void)
+{
+    static NSString *path = nil;
+    static BOOL resolved = NO;
+    if (!resolved) {
+        path = [OMExecutablePathNamed(@"latex") retain];
+        resolved = YES;
+    }
+    return path;
+}
+
+static NSString *OMPlainTexExecutablePath(void)
+{
+    static NSString *path = nil;
+    static BOOL resolved = NO;
+    if (!resolved) {
+        path = [OMExecutablePathNamed(@"tex") retain];
+        resolved = YES;
+    }
+    return path;
+}
+
+static NSString *OMDviSvgmExecutablePath(void)
+{
+    static NSString *path = nil;
+    static BOOL resolved = NO;
+    if (!resolved) {
+        path = [OMExecutablePathNamed(@"dvisvgm") retain];
+        resolved = YES;
+    }
+    return path;
+}
+
+static BOOL OMMathBackendAvailable(void)
+{
+    return OMDviSvgmExecutablePath() != nil &&
+           (OMLaTeXExecutablePath() != nil || OMPlainTexExecutablePath() != nil);
+}
+
+static NSCache *OMMathAttachmentCache(void)
+{
+    static NSCache *cache = nil;
+    if (cache == nil) {
+        cache = [[NSCache alloc] init];
+        [cache setCountLimit:256];
+    }
+    return cache;
+}
+
+static NSCache *OMMathBaseImageCache(void)
+{
+    static NSCache *cache = nil;
+    if (cache == nil) {
+        cache = [[NSCache alloc] init];
+        [cache setCountLimit:256];
+    }
+    return cache;
+}
+
+static NSCache *OMMathBaseSVGDataCache(void)
+{
+    static NSCache *cache = nil;
+    if (cache == nil) {
+        cache = [[NSCache alloc] init];
+        [cache setCountLimit:256];
+    }
+    return cache;
+}
+
+static NSCache *OMMathBestAvailableImageCache(void)
+{
+    static NSCache *cache = nil;
+    if (cache == nil) {
+        cache = [[NSCache alloc] init];
+        [cache setCountLimit:256];
+    }
+    return cache;
+}
+
+static NSCache *OMMathBestAvailableZoomCache(void)
+{
+    static NSCache *cache = nil;
+    if (cache == nil) {
+        cache = [[NSCache alloc] init];
+        [cache setCountLimit:256];
+    }
+    return cache;
+}
+
+static dispatch_queue_t OMMathArtifactQueue(void)
+{
+    static dispatch_queue_t queue = NULL;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        queue = dispatch_queue_create("org.objcmarkdown.math-artifacts", DISPATCH_QUEUE_SERIAL);
+    });
+    return queue;
+}
+
+static NSMutableSet *OMMathPendingAssetKeys(void)
+{
+    static NSMutableSet *keys = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        keys = [[NSMutableSet alloc] init];
+    });
+    return keys;
+}
+
+static void OMRecordBestAvailableMathImage(NSString *formula,
+                                           BOOL displayMath,
+                                           CGFloat renderZoom,
+                                           NSImage *image)
+{
+    if (formula == nil || [formula length] == 0 || image == nil) {
+        return;
+    }
+
+    NSString *formulaKey = OMMathFormulaCacheKey(formula, displayMath);
+    NSCache *zoomCache = OMMathBestAvailableZoomCache();
+    NSCache *imageCache = OMMathBestAvailableImageCache();
+    @synchronized (zoomCache) {
+        NSNumber *existingZoomNumber = [zoomCache objectForKey:formulaKey];
+        CGFloat existingZoom = existingZoomNumber != nil ? [existingZoomNumber doubleValue] : 0.0;
+        if (renderZoom >= existingZoom) {
+            [zoomCache setObject:[NSNumber numberWithDouble:renderZoom] forKey:formulaKey];
+            [imageCache setObject:image forKey:formulaKey];
+        } else if ([imageCache objectForKey:formulaKey] == nil) {
+            [imageCache setObject:image forKey:formulaKey];
+        }
+    }
+}
+
+static NSImage *OMBestAvailableMathImage(NSString *formula,
+                                         BOOL displayMath,
+                                         CGFloat *renderZoomOut)
+{
+    if (formula == nil || [formula length] == 0) {
+        return nil;
+    }
+
+    NSString *formulaKey = OMMathFormulaCacheKey(formula, displayMath);
+    NSCache *zoomCache = OMMathBestAvailableZoomCache();
+    NSCache *imageCache = OMMathBestAvailableImageCache();
+    NSImage *image = nil;
+    NSNumber *zoomNumber = nil;
+    @synchronized (zoomCache) {
+        image = [imageCache objectForKey:formulaKey];
+        zoomNumber = [zoomCache objectForKey:formulaKey];
+    }
+
+    if (image != nil && renderZoomOut != NULL) {
+        *renderZoomOut = zoomNumber != nil ? [zoomNumber doubleValue] : 0.0;
+    }
+    return image;
+}
+
+static CGFloat OMMathZoomForFontSize(CGFloat fontSize)
+{
+    CGFloat zoom = fontSize > 0.0 ? (fontSize / 10.0) : 1.0;
+    if (zoom < 0.75) {
+        zoom = 0.75;
+    } else if (zoom > 6.0) {
+        zoom = 6.0;
+    }
+    return zoom;
+}
+
+static BOOL OMRunTask(NSString *launchPath,
+                      NSArray *arguments,
+                      NSData **stdoutData,
+                      NSData **stderrData,
+                      int *terminationStatus)
+{
+    NSTask *task = [[[NSTask alloc] init] autorelease];
+    [task setLaunchPath:launchPath];
+    [task setArguments:arguments];
+
+    NSPipe *outputPipe = [NSPipe pipe];
+    NSPipe *errorPipe = [NSPipe pipe];
+    [task setStandardOutput:outputPipe];
+    [task setStandardError:errorPipe];
+
+    BOOL launched = YES;
+    @try {
+        [task launch];
+        [task waitUntilExit];
+    } @catch (NSException *exception) {
+        launched = NO;
+    }
+
+    NSData *capturedOutput = [[outputPipe fileHandleForReading] readDataToEndOfFile];
+    NSData *capturedError = [[errorPipe fileHandleForReading] readDataToEndOfFile];
+
+    if (stdoutData != NULL) {
+        *stdoutData = capturedOutput;
+    }
+    if (stderrData != NULL) {
+        *stderrData = capturedError;
+    }
+    if (terminationStatus != NULL) {
+        *terminationStatus = launched ? [task terminationStatus] : -1;
+    }
+
+    return launched && [task terminationStatus] == 0;
+}
+
+static NSString *OMCreateMathTempDirectory(void)
+{
+    NSString *base = NSTemporaryDirectory();
+    if (base == nil || [base length] == 0) {
+        base = @"/tmp";
+    }
+    NSString *path = [base stringByAppendingPathComponent:
+        [NSString stringWithFormat:@"objcmarkdown-math-%@",
+         [[NSProcessInfo processInfo] globallyUniqueString]]];
+    BOOL created = [[NSFileManager defaultManager] createDirectoryAtPath:path
+                                              withIntermediateDirectories:YES
+                                                               attributes:nil
+                                                                    error:NULL];
+    return created ? path : nil;
+}
+
+static NSData *OMSVGDataForMathFormula(NSString *formula,
+                                       BOOL displayMath,
+                                       CGFloat renderZoom)
+{
+    if (!OMMathBackendAvailable()) {
+        return nil;
+    }
+
+    NSString *tempDir = OMCreateMathTempDirectory();
+    if (tempDir == nil) {
+        return nil;
+    }
+
+    NSString *texPath = [tempDir stringByAppendingPathComponent:@"formula.tex"];
+    NSString *dviPath = [tempDir stringByAppendingPathComponent:@"formula.dvi"];
+    NSString *texExecutable = OMLaTeXExecutablePath();
+    BOOL usingLaTeX = texExecutable != nil;
+    if (!usingLaTeX) {
+        texExecutable = OMPlainTexExecutablePath();
+    }
+    if (texExecutable == nil) {
+        [[NSFileManager defaultManager] removeItemAtPath:tempDir error:NULL];
+        return nil;
+    }
+
+    NSMutableString *texSource = [NSMutableString string];
+    if (usingLaTeX) {
+        [texSource appendString:@"\\documentclass{article}\n"];
+        [texSource appendString:@"\\usepackage{amsmath}\n"];
+        [texSource appendString:@"\\pagestyle{empty}\n"];
+        [texSource appendString:@"\\begin{document}\n"];
+        if (displayMath) {
+            [texSource appendFormat:@"\\[\n%@\n\\]\n", formula];
+        } else {
+            [texSource appendFormat:@"$%@$ \n", formula];
+        }
+        [texSource appendString:@"\\end{document}\n"];
+    } else {
+        [texSource appendString:@"\\hsize=10000pt\n"];
+        [texSource appendString:@"\\nopagenumbers\n"];
+        if (displayMath) {
+            [texSource appendFormat:@"\\setbox0=\\vbox{$$%@$$}\n", formula];
+        } else {
+            [texSource appendFormat:@"\\setbox0=\\hbox{$%@$}\n", formula];
+        }
+        [texSource appendString:@"\\shipout\\box0\n"];
+        [texSource appendString:@"\\bye\n"];
+    }
+
+    BOOL wroteTex = [texSource writeToFile:texPath
+                                atomically:YES
+                                  encoding:NSUTF8StringEncoding
+                                     error:NULL];
+    if (!wroteTex) {
+        [[NSFileManager defaultManager] removeItemAtPath:tempDir error:NULL];
+        return nil;
+    }
+
+    NSArray *texArguments = [NSArray arrayWithObjects:
+        @"-interaction=nonstopmode",
+        @"-halt-on-error",
+        @"-output-directory", tempDir,
+        texPath,
+        nil];
+    int texStatus = 0;
+    NSTimeInterval texStart = OMNow();
+    BOOL texOK = OMRunTask(texExecutable, texArguments, NULL, NULL, &texStatus);
+    if (OMCurrentMathPerfStats != NULL) {
+        OMCurrentMathPerfStats->latexRuns += 1;
+        OMCurrentMathPerfStats->latexSeconds += (OMNow() - texStart);
+    }
+    if (!texOK || ![[NSFileManager defaultManager] fileExistsAtPath:dviPath]) {
+        [[NSFileManager defaultManager] removeItemAtPath:tempDir error:NULL];
+        return nil;
+    }
+
+    if (renderZoom < 0.5) {
+        renderZoom = 0.5;
+    } else if (renderZoom > 10.0) {
+        renderZoom = 10.0;
+    }
+    NSString *zoomArgument = [NSString stringWithFormat:@"--zoom=%.3f", renderZoom];
+
+    NSArray *svgArguments = [NSArray arrayWithObjects:
+        @"--no-fonts",
+        @"--exact-bbox",
+        zoomArgument,
+        @"--stdout",
+        dviPath,
+        nil];
+    NSData *svgData = nil;
+    int svgStatus = 0;
+    NSTimeInterval svgStart = OMNow();
+    BOOL svgOK = OMRunTask(OMDviSvgmExecutablePath(), svgArguments, &svgData, NULL, &svgStatus);
+    if (OMCurrentMathPerfStats != NULL) {
+        OMCurrentMathPerfStats->dvisvgmRuns += 1;
+        OMCurrentMathPerfStats->dvisvgmSeconds += (OMNow() - svgStart);
+    }
+    [[NSFileManager defaultManager] removeItemAtPath:tempDir error:NULL];
+
+    if (!svgOK || svgData == nil || [svgData length] == 0) {
+        return nil;
+    }
+    return svgData;
+}
+
+static void OMScheduleAsyncMathAssetGeneration(NSString *formula,
+                                               BOOL displayMath,
+                                               CGFloat renderZoom)
+{
+    if (!OMMathBackendAvailable() || formula == nil || [formula length] == 0) {
+        return;
+    }
+
+    NSString *assetKey = OMMathAssetCacheKey(formula, displayMath, renderZoom);
+    if ([OMMathBaseImageCache() objectForKey:assetKey] != nil ||
+        [OMMathBaseSVGDataCache() objectForKey:assetKey] != nil) {
+        return;
+    }
+
+    BOOL shouldSchedule = NO;
+    NSMutableSet *pending = OMMathPendingAssetKeys();
+    @synchronized (pending) {
+        if (![pending containsObject:assetKey]) {
+            [pending addObject:assetKey];
+            shouldSchedule = YES;
+        }
+    }
+    if (!shouldSchedule) {
+        return;
+    }
+
+    NSString *formulaCopy = [formula copy];
+    NSString *assetKeyCopy = [assetKey copy];
+    dispatch_async(OMMathArtifactQueue(), ^{
+        @autoreleasepool {
+            NSData *svgData = OMSVGDataForMathFormula(formulaCopy, displayMath, renderZoom);
+            if (svgData != nil) {
+                [OMMathBaseSVGDataCache() setObject:svgData forKey:assetKeyCopy];
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    [[NSNotificationCenter defaultCenter]
+                        postNotificationName:OMMarkdownRendererMathArtifactsDidWarmNotification
+                                      object:nil];
+                });
+            }
+
+            @synchronized (pending) {
+                [pending removeObject:assetKeyCopy];
+            }
+            [formulaCopy release];
+            [assetKeyCopy release];
+        }
+    });
+}
+
+static NSAttributedString *OMMathAttachmentAttributedString(NSString *formula,
+                                                            OMTheme *theme,
+                                                            NSMutableDictionary *attributes,
+                                                            CGFloat scale,
+                                                            BOOL displayMath)
+{
+    if (OMCurrentMathPerfStats != NULL) {
+        OMCurrentMathPerfStats->mathRequests += 1;
+    }
+    if (!OMMathBackendAvailable() || formula == nil || [formula length] == 0) {
+        if (OMCurrentMathPerfStats != NULL) {
+            OMCurrentMathPerfStats->mathFailures += 1;
+        }
+        return nil;
+    }
+
+    NSFont *font = [attributes objectForKey:NSFontAttributeName];
+    CGFloat fontSize = font != nil ? [font pointSize] : (theme.baseFont != nil ? [theme.baseFont pointSize] * scale : 14.0 * scale);
+    CGFloat zoom = OMMathZoomForFontSize(fontSize);
+    CGFloat oversample = OMMathRasterOversampleFactor();
+    CGFloat renderZoom = OMMathQuantizedRenderZoom(zoom, oversample);
+    NSString *cacheKey = [NSString stringWithFormat:@"%@|%.2f|%@",
+                          displayMath ? @"display" : @"inline",
+                          fontSize,
+                          formula];
+    NSAttributedString *cached = [OMMathAttachmentCache() objectForKey:cacheKey];
+    if (cached != nil) {
+        if (OMCurrentMathPerfStats != NULL) {
+            OMCurrentMathPerfStats->mathCacheHits += 1;
+        }
+        return cached;
+    }
+    if (OMCurrentMathPerfStats != NULL) {
+        OMCurrentMathPerfStats->mathCacheMisses += 1;
+    }
+
+    NSTimeInterval mathStart = OMNow();
+    NSString *assetKey = OMMathAssetCacheKey(formula, displayMath, renderZoom);
+    NSImage *baseImage = [OMMathBaseImageCache() objectForKey:assetKey];
+    NSData *svgData = nil;
+    CGFloat imageRenderZoom = renderZoom;
+    BOOL usedFallbackImage = NO;
+    if (baseImage != nil) {
+        if (OMCurrentMathPerfStats != NULL) {
+            OMCurrentMathPerfStats->mathAssetCacheHits += 1;
+        }
+        OMRecordBestAvailableMathImage(formula, displayMath, renderZoom, baseImage);
+    } else {
+        svgData = [OMMathBaseSVGDataCache() objectForKey:assetKey];
+        if (svgData != nil) {
+            if (OMCurrentMathPerfStats != NULL) {
+                OMCurrentMathPerfStats->mathAssetCacheHits += 1;
+            }
+        } else {
+            if (OMCurrentMathPerfStats != NULL) {
+                OMCurrentMathPerfStats->mathAssetCacheMisses += 1;
+            }
+
+            if (OMCurrentAsyncMathGenerationEnabled) {
+                OMScheduleAsyncMathAssetGeneration(formula, displayMath, renderZoom);
+                CGFloat fallbackRenderZoom = 0.0;
+                NSImage *fallbackImage = OMBestAvailableMathImage(formula, displayMath, &fallbackRenderZoom);
+                if (fallbackImage != nil) {
+                    baseImage = fallbackImage;
+                    usedFallbackImage = YES;
+                    imageRenderZoom = fallbackRenderZoom > 0.0 ? fallbackRenderZoom : oversample;
+                    if (OMCurrentMathPerfStats != NULL) {
+                        OMCurrentMathPerfStats->mathAssetCacheHits += 1;
+                    }
+                } else {
+                    return nil;
+                }
+            }
+
+            if (!usedFallbackImage) {
+                svgData = OMSVGDataForMathFormula(formula, displayMath, renderZoom);
+                if (svgData == nil) {
+                    if (OMCurrentMathPerfStats != NULL) {
+                        OMCurrentMathPerfStats->mathFailures += 1;
+                        OMCurrentMathPerfStats->mathTotalSeconds += (OMNow() - mathStart);
+                    }
+                    return nil;
+                }
+                [OMMathBaseSVGDataCache() setObject:svgData forKey:assetKey];
+            }
+        }
+
+        if (baseImage == nil) {
+            NSTimeInterval decodeStart = OMNow();
+            NSImage *decodedImage = [[[NSImage alloc] initWithData:svgData] autorelease];
+            if (OMCurrentMathPerfStats != NULL) {
+                OMCurrentMathPerfStats->svgDecodeSeconds += (OMNow() - decodeStart);
+            }
+            if (decodedImage == nil) {
+                if (OMCurrentMathPerfStats != NULL) {
+                    OMCurrentMathPerfStats->mathFailures += 1;
+                    OMCurrentMathPerfStats->mathTotalSeconds += (OMNow() - mathStart);
+                }
+                return nil;
+            }
+            [OMMathBaseImageCache() setObject:decodedImage forKey:assetKey];
+            baseImage = decodedImage;
+            OMRecordBestAvailableMathImage(formula, displayMath, renderZoom, baseImage);
+        }
+    }
+
+    NSImage *image = [[baseImage copy] autorelease];
+    if (image == nil) {
+        if (OMCurrentMathPerfStats != NULL) {
+            OMCurrentMathPerfStats->mathFailures += 1;
+            OMCurrentMathPerfStats->mathTotalSeconds += (OMNow() - mathStart);
+        }
+        return nil;
+    }
+
+    NSSize imageSize = [baseImage size];
+    if (imageSize.width > 0.0 && imageSize.height > 0.0) {
+        CGFloat displayScale = zoom / imageRenderZoom;
+        if (displayScale < 0.1) {
+            displayScale = 0.1;
+        }
+        [image setScalesWhenResized:YES];
+        [image setSize:NSMakeSize(imageSize.width * displayScale, imageSize.height * displayScale)];
+    }
+
+    NSTextAttachment *attachment = [[[NSTextAttachment alloc] initWithFileWrapper:nil] autorelease];
+    NSTextAttachmentCell *cell = [[[NSTextAttachmentCell alloc] initImageCell:image] autorelease];
+    if (cell != nil) {
+        [cell setAttachment:attachment];
+        [attachment setAttachmentCell:cell];
+    }
+
+    NSMutableAttributedString *result = [[[NSMutableAttributedString alloc]
+        initWithAttributedString:[NSAttributedString attributedStringWithAttachment:attachment]] autorelease];
+    [result addAttribute:NSBaselineOffsetAttributeName
+                   value:[NSNumber numberWithDouble:(displayMath ? 0.0 : (-1.0 * scale))]
+                   range:NSMakeRange(0, [result length])];
+
+    NSAttributedString *immutable = [[[NSAttributedString alloc] initWithAttributedString:result] autorelease];
+    if (!usedFallbackImage) {
+        [OMMathAttachmentCache() setObject:immutable forKey:cacheKey];
+    }
+    if (OMCurrentMathPerfStats != NULL) {
+        OMCurrentMathPerfStats->mathRendered += 1;
+        OMCurrentMathPerfStats->mathTotalSeconds += (OMNow() - mathStart);
+    }
+    return immutable;
+}
+
+static void OMAppendTextWithMathSpans(NSString *text,
+                                      OMTheme *theme,
+                                      NSMutableAttributedString *output,
+                                      NSMutableDictionary *attributes,
+                                      CGFloat scale)
+{
+    if (text == nil || [text length] == 0) {
+        return;
+    }
+
+    NSUInteger length = [text length];
+    NSUInteger cursor = 0;
+    while (cursor < length) {
+        NSUInteger dollarLocation = NSNotFound;
+        for (NSUInteger i = cursor; i < length; i++) {
+            if ([text characterAtIndex:i] == '$' && !OMDollarIsEscaped(text, i)) {
+                dollarLocation = i;
+                break;
+            }
+        }
+
+        if (dollarLocation == NSNotFound) {
+            OMAppendString(output, [text substringWithRange:NSMakeRange(cursor, length - cursor)], attributes);
+            break;
+        }
+
+        if (dollarLocation > cursor) {
+            OMAppendString(output, [text substringWithRange:NSMakeRange(cursor, dollarLocation - cursor)], attributes);
+        }
+
+        BOOL renderedMath = NO;
+        BOOL isDisplayStart = (dollarLocation + 1 < length &&
+                               [text characterAtIndex:dollarLocation + 1] == '$');
+
+        if (isDisplayStart) {
+            NSUInteger contentStart = dollarLocation + 2;
+            NSUInteger i = contentStart;
+            while (i + 1 < length) {
+                if ([text characterAtIndex:i] == '$' &&
+                    [text characterAtIndex:i + 1] == '$' &&
+                    !OMDollarIsEscaped(text, i)) {
+                    if (i > contentStart) {
+                        NSString *formula = [text substringWithRange:NSMakeRange(contentStart, i - contentStart)];
+                        NSAttributedString *attachment = OMMathAttachmentAttributedString(formula, theme, attributes, scale, YES);
+                        if (attachment != nil) {
+                            OMAppendAttributedSegment(output, attachment);
+                        } else {
+                            NSDictionary *mathAttrs = OMMathAttributes(theme, attributes, scale, YES);
+                            OMAppendString(output, formula, mathAttrs);
+                        }
+                        renderedMath = YES;
+                        cursor = i + 2;
+                    }
+                    break;
+                }
+                i += 1;
+            }
+        } else if (dollarLocation + 1 < length &&
+                   !OMCharacterIsWhitespaceOrNewline([text characterAtIndex:dollarLocation + 1])) {
+            NSUInteger i = dollarLocation + 1;
+            while (i < length) {
+                if ([text characterAtIndex:i] == '$' && !OMDollarIsEscaped(text, i)) {
+                    BOOL precededByWhitespace = (i == 0) ? YES : OMCharacterIsWhitespaceOrNewline([text characterAtIndex:i - 1]);
+                    BOOL followedByDigit = (i + 1 < length) ? OMCharacterIsDigit([text characterAtIndex:i + 1]) : NO;
+                    BOOL adjacentToDollar = (i > 0 && [text characterAtIndex:i - 1] == '$') ||
+                                            (i + 1 < length && [text characterAtIndex:i + 1] == '$');
+                    if (!precededByWhitespace && !followedByDigit && !adjacentToDollar) {
+                        NSString *formula = [text substringWithRange:NSMakeRange(dollarLocation + 1, i - (dollarLocation + 1))];
+                        if ([formula length] > 0) {
+                            NSAttributedString *attachment = OMMathAttachmentAttributedString(formula, theme, attributes, scale, NO);
+                            if (attachment != nil) {
+                                OMAppendAttributedSegment(output, attachment);
+                            } else {
+                                NSDictionary *mathAttrs = OMMathAttributes(theme, attributes, scale, NO);
+                                OMAppendString(output, formula, mathAttrs);
+                            }
+                            renderedMath = YES;
+                            cursor = i + 1;
+                        }
+                        break;
+                    }
+                }
+                i += 1;
+            }
+        }
+
+        if (!renderedMath) {
+            OMAppendString(output, @"$", attributes);
+            cursor = dollarLocation + 1;
+        }
+    }
+}
+
+static BOOL OMTextNodeIsDisplayMathFence(cmark_node *node)
+{
+    if (node == NULL || cmark_node_get_type(node) != CMARK_NODE_TEXT) {
+        return NO;
+    }
+
+    const char *literal = cmark_node_get_literal(node);
+    if (literal == NULL) {
+        return NO;
+    }
+
+    NSString *text = [NSString stringWithUTF8String:literal];
+    if (text == nil) {
+        return NO;
+    }
+    NSString *trimmed = [text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    return [trimmed isEqualToString:@"$$"];
+}
+
+static cmark_node *OMTryAppendMultiNodeDisplayMath(cmark_node *startNode,
+                                                    OMTheme *theme,
+                                                    NSMutableAttributedString *output,
+                                                    NSMutableDictionary *attributes,
+                                                    CGFloat scale,
+                                                    BOOL *didRender)
+{
+    if (didRender != NULL) {
+        *didRender = NO;
+    }
+    if (!OMTextNodeIsDisplayMathFence(startNode)) {
+        return NULL;
+    }
+
+    NSMutableString *formula = [NSMutableString string];
+    cmark_node *cursor = cmark_node_next(startNode);
+    while (cursor != NULL) {
+        cmark_node_type type = cmark_node_get_type(cursor);
+        if (type == CMARK_NODE_TEXT) {
+            const char *literal = cmark_node_get_literal(cursor);
+            NSString *text = literal != NULL ? [NSString stringWithUTF8String:literal] : @"";
+            NSString *trimmed = [text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+            if ([trimmed isEqualToString:@"$$"]) {
+                NSString *normalized = [formula stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+                if ([normalized length] == 0) {
+                    return NULL;
+                }
+
+                NSAttributedString *attachment = OMMathAttachmentAttributedString(normalized, theme, attributes, scale, YES);
+                if (attachment != nil) {
+                    OMAppendAttributedSegment(output, attachment);
+                } else {
+                    NSDictionary *mathAttrs = OMMathAttributes(theme, attributes, scale, YES);
+                    OMAppendString(output, normalized, mathAttrs);
+                }
+                if (didRender != NULL) {
+                    *didRender = YES;
+                }
+                return cmark_node_next(cursor);
+            }
+            [formula appendString:text];
+        } else if (type == CMARK_NODE_SOFTBREAK || type == CMARK_NODE_LINEBREAK) {
+            [formula appendString:@"\n"];
+        } else {
+            return NULL;
+        }
+        cursor = cmark_node_next(cursor);
+    }
+
+    return NULL;
+}
+
 @interface OMMarkdownRenderer ()
 @property (nonatomic, retain) OMTheme *theme;
 @property (nonatomic, retain) NSArray *codeBlockRanges;
@@ -168,6 +1087,7 @@ static NSString *OMRuleLineString(NSFont *font, CGFloat width)
 
 @synthesize zoomScale = _zoomScale;
 @synthesize layoutWidth = _layoutWidth;
+@synthesize asynchronousMathGenerationEnabled = _asynchronousMathGenerationEnabled;
 @synthesize codeBlockRanges = _codeBlockRanges;
 @synthesize blockquoteRanges = _blockquoteRanges;
 
@@ -186,6 +1106,7 @@ static NSString *OMRuleLineString(NSFont *font, CGFloat width)
         _theme = [theme retain];
         _zoomScale = 1.0;
         _layoutWidth = 0.0;
+        _asynchronousMathGenerationEnabled = NO;
     }
     return self;
 }
@@ -204,6 +1125,9 @@ static NSString *OMRuleLineString(NSFont *font, CGFloat width)
         return [[[NSAttributedString alloc] initWithString:@""] autorelease];
     }
 
+    BOOL perfLogging = OMPerformanceLoggingEnabled();
+    NSTimeInterval totalStart = perfLogging ? OMNow() : 0.0;
+
     NSData *markdownData = [markdown dataUsingEncoding:NSUTF8StringEncoding];
     if (markdownData == nil) {
         return [[[NSAttributedString alloc] initWithString:@""] autorelease];
@@ -211,8 +1135,16 @@ static NSString *OMRuleLineString(NSFont *font, CGFloat width)
 
     const char *bytes = (const char *)[markdownData bytes];
     size_t length = (size_t)[markdownData length];
+    NSTimeInterval parseStart = perfLogging ? OMNow() : 0.0;
     cmark_node *document = cmark_parse_document(bytes, length, CMARK_OPT_DEFAULT);
+    NSTimeInterval parseMs = perfLogging ? ((OMNow() - parseStart) * 1000.0) : 0.0;
     if (document == NULL) {
+        if (perfLogging) {
+            NSLog(@"[Perf][Renderer] parse failed chars=%lu parse=%.1fms total=%.1fms",
+                  (unsigned long)[markdown length],
+                  parseMs,
+                  (OMNow() - totalStart) * 1000.0);
+        }
         return [[[NSAttributedString alloc] initWithString:markdown] autorelease];
     }
 
@@ -235,11 +1167,43 @@ static NSString *OMRuleLineString(NSFont *font, CGFloat width)
     NSMutableArray *listStack = [NSMutableArray array];
     NSMutableArray *codeRanges = [NSMutableArray array];
     NSMutableArray *blockquoteRanges = [NSMutableArray array];
+    OMMathPerfStats stats = {0};
+    OMMathPerfStats *previousStats = OMCurrentMathPerfStats;
+    BOOL previousAsyncMathEnabled = OMCurrentAsyncMathGenerationEnabled;
+    OMCurrentAsyncMathGenerationEnabled = self.asynchronousMathGenerationEnabled;
+    OMCurrentMathPerfStats = &stats;
+    NSTimeInterval renderStart = perfLogging ? OMNow() : 0.0;
     OMRenderBlocks(document, self.theme, output, attributes, codeRanges, blockquoteRanges, listStack, 0, scale, self.layoutWidth);
+    NSTimeInterval renderMs = perfLogging ? ((OMNow() - renderStart) * 1000.0) : 0.0;
+    OMCurrentAsyncMathGenerationEnabled = previousAsyncMathEnabled;
+    OMCurrentMathPerfStats = previousStats;
     [self setCodeBlockRanges:codeRanges];
     [self setBlockquoteRanges:blockquoteRanges];
     OMTrimTrailingNewlines(output);
     cmark_node_free(document);
+    if (perfLogging) {
+        NSLog(@"[Perf][Renderer] total=%.1fms parse=%.1fms render=%.1fms charsIn=%lu charsOut=%lu zoom=%.2f width=%.1f math(req=%lu hit=%lu miss=%lu assetHit=%lu assetMiss=%lu ok=%lu fail=%lu total=%.1fms latex=%lums/%lu dvisvgm=%lums/%lu decode=%.1fms)",
+              (OMNow() - totalStart) * 1000.0,
+              parseMs,
+              renderMs,
+              (unsigned long)[markdown length],
+              (unsigned long)[output length],
+              self.zoomScale,
+              self.layoutWidth,
+              (unsigned long)stats.mathRequests,
+              (unsigned long)stats.mathCacheHits,
+              (unsigned long)stats.mathCacheMisses,
+              (unsigned long)stats.mathAssetCacheHits,
+              (unsigned long)stats.mathAssetCacheMisses,
+              (unsigned long)stats.mathRendered,
+              (unsigned long)stats.mathFailures,
+              stats.mathTotalSeconds * 1000.0,
+              (unsigned long)(stats.latexSeconds * 1000.0 + 0.5),
+              (unsigned long)stats.latexRuns,
+              (unsigned long)(stats.dvisvgmSeconds * 1000.0 + 0.5),
+              (unsigned long)stats.dvisvgmRuns,
+              stats.svgDecodeSeconds * 1000.0);
+    }
     return output;
 }
 
@@ -551,9 +1515,15 @@ static void OMRenderInlines(cmark_node *node,
         cmark_node_type type = cmark_node_get_type(child);
         switch (type) {
             case CMARK_NODE_TEXT: {
+                BOOL renderedDisplayMath = NO;
+                cmark_node *nextAfterDisplayMath = OMTryAppendMultiNodeDisplayMath(child, theme, output, attributes, scale, &renderedDisplayMath);
+                if (renderedDisplayMath) {
+                    child = nextAfterDisplayMath;
+                    continue;
+                }
                 const char *literal = cmark_node_get_literal(child);
                 NSString *text = literal != NULL ? [NSString stringWithUTF8String:literal] : @"";
-                OMAppendString(output, text, attributes);
+                OMAppendTextWithMathSpans(text, theme, output, attributes, scale);
                 break;
             }
             case CMARK_NODE_SOFTBREAK:

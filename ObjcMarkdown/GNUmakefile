@@ -10,6 +10,6 @@ ObjcMarkdown_C_FILES = ../third_party/tomlc99/toml.c
 ObjcMarkdown_HEADER_FILES = OMMarkdownRenderer.h OMTheme.h
 ObjcMarkdown_CPPFLAGS += $(CMARK_CFLAGS) -I../third_party/tomlc99
 ObjcMarkdown_LDFLAGS += $(CMARK_LIBS)
-ObjcMarkdown_LIBRARIES += -lcmark
+ObjcMarkdown_LIBRARIES += -lcmark -ldispatch
 
 include $(GNUSTEP_MAKEFILES)/library.make
