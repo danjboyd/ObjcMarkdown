@@ -7,11 +7,17 @@
 #import <dispatch/dispatch.h>
 
 #include <cmark.h>
+#include <dlfcn.h>
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
 
 NSString * const OMMarkdownRendererMathArtifactsDidWarmNotification = @"OMMarkdownRendererMathArtifactsDidWarmNotification";
+NSString * const OMMarkdownRendererAnchorSourceStartLineKey = @"sourceStartLine";
+NSString * const OMMarkdownRendererAnchorSourceEndLineKey = @"sourceEndLine";
+NSString * const OMMarkdownRendererAnchorTargetStartKey = @"targetStart";
+NSString * const OMMarkdownRendererAnchorTargetLengthKey = @"targetLength";
+NSString * const OMMarkdownRendererAnchorBlockIDKey = @"blockID";
 
 typedef struct {
     NSUInteger mathRequests;
@@ -31,6 +37,11 @@ typedef struct {
 
 static OMMathPerfStats *OMCurrentMathPerfStats = NULL;
 static BOOL OMCurrentAsyncMathGenerationEnabled = NO;
+static NSMutableArray *OMCurrentBlockAnchors = nil;
+static NSArray *OMCurrentSourceLines = nil;
+static CGFloat OMCurrentLayoutWidth = 0.0;
+static OMMarkdownParsingOptions *OMCurrentParsingOptions = nil;
+static NSString *OMExecutablePathNamed(NSString *name);
 
 static NSTimeInterval OMNow(void)
 {
@@ -67,6 +78,120 @@ static BOOL OMPerformanceLoggingEnabled(void)
         resolved = YES;
     }
     return enabled;
+}
+
+static OMMarkdownParsingOptions *OMActiveParsingOptions(void)
+{
+    return OMCurrentParsingOptions;
+}
+
+static BOOL OMShouldParseMathSpans(void)
+{
+    OMMarkdownParsingOptions *options = OMActiveParsingOptions();
+    if (options == nil) {
+        return YES;
+    }
+    return [options mathRenderingPolicy] != OMMarkdownMathRenderingPolicyDisabled;
+}
+
+static BOOL OMExternalMathRenderingEnabled(void)
+{
+    OMMarkdownParsingOptions *options = OMActiveParsingOptions();
+    if (options == nil) {
+        return NO;
+    }
+    return [options mathRenderingPolicy] == OMMarkdownMathRenderingPolicyExternalTools;
+}
+
+static NSUInteger OMMathMaximumFormulaLength(void)
+{
+    OMMarkdownParsingOptions *options = OMActiveParsingOptions();
+    if (options == nil || [options maximumMathFormulaLength] == 0) {
+        return 2048;
+    }
+    return [options maximumMathFormulaLength];
+}
+
+static NSTimeInterval OMExternalToolTimeout(void)
+{
+    OMMarkdownParsingOptions *options = OMActiveParsingOptions();
+    if (options == nil) {
+        return 4.0;
+    }
+    NSTimeInterval timeout = [options externalToolTimeout];
+    if (timeout <= 0.0) {
+        return 4.0;
+    }
+    return timeout;
+}
+
+static BOOL OMShouldRenderImages(void)
+{
+    OMMarkdownParsingOptions *options = OMActiveParsingOptions();
+    if (options == nil) {
+        return YES;
+    }
+    return [options renderImages];
+}
+
+static BOOL OMShouldAllowRemoteImages(void)
+{
+    OMMarkdownParsingOptions *options = OMActiveParsingOptions();
+    if (options == nil) {
+        return NO;
+    }
+    return [options allowRemoteImages];
+}
+
+static BOOL OMTreeSitterRuntimeAvailable(void)
+{
+    static BOOL resolved = NO;
+    static BOOL available = NO;
+    if (!resolved) {
+        available = NO;
+
+        const char *libraryCandidates[] = {
+            "libtree-sitter.so",
+            "libtree-sitter.so.0",
+            "libtree-sitter.so.0.22",
+            "libtree-sitter.dylib",
+            NULL
+        };
+        const char **cursor = libraryCandidates;
+        for (; *cursor != NULL; cursor++) {
+            void *handle = dlopen(*cursor, RTLD_LAZY | RTLD_LOCAL);
+            if (handle != NULL) {
+                available = YES;
+                dlclose(handle);
+                break;
+            }
+        }
+
+        if (!available) {
+            available = (OMExecutablePathNamed(@"tree-sitter") != nil);
+        }
+
+        resolved = YES;
+    }
+    return available;
+}
+
+static BOOL OMShouldApplyCodeSyntaxHighlighting(void)
+{
+    OMMarkdownParsingOptions *options = OMActiveParsingOptions();
+    if (options != nil && ![options codeSyntaxHighlightingEnabled]) {
+        return NO;
+    }
+    return OMTreeSitterRuntimeAvailable();
+}
+
+static OMMarkdownHTMLPolicy OMHTMLPolicyForBlockNode(BOOL blockNode)
+{
+    OMMarkdownParsingOptions *options = OMActiveParsingOptions();
+    if (options == nil) {
+        return OMMarkdownHTMLPolicyRenderAsText;
+    }
+    return blockNode ? [options blockHTMLPolicy] : [options inlineHTMLPolicy];
 }
 
 static CGFloat OMMathRasterOversampleFactor(void)
@@ -140,6 +265,613 @@ static NSFont *OMFontWithTraits(NSFont *font, NSFontTraitMask traits)
     return converted != nil ? converted : font;
 }
 
+typedef struct {
+    NSColor *keywordColor;
+    NSColor *commentColor;
+    NSColor *stringColor;
+    NSColor *numberColor;
+    NSColor *directiveColor;
+} OMCodeSyntaxPalette;
+
+typedef NS_ENUM(NSUInteger, OMCodeLanguage) {
+    OMCodeLanguageUnknown = 0,
+    OMCodeLanguageCFamily = 1,
+    OMCodeLanguagePython = 2,
+    OMCodeLanguageJavaScript = 3,
+    OMCodeLanguageTypeScript = 4,
+    OMCodeLanguageJSON = 5,
+    OMCodeLanguageBash = 6,
+    OMCodeLanguageMarkdown = 7,
+    OMCodeLanguageYAML = 8,
+    OMCodeLanguageTOML = 9,
+    OMCodeLanguageSQL = 10,
+    OMCodeLanguageRuby = 11,
+    OMCodeLanguageMarkup = 12
+};
+
+static BOOL OMColorRGBA(NSColor *color, CGFloat *red, CGFloat *green, CGFloat *blue, CGFloat *alpha)
+{
+    if (color == nil) {
+        return NO;
+    }
+    @try {
+        NSColor *rgbColor = [color colorUsingColorSpaceName:NSCalibratedRGBColorSpace];
+        if (rgbColor == nil) {
+            return NO;
+        }
+        if (red != NULL) {
+            *red = [rgbColor redComponent];
+        }
+        if (green != NULL) {
+            *green = [rgbColor greenComponent];
+        }
+        if (blue != NULL) {
+            *blue = [rgbColor blueComponent];
+        }
+        if (alpha != NULL) {
+            *alpha = [rgbColor alphaComponent];
+        }
+        return YES;
+    } @catch (NSException *exception) {
+        (void)exception;
+        return NO;
+    }
+}
+
+static OMCodeSyntaxPalette OMCodePaletteForBackground(NSColor *backgroundColor)
+{
+    CGFloat red = 0.0;
+    CGFloat green = 0.0;
+    CGFloat blue = 0.0;
+    BOOL hasRGB = OMColorRGBA(backgroundColor, &red, &green, &blue, NULL);
+    CGFloat luminance = hasRGB ? ((0.2126 * red) + (0.7152 * green) + (0.0722 * blue)) : 1.0;
+    BOOL darkBackground = luminance < 0.5;
+
+    OMCodeSyntaxPalette palette;
+    if (darkBackground) {
+        palette.keywordColor = [NSColor colorWithCalibratedRed:0.52 green:0.72 blue:0.98 alpha:1.0];
+        palette.commentColor = [NSColor colorWithCalibratedRed:0.49 green:0.66 blue:0.50 alpha:1.0];
+        palette.stringColor = [NSColor colorWithCalibratedRed:0.93 green:0.73 blue:0.45 alpha:1.0];
+        palette.numberColor = [NSColor colorWithCalibratedRed:0.42 green:0.78 blue:0.78 alpha:1.0];
+        palette.directiveColor = [NSColor colorWithCalibratedRed:0.80 green:0.58 blue:0.94 alpha:1.0];
+        return palette;
+    }
+
+    palette.keywordColor = [NSColor colorWithCalibratedRed:0.11 green:0.31 blue:0.67 alpha:1.0];
+    palette.commentColor = [NSColor colorWithCalibratedRed:0.40 green:0.46 blue:0.43 alpha:1.0];
+    palette.stringColor = [NSColor colorWithCalibratedRed:0.67 green:0.34 blue:0.03 alpha:1.0];
+    palette.numberColor = [NSColor colorWithCalibratedRed:0.00 green:0.45 blue:0.45 alpha:1.0];
+    palette.directiveColor = [NSColor colorWithCalibratedRed:0.46 green:0.28 blue:0.65 alpha:1.0];
+    return palette;
+}
+
+static NSMutableDictionary *OMCodeRegexCache(void)
+{
+    static NSMutableDictionary *cache = nil;
+    if (cache == nil) {
+        cache = [[NSMutableDictionary alloc] init];
+    }
+    return cache;
+}
+
+static NSRegularExpression *OMCachedRegex(NSString *pattern, NSRegularExpressionOptions options)
+{
+    if (pattern == nil || [pattern length] == 0) {
+        return nil;
+    }
+
+    NSMutableDictionary *cache = OMCodeRegexCache();
+    NSString *key = [NSString stringWithFormat:@"%lu|%@",
+                     (unsigned long)options,
+                     pattern];
+    @synchronized (cache) {
+        NSRegularExpression *regex = [cache objectForKey:key];
+        if (regex != nil) {
+            return regex;
+        }
+        NSRegularExpression *created = [NSRegularExpression regularExpressionWithPattern:pattern
+                                                                                  options:options
+                                                                                    error:NULL];
+        if (created != nil) {
+            [cache setObject:created forKey:key];
+        }
+        return created;
+    }
+}
+
+static NSString *OMPrimaryFenceTokenFromFenceInfo(NSString *fenceInfo)
+{
+    if (fenceInfo == nil || [fenceInfo length] == 0) {
+        return nil;
+    }
+
+    NSString *trimmed = [fenceInfo stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    if (trimmed == nil || [trimmed length] == 0) {
+        return nil;
+    }
+
+    NSRange separator = [trimmed rangeOfCharacterFromSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    NSString *token = separator.location == NSNotFound ? trimmed : [trimmed substringToIndex:separator.location];
+    if (token == nil || [token length] == 0) {
+        return nil;
+    }
+    return [token lowercaseString];
+}
+
+static NSString *OMPrimaryFenceToken(cmark_node *codeBlockNode)
+{
+    if (codeBlockNode == NULL) {
+        return nil;
+    }
+
+    const char *info = cmark_node_get_fence_info(codeBlockNode);
+    if (info == NULL) {
+        return nil;
+    }
+    NSString *fenceInfo = [NSString stringWithUTF8String:info];
+    if (fenceInfo == nil || [fenceInfo length] == 0) {
+        return nil;
+    }
+    return OMPrimaryFenceTokenFromFenceInfo(fenceInfo);
+}
+
+static OMCodeLanguage OMLanguageForFenceToken(NSString *token)
+{
+    if (token == nil || [token length] == 0) {
+        return OMCodeLanguageUnknown;
+    }
+
+    if ([token isEqualToString:@"objc"] ||
+        [token isEqualToString:@"objective-c"] ||
+        [token isEqualToString:@"objectivec"] ||
+        [token isEqualToString:@"obj-c"] ||
+        [token isEqualToString:@"m"] ||
+        [token isEqualToString:@"mm"] ||
+        [token isEqualToString:@"c"] ||
+        [token isEqualToString:@"h"] ||
+        [token isEqualToString:@"cc"] ||
+        [token isEqualToString:@"cpp"] ||
+        [token isEqualToString:@"c++"] ||
+        [token isEqualToString:@"hpp"] ||
+        [token isEqualToString:@"java"] ||
+        [token isEqualToString:@"kotlin"] ||
+        [token isEqualToString:@"kt"] ||
+        [token isEqualToString:@"kts"] ||
+        [token isEqualToString:@"swift"] ||
+        [token isEqualToString:@"go"] ||
+        [token isEqualToString:@"golang"] ||
+        [token isEqualToString:@"rust"] ||
+        [token isEqualToString:@"rs"] ||
+        [token isEqualToString:@"csharp"] ||
+        [token isEqualToString:@"cs"] ||
+        [token isEqualToString:@"php"]) {
+        return OMCodeLanguageCFamily;
+    }
+    if ([token isEqualToString:@"python"] ||
+        [token isEqualToString:@"py"] ||
+        [token isEqualToString:@"py3"]) {
+        return OMCodeLanguagePython;
+    }
+    if ([token isEqualToString:@"javascript"] ||
+        [token isEqualToString:@"js"] ||
+        [token isEqualToString:@"jsx"] ||
+        [token isEqualToString:@"node"] ||
+        [token isEqualToString:@"nodejs"]) {
+        return OMCodeLanguageJavaScript;
+    }
+    if ([token isEqualToString:@"typescript"] ||
+        [token isEqualToString:@"ts"] ||
+        [token isEqualToString:@"tsx"]) {
+        return OMCodeLanguageTypeScript;
+    }
+    if ([token isEqualToString:@"json"] ||
+        [token isEqualToString:@"jsonc"]) {
+        return OMCodeLanguageJSON;
+    }
+    if ([token isEqualToString:@"yaml"] ||
+        [token isEqualToString:@"yml"]) {
+        return OMCodeLanguageYAML;
+    }
+    if ([token isEqualToString:@"toml"]) {
+        return OMCodeLanguageTOML;
+    }
+    if ([token isEqualToString:@"sql"] ||
+        [token isEqualToString:@"mysql"] ||
+        [token isEqualToString:@"postgresql"] ||
+        [token isEqualToString:@"sqlite"]) {
+        return OMCodeLanguageSQL;
+    }
+    if ([token isEqualToString:@"ruby"] ||
+        [token isEqualToString:@"rb"]) {
+        return OMCodeLanguageRuby;
+    }
+    if ([token isEqualToString:@"html"] ||
+        [token isEqualToString:@"xml"] ||
+        [token isEqualToString:@"svg"] ||
+        [token isEqualToString:@"css"]) {
+        return OMCodeLanguageMarkup;
+    }
+    if ([token isEqualToString:@"bash"] ||
+        [token isEqualToString:@"sh"] ||
+        [token isEqualToString:@"shell"] ||
+        [token isEqualToString:@"zsh"]) {
+        return OMCodeLanguageBash;
+    }
+    if ([token isEqualToString:@"markdown"] ||
+        [token isEqualToString:@"md"] ||
+        [token isEqualToString:@"mdown"] ||
+        [token isEqualToString:@"mkd"]) {
+        return OMCodeLanguageMarkdown;
+    }
+    return OMCodeLanguageUnknown;
+}
+
+static void OMApplyRegexColor(NSMutableAttributedString *text,
+                              NSString *pattern,
+                              NSRegularExpressionOptions options,
+                              NSColor *color)
+{
+    if (text == nil || color == nil || [text length] == 0) {
+        return;
+    }
+    NSRegularExpression *regex = OMCachedRegex(pattern, options);
+    if (regex == nil) {
+        return;
+    }
+    NSRange fullRange = NSMakeRange(0, [text length]);
+    NSArray *matches = [regex matchesInString:[text string] options:0 range:fullRange];
+    for (NSTextCheckingResult *match in matches) {
+        NSRange range = [match range];
+        if (range.length == 0) {
+            continue;
+        }
+        [text addAttribute:NSForegroundColorAttributeName value:color range:range];
+    }
+}
+
+static void OMApplyCFamilySyntaxHighlighting(NSMutableAttributedString *codeSegment,
+                                             OMCodeSyntaxPalette palette)
+{
+    OMApplyRegexColor(codeSegment,
+                      @"(?m)^\\s*#\\s*[A-Za-z_][A-Za-z0-9_]*.*$",
+                      0,
+                      palette.directiveColor);
+    OMApplyRegexColor(codeSegment,
+                      @"\\b(?:@interface|@implementation|@end|@property|@synthesize|@dynamic|@protocol|@class|@selector|@autoreleasepool|id|instancetype|self|super|nil|YES|NO|if|else|for|while|switch|case|break|continue|return|typedef|struct|enum|static|const|void|int|float|double|char|long|short|unsigned|signed|BOOL|SEL|Class|namespace|template|typename|using|public|private|protected|virtual|override|constexpr|auto|new|delete|this|nullptr|try|catch|throw|package|import|func|defer|select|go|chan|map|interface|impl|trait|where|match|let|mut|pub|crate|mod|fn|impl|enum|protocol|extension|guard|deinit|class|actor|async|await|yield|throws|throw|nil|true|false|var|val)\\b",
+                      0,
+                      palette.keywordColor);
+    OMApplyRegexColor(codeSegment,
+                      @"\\b(?:0x[0-9A-Fa-f]+|\\d+(?:\\.\\d+)?)\\b",
+                      0,
+                      palette.numberColor);
+    OMApplyRegexColor(codeSegment,
+                      @"@?\"(?:[^\"\\\\]|\\\\.)*\"|'(?:[^'\\\\]|\\\\.)*'",
+                      0,
+                      palette.stringColor);
+    OMApplyRegexColor(codeSegment,
+                      @"(?m)//.*$|/\\*[\\s\\S]*?\\*/",
+                      0,
+                      palette.commentColor);
+}
+
+static void OMApplyPythonSyntaxHighlighting(NSMutableAttributedString *codeSegment,
+                                            OMCodeSyntaxPalette palette)
+{
+    OMApplyRegexColor(codeSegment,
+                      @"(?m)^\\s*@\\w+",
+                      0,
+                      palette.directiveColor);
+    OMApplyRegexColor(codeSegment,
+                      @"\\b(?:and|as|assert|async|await|break|class|continue|def|del|elif|else|except|False|finally|for|from|global|if|import|in|is|lambda|None|nonlocal|not|or|pass|raise|return|True|try|while|with|yield)\\b",
+                      0,
+                      palette.keywordColor);
+    OMApplyRegexColor(codeSegment,
+                      @"\\b(?:0x[0-9A-Fa-f]+|\\d+(?:\\.\\d+)?)\\b",
+                      0,
+                      palette.numberColor);
+    OMApplyRegexColor(codeSegment,
+                      @"(?s)(?:'''[\\s\\S]*?'''|\"\"\"[\\s\\S]*?\"\"\"|'(?:[^'\\\\]|\\\\.)*'|\"(?:[^\"\\\\]|\\\\.)*\")",
+                      0,
+                      palette.stringColor);
+    OMApplyRegexColor(codeSegment,
+                      @"(?m)#.*$",
+                      0,
+                      palette.commentColor);
+}
+
+static void OMApplyJSSyntaxHighlighting(NSMutableAttributedString *codeSegment,
+                                        OMCodeSyntaxPalette palette,
+                                        BOOL includeTypeScriptKeywords)
+{
+    OMApplyRegexColor(codeSegment,
+                      @"\\b(?:if|else|for|while|do|switch|case|break|continue|return|function|const|let|var|class|extends|new|try|catch|finally|throw|import|export|default|from|as|this|null|undefined|true|false)\\b",
+                      0,
+                      palette.keywordColor);
+    if (includeTypeScriptKeywords) {
+        OMApplyRegexColor(codeSegment,
+                          @"\\b(?:interface|type|implements|enum|namespace|readonly|public|private|protected|abstract|declare|keyof|infer|unknown|never|any)\\b",
+                          0,
+                          palette.keywordColor);
+    }
+    OMApplyRegexColor(codeSegment,
+                      @"\\b(?:0x[0-9A-Fa-f]+|\\d+(?:\\.\\d+)?)\\b",
+                      0,
+                      palette.numberColor);
+    OMApplyRegexColor(codeSegment,
+                      @"`(?:[^`\\\\]|\\\\.)*`|\"(?:[^\"\\\\]|\\\\.)*\"|'(?:[^'\\\\]|\\\\.)*'",
+                      0,
+                      palette.stringColor);
+    OMApplyRegexColor(codeSegment,
+                      @"(?m)//.*$|/\\*[\\s\\S]*?\\*/",
+                      0,
+                      palette.commentColor);
+}
+
+static void OMApplyJSONSyntaxHighlighting(NSMutableAttributedString *codeSegment,
+                                          OMCodeSyntaxPalette palette)
+{
+    OMApplyRegexColor(codeSegment,
+                      @"\"(?:[^\"\\\\]|\\\\.)*\"",
+                      0,
+                      palette.stringColor);
+    OMApplyRegexColor(codeSegment,
+                      @"\\b(?:0x[0-9A-Fa-f]+|\\d+(?:\\.\\d+)?)\\b",
+                      0,
+                      palette.numberColor);
+    OMApplyRegexColor(codeSegment,
+                      @"\\b(?:true|false|null)\\b",
+                      0,
+                      palette.keywordColor);
+    OMApplyRegexColor(codeSegment,
+                      @"\"(?:[^\"\\\\]|\\\\.)*\"\\s*:",
+                      0,
+                      palette.directiveColor);
+}
+
+static void OMApplyBashSyntaxHighlighting(NSMutableAttributedString *codeSegment,
+                                          OMCodeSyntaxPalette palette)
+{
+    OMApplyRegexColor(codeSegment,
+                      @"\\b(?:if|then|else|elif|fi|for|while|do|done|case|esac|function|in|select|until|time)\\b",
+                      0,
+                      palette.keywordColor);
+    OMApplyRegexColor(codeSegment,
+                      @"\\$\\{?[A-Za-z_][A-Za-z0-9_]*\\}?",
+                      0,
+                      palette.directiveColor);
+    OMApplyRegexColor(codeSegment,
+                      @"\\b(?:0x[0-9A-Fa-f]+|\\d+(?:\\.\\d+)?)\\b",
+                      0,
+                      palette.numberColor);
+    OMApplyRegexColor(codeSegment,
+                      @"\"(?:[^\"\\\\]|\\\\.)*\"|'(?:[^'\\\\]|\\\\.)*'",
+                      0,
+                      palette.stringColor);
+    OMApplyRegexColor(codeSegment,
+                      @"(?m)#.*$",
+                      0,
+                      palette.commentColor);
+}
+
+static void OMApplyMarkdownSyntaxHighlighting(NSMutableAttributedString *codeSegment,
+                                              OMCodeSyntaxPalette palette)
+{
+    OMApplyRegexColor(codeSegment,
+                      @"(?m)^\\s{0,3}#{1,6}\\s+.*$",
+                      0,
+                      palette.keywordColor);
+    OMApplyRegexColor(codeSegment,
+                      @"\\[[^\\]\\n]+\\]\\([^\\)\\n]+\\)",
+                      0,
+                      palette.directiveColor);
+    OMApplyRegexColor(codeSegment,
+                      @"(?:\\*\\*[^*\\n]+\\*\\*|__[^_\\n]+__)",
+                      0,
+                      palette.keywordColor);
+    OMApplyRegexColor(codeSegment,
+                      @"(?<!\\*)\\*[^*\\n]+\\*(?!\\*)|(?<!_)_[^_\\n]+_(?!_)",
+                      0,
+                      palette.keywordColor);
+    OMApplyRegexColor(codeSegment,
+                      @"`[^`\\n]+`",
+                      0,
+                      palette.stringColor);
+    OMApplyRegexColor(codeSegment,
+                      @"\\$\\$[\\s\\S]*?\\$\\$|\\$[^$\\n]+\\$",
+                      0,
+                      palette.numberColor);
+}
+
+static void OMApplyYAMLSyntaxHighlighting(NSMutableAttributedString *codeSegment,
+                                          OMCodeSyntaxPalette palette)
+{
+    OMApplyRegexColor(codeSegment,
+                      @"(?m)^\\s*#.*$",
+                      0,
+                      palette.commentColor);
+    OMApplyRegexColor(codeSegment,
+                      @"(?m)^\\s*-\\s+",
+                      0,
+                      palette.keywordColor);
+    OMApplyRegexColor(codeSegment,
+                      @"(?m)^\\s*[A-Za-z0-9_\\-\"']+\\s*:",
+                      0,
+                      palette.directiveColor);
+    OMApplyRegexColor(codeSegment,
+                      @"\"(?:[^\"\\\\]|\\\\.)*\"|'(?:[^'\\\\]|\\\\.)*'",
+                      0,
+                      palette.stringColor);
+    OMApplyRegexColor(codeSegment,
+                      @"\\b(?:true|false|null|yes|no|on|off)\\b",
+                      0,
+                      palette.keywordColor);
+    OMApplyRegexColor(codeSegment,
+                      @"\\b(?:0x[0-9A-Fa-f]+|-?\\d+(?:\\.\\d+)?)\\b",
+                      0,
+                      palette.numberColor);
+}
+
+static void OMApplyTOMLSyntaxHighlighting(NSMutableAttributedString *codeSegment,
+                                          OMCodeSyntaxPalette palette)
+{
+    OMApplyRegexColor(codeSegment,
+                      @"(?m)^\\s*#.*$",
+                      0,
+                      palette.commentColor);
+    OMApplyRegexColor(codeSegment,
+                      @"(?m)^\\s*\\[[^\\]\\n]+\\]",
+                      0,
+                      palette.keywordColor);
+    OMApplyRegexColor(codeSegment,
+                      @"(?m)^\\s*[A-Za-z0-9_\\.-]+\\s*=",
+                      0,
+                      palette.directiveColor);
+    OMApplyRegexColor(codeSegment,
+                      @"\"(?:[^\"\\\\]|\\\\.)*\"|'(?:[^'\\\\]|\\\\.)*'",
+                      0,
+                      palette.stringColor);
+    OMApplyRegexColor(codeSegment,
+                      @"\\b(?:true|false)\\b",
+                      0,
+                      palette.keywordColor);
+    OMApplyRegexColor(codeSegment,
+                      @"\\b(?:0x[0-9A-Fa-f]+|-?\\d+(?:\\.\\d+)?)\\b",
+                      0,
+                      palette.numberColor);
+}
+
+static void OMApplySQLSyntaxHighlighting(NSMutableAttributedString *codeSegment,
+                                         OMCodeSyntaxPalette palette)
+{
+    OMApplyRegexColor(codeSegment,
+                      @"\\b(?:SELECT|FROM|WHERE|ORDER|BY|GROUP|HAVING|INSERT|INTO|VALUES|UPDATE|SET|DELETE|CREATE|TABLE|ALTER|DROP|JOIN|LEFT|RIGHT|INNER|OUTER|ON|AS|DISTINCT|LIMIT|OFFSET|UNION|ALL|AND|OR|NOT|NULL|IS|IN|LIKE|CASE|WHEN|THEN|ELSE|END)\\b",
+                      NSRegularExpressionCaseInsensitive,
+                      palette.keywordColor);
+    OMApplyRegexColor(codeSegment,
+                      @"\\b(?:0x[0-9A-Fa-f]+|-?\\d+(?:\\.\\d+)?)\\b",
+                      0,
+                      palette.numberColor);
+    OMApplyRegexColor(codeSegment,
+                      @"'(?:[^'\\\\]|\\\\.)*'|\"(?:[^\"\\\\]|\\\\.)*\"",
+                      0,
+                      palette.stringColor);
+    OMApplyRegexColor(codeSegment,
+                      @"(?m)--.*$|/\\*[\\s\\S]*?\\*/",
+                      0,
+                      palette.commentColor);
+}
+
+static void OMApplyRubySyntaxHighlighting(NSMutableAttributedString *codeSegment,
+                                          OMCodeSyntaxPalette palette)
+{
+    OMApplyRegexColor(codeSegment,
+                      @"\\b(?:def|class|module|end|if|elsif|else|unless|case|when|while|until|for|in|do|break|next|redo|retry|return|yield|super|self|nil|true|false|and|or|not|begin|rescue|ensure|require|include|extend|attr_reader|attr_writer|attr_accessor)\\b",
+                      0,
+                      palette.keywordColor);
+    OMApplyRegexColor(codeSegment,
+                      @"\\b(?:0x[0-9A-Fa-f]+|-?\\d+(?:\\.\\d+)?)\\b",
+                      0,
+                      palette.numberColor);
+    OMApplyRegexColor(codeSegment,
+                      @"\"(?:[^\"\\\\]|\\\\.)*\"|'(?:[^'\\\\]|\\\\.)*'",
+                      0,
+                      palette.stringColor);
+    OMApplyRegexColor(codeSegment,
+                      @"(?m)#.*$",
+                      0,
+                      palette.commentColor);
+    OMApplyRegexColor(codeSegment,
+                      @"\\:[A-Za-z_][A-Za-z0-9_]*",
+                      0,
+                      palette.directiveColor);
+}
+
+static void OMApplyMarkupSyntaxHighlighting(NSMutableAttributedString *codeSegment,
+                                            OMCodeSyntaxPalette palette)
+{
+    OMApplyRegexColor(codeSegment,
+                      @"(?m)<!--.*?-->|/\\*[\\s\\S]*?\\*/",
+                      NSRegularExpressionDotMatchesLineSeparators,
+                      palette.commentColor);
+    OMApplyRegexColor(codeSegment,
+                      @"</?[A-Za-z][A-Za-z0-9:_-]*",
+                      0,
+                      palette.keywordColor);
+    OMApplyRegexColor(codeSegment,
+                      @"\\b[A-Za-z_:][A-Za-z0-9_:\\-]*\\s*=",
+                      0,
+                      palette.directiveColor);
+    OMApplyRegexColor(codeSegment,
+                      @"\"(?:[^\"\\\\]|\\\\.)*\"|'(?:[^'\\\\]|\\\\.)*'",
+                      0,
+                      palette.stringColor);
+    OMApplyRegexColor(codeSegment,
+                      @"\\b(?:0x[0-9A-Fa-f]+|-?\\d+(?:\\.\\d+)?)\\b",
+                      0,
+                      palette.numberColor);
+}
+
+static void OMApplyCodeSyntaxHighlighting(cmark_node *codeBlockNode,
+                                          NSMutableAttributedString *codeSegment,
+                                          NSColor *backgroundColor)
+{
+    if (!OMShouldApplyCodeSyntaxHighlighting()) {
+        return;
+    }
+
+    NSString *token = OMPrimaryFenceToken(codeBlockNode);
+    OMCodeLanguage language = OMLanguageForFenceToken(token);
+    if (language == OMCodeLanguageUnknown) {
+        return;
+    }
+
+    OMCodeSyntaxPalette palette = OMCodePaletteForBackground(backgroundColor);
+
+    [codeSegment beginEditing];
+    switch (language) {
+        case OMCodeLanguageCFamily:
+            OMApplyCFamilySyntaxHighlighting(codeSegment, palette);
+            break;
+        case OMCodeLanguagePython:
+            OMApplyPythonSyntaxHighlighting(codeSegment, palette);
+            break;
+        case OMCodeLanguageJavaScript:
+            OMApplyJSSyntaxHighlighting(codeSegment, palette, NO);
+            break;
+        case OMCodeLanguageTypeScript:
+            OMApplyJSSyntaxHighlighting(codeSegment, palette, YES);
+            break;
+        case OMCodeLanguageJSON:
+            OMApplyJSONSyntaxHighlighting(codeSegment, palette);
+            break;
+        case OMCodeLanguageBash:
+            OMApplyBashSyntaxHighlighting(codeSegment, palette);
+            break;
+        case OMCodeLanguageMarkdown:
+            OMApplyMarkdownSyntaxHighlighting(codeSegment, palette);
+            break;
+        case OMCodeLanguageYAML:
+            OMApplyYAMLSyntaxHighlighting(codeSegment, palette);
+            break;
+        case OMCodeLanguageTOML:
+            OMApplyTOMLSyntaxHighlighting(codeSegment, palette);
+            break;
+        case OMCodeLanguageSQL:
+            OMApplySQLSyntaxHighlighting(codeSegment, palette);
+            break;
+        case OMCodeLanguageRuby:
+            OMApplyRubySyntaxHighlighting(codeSegment, palette);
+            break;
+        case OMCodeLanguageMarkup:
+            OMApplyMarkupSyntaxHighlighting(codeSegment, palette);
+            break;
+        case OMCodeLanguageUnknown:
+        default:
+            break;
+    }
+    [codeSegment endEditing];
+}
+
 static void OMAppendString(NSMutableAttributedString *output,
                            NSString *string,
                            NSDictionary *attributes)
@@ -177,7 +909,6 @@ static NSMutableParagraphStyle *OMParagraphStyleWithIndent(CGFloat firstIndent,
     if (fontSize > 0.0 && lineHeightMultiple > 0.0) {
         CGFloat lineHeight = fontSize * lineHeightMultiple;
         [style setMinimumLineHeight:lineHeight];
-        [style setMaximumLineHeight:lineHeight];
     }
     return style;
 }
@@ -192,6 +923,169 @@ static void OMTrimTrailingNewlines(NSMutableAttributedString *output)
             break;
         }
     }
+}
+
+static NSArray *OMSourceLinesForMarkdown(NSString *markdown)
+{
+    NSMutableArray *lines = [NSMutableArray array];
+    if (markdown == nil || [markdown length] == 0) {
+        return lines;
+    }
+
+    NSUInteger totalLength = [markdown length];
+    NSUInteger cursor = 0;
+    while (cursor < totalLength) {
+        NSRange lineRange = [markdown lineRangeForRange:NSMakeRange(cursor, 0)];
+        NSUInteger lineStart = lineRange.location;
+        NSUInteger contentLength = lineRange.length;
+
+        while (contentLength > 0) {
+            unichar ch = [markdown characterAtIndex:lineStart + contentLength - 1];
+            if (ch == '\n' || ch == '\r') {
+                contentLength -= 1;
+                continue;
+            }
+            break;
+        }
+
+        NSString *line = [markdown substringWithRange:NSMakeRange(lineStart, contentLength)];
+        [lines addObject:line];
+        cursor = NSMaxRange(lineRange);
+    }
+    return lines;
+}
+
+static NSString *OMNormalizedBlockIDText(NSString *text)
+{
+    if (text == nil || [text length] == 0) {
+        return @"";
+    }
+
+    NSMutableString *normalized = [NSMutableString stringWithCapacity:[text length]];
+    NSCharacterSet *alphanumeric = [NSCharacterSet alphanumericCharacterSet];
+    BOOL previousWasSpace = YES;
+    NSUInteger length = [text length];
+    NSUInteger i = 0;
+    for (; i < length; i++) {
+        unichar ch = [text characterAtIndex:i];
+        if ([alphanumeric characterIsMember:ch]) {
+            NSString *s = [[NSString stringWithCharacters:&ch length:1] lowercaseString];
+            [normalized appendString:s];
+            previousWasSpace = NO;
+        } else if (!previousWasSpace) {
+            [normalized appendString:@" "];
+            previousWasSpace = YES;
+        }
+    }
+
+    while ([normalized hasSuffix:@" "]) {
+        [normalized deleteCharactersInRange:NSMakeRange([normalized length] - 1, 1)];
+    }
+    return normalized;
+}
+
+static BOOL OMNodeLineBounds(cmark_node *node, NSUInteger *startLineOut, NSUInteger *endLineOut)
+{
+    if (node == NULL) {
+        return NO;
+    }
+
+    int startLine = cmark_node_get_start_line(node);
+    int endLine = cmark_node_get_end_line(node);
+    if (startLine <= 0) {
+        return NO;
+    }
+    if (endLine < startLine) {
+        endLine = startLine;
+    }
+
+    if (startLineOut != NULL) {
+        *startLineOut = (NSUInteger)startLine;
+    }
+    if (endLineOut != NULL) {
+        *endLineOut = (NSUInteger)endLine;
+    }
+    return YES;
+}
+
+static NSString *OMBlockSignatureForLineRange(NSArray *sourceLines,
+                                              NSUInteger startLine,
+                                              NSUInteger endLine)
+{
+    NSUInteger count = [sourceLines count];
+    if (count == 0 || startLine == 0) {
+        return @"";
+    }
+    if (startLine > count) {
+        return @"";
+    }
+    if (endLine < startLine) {
+        endLine = startLine;
+    }
+    if (endLine > count) {
+        endLine = count;
+    }
+
+    NSMutableString *joined = [NSMutableString string];
+    NSUInteger line = startLine;
+    for (; line <= endLine; line++) {
+        NSString *lineText = [sourceLines objectAtIndex:line - 1];
+        NSString *trimmed = [lineText stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        if ([joined length] > 0) {
+            [joined appendString:@"\n"];
+        }
+        [joined appendString:trimmed];
+    }
+    return OMNormalizedBlockIDText(joined);
+}
+
+static NSString *OMStableBlockIDForNode(cmark_node *node)
+{
+    if (node == NULL || OMCurrentSourceLines == nil) {
+        return nil;
+    }
+
+    NSUInteger startLine = 0;
+    NSUInteger endLine = 0;
+    if (!OMNodeLineBounds(node, &startLine, &endLine)) {
+        return nil;
+    }
+
+    NSString *signature = OMBlockSignatureForLineRange(OMCurrentSourceLines, startLine, endLine);
+    if (signature == nil || [signature length] == 0) {
+        signature = @"_";
+    }
+    return [NSString stringWithFormat:@"%d|%@", (int)cmark_node_get_type(node), signature];
+}
+
+static void OMRecordBlockAnchor(cmark_node *node,
+                                NSUInteger targetStart,
+                                NSUInteger targetEnd)
+{
+    if (OMCurrentBlockAnchors == nil || node == NULL) {
+        return;
+    }
+    if (targetEnd <= targetStart) {
+        return;
+    }
+
+    NSUInteger sourceStartLine = 0;
+    NSUInteger sourceEndLine = 0;
+    if (!OMNodeLineBounds(node, &sourceStartLine, &sourceEndLine)) {
+        return;
+    }
+
+    NSMutableDictionary *anchor = [NSMutableDictionary dictionaryWithObjectsAndKeys:
+                                   [NSNumber numberWithUnsignedInteger:sourceStartLine], OMMarkdownRendererAnchorSourceStartLineKey,
+                                   [NSNumber numberWithUnsignedInteger:sourceEndLine], OMMarkdownRendererAnchorSourceEndLineKey,
+                                   [NSNumber numberWithUnsignedInteger:targetStart], OMMarkdownRendererAnchorTargetStartKey,
+                                   [NSNumber numberWithUnsignedInteger:(targetEnd - targetStart)], OMMarkdownRendererAnchorTargetLengthKey,
+                                   nil];
+    NSString *blockID = OMStableBlockIDForNode(node);
+    if (blockID != nil && [blockID length] > 0) {
+        [anchor setObject:blockID forKey:OMMarkdownRendererAnchorBlockIDKey];
+    }
+    [OMCurrentBlockAnchors addObject:anchor];
 }
 
 static void OMRenderInlines(cmark_node *node,
@@ -287,6 +1181,282 @@ static NSString *OMRuleLineString(NSFont *font, CGFloat width)
         [rule appendString:@"─"];
     }
     return rule;
+}
+
+static NSCache *OMImageAttachmentCache(void)
+{
+    static NSCache *cache = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        cache = [[NSCache alloc] init];
+        [cache setCountLimit:256];
+    });
+    return cache;
+}
+
+static void OMAppendInlineTextFromNode(cmark_node *node, NSMutableString *buffer)
+{
+    if (node == NULL || buffer == nil) {
+        return;
+    }
+
+    cmark_node *child = cmark_node_first_child(node);
+    while (child != NULL) {
+        cmark_node_type type = cmark_node_get_type(child);
+        switch (type) {
+            case CMARK_NODE_TEXT:
+            case CMARK_NODE_CODE:
+            case CMARK_NODE_HTML_INLINE:
+            case CMARK_NODE_CUSTOM_INLINE: {
+                const char *literal = cmark_node_get_literal(child);
+                if (literal != NULL) {
+                    NSString *text = [NSString stringWithUTF8String:literal];
+                    if (text != nil) {
+                        [buffer appendString:text];
+                    }
+                }
+                break;
+            }
+            case CMARK_NODE_SOFTBREAK:
+            case CMARK_NODE_LINEBREAK:
+                [buffer appendString:@" "];
+                break;
+            default:
+                OMAppendInlineTextFromNode(child, buffer);
+                break;
+        }
+        child = cmark_node_next(child);
+    }
+}
+
+static NSString *OMInlinePlainText(cmark_node *node)
+{
+    NSMutableString *buffer = [NSMutableString string];
+    OMAppendInlineTextFromNode(node, buffer);
+    return [buffer stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+}
+
+static NSString *OMFallbackImageTextForNode(cmark_node *imageNode)
+{
+    NSString *altText = OMInlinePlainText(imageNode);
+    if (altText != nil && [altText length] > 0) {
+        return [NSString stringWithFormat:@"[image: %@]", altText];
+    }
+    return @"[image]";
+}
+
+static BOOL OMURLUsesRemoteScheme(NSURL *url)
+{
+    if (url == nil) {
+        return NO;
+    }
+    NSString *scheme = [[url scheme] lowercaseString];
+    return [scheme isEqualToString:@"http"] || [scheme isEqualToString:@"https"];
+}
+
+static NSURL *OMResolvedImageURL(NSString *urlString)
+{
+    if (urlString == nil || [urlString length] == 0) {
+        return nil;
+    }
+
+    NSURL *url = [NSURL URLWithString:urlString];
+    if (url != nil && [url scheme] != nil) {
+        return url;
+    }
+
+    OMMarkdownParsingOptions *options = OMActiveParsingOptions();
+    NSURL *baseURL = options != nil ? [options baseURL] : nil;
+    if (baseURL != nil) {
+        NSURL *resolved = [NSURL URLWithString:urlString relativeToURL:baseURL];
+        if (resolved != nil) {
+            return [resolved absoluteURL];
+        }
+    }
+
+    NSString *path = [urlString stringByRemovingPercentEncoding];
+    if (path == nil || [path length] == 0) {
+        path = urlString;
+    }
+    path = [path stringByExpandingTildeInPath];
+    if (![path isAbsolutePath]) {
+        if ([baseURL isFileURL]) {
+            NSString *basePath = [baseURL path];
+            if (basePath != nil && [basePath length] > 0) {
+                path = [basePath stringByAppendingPathComponent:path];
+            }
+        } else {
+            NSString *cwd = [[NSFileManager defaultManager] currentDirectoryPath];
+            path = [cwd stringByAppendingPathComponent:path];
+        }
+    }
+    return [NSURL fileURLWithPath:path];
+}
+
+static NSImage *OMLoadImageFromURL(NSURL *url)
+{
+    if (url == nil) {
+        return nil;
+    }
+
+    if ([url isFileURL]) {
+        NSString *path = [url path];
+        if (path == nil || [path length] == 0) {
+            return nil;
+        }
+        return [[[NSImage alloc] initWithContentsOfFile:path] autorelease];
+    }
+
+    if (OMURLUsesRemoteScheme(url) && !OMShouldAllowRemoteImages()) {
+        return nil;
+    }
+
+    NSData *data = [NSData dataWithContentsOfURL:url];
+    if (data == nil || [data length] == 0) {
+        return nil;
+    }
+    return [[[NSImage alloc] initWithData:data] autorelease];
+}
+
+static NSURL *OMResolvedLinkURL(NSString *urlString)
+{
+    if (urlString == nil || [urlString length] == 0) {
+        return nil;
+    }
+
+    NSURL *url = [NSURL URLWithString:urlString];
+    if (url != nil && [url scheme] != nil) {
+        return url;
+    }
+
+    OMMarkdownParsingOptions *options = OMActiveParsingOptions();
+    NSURL *baseURL = options != nil ? [options baseURL] : nil;
+    if (baseURL != nil) {
+        NSURL *resolved = [NSURL URLWithString:urlString relativeToURL:baseURL];
+        if (resolved != nil) {
+            return [resolved absoluteURL];
+        }
+    }
+
+    NSString *path = [urlString stringByRemovingPercentEncoding];
+    if (path == nil || [path length] == 0) {
+        path = urlString;
+    }
+    path = [path stringByExpandingTildeInPath];
+    if (![path isAbsolutePath]) {
+        if ([baseURL isFileURL]) {
+            NSString *basePath = [baseURL path];
+            if (basePath != nil && [basePath length] > 0) {
+                path = [basePath stringByAppendingPathComponent:path];
+            }
+        } else {
+            NSString *cwd = [[NSFileManager defaultManager] currentDirectoryPath];
+            path = [cwd stringByAppendingPathComponent:path];
+        }
+    }
+    return [NSURL fileURLWithPath:path];
+}
+
+static NSAttributedString *OMImageAttachmentAttributedString(cmark_node *imageNode,
+                                                             NSMutableDictionary *attributes,
+                                                             CGFloat scale)
+{
+    if (imageNode == NULL) {
+        return nil;
+    }
+
+    const char *urlLiteral = cmark_node_get_url(imageNode);
+    NSString *urlString = urlLiteral != NULL ? [NSString stringWithUTF8String:urlLiteral] : nil;
+    NSURL *url = OMResolvedImageURL(urlString);
+    if (url == nil) {
+        return nil;
+    }
+
+    NSString *urlKey = [url absoluteString];
+    if (urlKey == nil || [urlKey length] == 0) {
+        urlKey = urlString;
+    }
+    if (urlKey == nil || [urlKey length] == 0) {
+        return nil;
+    }
+
+    NSString *cacheKey = [NSString stringWithFormat:@"%@|%.2f|%.1f|allowRemote:%d",
+                          urlKey,
+                          scale,
+                          OMCurrentLayoutWidth,
+                          (int)(OMShouldAllowRemoteImages() ? 1 : 0)];
+    NSCache *cache = OMImageAttachmentCache();
+    NSImage *cachedImage = nil;
+    @synchronized (cache) {
+        cachedImage = [cache objectForKey:cacheKey];
+    }
+
+    NSImage *preparedImage = nil;
+    if (cachedImage != nil) {
+        preparedImage = [[cachedImage retain] autorelease];
+    } else {
+        NSImage *loaded = OMLoadImageFromURL(url);
+        if (loaded == nil) {
+            return nil;
+        }
+
+        preparedImage = [[loaded copy] autorelease];
+        NSSize imageSize = [preparedImage size];
+        CGFloat maxWidth = 0.0;
+        if (OMCurrentLayoutWidth > 0.0) {
+            maxWidth = floor(OMCurrentLayoutWidth - (24.0 * scale));
+        }
+        if (maxWidth > 0.0 && imageSize.width > maxWidth && imageSize.width > 0.0) {
+            CGFloat ratio = maxWidth / imageSize.width;
+            if (ratio > 0.0) {
+                CGFloat height = floor(imageSize.height * ratio);
+                if (height < 1.0) {
+                    height = 1.0;
+                }
+                [preparedImage setScalesWhenResized:YES];
+                [preparedImage setSize:NSMakeSize(maxWidth, height)];
+            }
+        }
+
+        @synchronized (cache) {
+            [cache setObject:preparedImage forKey:cacheKey];
+        }
+    }
+
+    NSTextAttachment *attachment = [[[NSTextAttachment alloc] initWithFileWrapper:nil] autorelease];
+    NSTextAttachmentCell *cell = [[[NSTextAttachmentCell alloc] initImageCell:preparedImage] autorelease];
+    [attachment setAttachmentCell:cell];
+
+    NSMutableDictionary *attachmentAttributes = [NSMutableDictionary dictionary];
+    if (attributes != nil) {
+        [attachmentAttributes addEntriesFromDictionary:attributes];
+    }
+    [attachmentAttributes setObject:attachment forKey:NSAttachmentAttributeName];
+
+    unichar attachmentChar = NSAttachmentCharacter;
+    NSString *attachmentString = [NSString stringWithCharacters:&attachmentChar length:1];
+    return [[[NSAttributedString alloc] initWithString:attachmentString
+                                            attributes:attachmentAttributes] autorelease];
+}
+
+static void OMAppendHTMLLiteral(const char *literal,
+                                NSMutableAttributedString *output,
+                                NSMutableDictionary *attributes,
+                                BOOL blockNode)
+{
+    if (OMHTMLPolicyForBlockNode(blockNode) == OMMarkdownHTMLPolicyIgnore) {
+        return;
+    }
+
+    NSString *html = literal != NULL ? [NSString stringWithUTF8String:literal] : @"";
+    if (html == nil || [html length] == 0) {
+        return;
+    }
+
+    OMAppendString(output, html, attributes);
+    if (blockNode) {
+        OMAppendString(output, @"\n\n", attributes);
+    }
 }
 
 static BOOL OMCharacterIsWhitespaceOrNewline(unichar ch)
@@ -558,8 +1728,16 @@ static BOOL OMRunTask(NSString *launchPath,
                       NSArray *arguments,
                       NSData **stdoutData,
                       NSData **stderrData,
-                      int *terminationStatus)
+                      int *terminationStatus,
+                      NSTimeInterval timeoutSeconds)
 {
+    if (launchPath == nil || [launchPath length] == 0) {
+        if (terminationStatus != NULL) {
+            *terminationStatus = -1;
+        }
+        return NO;
+    }
+
     NSTask *task = [[[NSTask alloc] init] autorelease];
     [task setLaunchPath:launchPath];
     [task setArguments:arguments];
@@ -570,10 +1748,22 @@ static BOOL OMRunTask(NSString *launchPath,
     [task setStandardError:errorPipe];
 
     BOOL launched = YES;
+    BOOL timedOut = NO;
     @try {
         [task launch];
+        if (timeoutSeconds > 0.0) {
+            NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:timeoutSeconds];
+            while ([task isRunning] && [deadline timeIntervalSinceNow] > 0.0) {
+                [NSThread sleepForTimeInterval:0.02];
+            }
+            if ([task isRunning]) {
+                timedOut = YES;
+                [task terminate];
+            }
+        }
         [task waitUntilExit];
     } @catch (NSException *exception) {
+        (void)exception;
         launched = NO;
     }
 
@@ -587,10 +1777,10 @@ static BOOL OMRunTask(NSString *launchPath,
         *stderrData = capturedError;
     }
     if (terminationStatus != NULL) {
-        *terminationStatus = launched ? [task terminationStatus] : -1;
+        *terminationStatus = (launched && !timedOut) ? [task terminationStatus] : -1;
     }
 
-    return launched && [task terminationStatus] == 0;
+    return launched && !timedOut && [task terminationStatus] == 0;
 }
 
 static NSString *OMCreateMathTempDirectory(void)
@@ -613,7 +1803,11 @@ static NSData *OMSVGDataForMathFormula(NSString *formula,
                                        BOOL displayMath,
                                        CGFloat renderZoom)
 {
-    if (!OMMathBackendAvailable()) {
+    if (!OMExternalMathRenderingEnabled() ||
+        !OMMathBackendAvailable() ||
+        formula == nil ||
+        [formula length] == 0 ||
+        [formula length] > OMMathMaximumFormulaLength()) {
         return nil;
     }
 
@@ -675,7 +1869,12 @@ static NSData *OMSVGDataForMathFormula(NSString *formula,
         nil];
     int texStatus = 0;
     NSTimeInterval texStart = OMNow();
-    BOOL texOK = OMRunTask(texExecutable, texArguments, NULL, NULL, &texStatus);
+    BOOL texOK = OMRunTask(texExecutable,
+                           texArguments,
+                           NULL,
+                           NULL,
+                           &texStatus,
+                           OMExternalToolTimeout());
     if (OMCurrentMathPerfStats != NULL) {
         OMCurrentMathPerfStats->latexRuns += 1;
         OMCurrentMathPerfStats->latexSeconds += (OMNow() - texStart);
@@ -702,7 +1901,12 @@ static NSData *OMSVGDataForMathFormula(NSString *formula,
     NSData *svgData = nil;
     int svgStatus = 0;
     NSTimeInterval svgStart = OMNow();
-    BOOL svgOK = OMRunTask(OMDviSvgmExecutablePath(), svgArguments, &svgData, NULL, &svgStatus);
+    BOOL svgOK = OMRunTask(OMDviSvgmExecutablePath(),
+                           svgArguments,
+                           &svgData,
+                           NULL,
+                           &svgStatus,
+                           OMExternalToolTimeout());
     if (OMCurrentMathPerfStats != NULL) {
         OMCurrentMathPerfStats->dvisvgmRuns += 1;
         OMCurrentMathPerfStats->dvisvgmSeconds += (OMNow() - svgStart);
@@ -719,7 +1923,11 @@ static void OMScheduleAsyncMathAssetGeneration(NSString *formula,
                                                BOOL displayMath,
                                                CGFloat renderZoom)
 {
-    if (!OMMathBackendAvailable() || formula == nil || [formula length] == 0) {
+    if (!OMExternalMathRenderingEnabled() ||
+        !OMMathBackendAvailable() ||
+        formula == nil ||
+        [formula length] == 0 ||
+        [formula length] > OMMathMaximumFormulaLength()) {
         return;
     }
 
@@ -770,10 +1978,18 @@ static NSAttributedString *OMMathAttachmentAttributedString(NSString *formula,
                                                             CGFloat scale,
                                                             BOOL displayMath)
 {
+    if (!OMExternalMathRenderingEnabled()) {
+        return nil;
+    }
+
     if (OMCurrentMathPerfStats != NULL) {
         OMCurrentMathPerfStats->mathRequests += 1;
     }
-    if (!OMMathBackendAvailable() || formula == nil || [formula length] == 0) {
+    NSUInteger maxFormulaLength = OMMathMaximumFormulaLength();
+    if (!OMMathBackendAvailable() ||
+        formula == nil ||
+        [formula length] == 0 ||
+        (maxFormulaLength > 0 && [formula length] > maxFormulaLength)) {
         if (OMCurrentMathPerfStats != NULL) {
             OMCurrentMathPerfStats->mathFailures += 1;
         }
@@ -922,6 +2138,10 @@ static void OMAppendTextWithMathSpans(NSString *text,
     if (text == nil || [text length] == 0) {
         return;
     }
+    if (!OMShouldParseMathSpans()) {
+        OMAppendString(output, text, attributes);
+        return;
+    }
 
     NSUInteger length = [text length];
     NSUInteger cursor = 0;
@@ -1035,6 +2255,9 @@ static cmark_node *OMTryAppendMultiNodeDisplayMath(cmark_node *startNode,
     if (didRender != NULL) {
         *didRender = NO;
     }
+    if (!OMShouldParseMathSpans()) {
+        return NULL;
+    }
     if (!OMTextNodeIsDisplayMathFence(startNode)) {
         return NULL;
     }
@@ -1081,6 +2304,7 @@ static cmark_node *OMTryAppendMultiNodeDisplayMath(cmark_node *startNode,
 @property (nonatomic, retain) OMTheme *theme;
 @property (nonatomic, retain) NSArray *codeBlockRanges;
 @property (nonatomic, retain) NSArray *blockquoteRanges;
+@property (nonatomic, retain) NSArray *blockAnchors;
 @end
 
 @implementation OMMarkdownRenderer
@@ -1088,22 +2312,40 @@ static cmark_node *OMTryAppendMultiNodeDisplayMath(cmark_node *startNode,
 @synthesize zoomScale = _zoomScale;
 @synthesize layoutWidth = _layoutWidth;
 @synthesize asynchronousMathGenerationEnabled = _asynchronousMathGenerationEnabled;
+@synthesize parsingOptions = _parsingOptions;
 @synthesize codeBlockRanges = _codeBlockRanges;
 @synthesize blockquoteRanges = _blockquoteRanges;
+@synthesize blockAnchors = _blockAnchors;
+
++ (BOOL)isTreeSitterAvailable
+{
+    return OMTreeSitterRuntimeAvailable();
+}
 
 - (instancetype)init
 {
-    return [self initWithTheme:[OMTheme defaultTheme]];
+    return [self initWithTheme:[OMTheme defaultTheme]
+                parsingOptions:[OMMarkdownParsingOptions defaultOptions]];
 }
 
 - (instancetype)initWithTheme:(OMTheme *)theme
+{
+    return [self initWithTheme:theme
+                parsingOptions:[OMMarkdownParsingOptions defaultOptions]];
+}
+
+- (instancetype)initWithTheme:(OMTheme *)theme parsingOptions:(OMMarkdownParsingOptions *)parsingOptions
 {
     self = [super init];
     if (self) {
         if (theme == nil) {
             theme = [OMTheme defaultTheme];
         }
+        if (parsingOptions == nil) {
+            parsingOptions = [OMMarkdownParsingOptions defaultOptions];
+        }
         _theme = [theme retain];
+        _parsingOptions = [parsingOptions copy];
         _zoomScale = 1.0;
         _layoutWidth = 0.0;
         _asynchronousMathGenerationEnabled = NO;
@@ -1115,8 +2357,23 @@ static cmark_node *OMTryAppendMultiNodeDisplayMath(cmark_node *startNode,
 {
     [_codeBlockRanges release];
     [_blockquoteRanges release];
+    [_blockAnchors release];
+    [_parsingOptions release];
     [_theme release];
     [super dealloc];
+}
+
+- (void)setParsingOptions:(OMMarkdownParsingOptions *)parsingOptions
+{
+    OMMarkdownParsingOptions *resolved = parsingOptions;
+    if (resolved == nil) {
+        resolved = [OMMarkdownParsingOptions defaultOptions];
+    }
+    if (_parsingOptions == resolved) {
+        return;
+    }
+    [_parsingOptions release];
+    _parsingOptions = [resolved copy];
 }
 
 - (NSAttributedString *)attributedStringFromMarkdown:(NSString *)markdown
@@ -1135,8 +2392,9 @@ static cmark_node *OMTryAppendMultiNodeDisplayMath(cmark_node *startNode,
 
     const char *bytes = (const char *)[markdownData bytes];
     size_t length = (size_t)[markdownData length];
+    NSUInteger cmarkOptions = self.parsingOptions != nil ? [self.parsingOptions cmarkOptions] : (NSUInteger)CMARK_OPT_DEFAULT;
     NSTimeInterval parseStart = perfLogging ? OMNow() : 0.0;
-    cmark_node *document = cmark_parse_document(bytes, length, CMARK_OPT_DEFAULT);
+    cmark_node *document = cmark_parse_document(bytes, length, (int)cmarkOptions);
     NSTimeInterval parseMs = perfLogging ? ((OMNow() - parseStart) * 1000.0) : 0.0;
     if (document == NULL) {
         if (perfLogging) {
@@ -1167,18 +2425,33 @@ static cmark_node *OMTryAppendMultiNodeDisplayMath(cmark_node *startNode,
     NSMutableArray *listStack = [NSMutableArray array];
     NSMutableArray *codeRanges = [NSMutableArray array];
     NSMutableArray *blockquoteRanges = [NSMutableArray array];
+    NSMutableArray *blockAnchors = [NSMutableArray array];
+    NSArray *sourceLines = OMSourceLinesForMarkdown(markdown);
     OMMathPerfStats stats = {0};
     OMMathPerfStats *previousStats = OMCurrentMathPerfStats;
     BOOL previousAsyncMathEnabled = OMCurrentAsyncMathGenerationEnabled;
+    NSMutableArray *previousBlockAnchors = OMCurrentBlockAnchors;
+    NSArray *previousSourceLines = OMCurrentSourceLines;
+    OMMarkdownParsingOptions *previousParsingOptions = OMCurrentParsingOptions;
+    CGFloat previousLayoutWidth = OMCurrentLayoutWidth;
     OMCurrentAsyncMathGenerationEnabled = self.asynchronousMathGenerationEnabled;
     OMCurrentMathPerfStats = &stats;
+    OMCurrentBlockAnchors = blockAnchors;
+    OMCurrentSourceLines = sourceLines;
+    OMCurrentParsingOptions = self.parsingOptions;
+    OMCurrentLayoutWidth = self.layoutWidth;
     NSTimeInterval renderStart = perfLogging ? OMNow() : 0.0;
     OMRenderBlocks(document, self.theme, output, attributes, codeRanges, blockquoteRanges, listStack, 0, scale, self.layoutWidth);
     NSTimeInterval renderMs = perfLogging ? ((OMNow() - renderStart) * 1000.0) : 0.0;
     OMCurrentAsyncMathGenerationEnabled = previousAsyncMathEnabled;
     OMCurrentMathPerfStats = previousStats;
+    OMCurrentBlockAnchors = previousBlockAnchors;
+    OMCurrentSourceLines = previousSourceLines;
+    OMCurrentParsingOptions = previousParsingOptions;
+    OMCurrentLayoutWidth = previousLayoutWidth;
     [self setCodeBlockRanges:codeRanges];
     [self setBlockquoteRanges:blockquoteRanges];
+    [self setBlockAnchors:blockAnchors];
     OMTrimTrailingNewlines(output);
     cmark_node_free(document);
     if (perfLogging) {
@@ -1298,25 +2571,37 @@ static void OMRenderCodeBlock(cmark_node *node,
 
     NSFont *font = [attributes objectForKey:NSFontAttributeName];
     CGFloat size = font != nil ? [font pointSize] : (theme.baseFont != nil ? [theme.baseFont pointSize] * scale : 14.0 * scale);
-    NSDictionary *codeAttrs = [theme codeAttributesForSize:size];
+    CGFloat blockCodeFontSize = size * 0.92;
+    if (blockCodeFontSize < 11.0 * scale) {
+        blockCodeFontSize = 11.0 * scale;
+    }
+    NSDictionary *codeAttrs = [theme codeAttributesForSize:blockCodeFontSize];
 
     NSMutableDictionary *blockAttrs = [attributes mutableCopy];
     [blockAttrs addEntriesFromDictionary:codeAttrs];
+    NSColor *codeBackgroundColor = [blockAttrs objectForKey:NSBackgroundColorAttributeName];
+    if (codeBackgroundColor != nil) {
+        // Block code container background is drawn by OMDTextView; keep inline code background separate.
+        [blockAttrs removeObjectForKey:NSBackgroundColorAttributeName];
+    }
 
     CGFloat indent = (CGFloat)(quoteLevel * 20.0 * scale) + 20.0 * scale;
-    CGFloat padding = 16.0 * scale;
+    CGFloat padding = 20.0 * scale;
     NSMutableParagraphStyle *style = OMParagraphStyleWithIndent(indent + padding,
                                                                 indent + padding,
                                                                 14.0 * scale,
                                                                 0.0,
-                                                                1.5,
-                                                                size);
+                                                                1.45,
+                                                                blockCodeFontSize);
     [style setParagraphSpacingBefore:10.0 * scale];
     [style setTailIndent:-padding];
     [blockAttrs setObject:style forKey:NSParagraphStyleAttributeName];
 
     NSUInteger startLocation = [output length];
-    OMAppendString(output, code, blockAttrs);
+    NSMutableAttributedString *codeSegment = [[[NSMutableAttributedString alloc] initWithString:code
+                                                                                      attributes:blockAttrs] autorelease];
+    OMApplyCodeSyntaxHighlighting(node, codeSegment, codeBackgroundColor);
+    OMAppendAttributedSegment(output, codeSegment);
     if ([code length] > 0) {
         [codeRanges addObject:[NSValue valueWithRange:NSMakeRange(startLocation, [code length])]];
     }
@@ -1452,9 +2737,9 @@ static void OMRenderBlocks(cmark_node *node,
                            CGFloat scale,
                            CGFloat layoutWidth)
 {
+    NSUInteger startLocation = [output length];
     cmark_node_type type = cmark_node_get_type(node);
     if (type == CMARK_NODE_BLOCK_QUOTE) {
-        NSUInteger startLocation = [output length];
         cmark_node *child = cmark_node_first_child(node);
         while (child != NULL) {
             OMRenderBlocks(child, theme, output, attributes, codeRanges, blockquoteRanges, listStack, quoteLevel + 1, scale, layoutWidth);
@@ -1463,6 +2748,7 @@ static void OMRenderBlocks(cmark_node *node,
         NSUInteger endLocation = [output length];
         if (endLocation > startLocation) {
             [blockquoteRanges addObject:[NSValue valueWithRange:NSMakeRange(startLocation, endLocation - startLocation)]];
+            OMRecordBlockAnchor(node, startLocation, endLocation);
         }
         return;
     }
@@ -1471,28 +2757,43 @@ static void OMRenderBlocks(cmark_node *node,
             break;
         case CMARK_NODE_PARAGRAPH:
             OMRenderParagraph(node, theme, output, attributes, listStack, quoteLevel, scale);
+            OMRecordBlockAnchor(node, startLocation, [output length]);
             return;
         case CMARK_NODE_HEADING:
             OMRenderHeading(node, theme, output, attributes, quoteLevel, scale, layoutWidth);
+            OMRecordBlockAnchor(node, startLocation, [output length]);
             return;
         case CMARK_NODE_CODE_BLOCK:
             OMRenderCodeBlock(node, theme, output, attributes, quoteLevel, scale, codeRanges);
+            OMRecordBlockAnchor(node, startLocation, [output length]);
             return;
         case CMARK_NODE_THEMATIC_BREAK:
             OMRenderThematicBreak(theme, output, attributes, layoutWidth);
+            OMRecordBlockAnchor(node, startLocation, [output length]);
             return;
         case CMARK_NODE_BLOCK_QUOTE:
             quoteLevel += 1;
             break;
         case CMARK_NODE_LIST:
             OMRenderList(node, theme, output, attributes, codeRanges, blockquoteRanges, listStack, quoteLevel, scale, layoutWidth);
+            OMRecordBlockAnchor(node, startLocation, [output length]);
             return;
         case CMARK_NODE_ITEM:
             OMRenderListItem(node, theme, output, attributes, codeRanges, blockquoteRanges, listStack, quoteLevel, scale, layoutWidth);
+            OMRecordBlockAnchor(node, startLocation, [output length]);
             return;
-        case CMARK_NODE_HTML_BLOCK:
-        case CMARK_NODE_CUSTOM_BLOCK:
+        case CMARK_NODE_HTML_BLOCK: {
+            const char *literal = cmark_node_get_literal(node);
+            OMAppendHTMLLiteral(literal, output, attributes, YES);
+            OMRecordBlockAnchor(node, startLocation, [output length]);
             return;
+        }
+        case CMARK_NODE_CUSTOM_BLOCK: {
+            const char *literal = cmark_node_get_literal(node);
+            OMAppendHTMLLiteral(literal, output, attributes, YES);
+            OMRecordBlockAnchor(node, startLocation, [output length]);
+            return;
+        }
         default:
             break;
     }
@@ -1571,10 +2872,7 @@ static void OMRenderInlines(cmark_node *node,
                 NSString *urlString = url != NULL ? [NSString stringWithUTF8String:url] : @"";
                 NSMutableDictionary *linkAttrs = [attributes mutableCopy];
                 if ([urlString length] > 0) {
-                    NSURL *linkURL = [NSURL URLWithString:urlString];
-                    if (linkURL == nil) {
-                        linkURL = [NSURL fileURLWithPath:urlString];
-                    }
+                    NSURL *linkURL = OMResolvedLinkURL(urlString);
                     if (linkURL != nil) {
                         [linkAttrs setObject:linkURL forKey:NSLinkAttributeName];
                     }
@@ -1587,12 +2885,32 @@ static void OMRenderInlines(cmark_node *node,
                 break;
             }
             case CMARK_NODE_IMAGE: {
-                OMAppendString(output, @"[image]", attributes);
+                if (!OMShouldRenderImages()) {
+                    OMAppendString(output, OMFallbackImageTextForNode(child), attributes);
+                } else {
+                    NSAttributedString *attachment = OMImageAttachmentAttributedString(child, attributes, scale);
+                    if (attachment != nil) {
+                        OMAppendAttributedSegment(output, attachment);
+                    } else {
+                        OMAppendString(output, OMFallbackImageTextForNode(child), attributes);
+                    }
+                }
                 break;
             }
-            case CMARK_NODE_HTML_INLINE:
-            case CMARK_NODE_CUSTOM_INLINE:
+            case CMARK_NODE_HTML_INLINE: {
+                const char *literal = cmark_node_get_literal(child);
+                OMAppendHTMLLiteral(literal, output, attributes, NO);
                 break;
+            }
+            case CMARK_NODE_CUSTOM_INLINE: {
+                const char *literal = cmark_node_get_literal(child);
+                if (literal != NULL) {
+                    OMAppendHTMLLiteral(literal, output, attributes, NO);
+                } else {
+                    OMRenderInlines(child, theme, output, attributes, scale);
+                }
+                break;
+            }
             default:
                 OMRenderInlines(child, theme, output, attributes, scale);
                 break;

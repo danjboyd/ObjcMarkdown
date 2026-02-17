@@ -9,6 +9,7 @@
 {
     [_codeBlockRanges release];
     [_codeBlockBackgroundColor release];
+    [_codeBlockBorderColor release];
     [_blockquoteRanges release];
     [_blockquoteLineColor release];
     [super dealloc];
@@ -39,6 +40,11 @@
     NSSize inset = [self textContainerInset];
     CGFloat paddingX = self.codeBlockPadding.width;
     CGFloat paddingY = self.codeBlockPadding.height;
+    CGFloat cornerRadius = self.codeBlockCornerRadius > 0.0 ? self.codeBlockCornerRadius : 6.0;
+    CGFloat borderWidth = self.codeBlockBorderWidth > 0.0 ? self.codeBlockBorderWidth : 1.0;
+    NSColor *borderColor = self.codeBlockBorderColor;
+    CGFloat minX = origin.x + inset.width - paddingX;
+    CGFloat maxX = origin.x + [self bounds].size.width - inset.width + paddingX;
 
     for (NSValue *value in self.codeBlockRanges) {
         NSRange charRange = [value rangeValue];
@@ -47,30 +53,45 @@
         }
 
         NSRange glyphRange = [layoutManager glyphRangeForCharacterRange:charRange actualCharacterRange:NULL];
-        NSUInteger glyphIndex = glyphRange.location;
-        while (glyphIndex < NSMaxRange(glyphRange)) {
-            NSRange lineRange;
-            NSRect lineRect = [layoutManager lineFragmentRectForGlyphAtIndex:glyphIndex
-                                                             effectiveRange:&lineRange];
-            if (NSMaxRange(lineRange) > NSMaxRange(glyphRange)) {
-                lineRange.length = NSMaxRange(glyphRange) - lineRange.location;
-            }
+        if (glyphRange.length == 0) {
+            continue;
+        }
 
-            NSRect lineBounds = lineRect;
-            lineBounds.origin.x = origin.x + inset.width;
-            lineBounds.size.width = [self bounds].size.width - (inset.width * 2.0);
-            lineBounds.origin.y = origin.y + lineRect.origin.y;
-            lineBounds.size.height = lineRect.size.height;
+        NSRect blockRect = [layoutManager boundingRectForGlyphRange:glyphRange inTextContainer:container];
+        NSRect blockBounds = blockRect;
+        blockBounds.origin.x = origin.x + blockRect.origin.x;
+        blockBounds.origin.y = origin.y + blockRect.origin.y;
 
-            lineBounds.origin.x -= paddingX;
-            lineBounds.size.width += paddingX * 2.0;
-            lineBounds.origin.y -= paddingY / 2.0;
-            lineBounds.size.height += paddingY;
+        blockBounds.origin.x -= paddingX;
+        blockBounds.size.width += paddingX * 2.0;
+        blockBounds.origin.y -= paddingY;
+        blockBounds.size.height += paddingY * 2.0;
 
-            NSRectFill(lineBounds);
-            glyphIndex = NSMaxRange(lineRange);
+        if (blockBounds.origin.x < minX) {
+            CGFloat delta = minX - blockBounds.origin.x;
+            blockBounds.origin.x = minX;
+            blockBounds.size.width -= delta;
+        }
+        CGFloat rightEdge = NSMaxX(blockBounds);
+        if (rightEdge > maxX) {
+            blockBounds.size.width -= (rightEdge - maxX);
+        }
+        if (blockBounds.size.width < 1.0 || blockBounds.size.height < 1.0) {
+            continue;
+        }
+
+        NSBezierPath *path = [NSBezierPath bezierPathWithRoundedRect:blockBounds
+                                                             xRadius:cornerRadius
+                                                             yRadius:cornerRadius];
+        [self.codeBlockBackgroundColor setFill];
+        [path fill];
+        if (borderColor != nil && borderWidth > 0.0) {
+            [path setLineWidth:borderWidth];
+            [borderColor setStroke];
+            [path stroke];
         }
     }
+
 }
 
 - (void)drawBlockquoteLines
@@ -81,7 +102,6 @@
 
     NSGraphicsContext *context = [NSGraphicsContext currentContext];
     [context saveGraphicsState];
-    [context setCompositingOperation:NSCompositeDestinationOver];
 
     NSLayoutManager *layoutManager = [self layoutManager];
     NSTextContainer *container = [self textContainer];

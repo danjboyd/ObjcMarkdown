@@ -3,7 +3,13 @@
 
 #import "OMTheme.h"
 
+#ifndef OBJCMARKDOWN_ENABLE_TOML_THEME
+#define OBJCMARKDOWN_ENABLE_TOML_THEME 1
+#endif
+
+#if OBJCMARKDOWN_ENABLE_TOML_THEME
 #include <toml.h>
+#endif
 #include <stdlib.h>
 #include <string.h>
 
@@ -41,6 +47,15 @@
 
 + (instancetype)themeWithContentsOfFile:(NSString *)path error:(NSError **)error
 {
+#if !OBJCMARKDOWN_ENABLE_TOML_THEME
+    (void)path;
+    if (error != NULL) {
+        *error = [NSError errorWithDomain:@"ObjcMarkdownTheme"
+                                     code:4
+                                 userInfo:@{ NSLocalizedDescriptionKey: @"TOML theme parsing is disabled in this build." }];
+    }
+    return nil;
+#else
     if (path == nil) {
         if (error != NULL) {
             *error = [NSError errorWithDomain:@"ObjcMarkdownTheme"
@@ -184,6 +199,7 @@
 
     toml_free(root);
     return theme;
+#endif
 }
 
 - (instancetype)initWithDefaultValues
@@ -305,6 +321,7 @@
     return attributes;
 }
 
+#if OBJCMARKDOWN_ENABLE_TOML_THEME
 + (NSString *)stringInTable:(toml_table_t *)table key:(const char *)key
 {
     toml_datum_t value = toml_string_in(table, key);
@@ -324,6 +341,7 @@
     }
     return [NSNumber numberWithLongLong:value.u.i];
 }
+#endif
 
 + (NSColor *)colorFromHexString:(NSString *)hex
 {

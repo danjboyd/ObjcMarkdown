@@ -1,0 +1,41 @@
+{
+  NSMIMETypes = (
+    "text/markdown",
+    "text/x-markdown",
+    "application/rtf",
+    "text/rtf",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.oasis.opendocument.text"
+  );
+
+  CFBundleDocumentTypes = (
+    {
+      CFBundleTypeName = "Markdown Document";
+      CFBundleTypeRole = "Viewer";
+      CFBundleTypeExtensions = ("md", "markdown", "mdown");
+      CFBundleTypeMIMETypes = ("text/markdown", "text/x-markdown");
+      LSItemContentTypes = ("net.daringfireball.markdown");
+    },
+    {
+      CFBundleTypeName = "Rich Text Document";
+      CFBundleTypeRole = "Viewer";
+      CFBundleTypeExtensions = ("rtf");
+      CFBundleTypeMIMETypes = ("application/rtf", "text/rtf");
+      LSItemContentTypes = ("public.rtf");
+    },
+    {
+      CFBundleTypeName = "Word Document";
+      CFBundleTypeRole = "Viewer";
+      CFBundleTypeExtensions = ("docx");
+      CFBundleTypeMIMETypes = ("application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+      LSItemContentTypes = ("org.openxmlformats.wordprocessingml.document");
+    },
+    {
+      CFBundleTypeName = "OpenDocument Text";
+      CFBundleTypeRole = "Viewer";
+      CFBundleTypeExtensions = ("odt");
+      CFBundleTypeMIMETypes = ("application/vnd.oasis.opendocument.text");
+      LSItemContentTypes = ("org.oasis-open.opendocument.text");
+    }
+  );
+}

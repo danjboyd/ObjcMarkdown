@@ -12,4 +12,8 @@ mkdir -p "$DESKTOP_DIR"
 chmod +x "$EXEC_PATH"
 sed -e "s|@EXEC@|$EXEC_PATH|g" -e "s|@ICON@|$ICON_PATH|g" "$TEMPLATE" > "$OUT"
 
+if command -v update-desktop-database >/dev/null 2>&1; then
+  update-desktop-database "$DESKTOP_DIR" >/dev/null 2>&1 || true
+fi
+
 echo "Installed: $OUT"

@@ -147,7 +147,26 @@
     }
 
     NSRect visibleRect = [[scrollView contentView] bounds];
-    NSRange visibleGlyphRange = [layoutManager glyphRangeForBoundingRect:visibleRect inTextContainer:textContainer];
+    NSPoint textOrigin = [_textView textContainerOrigin];
+    NSFont *layoutFont = [_textView font];
+    if (layoutFont == nil) {
+        layoutFont = [NSFont systemFontOfSize:12.0];
+    }
+    CGFloat lineHeight = [layoutManager defaultLineHeightForFont:layoutFont];
+    if (lineHeight < 1.0) {
+        lineHeight = 14.0;
+    }
+    NSRect visibleTextRect = visibleRect;
+    visibleTextRect.origin.x -= textOrigin.x;
+    visibleTextRect.origin.y -= textOrigin.y;
+    visibleTextRect.size.height += 2.0 * lineHeight;
+    if (visibleTextRect.origin.y > lineHeight) {
+        visibleTextRect.origin.y -= lineHeight;
+    } else {
+        visibleTextRect.origin.y = 0.0;
+    }
+
+    NSRange visibleGlyphRange = [layoutManager glyphRangeForBoundingRect:visibleTextRect inTextContainer:textContainer];
     if (visibleGlyphRange.length == 0) {
         return;
     }
@@ -186,8 +205,6 @@
     NSRange firstLineRange = [text lineRangeForRange:NSMakeRange(firstVisibleCharacter, 0)];
     NSUInteger lineStart = firstLineRange.location;
     NSUInteger lineNumber = [self lineNumberForCharacterIndex:lineStart inString:text];
-    NSPoint textOrigin = [_textView textContainerOrigin];
-
     while (lineStart < textLength) {
         NSRange lineRange = [text lineRangeForRange:NSMakeRange(lineStart, 0)];
         if (lineRange.location > lastVisibleCharacter + 1) {
@@ -204,12 +221,20 @@
 
         NSRect lineRect = [layoutManager lineFragmentRectForGlyphAtIndex:glyphRangeForLine.location
                                                            effectiveRange:NULL];
-        CGFloat y = lineRect.origin.y + textOrigin.y;
+        CGFloat y = lineRect.origin.y + textOrigin.y - visibleRect.origin.y;
         NSString *label = [NSString stringWithFormat:@"%lu", (unsigned long)lineNumber];
         NSSize labelSize = [label sizeWithAttributes:attributes];
         CGFloat x = NSWidth([self bounds]) - labelSize.width - 6.0;
         if (x < 2.0) {
             x = 2.0;
+        }
+        if (y + labelSize.height < NSMinY(rect) - 2.0) {
+            lineNumber += 1;
+            lineStart = NSMaxRange(lineRange);
+            continue;
+        }
+        if (y > NSMaxY(rect) + 2.0) {
+            break;
         }
         [label drawAtPoint:NSMakePoint(x, y) withAttributes:attributes];
 

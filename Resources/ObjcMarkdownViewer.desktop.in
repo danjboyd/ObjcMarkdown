@@ -1,9 +1,9 @@
 [Desktop Entry]
 Type=Application
 Name=Markdown Viewer
-Comment=View Markdown with ObjcMarkdownViewer
+Comment=Open Markdown, RTF, DOCX, and ODT with ObjcMarkdownViewer
 Exec=@EXEC@ %F
 Terminal=false
 Categories=Office;Viewer;TextTools;
-MimeType=text/markdown;
+MimeType=text/markdown;text/x-markdown;application/rtf;text/rtf;application/vnd.openxmlformats-officedocument.wordprocessingml.document;application/vnd.oasis.opendocument.text;
 Icon=@ICON@
