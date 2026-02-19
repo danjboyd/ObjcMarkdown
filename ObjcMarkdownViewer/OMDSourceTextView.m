@@ -5,6 +5,38 @@
 
 static NSString * const OMDWordSelectionShimEnabledDefaultsKey = @"ObjcMarkdownWordSelectionShimEnabled";
 
+static NSColor *OMDSourceSelectionBackgroundColorForBackground(NSColor *backgroundColor)
+{
+    NSColor *resolvedBackground = backgroundColor;
+    if (resolvedBackground == nil) {
+        resolvedBackground = [NSColor textBackgroundColor];
+    }
+    if (resolvedBackground == nil) {
+        resolvedBackground = [NSColor whiteColor];
+    }
+
+    NSColor *rgb = nil;
+    @try {
+        rgb = [resolvedBackground colorUsingColorSpaceName:NSCalibratedRGBColorSpace];
+    } @catch (NSException *exception) {
+        (void)exception;
+        rgb = nil;
+    }
+
+    if (rgb == nil) {
+        return [NSColor colorWithCalibratedRed:0.25 green:0.53 blue:0.88 alpha:0.28];
+    }
+
+    CGFloat red = [rgb redComponent];
+    CGFloat green = [rgb greenComponent];
+    CGFloat blue = [rgb blueComponent];
+    CGFloat luminance = (0.2126 * red) + (0.7152 * green) + (0.0722 * blue);
+    if (luminance < 0.45) {
+        return [NSColor colorWithCalibratedRed:0.36 green:0.60 blue:0.92 alpha:0.34];
+    }
+    return [NSColor colorWithCalibratedRed:0.25 green:0.53 blue:0.88 alpha:0.28];
+}
+
 static BOOL OMDIsMarkdownSpace(unichar ch)
 {
     return ch == ' ' || ch == '\t';
@@ -151,12 +183,159 @@ static NSUInteger OMDPositionAfterRemovingRange(NSUInteger position, NSRange rem
 - (BOOL)omdWordSelectionShimEnabled;
 - (BOOL)omdSendEditorAction:(SEL)action;
 - (BOOL)omdHandleStandardEditingShortcutEvent:(NSEvent *)event;
+- (BOOL)omdHandleVimKeyEvent:(NSEvent *)event;
+- (void)omdEnsureEditorCursorShape;
+- (BOOL)omdShouldForceEditorCursorShape;
+- (void)omdApplyDeferredEditorCursorShape;
 - (BOOL)omdHandleStructuredNewline:(id)sender;
 - (BOOL)omdHandleListIndentationWithOutdent:(BOOL)outdent;
 - (BOOL)omdHandleWordSelectionModifierEvent:(NSEvent *)event selector:(SEL)selector;
+- (void)omdApplySelectionStyle;
+- (void)omdDrawSelectedSyntaxOverlayInRect:(NSRect)dirtyRect;
 @end
 
 @implementation OMDSourceTextView
+
+- (instancetype)initWithFrame:(NSRect)frameRect
+{
+    self = [super initWithFrame:frameRect];
+    if (self != nil) {
+        [self omdApplySelectionStyle];
+    }
+    return self;
+}
+
+- (instancetype)initWithCoder:(NSCoder *)coder
+{
+    self = [super initWithCoder:coder];
+    if (self != nil) {
+        [self omdApplySelectionStyle];
+    }
+    return self;
+}
+
+- (void)setBackgroundColor:(NSColor *)color
+{
+    [super setBackgroundColor:color];
+    [self omdApplySelectionStyle];
+}
+
+- (void)drawRect:(NSRect)dirtyRect
+{
+    [super drawRect:dirtyRect];
+    [self omdDrawSelectedSyntaxOverlayInRect:dirtyRect];
+}
+
+- (void)resetCursorRects
+{
+    [super resetCursorRects];
+    NSRect cursorRect = [self visibleRect];
+    if (NSIsEmptyRect(cursorRect)) {
+        cursorRect = [self bounds];
+    }
+    NSCursor *cursor = [NSCursor IBeamCursor];
+    if (cursor != nil) {
+        [self addCursorRect:cursorRect cursor:cursor];
+    }
+}
+
+- (void)omdApplySelectionStyle
+{
+    NSColor *selectionBackground = OMDSourceSelectionBackgroundColorForBackground([self backgroundColor]);
+    NSDictionary *selectionAttributes = [NSDictionary dictionaryWithObjectsAndKeys:
+                                         selectionBackground, NSBackgroundColorAttributeName,
+                                         [NSColor clearColor], NSForegroundColorAttributeName,
+                                         nil];
+    [self setSelectedTextAttributes:selectionAttributes];
+}
+
+- (void)dealloc
+{
+    [super dealloc];
+}
+
+- (void)setSelectedRange:(NSRange)charRange
+{
+    [super setSelectedRange:charRange];
+}
+
+- (void)setSelectedRanges:(NSArray *)ranges
+{
+    [super setSelectedRanges:ranges];
+}
+
+- (void)setSelectedRange:(NSRange)charRange affinity:(NSSelectionAffinity)affinity stillSelecting:(BOOL)stillSelectingFlag
+{
+    [super setSelectedRange:charRange affinity:affinity stillSelecting:stillSelectingFlag];
+}
+
+- (void)setSelectedRanges:(NSArray *)ranges affinity:(NSSelectionAffinity)affinity stillSelecting:(BOOL)stillSelectingFlag
+{
+    [super setSelectedRanges:ranges affinity:affinity stillSelecting:stillSelectingFlag];
+}
+
+- (void)omdDrawSelectedSyntaxOverlayInRect:(NSRect)dirtyRect
+{
+    NSArray *ranges = [self selectedRanges];
+    if (ranges == nil || [ranges count] == 0) {
+        return;
+    }
+
+    NSLayoutManager *layoutManager = [self layoutManager];
+    NSTextContainer *textContainer = [self textContainer];
+    NSTextStorage *storage = [self textStorage];
+    NSString *text = [self string];
+    if (layoutManager == nil || textContainer == nil || storage == nil || text == nil) {
+        return;
+    }
+
+    NSUInteger textLength = [storage length];
+    if (textLength == 0) {
+        return;
+    }
+
+    NSPoint textOrigin = [self textContainerOrigin];
+    NSEnumerator *enumerator = [ranges objectEnumerator];
+    NSValue *value = nil;
+    while ((value = [enumerator nextObject]) != nil) {
+        NSRange range = [value rangeValue];
+        if (range.location == NSNotFound || range.length == 0 || range.location >= textLength) {
+            continue;
+        }
+        NSUInteger maxLength = textLength - range.location;
+        if (range.length > maxLength) {
+            range.length = maxLength;
+        }
+        if (range.length == 0) {
+            continue;
+        }
+
+        NSUInteger end = NSMaxRange(range);
+        for (NSUInteger index = range.location; index < end; index++) {
+            unichar ch = [text characterAtIndex:index];
+            if (ch == '\n' || ch == '\r') {
+                continue;
+            }
+
+            NSRange glyphRange = [layoutManager glyphRangeForCharacterRange:NSMakeRange(index, 1)
+                                                        actualCharacterRange:NULL];
+            if (glyphRange.length == 0) {
+                continue;
+            }
+            NSRect glyphRect = [layoutManager boundingRectForGlyphRange:glyphRange
+                                                         inTextContainer:textContainer];
+            glyphRect.origin.x += textOrigin.x;
+            glyphRect.origin.y += textOrigin.y;
+            if (!NSIntersectsRect(glyphRect, dirtyRect)) {
+                continue;
+            }
+
+            NSDictionary *attributes = [storage attributesAtIndex:index effectiveRange:NULL];
+            NSString *character = [text substringWithRange:NSMakeRange(index, 1)];
+            [character drawAtPoint:glyphRect.origin withAttributes:attributes];
+        }
+    }
+}
 
 - (void)changeFont:(id)sender
 {
@@ -195,6 +374,8 @@ static NSUInteger OMDPositionAfterRemovingRange(NSUInteger position, NSRange rem
 
 - (void)keyDown:(NSEvent *)event
 {
+    [self omdEnsureEditorCursorShape];
+
     _omdPendingModifiers = 0;
     _omdPendingArrowDirection = 0;
     _omdHasPendingKeyContext = NO;
@@ -226,18 +407,122 @@ static NSUInteger OMDPositionAfterRemovingRange(NSUInteger position, NSRange rem
         }
     }
 
+    if ([self omdHandleVimKeyEvent:event]) {
+        _omdHasPendingKeyContext = NO;
+        [self omdEnsureEditorCursorShape];
+        return;
+    }
+
     if ([self omdHandleStandardEditingShortcutEvent:event]) {
         _omdHasPendingKeyContext = NO;
+        [self omdEnsureEditorCursorShape];
         return;
     }
 
     if ([self omdHandleWordSelectionModifierEvent:event selector:NULL]) {
         _omdHasPendingKeyContext = NO;
+        [self omdEnsureEditorCursorShape];
         return;
     }
 
     [super keyDown:event];
     _omdHasPendingKeyContext = NO;
+    [self omdEnsureEditorCursorShape];
+}
+
+- (void)keyUp:(NSEvent *)event
+{
+    [super keyUp:event];
+    [self omdEnsureEditorCursorShape];
+}
+
+- (void)omdEnsureEditorCursorShape
+{
+    NSWindow *window = [self window];
+    if (window == nil) {
+        return;
+    }
+
+    [window invalidateCursorRectsForView:self];
+    [NSObject cancelPreviousPerformRequestsWithTarget:self
+                                             selector:@selector(omdApplyDeferredEditorCursorShape)
+                                               object:nil];
+    [self performSelector:@selector(omdApplyDeferredEditorCursorShape)
+               withObject:nil
+               afterDelay:0.0];
+}
+
+- (BOOL)omdShouldForceEditorCursorShape
+{
+    NSWindow *window = [self window];
+    if (window == nil) {
+        return NO;
+    }
+    if ([window firstResponder] != self) {
+        return NO;
+    }
+    if ([NSApp keyWindow] != window) {
+        return NO;
+    }
+
+    NSWindow *modalWindow = [NSApp modalWindow];
+    if (modalWindow != nil && modalWindow != window) {
+        return NO;
+    }
+
+    NSPoint windowPoint = [window mouseLocationOutsideOfEventStream];
+    NSPoint localPoint = [self convertPoint:windowPoint fromView:nil];
+    NSRect cursorRect = [self visibleRect];
+    if (NSIsEmptyRect(cursorRect)) {
+        cursorRect = [self bounds];
+    }
+    return NSPointInRect(localPoint, cursorRect);
+}
+
+- (void)omdApplyDeferredEditorCursorShape
+{
+    NSWindow *window = [self window];
+    if (window == nil) {
+        return;
+    }
+    if ([window respondsToSelector:@selector(resetCursorRects)]) {
+        [window resetCursorRects];
+    }
+}
+
+- (BOOL)omdHandleVimKeyEvent:(NSEvent *)event
+{
+    if (event == nil) {
+        return NO;
+    }
+
+    SEL action = @selector(sourceTextView:handleVimKeyEvent:);
+    id<OMDSourceTextViewVimEventHandling> target = nil;
+
+    NSWindow *window = [self window];
+    if (window != nil) {
+        id delegate = [window delegate];
+        if (delegate != nil &&
+            [delegate conformsToProtocol:@protocol(OMDSourceTextViewVimEventHandling)] &&
+            [delegate respondsToSelector:action]) {
+            target = (id<OMDSourceTextViewVimEventHandling>)delegate;
+        }
+    }
+
+    if (target == nil) {
+        id appDelegate = [NSApp delegate];
+        if (appDelegate != nil &&
+            [appDelegate conformsToProtocol:@protocol(OMDSourceTextViewVimEventHandling)] &&
+            [appDelegate respondsToSelector:action]) {
+            target = (id<OMDSourceTextViewVimEventHandling>)appDelegate;
+        }
+    }
+
+    if (target == nil) {
+        return NO;
+    }
+
+    return [target sourceTextView:self handleVimKeyEvent:event];
 }
 
 - (void)doCommandBySelector:(SEL)aSelector
@@ -311,6 +596,12 @@ static NSUInteger OMDPositionAfterRemovingRange(NSUInteger position, NSRange rem
             return [self omdSendEditorAction:@selector(toggleBoldFormatting:)];
         case 'i':
             return [self omdSendEditorAction:@selector(toggleItalicFormatting:)];
+        case '=':
+        case '+':
+            return [self omdSendEditorAction:@selector(increaseSourceEditorFontSize:)];
+        case '-':
+        case '_':
+            return [self omdSendEditorAction:@selector(decreaseSourceEditorFontSize:)];
         case 'c':
             action = @selector(copy:);
             break;

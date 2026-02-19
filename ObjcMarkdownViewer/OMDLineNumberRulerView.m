@@ -243,4 +243,30 @@
     }
 }
 
+- (void)mouseDown:(NSEvent *)event
+{
+    // Keep the line-number gutter inert to avoid NSRulerView interaction artifacts.
+    (void)event;
+}
+
+- (void)mouseDragged:(NSEvent *)event
+{
+    (void)event;
+}
+
+- (void)mouseUp:(NSEvent *)event
+{
+    (void)event;
+}
+
+- (void)rightMouseDown:(NSEvent *)event
+{
+    (void)event;
+}
+
+- (void)otherMouseDown:(NSEvent *)event
+{
+    (void)event;
+}
+
 @end

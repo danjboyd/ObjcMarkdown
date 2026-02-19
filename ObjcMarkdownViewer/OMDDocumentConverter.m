@@ -10,7 +10,7 @@ static NSSet *OMDSupportedExtensions(void)
 {
     static NSSet *extensions = nil;
     if (extensions == nil) {
-        extensions = [[NSSet alloc] initWithObjects:@"rtf", @"docx", @"odt", nil];
+        extensions = [[NSSet alloc] initWithObjects:@"rtf", @"docx", @"odt", @"html", @"htm", nil];
     }
     return extensions;
 }
@@ -32,7 +32,7 @@ static NSSet *OMDSupportedExtensions(void)
 
 + (NSString *)missingBackendInstallMessage
 {
-    return @"Pandoc is required for DOCX/ODT/RTF import and export.\n"
+    return @"Pandoc is required for DOCX/ODT/RTF/HTML import and export.\n"
            @"Install with: sudo apt-get install pandoc";
 }
 

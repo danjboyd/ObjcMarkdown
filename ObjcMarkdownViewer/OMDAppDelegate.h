@@ -2,15 +2,22 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #import <AppKit/AppKit.h>
+#import "OMDSourceTextView.h"
 
 @class OMMarkdownRenderer;
 @class OMDDocumentConverter;
 @class OMDLineNumberRulerView;
 @class OMDFormattingBarView;
+@class GSVVimBindingController;
+@class OMDGitHubClient;
 
-@interface OMDAppDelegate : NSObject <NSApplicationDelegate, NSToolbarDelegate, NSWindowDelegate, NSTextViewDelegate, NSMenuValidation, NSSplitViewDelegate>
+@interface OMDAppDelegate : NSObject <NSApplicationDelegate, NSToolbarDelegate, NSWindowDelegate, NSTextViewDelegate, NSMenuValidation, NSSplitViewDelegate, NSTableViewDataSource, NSTableViewDelegate, NSComboBoxDelegate, NSControlTextEditingDelegate, OMDSourceTextViewVimEventHandling>
 {
     NSWindow *_window;
+    NSSplitView *_workspaceSplitView;
+    NSView *_workspaceMainContainer;
+    NSView *_sidebarContainer;
+    NSView *_tabStripView;
     NSView *_documentContainer;
     NSSplitView *_splitView;
     NSScrollView *_previewScrollView;
@@ -24,6 +31,37 @@
     BOOL _openedFileOnLaunch;
     NSString *_currentMarkdown;
     NSString *_currentPath;
+    NSString *_currentDisplayTitle;
+    NSInteger _currentDocumentRenderMode;
+    NSString *_currentDocumentSyntaxLanguage;
+    BOOL _currentDocumentReadOnly;
+    NSMutableArray *_documentTabs;
+    NSInteger _selectedDocumentTabIndex;
+    OMDGitHubClient *_gitHubClient;
+    NSMenuItem *_viewShowExplorerMenuItem;
+    NSSegmentedControl *_explorerSourceModeControl;
+    NSTextField *_explorerLocalRootLabel;
+    NSTextField *_explorerGitHubUserLabel;
+    NSComboBox *_explorerGitHubUserComboBox;
+    NSComboBox *_explorerGitHubRepoComboBox;
+    NSButton *_explorerGitHubIncludeForkArchivedButton;
+    NSButton *_explorerNavigateUpButton;
+    NSTextField *_explorerPathLabel;
+    NSScrollView *_explorerScrollView;
+    NSTableView *_explorerTableView;
+    NSMutableArray *_explorerEntries;
+    NSArray *_explorerGitHubRepos;
+    NSString *_explorerLocalRootPath;
+    NSString *_explorerLocalCurrentPath;
+    NSString *_explorerGitHubUser;
+    NSString *_explorerGitHubRepo;
+    NSString *_explorerGitHubCurrentPath;
+    NSString *_explorerGitHubRepoCachePath;
+    NSInteger _explorerSourceMode;
+    NSUInteger _explorerRequestToken;
+    BOOL _explorerIsLoading;
+    BOOL _explorerSidebarVisible;
+    CGFloat _explorerSidebarLastVisibleWidth;
     NSSlider *_zoomSlider;
     NSTextField *_zoomLabel;
     NSButton *_zoomResetButton;
@@ -42,6 +80,7 @@
     NSView *_copyFeedbackHUDView;
     BOOL _isSecondaryWindow;
     OMDDocumentConverter *_documentConverter;
+    GSVVimBindingController *_sourceVimBindingController;
     NSView *_modeContainer;
     NSSegmentedControl *_modeControl;
     NSTextField *_modeLabel;
@@ -54,12 +93,17 @@
     NSPopUpButton *_preferencesSplitSyncModePopup;
     NSButton *_preferencesAllowRemoteImagesButton;
     NSButton *_preferencesWordSelectionShimButton;
+    NSButton *_preferencesSourceVimKeyBindingsButton;
     NSButton *_preferencesSyntaxHighlightingButton;
     NSButton *_preferencesSourceHighContrastButton;
     NSColorWell *_preferencesSourceAccentColorWell;
     NSButton *_preferencesSourceAccentResetButton;
     NSButton *_preferencesRendererSyntaxHighlightingButton;
     NSTextField *_preferencesRendererSyntaxHighlightingNoteLabel;
+    NSTextField *_preferencesExplorerLocalRootField;
+    NSTextField *_preferencesExplorerMaxFileSizeField;
+    NSTextField *_preferencesExplorerListFontSizeField;
+    NSSecureTextField *_preferencesExplorerGitHubTokenField;
     NSInteger _viewerMode;
     CGFloat _splitRatio;
     BOOL _isProgrammaticSourceUpdate;
@@ -74,11 +118,13 @@
     BOOL _showFormattingBar;
     BOOL _zoomUsesDebouncedRendering;
     BOOL _sourceIsDirty;
+    BOOL _sourceVimForceClose;
     NSUInteger _sourceRevision;
     NSUInteger _lastRenderedSourceRevision;
     NSUInteger _zoomFastRenderStreak;
     NSTimeInterval _lastZoomSliderEventTime;
     CGFloat _lastRenderedLayoutWidth;
+    NSString *_sourceVimCommandLine;
 }
 
 @end

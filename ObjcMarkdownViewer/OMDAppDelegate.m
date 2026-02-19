@@ -13,6 +13,9 @@
 #import "OMDFormattingBarView.h"
 #import "OMDPreviewSync.h"
 #import "OMDViewerModeState.h"
+#import "OMDGitHubClient.h"
+#import "GSVVimBindingController.h"
+#import "GSVVimConfigLoader.h"
 #import <AppKit/NSInterfaceStyle.h>
 #import <GNUstepGUI/GSTheme.h>
 
@@ -45,9 +48,18 @@ static const CGFloat OMDFormattingBarGroupSpacing = 6.0;
 static const CGFloat OMDSourceEditorDefaultFontSize = 13.0;
 static const CGFloat OMDSourceEditorMinFontSize = 9.0;
 static const CGFloat OMDSourceEditorMaxFontSize = 32.0;
+static const CGFloat OMDExplorerSidebarDefaultWidth = 300.0;
+static const CGFloat OMDTabStripHeight = 30.0;
+static const CGFloat OMDExplorerListDefaultFontSize = 14.0;
+static const CGFloat OMDExplorerListMinFontSize = 10.0;
+static const CGFloat OMDExplorerListMaxFontSize = 20.0;
+static const CGFloat OMDExplorerListMinimumRowHeight = 20.0;
 static const CGFloat OMDToolbarControlHeight = 22.0;
 static const CGFloat OMDToolbarLabelHeight = 20.0;
 static const CGFloat OMDToolbarItemHeight = 26.0;
+static const NSTimeInterval OMDGitLockRetryDelaySeconds = 0.20;
+static const NSTimeInterval OMDGitStaleLockMinimumAgeSeconds = 2.0;
+static NSString * const OMDTextFileErrorDomain = @"OMDTextFileErrorDomain";
 static NSString * const OMDSourceEditorFontNameDefaultsKey = @"ObjcMarkdownSourceEditorFontName";
 static NSString * const OMDSourceEditorFontSizeDefaultsKey = @"ObjcMarkdownSourceEditorFontSize";
 static NSString * const OMDMathRenderingPolicyDefaultsKey = @"ObjcMarkdownMathRenderingPolicy";
@@ -57,13 +69,43 @@ static NSString * const OMDWordSelectionModifierShimDefaultsKey = @"ObjcMarkdown
 static NSString * const OMDSourceSyntaxHighlightingDefaultsKey = @"ObjcMarkdownSourceSyntaxHighlightingEnabled";
 static NSString * const OMDSourceHighlightHighContrastDefaultsKey = @"ObjcMarkdownSourceHighlightHighContrastEnabled";
 static NSString * const OMDSourceHighlightAccentColorDefaultsKey = @"ObjcMarkdownSourceHighlightAccentColor";
+static NSString * const OMDSourceVimKeyBindingsDefaultsKey = @"ObjcMarkdownSourceVimKeyBindingsEnabled";
 static NSString * const OMDRendererSyntaxHighlightingDefaultsKey = @"ObjcMarkdownRendererSyntaxHighlightingEnabled";
 static NSString * const OMDShowFormattingBarDefaultsKey = @"ObjcMarkdownShowFormattingBar";
+static NSString * const OMDExplorerLocalRootPathDefaultsKey = @"ObjcMarkdownExplorerLocalRootPath";
+static NSString * const OMDExplorerMaxFileSizeMBDefaultsKey = @"ObjcMarkdownExplorerMaxFileSizeMB";
+static NSString * const OMDExplorerListFontSizeDefaultsKey = @"ObjcMarkdownExplorerListFontSize";
+static NSString * const OMDExplorerIncludeForkArchivedDefaultsKey = @"ObjcMarkdownExplorerIncludeForkArchived";
+static NSString * const OMDExplorerSidebarVisibleDefaultsKey = @"ObjcMarkdownExplorerSidebarVisible";
+static NSString * const OMDExplorerGitHubTokenDefaultsKey = @"ObjcMarkdownGitHubToken";
+static NSString * const OMDGitHubCacheErrorDomain = @"OMDGitHubCacheErrorDomain";
+
+static NSString * const OMDTabMarkdownKey = @"markdown";
+static NSString * const OMDTabSourcePathKey = @"sourcePath";
+static NSString * const OMDTabDisplayTitleKey = @"displayTitle";
+static NSString * const OMDTabDirtyKey = @"dirty";
+static NSString * const OMDTabReadOnlyKey = @"readOnly";
+static NSString * const OMDTabIsGitHubKey = @"isGitHub";
+static NSString * const OMDTabGitHubUserKey = @"githubUser";
+static NSString * const OMDTabGitHubRepoKey = @"githubRepo";
+static NSString * const OMDTabGitHubPathKey = @"githubPath";
+static NSString * const OMDTabRenderModeKey = @"renderMode";
+static NSString * const OMDTabSyntaxLanguageKey = @"syntaxLanguage";
 
 typedef NS_ENUM(NSInteger, OMDSplitSyncMode) {
     OMDSplitSyncModeUnlinked = 0,
     OMDSplitSyncModeLinkedScrolling = 1,
     OMDSplitSyncModeCaretSelectionFollow = 2
+};
+
+typedef NS_ENUM(NSInteger, OMDExplorerSourceMode) {
+    OMDExplorerSourceModeLocal = 0,
+    OMDExplorerSourceModeGitHub = 1
+};
+
+typedef NS_ENUM(NSInteger, OMDDocumentRenderMode) {
+    OMDDocumentRenderModeMarkdown = 0,
+    OMDDocumentRenderModeVerbatim = 1
 };
 
 typedef NS_ENUM(NSInteger, OMDFormattingCommandTag) {
@@ -152,6 +194,24 @@ static NSInteger OMDAlertButtonIndexForResponse(NSInteger response)
     return -1;
 }
 
+static void OMDDisableSelectableTextFieldsInView(NSView *view)
+{
+    if (view == nil) {
+        return;
+    }
+
+    if ([view isKindOfClass:[NSTextField class]]) {
+        NSTextField *field = (NSTextField *)view;
+        [field setSelectable:NO];
+        [field setEditable:NO];
+    }
+
+    NSArray *subviews = [view subviews];
+    for (NSView *subview in subviews) {
+        OMDDisableSelectableTextFieldsInView(subview);
+    }
+}
+
 static BOOL OMDOpenURLUsingXDGOpen(NSURL *url)
 {
 #if defined(__APPLE__)
@@ -186,6 +246,28 @@ static BOOL OMDOpenURLUsingXDGOpen(NSURL *url)
 
     return launched && [task terminationStatus] == 0;
 #endif
+}
+
+static NSSet *OMDAllowedLinkSchemes(void)
+{
+    static NSSet *schemes = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        schemes = [[NSSet alloc] initWithObjects:@"file", @"http", @"https", @"mailto", nil];
+    });
+    return schemes;
+}
+
+static BOOL OMDShouldOpenURLForUserNavigation(NSURL *url)
+{
+    if (url == nil) {
+        return NO;
+    }
+    NSString *scheme = [[url scheme] lowercaseString];
+    if (scheme == nil || [scheme length] == 0) {
+        return NO;
+    }
+    return [OMDAllowedLinkSchemes() containsObject:scheme];
 }
 
 static OMDViewerMode OMDViewerModeFromInteger(NSInteger value)
@@ -375,6 +457,375 @@ static NSString *OMDTrimmedString(NSString *value)
     return [value stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
 }
 
+static BOOL OMDGitErrorLooksLikeLockConflict(NSString *reason)
+{
+    NSString *trimmed = OMDTrimmedString(reason);
+    if ([trimmed length] == 0) {
+        return NO;
+    }
+
+    NSRange lockRange = [trimmed rangeOfString:@".lock" options:NSCaseInsensitiveSearch];
+    if (lockRange.location == NSNotFound) {
+        return NO;
+    }
+    if ([trimmed rangeOfString:@"file exists" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        return YES;
+    }
+    if ([trimmed rangeOfString:@"another git process seems to be running" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        return YES;
+    }
+    return ([trimmed rangeOfString:@"unable to create" options:NSCaseInsensitiveSearch].location != NSNotFound);
+}
+
+static NSString *OMDGitLockPathFromErrorReason(NSString *reason)
+{
+    NSString *trimmed = OMDTrimmedString(reason);
+    if ([trimmed length] == 0) {
+        return nil;
+    }
+
+    NSRange scanRange = NSMakeRange(0, [trimmed length]);
+    while (scanRange.length > 0) {
+        NSRange startQuote = [trimmed rangeOfString:@"'" options:0 range:scanRange];
+        if (startQuote.location == NSNotFound) {
+            break;
+        }
+
+        NSUInteger start = NSMaxRange(startQuote);
+        if (start >= [trimmed length]) {
+            break;
+        }
+        NSRange tailRange = NSMakeRange(start, [trimmed length] - start);
+        NSRange endQuote = [trimmed rangeOfString:@"'" options:0 range:tailRange];
+        if (endQuote.location == NSNotFound) {
+            break;
+        }
+
+        NSString *candidate = [trimmed substringWithRange:NSMakeRange(start, endQuote.location - start)];
+        if ([candidate hasSuffix:@".lock"]) {
+            return candidate;
+        }
+
+        NSUInteger nextLocation = NSMaxRange(endQuote);
+        if (nextLocation >= [trimmed length]) {
+            break;
+        }
+        scanRange = NSMakeRange(nextLocation, [trimmed length] - nextLocation);
+    }
+
+    NSCharacterSet *splitSet = [NSCharacterSet whitespaceAndNewlineCharacterSet];
+    NSCharacterSet *trimSet = [NSCharacterSet characterSetWithCharactersInString:@"'\"`:,.;()[]{}"];
+    NSArray *parts = [trimmed componentsSeparatedByCharactersInSet:splitSet];
+    for (NSString *part in parts) {
+        NSString *clean = [part stringByTrimmingCharactersInSet:trimSet];
+        if ([clean hasSuffix:@".lock"]) {
+            return clean;
+        }
+    }
+
+    return nil;
+}
+
+static BOOL OMDGitRemoveStaleLockFile(NSString *lockPath, NSString *repoPath)
+{
+    NSString *normalizedLockPath = OMDTrimmedString(lockPath);
+    if ([normalizedLockPath length] == 0) {
+        return NO;
+    }
+    normalizedLockPath = [normalizedLockPath stringByStandardizingPath];
+    if (![normalizedLockPath hasSuffix:@".lock"]) {
+        return NO;
+    }
+    if ([normalizedLockPath rangeOfString:@"/.git/"].location == NSNotFound) {
+        return NO;
+    }
+
+    NSString *normalizedRepoPath = OMDTrimmedString(repoPath);
+    if ([normalizedRepoPath length] > 0) {
+        normalizedRepoPath = [normalizedRepoPath stringByStandardizingPath];
+        NSString *allowedPrefix = [[normalizedRepoPath stringByAppendingPathComponent:@".git"] stringByAppendingString:@"/"];
+        if (![normalizedLockPath hasPrefix:allowedPrefix]) {
+            return NO;
+        }
+    }
+
+    NSFileManager *fileManager = [NSFileManager defaultManager];
+    BOOL isDirectory = NO;
+    if (![fileManager fileExistsAtPath:normalizedLockPath isDirectory:&isDirectory] || isDirectory) {
+        return NO;
+    }
+
+    NSDictionary *attributes = [fileManager attributesOfItemAtPath:normalizedLockPath error:NULL];
+    NSDate *modifiedAt = [attributes objectForKey:NSFileModificationDate];
+    if (modifiedAt != nil) {
+        NSTimeInterval age = -[modifiedAt timeIntervalSinceNow];
+        if (age >= 0.0 && age < OMDGitStaleLockMinimumAgeSeconds) {
+            return NO;
+        }
+    }
+
+    return [fileManager removeItemAtPath:normalizedLockPath error:NULL];
+}
+
+static NSString *OMDTrimmedComboBoxSelectionOrText(NSComboBox *comboBox)
+{
+    if (comboBox == nil) {
+        return @"";
+    }
+
+    NSString *typedValue = OMDTrimmedString([comboBox stringValue]);
+    NSString *resolved = nil;
+    NSInteger selectedIndex = [comboBox indexOfSelectedItem];
+    if (selectedIndex >= 0) {
+        id selectedValue = nil;
+        if ([comboBox respondsToSelector:@selector(objectValueOfSelectedItem)]) {
+            selectedValue = [comboBox objectValueOfSelectedItem];
+        }
+        if (selectedValue == nil &&
+            [comboBox respondsToSelector:@selector(itemObjectValueAtIndex:)] &&
+            selectedIndex < [comboBox numberOfItems]) {
+            selectedValue = [comboBox itemObjectValueAtIndex:selectedIndex];
+        }
+        if ([selectedValue respondsToSelector:@selector(description)]) {
+            resolved = [selectedValue description];
+        }
+    }
+
+    if ([typedValue length] > 0) {
+        if ([resolved length] == 0 ||
+            [typedValue caseInsensitiveCompare:OMDTrimmedString(resolved)] != NSOrderedSame) {
+            return typedValue;
+        }
+    }
+
+    if ([resolved length] > 0) {
+        [comboBox setStringValue:resolved];
+        return OMDTrimmedString(resolved);
+    }
+    return typedValue;
+}
+
+static BOOL OMDIsMarkdownExtension(NSString *extension)
+{
+    if (extension == nil || [extension length] == 0) {
+        return NO;
+    }
+    NSString *lower = [extension lowercaseString];
+    return [lower isEqualToString:@"md"] ||
+           [lower isEqualToString:@"markdown"] ||
+           [lower isEqualToString:@"mdown"];
+}
+
+static BOOL OMDIsPlainTextNoHighlightExtension(NSString *extension)
+{
+    if (extension == nil || [extension length] == 0) {
+        return NO;
+    }
+    NSString *lower = [extension lowercaseString];
+    return [lower isEqualToString:@"txt"] ||
+           [lower isEqualToString:@"text"] ||
+           [lower isEqualToString:@"log"];
+}
+
+static NSString *OMDVerbatimSyntaxTokenForExtension(NSString *extension)
+{
+    NSString *lower = [[OMDTrimmedString(extension) lowercaseString] copy];
+    if ([lower length] == 0 || OMDIsPlainTextNoHighlightExtension(lower)) {
+        [lower release];
+        return nil;
+    }
+
+    NSString *token = lower;
+    if ([lower isEqualToString:@"yml"]) {
+        token = @"yaml";
+    } else if ([lower isEqualToString:@"py"]) {
+        token = @"python";
+    } else if ([lower isEqualToString:@"zsh"]) {
+        token = @"bash";
+    } else if ([lower isEqualToString:@"htm"]) {
+        token = @"html";
+    }
+
+    NSString *result = [token copy];
+    [lower release];
+    return [result autorelease];
+}
+
+static NSUInteger OMDMaxBacktickRunLength(NSString *text)
+{
+    if (text == nil || [text length] == 0) {
+        return 0;
+    }
+
+    NSUInteger longest = 0;
+    NSUInteger run = 0;
+    NSUInteger length = [text length];
+    NSUInteger index = 0;
+    for (; index < length; index++) {
+        unichar ch = [text characterAtIndex:index];
+        if (ch == '`') {
+            run += 1;
+            if (run > longest) {
+                longest = run;
+            }
+        } else {
+            run = 0;
+        }
+    }
+    return longest;
+}
+
+static NSString *OMDBacktickFenceString(NSUInteger length)
+{
+    if (length < 3) {
+        length = 3;
+    }
+    NSMutableString *fence = [NSMutableString stringWithCapacity:length];
+    NSUInteger index = 0;
+    for (; index < length; index++) {
+        [fence appendString:@"`"];
+    }
+    return fence;
+}
+
+static NSString *OMDMarkdownCodeFenceWrappedText(NSString *text, NSString *languageToken)
+{
+    NSString *payload = (text != nil ? text : @"");
+    NSUInteger fenceLength = OMDMaxBacktickRunLength(payload) + 1;
+    if (fenceLength < 3) {
+        fenceLength = 3;
+    }
+    NSString *fence = OMDBacktickFenceString(fenceLength);
+    NSString *language = OMDTrimmedString(languageToken);
+
+    NSMutableString *wrapped = [NSMutableString string];
+    [wrapped appendString:fence];
+    if ([language length] > 0) {
+        [wrapped appendString:language];
+    }
+    [wrapped appendString:@"\n"];
+    [wrapped appendString:payload];
+    if (![payload hasSuffix:@"\n"]) {
+        [wrapped appendString:@"\n"];
+    }
+    [wrapped appendString:fence];
+    return wrapped;
+}
+
+static BOOL OMDDataAppearsBinary(NSData *data)
+{
+    if (data == nil || [data length] == 0) {
+        return NO;
+    }
+
+    const unsigned char *bytes = (const unsigned char *)[data bytes];
+    NSUInteger sampleLength = [data length];
+    if (sampleLength > 8192) {
+        sampleLength = 8192;
+    }
+    NSUInteger controlCount = 0;
+    NSUInteger index = 0;
+    for (; index < sampleLength; index++) {
+        unsigned char value = bytes[index];
+        if (value == 0) {
+            return YES;
+        }
+        if (value < 0x09 || (value > 0x0D && value < 0x20)) {
+            controlCount += 1;
+        }
+    }
+
+    return controlCount > ((sampleLength / 16) + 1);
+}
+
+static NSString *OMDDecodeTextFromData(NSData *data, NSStringEncoding *usedEncodingOut)
+{
+    if (data == nil) {
+        return nil;
+    }
+    if ([data length] == 0) {
+        if (usedEncodingOut != NULL) {
+            *usedEncodingOut = NSUTF8StringEncoding;
+        }
+        return @"";
+    }
+
+    NSStringEncoding encodings[] = {
+        NSUTF8StringEncoding,
+        NSUTF16StringEncoding,
+        NSUTF16LittleEndianStringEncoding,
+        NSUTF16BigEndianStringEncoding,
+        NSUTF32StringEncoding,
+        NSISOLatin1StringEncoding,
+        NSWindowsCP1252StringEncoding
+    };
+    NSUInteger encodingCount = sizeof(encodings) / sizeof(encodings[0]);
+    NSUInteger index = 0;
+    for (; index < encodingCount; index++) {
+        NSStringEncoding encoding = encodings[index];
+        NSString *decoded = [[[NSString alloc] initWithData:data encoding:encoding] autorelease];
+        if (decoded != nil) {
+            if (usedEncodingOut != NULL) {
+                *usedEncodingOut = encoding;
+            }
+            return decoded;
+        }
+    }
+    return nil;
+}
+
+static NSInteger OMDExplorerFileColorTierForPath(NSString *path)
+{
+    NSString *extension = [[path pathExtension] lowercaseString];
+    if (OMDIsMarkdownExtension(extension)) {
+        return 1;
+    }
+    if ([OMDDocumentConverter isSupportedExtension:extension]) {
+        return 2;
+    }
+    return 3;
+}
+
+static NSString *OMDNormalizedRelativePath(NSString *value)
+{
+    NSString *trimmed = OMDTrimmedString(value);
+    if ([trimmed length] == 0) {
+        return @"";
+    }
+
+    NSArray *components = [trimmed pathComponents];
+    NSMutableArray *normalized = [NSMutableArray array];
+    for (NSString *component in components) {
+        if (component == nil || [component length] == 0 ||
+            [component isEqualToString:@"/"] ||
+            [component isEqualToString:@"."]) {
+            continue;
+        }
+        if ([component isEqualToString:@".."]) {
+            if ([normalized count] > 0) {
+                [normalized removeLastObject];
+            }
+            continue;
+        }
+        [normalized addObject:component];
+    }
+    return [normalized componentsJoinedByString:@"/"];
+}
+
+static NSString *OMDDefaultCacheDirectory(void)
+{
+#if defined(__APPLE__)
+    return [NSHomeDirectory() stringByAppendingPathComponent:@"Library/Caches"];
+#else
+    NSDictionary *environment = [[NSProcessInfo processInfo] environment];
+    NSString *xdg = OMDTrimmedString([environment objectForKey:@"XDG_CACHE_HOME"]);
+    if ([xdg length] > 0) {
+        return [xdg stringByExpandingTildeInPath];
+    }
+    return [NSHomeDirectory() stringByAppendingPathComponent:@".cache"];
+#endif
+}
+
 static BOOL OMDIsInlineWhitespace(unichar ch)
 {
     return ch == ' ' || ch == '\t';
@@ -475,7 +926,7 @@ static BOOL OMDInlineTextHasToggleWrapper(NSString *text,
 
 @end
 
-@interface OMDAppDelegate ()
+@interface OMDAppDelegate () <GSVVimBindingControllerDelegate>
 - (void)importDocument:(id)sender;
 - (void)saveDocument:(id)sender;
 - (void)saveDocumentAsMarkdown:(id)sender;
@@ -484,6 +935,7 @@ static BOOL OMDInlineTextHasToggleWrapper(NSString *text,
 - (void)exportDocumentAsRTF:(id)sender;
 - (void)exportDocumentAsDOCX:(id)sender;
 - (void)exportDocumentAsODT:(id)sender;
+- (void)exportDocumentAsHTML:(id)sender;
 - (BOOL)hasLoadedDocument;
 - (BOOL)ensureDocumentLoadedForActionName:(NSString *)actionName;
 - (BOOL)ensureConverterAvailableForActionName:(NSString *)actionName;
@@ -492,10 +944,105 @@ static BOOL OMDInlineTextHasToggleWrapper(NSString *text,
 - (BOOL)isImportableDocumentPath:(NSString *)path;
 - (void)presentConverterError:(NSError *)error fallbackTitle:(NSString *)title;
 - (void)setCurrentMarkdown:(NSString *)markdown sourcePath:(NSString *)sourcePath;
+- (void)setCurrentDocumentText:(NSString *)text
+                    sourcePath:(NSString *)sourcePath
+                    renderMode:(OMDDocumentRenderMode)renderMode
+                syntaxLanguage:(NSString *)syntaxLanguage;
+- (NSString *)markdownForCurrentPreview;
+- (NSString *)decodedTextForFileAtPath:(NSString *)path error:(NSError **)error;
 - (BOOL)openDocumentAtPath:(NSString *)path;
 - (BOOL)openDocumentAtPathInNewWindow:(NSString *)path;
+- (void)setupWorkspaceChrome;
+- (void)layoutWorkspaceChrome;
+- (BOOL)isExplorerSidebarVisiblePreference;
+- (void)setExplorerSidebarVisiblePreference:(BOOL)visible;
+- (void)applyExplorerSidebarVisibility;
+- (void)setupExplorerSidebar;
+- (void)updateExplorerControlsVisibility;
+- (void)toggleExplorerSidebar:(id)sender;
+- (void)reloadExplorerEntries;
+- (void)reloadLocalExplorerEntries;
+- (void)reloadGitHubExplorerEntries;
+- (void)setExplorerLoading:(BOOL)loading message:(NSString *)message;
+- (NSString *)explorerLocalRootPathPreference;
+- (void)setExplorerLocalRootPathPreference:(NSString *)path;
+- (NSUInteger)explorerMaxOpenFileSizeBytes;
+- (void)setExplorerMaxOpenFileSizeMBPreference:(NSUInteger)megabytes;
+- (CGFloat)explorerListFontSizePreference;
+- (void)setExplorerListFontSizePreference:(CGFloat)fontSize;
+- (void)applyExplorerListFontPreference;
+- (BOOL)isExplorerIncludeForkArchivedEnabled;
+- (void)setExplorerIncludeForkArchivedEnabled:(BOOL)enabled;
+- (NSString *)explorerGitHubTokenPreference;
+- (void)setExplorerGitHubTokenPreference:(NSString *)token;
+- (void)explorerSourceModeChanged:(id)sender;
+- (void)explorerNavigateUp:(id)sender;
+- (void)explorerGitHubUserChanged:(id)sender;
+- (void)explorerGitHubRepoChanged:(id)sender;
+- (void)explorerGitHubIncludeForkArchivedChanged:(id)sender;
+- (void)explorerItemClicked:(id)sender;
+- (void)explorerItemDoubleClicked:(id)sender;
+- (void)openExplorerEntry:(NSDictionary *)entry inNewTab:(BOOL)inNewTab;
+- (void)openLocalPath:(NSString *)path inNewTab:(BOOL)inNewTab;
+- (void)openGitHubFileEntry:(NSDictionary *)entry inNewTab:(BOOL)inNewTab;
+- (void)loadGitHubRepositoriesForUser:(NSString *)user;
+- (void)loadGitHubCachedContentsForUser:(NSString *)user repo:(NSString *)repo path:(NSString *)path;
+- (NSString *)gitHubCacheRootPath;
+- (NSString *)gitHubCachePathForUser:(NSString *)user repository:(NSString *)repository;
+- (NSArray *)cachedGitHubUsers;
+- (NSArray *)cachedGitHubRepositoriesForUser:(NSString *)user;
+- (void)refreshCachedGitHubUserOptions;
+- (BOOL)runGitArguments:(NSArray *)arguments
+            inDirectory:(NSString *)directory
+                 output:(NSString **)output
+                  error:(NSError **)error;
+- (BOOL)ensureGitHubRepositoryCacheForUser:(NSString *)user
+                                      repo:(NSString *)repo
+                                 cachePath:(NSString **)cachePath
+                                     error:(NSError **)error;
+- (NSArray *)gitHubEntriesForRepositoryCachePath:(NSString *)repoCachePath
+                                     relativePath:(NSString *)relativePath
+                                     resolvedPath:(NSString **)resolvedPath
+                                            error:(NSError **)error;
+- (OMDGitHubClient *)gitHubClient;
+- (BOOL)isMarkdownTextPath:(NSString *)path;
+- (NSString *)temporaryPathForRemoteImportWithExtension:(NSString *)extension;
+- (BOOL)ensureOpenFileSizeWithinLimit:(unsigned long long)size
+                           descriptor:(NSString *)descriptor;
+- (void)updateTabStrip;
+- (void)tabButtonPressed:(id)sender;
+- (void)tabCloseButtonPressed:(id)sender;
+- (void)closeDocumentTabAtIndex:(NSInteger)index;
+- (void)selectDocumentTabAtIndex:(NSInteger)index;
+- (NSInteger)documentTabIndexForLocalPath:(NSString *)sourcePath;
+- (NSInteger)documentTabIndexForGitHubUser:(NSString *)user
+                                      repo:(NSString *)repo
+                                      path:(NSString *)path;
+- (void)captureCurrentStateIntoSelectedTab;
+- (NSMutableDictionary *)newDocumentTabWithMarkdown:(NSString *)markdown
+                                         sourcePath:(NSString *)sourcePath
+                                       displayTitle:(NSString *)displayTitle
+                                           readOnly:(BOOL)readOnly
+                                         renderMode:(OMDDocumentRenderMode)renderMode
+                                     syntaxLanguage:(NSString *)syntaxLanguage;
+- (void)applyDocumentTabRecord:(NSDictionary *)tabRecord;
+- (BOOL)openDocumentWithMarkdown:(NSString *)markdown
+                      sourcePath:(NSString *)sourcePath
+                    displayTitle:(NSString *)displayTitle
+                        readOnly:(BOOL)readOnly
+                      renderMode:(OMDDocumentRenderMode)renderMode
+                  syntaxLanguage:(NSString *)syntaxLanguage
+                        inNewTab:(BOOL)inNewTab
+             requireDirtyConfirm:(BOOL)requireDirtyConfirm;
+- (void)applyCurrentDocumentReadOnlyState;
+- (void)preferencesExplorerLocalRootChanged:(id)sender;
+- (void)preferencesExplorerMaxFileSizeChanged:(id)sender;
+- (void)preferencesExplorerListFontSizeChanged:(id)sender;
+- (void)preferencesExplorerGitHubTokenChanged:(id)sender;
 - (BOOL)saveCurrentMarkdownToPath:(NSString *)path;
 - (BOOL)saveDocumentAsMarkdownWithPanel;
+- (BOOL)saveDocumentFromVimCommand;
+- (void)performCloseFromVimCommandForcingDiscard:(BOOL)force;
 - (BOOL)confirmDiscardingUnsavedChangesForAction:(NSString *)actionName;
 - (NSString *)defaultSaveMarkdownFileName;
 - (NSString *)defaultExportFileNameWithExtension:(NSString *)extension;
@@ -515,6 +1062,7 @@ static BOOL OMDInlineTextHasToggleWrapper(NSString *text,
 - (void)interactiveRenderTimerFired:(NSTimer *)timer;
 - (void)cancelPendingInteractiveRender;
 - (void)mathArtifactsDidWarm:(NSNotification *)notification;
+- (void)remoteImagesDidWarm:(NSNotification *)notification;
 - (void)scheduleMathArtifactRefresh;
 - (void)mathArtifactRenderTimerFired:(NSTimer *)timer;
 - (void)cancelPendingMathArtifactRender;
@@ -549,6 +1097,8 @@ static BOOL OMDInlineTextHasToggleWrapper(NSString *text,
 - (void)redo:(id)sender;
 - (void)updateModeControlSelection;
 - (void)updatePreviewStatusIndicator;
+- (NSString *)sourceVimStatusText;
+- (NSColor *)sourceVimStatusColor;
 - (void)schedulePreviewStatusUpdatingVisibility;
 - (void)previewStatusUpdatingDelayTimerFired:(NSTimer *)timer;
 - (void)cancelPendingPreviewStatusUpdatingVisibility;
@@ -598,6 +1148,7 @@ static BOOL OMDInlineTextHasToggleWrapper(NSString *text,
 - (void)preferencesSplitSyncModeChanged:(id)sender;
 - (void)preferencesAllowRemoteImagesChanged:(id)sender;
 - (void)preferencesWordSelectionShimChanged:(id)sender;
+- (void)preferencesSourceVimKeyBindingsChanged:(id)sender;
 - (void)preferencesSyntaxHighlightingChanged:(id)sender;
 - (void)preferencesSourceHighContrastChanged:(id)sender;
 - (void)preferencesSourceAccentColorChanged:(id)sender;
@@ -606,6 +1157,20 @@ static BOOL OMDInlineTextHasToggleWrapper(NSString *text,
 - (BOOL)isWordSelectionModifierShimEnabled;
 - (void)setWordSelectionModifierShimEnabled:(BOOL)enabled;
 - (void)toggleWordSelectionModifierShim:(id)sender;
+- (BOOL)isSourceVimKeyBindingsEnabled;
+- (void)setSourceVimKeyBindingsEnabled:(BOOL)enabled;
+- (void)toggleSourceVimKeyBindings:(id)sender;
+- (void)configureSourceVimBindingController;
+- (BOOL)sourceTextView:(OMDSourceTextView *)textView handleVimKeyEvent:(NSEvent *)event;
+- (BOOL)vimBindingController:(GSVVimBindingController *)controller
+              handleExAction:(GSVVimExAction)action
+                       force:(BOOL)force
+                  rawCommand:(NSString *)rawCommand
+                 forTextView:(NSTextView *)textView;
+- (void)vimBindingController:(GSVVimBindingController *)controller
+        didUpdateCommandLine:(NSString *)commandLine
+                      active:(BOOL)active
+                 forTextView:(NSTextView *)textView;
 - (BOOL)isSourceSyntaxHighlightingEnabled;
 - (void)setSourceSyntaxHighlightingEnabled:(BOOL)enabled;
 - (void)toggleSourceSyntaxHighlighting:(id)sender;
@@ -690,6 +1255,9 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [[NSNotificationCenter defaultCenter] removeObserver:self
                                                     name:OMMarkdownRendererMathArtifactsDidWarmNotification
                                                   object:nil];
+    [[NSNotificationCenter defaultCenter] removeObserver:self
+                                                    name:OMMarkdownRendererRemoteImagesDidWarmNotification
+                                                  object:nil];
     if (_sourceScrollView != nil) {
         [[NSNotificationCenter defaultCenter] removeObserver:self
                                                         name:NSViewBoundsDidChangeNotification
@@ -708,8 +1276,33 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [self cancelPendingSourceSyntaxHighlighting];
     [self cancelPendingRecoveryAutosave];
     [self hideCopyFeedback];
+    [_sourceVimCommandLine release];
+    [_currentDocumentSyntaxLanguage release];
+    [_currentDisplayTitle release];
     [_currentMarkdown release];
     [_currentPath release];
+    [_documentTabs release];
+    [_gitHubClient release];
+    [_explorerSourceModeControl release];
+    [_explorerLocalRootLabel release];
+    [_explorerGitHubUserLabel release];
+    [_explorerGitHubUserComboBox release];
+    [_explorerGitHubRepoComboBox release];
+    [_explorerGitHubIncludeForkArchivedButton release];
+    [_explorerNavigateUpButton release];
+    [_explorerPathLabel release];
+    [_explorerTableView setDelegate:nil];
+    [_explorerTableView setDataSource:nil];
+    [_explorerTableView release];
+    [_explorerScrollView release];
+    [_explorerEntries release];
+    [_explorerGitHubRepos release];
+    [_explorerLocalRootPath release];
+    [_explorerLocalCurrentPath release];
+    [_explorerGitHubUser release];
+    [_explorerGitHubRepo release];
+    [_explorerGitHubCurrentPath release];
+    [_explorerGitHubRepoCachePath release];
     [_zoomSlider release];
     [_zoomLabel release];
     [_zoomResetButton release];
@@ -722,12 +1315,17 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [_preferencesSplitSyncModePopup release];
     [_preferencesAllowRemoteImagesButton release];
     [_preferencesWordSelectionShimButton release];
+    [_preferencesSourceVimKeyBindingsButton release];
     [_preferencesSyntaxHighlightingButton release];
     [_preferencesSourceHighContrastButton release];
     [_preferencesSourceAccentColorWell release];
     [_preferencesSourceAccentResetButton release];
     [_preferencesRendererSyntaxHighlightingButton release];
     [_preferencesRendererSyntaxHighlightingNoteLabel release];
+    [_preferencesExplorerLocalRootField release];
+    [_preferencesExplorerMaxFileSizeField release];
+    [_preferencesExplorerListFontSizeField release];
+    [_preferencesExplorerGitHubTokenField release];
     [_formatHeadingPopup release];
     [_formatCommandButtons release];
     [_formattingBarView release];
@@ -735,8 +1333,13 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [_preferencesPanel release];
     [_codeBlockButtons release];
     [_documentConverter release];
+    [_sourceVimBindingController release];
     [_sourceLineNumberRuler release];
     [_splitView release];
+    [_workspaceSplitView release];
+    [_workspaceMainContainer release];
+    [_sidebarContainer release];
+    [_tabStripView release];
     [_renderer release];
     [_sourceTextView release];
     [_sourceScrollView release];
@@ -752,9 +1355,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [self setupWindow];
     BOOL openedFromArgs = [self openDocumentFromArguments];
     if (!_openedFileOnLaunch && !openedFromArgs) {
-        if (![self restoreRecoveryIfAvailable]) {
-            [self openDocument:self];
-        }
+        [self restoreRecoveryIfAvailable];
     }
 }
 
@@ -772,7 +1373,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
 {
     (void)theApplication;
     _openedFileOnLaunch = YES;
-    if (_currentPath == nil && _currentMarkdown == nil) {
+    if ([_documentTabs count] == 0 && _currentPath == nil && _currentMarkdown == nil) {
         return [self openDocumentAtPath:filename];
     }
     return [self openDocumentAtPathInNewWindow:filename];
@@ -872,6 +1473,10 @@ static NSMutableArray *OMDSecondaryWindows(void)
                                                                      action:@selector(exportDocumentAsODT:)
                                                               keyEquivalent:@""];
     [exportODTItem setTarget:self];
+    NSMenuItem *exportHTMLItem = (NSMenuItem *)[exportMenu addItemWithTitle:@"Export as HTML..."
+                                                                      action:@selector(exportDocumentAsHTML:)
+                                                               keyEquivalent:@""];
+    [exportHTMLItem setTarget:self];
     [exportMenuItem setSubmenu:exportMenu];
 
     [fileMenu addItem:[NSMenuItem separatorItem]];
@@ -960,6 +1565,11 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [splitSyncCaretItem setTarget:self];
     [splitSyncMenuItem setSubmenu:splitSyncMenu];
 
+    _viewShowExplorerMenuItem = (NSMenuItem *)[viewMenu addItemWithTitle:@"Show Explorer"
+                                                                   action:@selector(toggleExplorerSidebar:)
+                                                            keyEquivalent:@""];
+    [_viewShowExplorerMenuItem setTarget:self];
+
     _viewShowFormattingBarMenuItem = (NSMenuItem *)[viewMenu addItemWithTitle:@"Show Formatting Bar"
                                                                         action:@selector(toggleFormattingBar:)
                                                                  keyEquivalent:@""];
@@ -977,12 +1587,14 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [chooseFontItem setTarget:self];
     NSMenuItem *increaseFontItem = (NSMenuItem *)[fontMenu addItemWithTitle:@"Increase Size"
                                                                       action:@selector(increaseSourceEditorFontSize:)
-                                                               keyEquivalent:@""];
+                                                               keyEquivalent:@"="];
     [increaseFontItem setTarget:self];
+    [increaseFontItem setKeyEquivalentModifierMask:NSControlKeyMask];
     NSMenuItem *decreaseFontItem = (NSMenuItem *)[fontMenu addItemWithTitle:@"Decrease Size"
                                                                       action:@selector(decreaseSourceEditorFontSize:)
-                                                               keyEquivalent:@""];
+                                                               keyEquivalent:@"-"];
     [decreaseFontItem setTarget:self];
+    [decreaseFontItem setKeyEquivalentModifierMask:NSControlKeyMask];
     NSMenuItem *resetFontItem = (NSMenuItem *)[fontMenu addItemWithTitle:@"Reset Size"
                                                                    action:@selector(resetSourceEditorFontSize:)
                                                             keyEquivalent:@""];
@@ -993,6 +1605,10 @@ static NSMutableArray *OMDSecondaryWindows(void)
                                                                             action:@selector(toggleWordSelectionModifierShim:)
                                                                      keyEquivalent:@""];
     [wordSelectionShimItem setTarget:self];
+    NSMenuItem *sourceVimKeyBindingsItem = (NSMenuItem *)[viewMenu addItemWithTitle:@"Vim Key Bindings (Source Editor)"
+                                                                               action:@selector(toggleSourceVimKeyBindings:)
+                                                                        keyEquivalent:@""];
+    [sourceVimKeyBindingsItem setTarget:self];
     NSMenuItem *syntaxHighlightingItem = (NSMenuItem *)[viewMenu addItemWithTitle:@"Source Syntax Highlighting"
                                                                             action:@selector(toggleSourceSyntaxHighlighting:)
                                                                      keyEquivalent:@""];
@@ -1069,9 +1685,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
         }
     }
     [self setupToolbar];
-
-    _documentContainer = [[NSView alloc] initWithFrame:[[_window contentView] bounds]];
-    [_documentContainer setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable)];
+    [self setupWorkspaceChrome];
 
     _splitRatio = 0.5;
     NSNumber *savedSplitRatio = [[NSUserDefaults standardUserDefaults] objectForKey:@"ObjcMarkdownSplitRatio"];
@@ -1137,6 +1751,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [[_sourceTextView textContainer] setLineFragmentPadding:0.0];
     [_sourceTextView setDelegate:self];
     [self applySourceEditorFontFromDefaults];
+    [self configureSourceVimBindingController];
     [_sourceTextView setString:@""];
     _sourceHighlightNeedsFullPass = YES;
     [_sourceScrollView setDocumentView:_sourceTextView];
@@ -1163,7 +1778,6 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [_splitView addSubview:_previewScrollView];
 
     [_documentContainer addSubview:_previewScrollView];
-    [[_window contentView] addSubview:_documentContainer];
 
     [_window makeKeyAndOrderFront:nil];
     [self normalizeWindowFrameIfNeeded];
@@ -1199,9 +1813,194 @@ static NSMutableArray *OMDSecondaryWindows(void)
                                              selector:@selector(mathArtifactsDidWarm:)
                                                  name:OMMarkdownRendererMathArtifactsDidWarmNotification
                                                object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(remoteImagesDidWarm:)
+                                                 name:OMMarkdownRendererRemoteImagesDidWarmNotification
+                                               object:nil];
 
     _viewerMode = OMDViewerModeFromInteger([[NSUserDefaults standardUserDefaults] integerForKey:@"ObjcMarkdownViewerMode"]);
     [self setViewerMode:_viewerMode persistPreference:NO];
+    [self updateTabStrip];
+    [self reloadExplorerEntries];
+}
+
+- (void)setupWorkspaceChrome
+{
+    NSRect contentBounds = [[_window contentView] bounds];
+
+    _workspaceSplitView = [[NSSplitView alloc] initWithFrame:contentBounds];
+    [_workspaceSplitView setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable)];
+    [_workspaceSplitView setVertical:YES];
+    [_workspaceSplitView setDelegate:self];
+
+    _sidebarContainer = [[NSView alloc] initWithFrame:NSMakeRect(0.0,
+                                                                 0.0,
+                                                                 OMDExplorerSidebarDefaultWidth,
+                                                                 NSHeight(contentBounds))];
+    [_sidebarContainer setAutoresizingMask:NSViewHeightSizable];
+
+    _workspaceMainContainer = [[NSView alloc] initWithFrame:NSMakeRect(OMDExplorerSidebarDefaultWidth,
+                                                                        0.0,
+                                                                        NSWidth(contentBounds) - OMDExplorerSidebarDefaultWidth,
+                                                                        NSHeight(contentBounds))];
+    [_workspaceMainContainer setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable)];
+
+    [_workspaceSplitView addSubview:_sidebarContainer];
+    [_workspaceSplitView addSubview:_workspaceMainContainer];
+    [[_window contentView] addSubview:_workspaceSplitView];
+
+    _tabStripView = [[NSView alloc] initWithFrame:NSZeroRect];
+    [_tabStripView setAutoresizingMask:(NSViewWidthSizable | NSViewMinYMargin)];
+    [_workspaceMainContainer addSubview:_tabStripView];
+
+    _documentContainer = [[NSView alloc] initWithFrame:NSZeroRect];
+    [_documentContainer setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable)];
+    [_workspaceMainContainer addSubview:_documentContainer];
+
+    _documentTabs = [[NSMutableArray alloc] init];
+    _selectedDocumentTabIndex = -1;
+    _currentDocumentRenderMode = OMDDocumentRenderModeMarkdown;
+    _explorerEntries = [[NSMutableArray alloc] init];
+    _explorerGitHubRepos = [[NSArray alloc] init];
+    _explorerSourceMode = OMDExplorerSourceModeLocal;
+    _explorerRequestToken = 0;
+    _explorerIsLoading = NO;
+    _explorerSidebarVisible = [self isExplorerSidebarVisiblePreference];
+    _explorerSidebarLastVisibleWidth = OMDExplorerSidebarDefaultWidth;
+
+    [self setupExplorerSidebar];
+    [self layoutWorkspaceChrome];
+    [_workspaceSplitView adjustSubviews];
+
+    CGFloat totalWidth = NSWidth([_workspaceSplitView bounds]);
+    CGFloat divider = [_workspaceSplitView dividerThickness];
+    CGFloat available = totalWidth - divider;
+    CGFloat sidebarWidth = OMDExplorerSidebarDefaultWidth;
+    if (available > 0.0) {
+        CGFloat minMainWidth = 420.0;
+        CGFloat maxSidebar = available - minMainWidth;
+        if (maxSidebar < 220.0) {
+            maxSidebar = available * 0.35;
+        }
+        if (sidebarWidth > maxSidebar) {
+            sidebarWidth = maxSidebar;
+        }
+        if (sidebarWidth < 180.0) {
+            sidebarWidth = MIN(220.0, available * 0.45);
+        }
+        if (sidebarWidth < 120.0) {
+            sidebarWidth = available * 0.4;
+        }
+        if (sidebarWidth > 0.0) {
+            [_workspaceSplitView setPosition:sidebarWidth ofDividerAtIndex:0];
+        }
+    }
+
+    [self applyExplorerSidebarVisibility];
+}
+
+- (void)layoutWorkspaceChrome
+{
+    if (_workspaceMainContainer == nil || _documentContainer == nil || _tabStripView == nil) {
+        return;
+    }
+
+    NSRect bounds = [_workspaceMainContainer bounds];
+    CGFloat tabHeight = OMDTabStripHeight;
+    if (tabHeight > NSHeight(bounds)) {
+        tabHeight = NSHeight(bounds);
+    }
+
+    NSRect tabFrame = NSMakeRect(NSMinX(bounds),
+                                 NSMaxY(bounds) - tabHeight,
+                                 NSWidth(bounds),
+                                 tabHeight);
+    [_tabStripView setFrame:NSIntegralRect(tabFrame)];
+
+    NSRect documentFrame = NSMakeRect(NSMinX(bounds),
+                                      NSMinY(bounds),
+                                      NSWidth(bounds),
+                                      NSHeight(bounds) - tabHeight);
+    if (documentFrame.size.height < 0.0) {
+        documentFrame.size.height = 0.0;
+    }
+    [_documentContainer setFrame:NSIntegralRect(documentFrame)];
+    [self layoutDocumentViews];
+    [self updateTabStrip];
+}
+
+- (BOOL)isExplorerSidebarVisiblePreference
+{
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    id value = [defaults objectForKey:OMDExplorerSidebarVisibleDefaultsKey];
+    if ([value respondsToSelector:@selector(boolValue)]) {
+        return [value boolValue];
+    }
+    return YES;
+}
+
+- (void)setExplorerSidebarVisiblePreference:(BOOL)visible
+{
+    [[NSUserDefaults standardUserDefaults] setBool:visible forKey:OMDExplorerSidebarVisibleDefaultsKey];
+}
+
+- (void)applyExplorerSidebarVisibility
+{
+    if (_workspaceSplitView == nil || _sidebarContainer == nil) {
+        return;
+    }
+
+    NSArray *subviews = [_workspaceSplitView subviews];
+    if ([subviews count] < 2) {
+        return;
+    }
+
+    NSView *sidebarView = [subviews objectAtIndex:0];
+    if (_explorerSidebarVisible) {
+        [_sidebarContainer setHidden:NO];
+
+        CGFloat totalWidth = NSWidth([_workspaceSplitView bounds]);
+        CGFloat divider = [_workspaceSplitView dividerThickness];
+        CGFloat available = totalWidth - divider;
+        CGFloat target = _explorerSidebarLastVisibleWidth;
+        if (target < 170.0) {
+            target = OMDExplorerSidebarDefaultWidth;
+        }
+        if (available > 0.0) {
+            CGFloat minMain = 360.0;
+            CGFloat maxSidebar = available - minMain;
+            if (maxSidebar < 170.0) {
+                maxSidebar = available * 0.40;
+            }
+            if (target > maxSidebar) {
+                target = maxSidebar;
+            }
+            if (target < 120.0) {
+                target = MIN(220.0, available * 0.40);
+            }
+        }
+        if (target < 1.0) {
+            target = OMDExplorerSidebarDefaultWidth;
+        }
+        [_workspaceSplitView setPosition:target ofDividerAtIndex:0];
+    } else {
+        CGFloat currentWidth = NSWidth([sidebarView frame]);
+        if (currentWidth > 20.0) {
+            _explorerSidebarLastVisibleWidth = currentWidth;
+        }
+        [_workspaceSplitView setPosition:0.0 ofDividerAtIndex:0];
+        [_sidebarContainer setHidden:YES];
+    }
+
+    [self layoutWorkspaceChrome];
+}
+
+- (void)toggleExplorerSidebar:(id)sender
+{
+    (void)sender;
+    _explorerSidebarVisible = !_explorerSidebarVisible;
+    [self setExplorerSidebarVisiblePreference:_explorerSidebarVisible];
+    [self applyExplorerSidebarVisibility];
 }
 
 - (void)normalizeWindowFrameIfNeeded
@@ -1227,7 +2026,12 @@ static NSMutableArray *OMDSecondaryWindows(void)
     BOOL outsideVisible = !NSIntersectsRect(frame, visible);
     BOOL tooWide = frame.size.width > visible.size.width;
     BOOL tooTall = frame.size.height > visible.size.height;
-    if (!outsideVisible && !tooWide && !tooTall) {
+    NSRect overlap = NSIntersectionRect(frame, visible);
+    CGFloat frameArea = frame.size.width * frame.size.height;
+    CGFloat overlapArea = overlap.size.width * overlap.size.height;
+    BOOL mostlyOutside = (frameArea > 0.0 && overlapArea < (frameArea * 0.50));
+    BOOL centerOutside = !NSPointInRect(NSMakePoint(NSMidX(frame), NSMidY(frame)), visible);
+    if (!outsideVisible && !tooWide && !tooTall && !mostlyOutside && !centerOutside) {
         return;
     }
 
@@ -1267,6 +2071,23 @@ static NSMutableArray *OMDSecondaryWindows(void)
       itemForItemIdentifier:(NSString *)identifier
   willBeInsertedIntoToolbar:(BOOL)flag
 {
+    if ([identifier isEqualToString:@"ToggleExplorer"]) {
+        NSToolbarItem *item = [[[NSToolbarItem alloc] initWithItemIdentifier:@"ToggleExplorer"] autorelease];
+        [item setLabel:@"Explorer"];
+        [item setPaletteLabel:@"Explorer"];
+        [item setToolTip:@"Show or hide the file explorer"];
+        [item setTarget:self];
+        [item setAction:@selector(toggleExplorerSidebar:)];
+        NSImage *image = OMDToolbarImageNamed(@"toolbar-explorer-toggle.png");
+        if (image == nil) {
+            image = [NSImage imageNamed:@"NSMenuOnStateTemplate"];
+        }
+        if (image != nil) {
+            [item setImage:image];
+        }
+        return item;
+    }
+
     if ([identifier isEqualToString:@"OpenDocument"]) {
         NSToolbarItem *item = [[[NSToolbarItem alloc] initWithItemIdentifier:@"OpenDocument"] autorelease];
         [item setLabel:@"Open"];
@@ -1476,6 +2297,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
 - (NSArray *)toolbarAllowedItemIdentifiers:(NSToolbar *)toolbar
 {
     return [NSArray arrayWithObjects:
+        @"ToggleExplorer",
         @"OpenDocument",
         @"ImportDocument",
         @"SaveDocument",
@@ -1491,6 +2313,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
 - (NSArray *)toolbarDefaultItemIdentifiers:(NSToolbar *)toolbar
 {
     return [NSArray arrayWithObjects:
+        @"ToggleExplorer",
         @"OpenDocument",
         @"ImportDocument",
         @"SaveDocument",
@@ -1572,6 +2395,11 @@ static NSMutableArray *OMDSecondaryWindows(void)
         return YES;
     }
 
+    if (action == @selector(toggleExplorerSidebar:)) {
+        [menuItem setState:(_explorerSidebarVisible ? NSOnState : NSOffState)];
+        return YES;
+    }
+
     if (action == @selector(undo:)) {
         NSTextView *textView = [self activeEditingTextView];
         NSUndoManager *undoManager = (textView != nil ? [textView undoManager] : nil);
@@ -1615,6 +2443,11 @@ static NSMutableArray *OMDSecondaryWindows(void)
         return YES;
     }
 
+    if (action == @selector(toggleSourceVimKeyBindings:)) {
+        [menuItem setState:([self isSourceVimKeyBindingsEnabled] ? NSOnState : NSOffState)];
+        return _sourceTextView != nil;
+    }
+
     if (action == @selector(toggleFormattingBar:)) {
         [menuItem setState:([self isFormattingBarEnabledPreference] ? NSOnState : NSOffState)];
         return YES;
@@ -1641,7 +2474,8 @@ static NSMutableArray *OMDSecondaryWindows(void)
         action == @selector(exportDocumentAsPDF:) ||
         action == @selector(exportDocumentAsRTF:) ||
         action == @selector(exportDocumentAsDOCX:) ||
-        action == @selector(exportDocumentAsODT:)) {
+        action == @selector(exportDocumentAsODT:) ||
+        action == @selector(exportDocumentAsHTML:)) {
         return [self hasLoadedDocument];
     }
     return YES;
@@ -1650,6 +2484,12 @@ static NSMutableArray *OMDSecondaryWindows(void)
 - (BOOL)validateToolbarItem:(NSToolbarItem *)toolbarItem
 {
     NSString *identifier = [toolbarItem itemIdentifier];
+    if ([identifier isEqualToString:@"ToggleExplorer"]) {
+        [toolbarItem setToolTip:(_explorerSidebarVisible
+                                 ? @"Hide the file explorer"
+                                 : @"Show the file explorer")];
+        return YES;
+    }
     if ([identifier isEqualToString:@"SaveDocument"] ||
         [identifier isEqualToString:@"PrintDocument"] ||
         [identifier isEqualToString:@"ExportDocument"]) {
@@ -1664,9 +2504,12 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [panel setAllowsMultipleSelection:NO];
     [panel setCanChooseFiles:YES];
     [panel setCanChooseDirectories:NO];
-    [panel setTitle:@"Open Markdown"];
+    [panel setTitle:@"Open Document"];
     [panel setPrompt:@"Open"];
-    [panel setAllowedFileTypes:[NSArray arrayWithObjects:@"md", @"markdown", @"mdown", @"txt", nil]];
+    [panel setAllowedFileTypes:nil];
+    if ([panel respondsToSelector:@selector(setAllowsOtherFileTypes:)]) {
+        [panel setAllowsOtherFileTypes:YES];
+    }
     NSString *lastDir = [[NSUserDefaults standardUserDefaults] objectForKey:@"ObjcMarkdownLastOpenDir"];
     if (lastDir != nil) {
         [panel setDirectory:lastDir];
@@ -1691,7 +2534,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
     }
 
     NSString *path = [filenames objectAtIndex:0];
-    if (_currentPath == nil && _currentMarkdown == nil) {
+    if ([_documentTabs count] == 0 && _currentPath == nil && _currentMarkdown == nil) {
         [self openDocumentAtPath:path];
     } else {
         [self openDocumentAtPathInNewWindow:path];
@@ -1706,7 +2549,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [panel setCanChooseDirectories:NO];
     [panel setTitle:@"Import"];
     [panel setPrompt:@"Import"];
-    [panel setAllowedFileTypes:[NSArray arrayWithObjects:@"rtf", @"docx", @"odt", nil]];
+    [panel setAllowedFileTypes:[NSArray arrayWithObjects:@"html", @"htm", @"rtf", @"docx", @"odt", nil]];
 
     NSString *lastDir = [[NSUserDefaults standardUserDefaults] objectForKey:@"ObjcMarkdownLastOpenDir"];
     if (lastDir != nil) {
@@ -1735,7 +2578,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
     NSString *extension = [[path pathExtension] lowercaseString];
     BOOL supportsFormatNow = [OMDDocumentConverter isSupportedExtension:extension];
 
-    if (_currentPath == nil && _currentMarkdown == nil) {
+    if ([_documentTabs count] == 0 && _currentPath == nil && _currentMarkdown == nil) {
         [self importDocumentAtPath:path];
     } else if (supportsFormatNow) {
         OMDAppDelegate *controller = [[OMDAppDelegate alloc] init];
@@ -1804,15 +2647,30 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [alert runModal];
 }
 
-- (void)setCurrentMarkdown:(NSString *)markdown sourcePath:(NSString *)sourcePath
+- (void)setCurrentDocumentText:(NSString *)text
+                    sourcePath:(NSString *)sourcePath
+                    renderMode:(OMDDocumentRenderMode)renderMode
+                syntaxLanguage:(NSString *)syntaxLanguage
 {
-    NSString *newMarkdown = markdown != nil ? [markdown copy] : nil;
+    NSString *newText = text != nil ? [text copy] : nil;
     NSString *newSourcePath = sourcePath != nil ? [sourcePath copy] : nil;
+    NSString *normalizedSyntax = OMDTrimmedString(syntaxLanguage);
+    NSString *newSyntax = ([normalizedSyntax length] > 0 ? [normalizedSyntax copy] : nil);
 
     [_currentMarkdown release];
-    _currentMarkdown = newMarkdown;
+    _currentMarkdown = newText;
     [_currentPath release];
     _currentPath = newSourcePath;
+    [_currentDocumentSyntaxLanguage release];
+    _currentDocumentSyntaxLanguage = newSyntax;
+    _currentDocumentRenderMode = (renderMode == OMDDocumentRenderModeVerbatim
+                                  ? OMDDocumentRenderModeVerbatim
+                                  : OMDDocumentRenderModeMarkdown);
+    if (_currentDisplayTitle != nil) {
+        [_currentDisplayTitle release];
+        _currentDisplayTitle = nil;
+    }
+    _currentDocumentReadOnly = NO;
     _sourceIsDirty = NO;
     _sourceRevision = 0;
     _lastRenderedSourceRevision = 0;
@@ -1829,11 +2687,74 @@ static NSMutableArray *OMDSecondaryWindows(void)
 
     [self updateRendererParsingOptionsForSourcePath:_currentPath];
     [self synchronizeSourceEditorWithCurrentMarkdown];
+    [self applyCurrentDocumentReadOnlyState];
     [self updatePreviewStatusIndicator];
     [self updateWindowTitle];
     if ([self isPreviewVisible]) {
         [self renderCurrentMarkdown];
     }
+}
+
+- (void)setCurrentMarkdown:(NSString *)markdown sourcePath:(NSString *)sourcePath
+{
+    [self setCurrentDocumentText:markdown
+                      sourcePath:sourcePath
+                      renderMode:OMDDocumentRenderModeMarkdown
+                  syntaxLanguage:nil];
+}
+
+- (NSString *)markdownForCurrentPreview
+{
+    if (_currentMarkdown == nil) {
+        return nil;
+    }
+    if (_currentDocumentRenderMode != OMDDocumentRenderModeVerbatim) {
+        return _currentMarkdown;
+    }
+    return OMDMarkdownCodeFenceWrappedText(_currentMarkdown, _currentDocumentSyntaxLanguage);
+}
+
+- (NSString *)decodedTextForFileAtPath:(NSString *)path error:(NSError **)error
+{
+    if (path == nil || [path length] == 0) {
+        if (error != NULL) {
+            *error = [NSError errorWithDomain:OMDTextFileErrorDomain
+                                         code:1
+                                     userInfo:@{ NSLocalizedDescriptionKey: @"Missing file path." }];
+        }
+        return nil;
+    }
+
+    NSData *data = [NSData dataWithContentsOfFile:path];
+    if (data == nil) {
+        if (error != NULL) {
+            *error = [NSError errorWithDomain:OMDTextFileErrorDomain
+                                         code:4
+                                     userInfo:@{ NSLocalizedDescriptionKey: @"Unable to read file data." }];
+        }
+        return nil;
+    }
+    if (OMDDataAppearsBinary(data)) {
+        if (error != NULL) {
+            *error = [NSError errorWithDomain:OMDTextFileErrorDomain
+                                         code:2
+                                     userInfo:@{ NSLocalizedDescriptionKey: @"This file appears to be binary and cannot be previewed as text." }];
+        }
+        return nil;
+    }
+
+    NSStringEncoding usedEncoding = NSUTF8StringEncoding;
+    NSString *decoded = OMDDecodeTextFromData(data, &usedEncoding);
+    if (decoded == nil) {
+        if (error != NULL) {
+            *error = [NSError errorWithDomain:OMDTextFileErrorDomain
+                                         code:3
+                                     userInfo:@{ NSLocalizedDescriptionKey: @"Unable to decode this file as text." }];
+        }
+        return nil;
+    }
+    (void)usedEncoding;
+    return decoded;
 }
 
 - (BOOL)importDocumentAtPath:(NSString *)path
@@ -1842,7 +2763,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
     if (![OMDDocumentConverter isSupportedExtension:extension]) {
         NSAlert *alert = [[[NSAlert alloc] init] autorelease];
         [alert setMessageText:@"Unsupported import format"];
-        [alert setInformativeText:@"Choose an .rtf, .docx, or .odt file."];
+        [alert setInformativeText:@"Choose an .html, .rtf, .docx, or .odt file."];
         [alert runModal];
         return NO;
     }
@@ -1861,9 +2782,14 @@ static NSMutableArray *OMDSecondaryWindows(void)
         return NO;
     }
 
-    [self setCurrentMarkdown:(importedMarkdown != nil ? importedMarkdown : @"")
-                  sourcePath:path];
-    return YES;
+    return [self openDocumentWithMarkdown:(importedMarkdown != nil ? importedMarkdown : @"")
+                                sourcePath:path
+                              displayTitle:[path lastPathComponent]
+                                  readOnly:NO
+                                renderMode:OMDDocumentRenderModeMarkdown
+                            syntaxLanguage:nil
+                                  inNewTab:NO
+                       requireDirtyConfirm:YES];
 }
 
 - (NSString *)defaultExportFileNameWithExtension:(NSString *)extension
@@ -1871,6 +2797,9 @@ static NSMutableArray *OMDSecondaryWindows(void)
     NSString *baseName = nil;
     if (_currentPath != nil) {
         baseName = [[_currentPath lastPathComponent] stringByDeletingPathExtension];
+    } else if (_currentDisplayTitle != nil && [_currentDisplayTitle length] > 0) {
+        baseName = [[_currentDisplayTitle lastPathComponent] stringByDeletingPathExtension];
+        baseName = [baseName stringByReplacingOccurrencesOfString:@":" withString:@"-"];
     }
     if (baseName == nil || [baseName length] == 0) {
         baseName = @"Document";
@@ -1880,6 +2809,19 @@ static NSMutableArray *OMDSecondaryWindows(void)
 
 - (NSString *)defaultSaveMarkdownFileName
 {
+    if (_currentDocumentRenderMode == OMDDocumentRenderModeVerbatim) {
+        NSString *extension = nil;
+        if (_currentPath != nil) {
+            extension = [[_currentPath pathExtension] lowercaseString];
+        } else if (_currentDisplayTitle != nil) {
+            NSString *candidate = [_currentDisplayTitle lastPathComponent];
+            extension = [[candidate pathExtension] lowercaseString];
+        }
+        if (extension == nil || [extension length] == 0) {
+            extension = @"txt";
+        }
+        return [self defaultExportFileNameWithExtension:extension];
+    }
     return [self defaultExportFileNameWithExtension:@"md"];
 }
 
@@ -1958,8 +2900,12 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [snapshot setObject:_currentMarkdown forKey:@"markdown"];
     [snapshot setObject:[NSDate date] forKey:@"timestamp"];
     [snapshot setObject:[NSNumber numberWithBool:_sourceIsDirty] forKey:@"dirty"];
+    [snapshot setObject:[NSNumber numberWithInteger:_currentDocumentRenderMode] forKey:@"renderMode"];
     if (_currentPath != nil) {
         [snapshot setObject:_currentPath forKey:@"sourcePath"];
+    }
+    if (_currentDocumentSyntaxLanguage != nil && [_currentDocumentSyntaxLanguage length] > 0) {
+        [snapshot setObject:_currentDocumentSyntaxLanguage forKey:@"syntaxLanguage"];
     }
 
     return [snapshot writeToFile:snapshotPath atomically:YES];
@@ -2007,6 +2953,28 @@ static NSMutableArray *OMDSecondaryWindows(void)
     if ([sourcePathValue isKindOfClass:[NSString class]] && [sourcePathValue length] > 0) {
         sourcePath = sourcePathValue;
     }
+    OMDDocumentRenderMode renderMode = OMDDocumentRenderModeMarkdown;
+    id renderModeValue = [snapshot objectForKey:@"renderMode"];
+    if ([renderModeValue respondsToSelector:@selector(integerValue)]) {
+        NSInteger rawMode = [renderModeValue integerValue];
+        if (rawMode == OMDDocumentRenderModeVerbatim) {
+            renderMode = OMDDocumentRenderModeVerbatim;
+        }
+    }
+    NSString *syntaxLanguage = nil;
+    id syntaxValue = [snapshot objectForKey:@"syntaxLanguage"];
+    if ([syntaxValue isKindOfClass:[NSString class]]) {
+        syntaxLanguage = OMDTrimmedString((NSString *)syntaxValue);
+    }
+    if (renderMode == OMDDocumentRenderModeMarkdown &&
+        sourcePath != nil &&
+        ![self isMarkdownTextPath:sourcePath] &&
+        ![self isImportableDocumentPath:sourcePath]) {
+        renderMode = OMDDocumentRenderModeVerbatim;
+        if ([syntaxLanguage length] == 0) {
+            syntaxLanguage = OMDVerbatimSyntaxTokenForExtension([sourcePath pathExtension]);
+        }
+    }
 
     NSString *documentName = sourcePath != nil ? [sourcePath lastPathComponent] : @"Untitled";
     NSString *timestampDescription = nil;
@@ -2036,9 +3004,18 @@ static NSMutableArray *OMDSecondaryWindows(void)
         return NO;
     }
 
-    [self setCurrentMarkdown:markdown sourcePath:sourcePath];
+    [self openDocumentWithMarkdown:markdown
+                        sourcePath:sourcePath
+                      displayTitle:documentName
+                          readOnly:NO
+                        renderMode:renderMode
+                    syntaxLanguage:syntaxLanguage
+                          inNewTab:NO
+               requireDirtyConfirm:NO];
     _sourceIsDirty = YES;
     _sourceRevision = 1;
+    [self captureCurrentStateIntoSelectedTab];
+    [self updateTabStrip];
     [self updateWindowTitle];
     [self scheduleRecoveryAutosave];
     return YES;
@@ -2063,7 +3040,12 @@ static NSMutableArray *OMDSecondaryWindows(void)
         return NO;
     }
 
-    [self setCurrentMarkdown:_currentMarkdown sourcePath:path];
+    [self setCurrentDocumentText:_currentMarkdown
+                      sourcePath:path
+                      renderMode:(OMDDocumentRenderMode)_currentDocumentRenderMode
+                  syntaxLanguage:_currentDocumentSyntaxLanguage];
+    [self captureCurrentStateIntoSelectedTab];
+    [self updateTabStrip];
     [self clearRecoverySnapshot];
     return YES;
 }
@@ -2071,9 +3053,17 @@ static NSMutableArray *OMDSecondaryWindows(void)
 - (BOOL)saveDocumentAsMarkdownWithPanel
 {
     NSSavePanel *panel = [NSSavePanel savePanel];
-    [panel setAllowedFileTypes:[NSArray arrayWithObjects:@"md", @"markdown", nil]];
+    BOOL verbatimMode = (_currentDocumentRenderMode == OMDDocumentRenderModeVerbatim);
+    if (verbatimMode) {
+        [panel setAllowedFileTypes:nil];
+        if ([panel respondsToSelector:@selector(setAllowsOtherFileTypes:)]) {
+            [panel setAllowsOtherFileTypes:YES];
+        }
+    } else {
+        [panel setAllowedFileTypes:[NSArray arrayWithObjects:@"md", @"markdown", nil]];
+    }
     [panel setCanCreateDirectories:YES];
-    [panel setTitle:@"Save Markdown As"];
+    [panel setTitle:(verbatimMode ? @"Save As" : @"Save Markdown As")];
     [panel setPrompt:@"Save"];
     [panel setNameFieldStringValue:[self defaultSaveMarkdownFileName]];
     if (_currentPath != nil) {
@@ -2089,26 +3079,45 @@ static NSMutableArray *OMDSecondaryWindows(void)
     if (path == nil || [path length] == 0) {
         return NO;
     }
-    NSString *extension = [[path pathExtension] lowercaseString];
-    if (![extension isEqualToString:@"md"] && ![extension isEqualToString:@"markdown"]) {
-        path = [path stringByAppendingPathExtension:@"md"];
+    if (!verbatimMode) {
+        NSString *extension = [[path pathExtension] lowercaseString];
+        if (![extension isEqualToString:@"md"] && ![extension isEqualToString:@"markdown"]) {
+            path = [path stringByAppendingPathExtension:@"md"];
+        }
     }
 
     return [self saveCurrentMarkdownToPath:path];
 }
 
-- (void)saveDocument:(id)sender
+- (BOOL)saveDocumentFromVimCommand
 {
     if (![self ensureDocumentLoadedForActionName:@"Save"]) {
-        return;
+        return NO;
     }
 
     if (_currentPath != nil && [_currentPath length] > 0) {
-        [self saveCurrentMarkdownToPath:_currentPath];
+        return [self saveCurrentMarkdownToPath:_currentPath];
+    }
+    return [self saveDocumentAsMarkdownWithPanel];
+}
+
+- (void)performCloseFromVimCommandForcingDiscard:(BOOL)force
+{
+    if (_window == nil) {
         return;
     }
 
-    [self saveDocumentAsMarkdownWithPanel];
+    if (force) {
+        _sourceVimForceClose = YES;
+    }
+    [_window performClose:self];
+    _sourceVimForceClose = NO;
+}
+
+- (void)saveDocument:(id)sender
+{
+    (void)sender;
+    [self saveDocumentFromVimCommand];
 }
 
 - (void)saveDocumentAsMarkdown:(id)sender
@@ -2136,6 +3145,20 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [alert addButtonWithTitle:@"Save"];
     [alert addButtonWithTitle:@"Don't Save"];
     [alert addButtonWithTitle:@"Cancel"];
+
+    if (_sourceTextView != nil) {
+        [NSObject cancelPreviousPerformRequestsWithTarget:_sourceTextView
+                                                 selector:@selector(omdApplyDeferredEditorCursorShape)
+                                                   object:nil];
+    }
+    NSCursor *arrowCursor = [NSCursor arrowCursor];
+    if (arrowCursor != nil) {
+        [arrowCursor set];
+    }
+    NSWindow *alertWindow = [alert window];
+    if (alertWindow != nil) {
+        OMDDisableSelectableTextFieldsInView([alertWindow contentView]);
+    }
 
     NSInteger buttonIndex = OMDAlertButtonIndexForResponse([alert runModal]);
     if (buttonIndex == 0) {
@@ -2189,6 +3212,10 @@ static NSMutableArray *OMDSecondaryWindows(void)
     if (_currentMarkdown == nil) {
         return nil;
     }
+    NSString *previewMarkdown = [self markdownForCurrentPreview];
+    if (previewMarkdown == nil) {
+        return nil;
+    }
 
     CGFloat viewWidth = [self printableContentWidthForPrintInfo:printInfo];
     CGFloat insetX = 20.0;
@@ -2201,7 +3228,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
     OMMarkdownRenderer *printRenderer = [[OMMarkdownRenderer alloc] init];
     [printRenderer setZoomScale:OMDPrintExportZoomScale];
     [printRenderer setLayoutWidth:layoutWidth];
-    NSAttributedString *rendered = [printRenderer attributedStringFromMarkdown:_currentMarkdown];
+    NSAttributedString *rendered = [printRenderer attributedStringFromMarkdown:previewMarkdown];
 
     OMDTextView *printView = [[OMDTextView alloc] initWithFrame:NSMakeRect(0.0, 0.0, viewWidth, 100.0)];
     [printView setEditable:NO];
@@ -2356,6 +3383,13 @@ static NSMutableArray *OMDSecondaryWindows(void)
                        actionName:@"Export as ODT"];
 }
 
+- (void)exportDocumentAsHTML:(id)sender
+{
+    [self exportDocumentWithTitle:@"Export as HTML"
+                        extension:@"html"
+                       actionName:@"Export as HTML"];
+}
+
 - (void)exportDocumentWithTitle:(NSString *)panelTitle
                       extension:(NSString *)extension
                      actionName:(NSString *)actionName
@@ -2390,8 +3424,12 @@ static NSMutableArray *OMDSecondaryWindows(void)
         path = [path stringByAppendingPathExtension:extension];
     }
 
+    NSString *markdownForExport = [self markdownForCurrentPreview];
+    if (markdownForExport == nil) {
+        markdownForExport = _currentMarkdown;
+    }
     NSError *error = nil;
-    BOOL success = [[self documentConverter] exportMarkdown:_currentMarkdown
+    BOOL success = [[self documentConverter] exportMarkdown:markdownForExport
                                                      toPath:path
                                                       error:&error];
     if (!success) {
@@ -2401,7 +3439,8 @@ static NSMutableArray *OMDSecondaryWindows(void)
 
 - (void)renderCurrentMarkdown
 {
-    if (_currentMarkdown == nil) {
+    NSString *previewMarkdown = [self markdownForCurrentPreview];
+    if (previewMarkdown == nil) {
         [self setPreviewUpdating:NO];
         return;
     }
@@ -2420,7 +3459,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [_renderer setZoomScale:_zoomScale];
     [self updateRendererLayoutWidth];
     NSTimeInterval markdownStart = perfLogging ? OMDNow() : 0.0;
-    NSAttributedString *rendered = [_renderer attributedStringFromMarkdown:_currentMarkdown];
+    NSAttributedString *rendered = [_renderer attributedStringFromMarkdown:previewMarkdown];
     NSTimeInterval markdownMs = perfLogging ? ((OMDNow() - markdownStart) * 1000.0) : 0.0;
     NSTimeInterval applyStart = perfLogging ? OMDNow() : 0.0;
     _isProgrammaticPreviewUpdate = YES;
@@ -2478,7 +3517,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
               applyMs,
               (OMDNow() - postStart) * 1000.0,
               _zoomScale,
-              (unsigned long)[_currentMarkdown length],
+              (unsigned long)[previewMarkdown length],
               (unsigned long)[rendered length]);
     }
 }
@@ -2522,7 +3561,8 @@ static NSMutableArray *OMDSecondaryWindows(void)
 
 - (void)windowDidResize:(NSNotification *)notification
 {
-    [self layoutDocumentViews];
+    (void)notification;
+    [self layoutWorkspaceChrome];
     if (_currentMarkdown == nil) {
         return;
     }
@@ -2536,6 +3576,29 @@ static NSMutableArray *OMDSecondaryWindows(void)
 constrainSplitPosition:(CGFloat)proposedPosition
          ofSubviewAt:(NSInteger)dividerIndex
 {
+    if (splitView == _workspaceSplitView) {
+        if (!_explorerSidebarVisible) {
+            return 0.0;
+        }
+        CGFloat width = [_workspaceSplitView bounds].size.width;
+        CGFloat divider = [_workspaceSplitView dividerThickness];
+        CGFloat available = width - divider;
+        CGFloat minSidebar = 170.0;
+        CGFloat minMain = 360.0;
+        CGFloat minPosition = minSidebar;
+        CGFloat maxPosition = available - minMain;
+        if (maxPosition < minPosition) {
+            return floor(available * 0.32);
+        }
+        if (proposedPosition < minPosition) {
+            return minPosition;
+        }
+        if (proposedPosition > maxPosition) {
+            return maxPosition;
+        }
+        return proposedPosition;
+    }
+
     if (splitView != _splitView) {
         return proposedPosition;
     }
@@ -2560,7 +3623,22 @@ constrainSplitPosition:(CGFloat)proposedPosition
 
 - (void)splitViewDidResizeSubviews:(NSNotification *)notification
 {
-    if ([notification object] != _splitView) {
+    id object = [notification object];
+    if (object == _workspaceSplitView) {
+        if (_explorerSidebarVisible) {
+            NSArray *subviews = [_workspaceSplitView subviews];
+            if ([subviews count] > 0) {
+                CGFloat sidebarWidth = NSWidth([[subviews objectAtIndex:0] frame]);
+                if (sidebarWidth > 20.0) {
+                    _explorerSidebarLastVisibleWidth = sidebarWidth;
+                }
+            }
+        }
+        [self layoutWorkspaceChrome];
+        return;
+    }
+
+    if (object != _splitView) {
         return;
     }
     [self layoutSourceEditorContainer];
@@ -2665,6 +3743,18 @@ constrainSplitPosition:(CGFloat)proposedPosition
         return;
     }
     [self scheduleMathArtifactRefresh];
+}
+
+- (void)remoteImagesDidWarm:(NSNotification *)notification
+{
+    (void)notification;
+    if (_currentMarkdown == nil) {
+        return;
+    }
+    if (![self isPreviewVisible]) {
+        return;
+    }
+    [self requestInteractiveRender];
 }
 
 - (void)scheduleMathArtifactRefresh
@@ -2973,7 +4063,9 @@ constrainSplitPosition:(CGFloat)proposedPosition
 
 - (void)updateFormattingBarContextState
 {
-    BOOL enabled = [self isFormattingBarVisibleInCurrentMode] && _sourceTextView != nil;
+    BOOL enabled = [self isFormattingBarVisibleInCurrentMode] &&
+                   _sourceTextView != nil &&
+                   !_currentDocumentReadOnly;
     if (_formatHeadingPopup != nil) {
         [_formatHeadingPopup setEnabled:enabled];
     }
@@ -3184,6 +4276,2181 @@ constrainSplitPosition:(CGFloat)proposedPosition
     [_documentContainer setNeedsDisplay:YES];
 }
 
+- (void)applyCurrentDocumentReadOnlyState
+{
+    if (_sourceTextView == nil) {
+        return;
+    }
+
+    BOOL editable = !_currentDocumentReadOnly;
+    [_sourceTextView setEditable:editable];
+    [_sourceTextView setSelectable:YES];
+    [self updateFormattingBarContextState];
+}
+
+- (void)updateTabStrip
+{
+    if (_tabStripView == nil) {
+        return;
+    }
+
+    NSArray *existingSubviews = [[_tabStripView subviews] copy];
+    for (NSView *view in existingSubviews) {
+        [view removeFromSuperview];
+    }
+    [existingSubviews release];
+
+    NSRect bounds = [_tabStripView bounds];
+    if ([_documentTabs count] == 0) {
+        NSTextField *label = [[[NSTextField alloc] initWithFrame:NSInsetRect(bounds, 8.0, 6.0)] autorelease];
+        [label setBezeled:NO];
+        [label setEditable:NO];
+        [label setSelectable:NO];
+        [label setDrawsBackground:NO];
+        [label setTextColor:[NSColor disabledControlTextColor]];
+        [label setFont:[NSFont systemFontOfSize:11.0]];
+        [label setStringValue:@"No document open"];
+        [_tabStripView addSubview:label];
+        return;
+    }
+
+    CGFloat x = 6.0;
+    CGFloat y = 4.0;
+    CGFloat height = NSHeight(bounds) - 8.0;
+    CGFloat available = NSWidth(bounds) - 6.0;
+    const CGFloat closeButtonSize = 14.0;
+    const CGFloat closeButtonInset = 3.0;
+
+    NSInteger index = 0;
+    for (; index < (NSInteger)[_documentTabs count]; index++) {
+        NSDictionary *tab = [_documentTabs objectAtIndex:index];
+        NSString *title = [tab objectForKey:OMDTabDisplayTitleKey];
+        if (title == nil || [title length] == 0) {
+            NSString *path = [tab objectForKey:OMDTabSourcePathKey];
+            title = (path != nil ? [path lastPathComponent] : @"Untitled");
+        }
+        if ([[tab objectForKey:OMDTabDirtyKey] boolValue]) {
+            title = [title stringByAppendingString:@" *"];
+        }
+        if ([[tab objectForKey:OMDTabReadOnlyKey] boolValue]) {
+            title = [title stringByAppendingString:@" [RO]"];
+        }
+
+        CGFloat width = 30.0 + (CGFloat)[title length] * 6.8;
+        if (width < 108.0) {
+            width = 108.0;
+        }
+        if (width > 240.0) {
+            width = 240.0;
+        }
+        if (x + width > available) {
+            width = available - x;
+        }
+        if (width < 72.0) {
+            break;
+        }
+
+        NSView *tabContainer = [[[NSView alloc] initWithFrame:NSMakeRect(x, y, width, height)] autorelease];
+        [tabContainer setAutoresizingMask:NSViewMinYMargin];
+
+        CGFloat titleWidth = width - closeButtonSize - (closeButtonInset * 2.0);
+        if (titleWidth < 52.0) {
+            titleWidth = width - closeButtonSize - closeButtonInset;
+        }
+        if (titleWidth < 40.0) {
+            break;
+        }
+
+        NSButton *button = [[[NSButton alloc] initWithFrame:NSMakeRect(0.0, 0.0, titleWidth, height)] autorelease];
+        [button setTitle:title];
+        [button setTag:index];
+        [button setButtonType:NSPushOnPushOffButton];
+        [button setBezelStyle:NSRoundedBezelStyle];
+        [button setState:(index == _selectedDocumentTabIndex ? NSOnState : NSOffState)];
+        [button setTarget:self];
+        [button setAction:@selector(tabButtonPressed:)];
+        [button setFont:[NSFont systemFontOfSize:11.0]];
+        [button setAlignment:NSLeftTextAlignment];
+        [tabContainer addSubview:button];
+
+        NSButton *closeButton = [[[NSButton alloc] initWithFrame:NSMakeRect(width - closeButtonSize - closeButtonInset,
+                                                                              floor((height - closeButtonSize) * 0.5),
+                                                                              closeButtonSize,
+                                                                              closeButtonSize)] autorelease];
+        [closeButton setTitle:@"x"];
+        [closeButton setTag:index];
+        [closeButton setButtonType:NSMomentaryPushInButton];
+        [closeButton setBezelStyle:NSRoundRectBezelStyle];
+        [closeButton setTarget:self];
+        [closeButton setAction:@selector(tabCloseButtonPressed:)];
+        [closeButton setFont:[NSFont boldSystemFontOfSize:10.0]];
+        [tabContainer addSubview:closeButton];
+
+        [_tabStripView addSubview:tabContainer];
+        x += width + 4.0;
+    }
+}
+
+- (void)tabButtonPressed:(id)sender
+{
+    NSInteger index = [sender tag];
+    [self selectDocumentTabAtIndex:index];
+}
+
+- (void)tabCloseButtonPressed:(id)sender
+{
+    NSInteger index = [sender tag];
+    [self closeDocumentTabAtIndex:index];
+}
+
+- (void)closeDocumentTabAtIndex:(NSInteger)index
+{
+    NSInteger count = (NSInteger)[_documentTabs count];
+    if (index < 0 || index >= count) {
+        return;
+    }
+
+    [self captureCurrentStateIntoSelectedTab];
+
+    NSDictionary *tabRecord = [_documentTabs objectAtIndex:index];
+    BOOL tabIsDirty = [[tabRecord objectForKey:OMDTabDirtyKey] boolValue];
+    NSInteger previousSelection = _selectedDocumentTabIndex;
+    BOOL switchedToClosingTab = NO;
+
+    if (tabIsDirty && index != _selectedDocumentTabIndex) {
+        [self selectDocumentTabAtIndex:index];
+        switchedToClosingTab = YES;
+    }
+
+    if (tabIsDirty) {
+        if (![self confirmDiscardingUnsavedChangesForAction:@"closing this tab"]) {
+            if (switchedToClosingTab &&
+                previousSelection >= 0 &&
+                previousSelection < (NSInteger)[_documentTabs count]) {
+                [self selectDocumentTabAtIndex:previousSelection];
+            }
+            return;
+        }
+        [self captureCurrentStateIntoSelectedTab];
+    }
+
+    if (index < 0 || index >= (NSInteger)[_documentTabs count]) {
+        return;
+    }
+    [_documentTabs removeObjectAtIndex:index];
+
+    if ([_documentTabs count] == 0) {
+        _selectedDocumentTabIndex = -1;
+        [self setCurrentMarkdown:nil sourcePath:nil];
+        if (_textView != nil) {
+            _isProgrammaticPreviewUpdate = YES;
+            NSAttributedString *empty = [[[NSAttributedString alloc] initWithString:@""] autorelease];
+            [[_textView textStorage] setAttributedString:empty];
+            _isProgrammaticPreviewUpdate = NO;
+            [self updateCodeBlockButtons];
+        }
+        [self clearRecoverySnapshot];
+        [self updateTabStrip];
+        [self updateWindowTitle];
+        return;
+    }
+
+    NSInteger targetSelection = previousSelection;
+    if (targetSelection < 0) {
+        targetSelection = 0;
+    }
+    if (targetSelection == index) {
+        targetSelection = index;
+    } else if (targetSelection > index) {
+        targetSelection -= 1;
+    }
+
+    NSInteger remainingCount = (NSInteger)[_documentTabs count];
+    if (targetSelection >= remainingCount) {
+        targetSelection = remainingCount - 1;
+    }
+    if (targetSelection < 0) {
+        targetSelection = 0;
+    }
+
+    _selectedDocumentTabIndex = targetSelection;
+    NSDictionary *selectedTab = [_documentTabs objectAtIndex:targetSelection];
+    [self applyDocumentTabRecord:selectedTab];
+    [self updateTabStrip];
+}
+
+- (void)captureCurrentStateIntoSelectedTab
+{
+    if (_selectedDocumentTabIndex < 0 || _selectedDocumentTabIndex >= (NSInteger)[_documentTabs count]) {
+        return;
+    }
+
+    NSMutableDictionary *tab = [_documentTabs objectAtIndex:_selectedDocumentTabIndex];
+    [tab setObject:(_currentMarkdown != nil ? _currentMarkdown : @"") forKey:OMDTabMarkdownKey];
+
+    if (_currentPath != nil && [_currentPath length] > 0) {
+        [tab setObject:_currentPath forKey:OMDTabSourcePathKey];
+    } else {
+        [tab removeObjectForKey:OMDTabSourcePathKey];
+    }
+
+    if (_currentDisplayTitle != nil && [_currentDisplayTitle length] > 0) {
+        [tab setObject:_currentDisplayTitle forKey:OMDTabDisplayTitleKey];
+    } else {
+        [tab removeObjectForKey:OMDTabDisplayTitleKey];
+    }
+
+    [tab setObject:[NSNumber numberWithBool:_sourceIsDirty] forKey:OMDTabDirtyKey];
+    [tab setObject:[NSNumber numberWithBool:_currentDocumentReadOnly] forKey:OMDTabReadOnlyKey];
+    [tab setObject:[NSNumber numberWithInteger:_currentDocumentRenderMode] forKey:OMDTabRenderModeKey];
+    if (_currentDocumentSyntaxLanguage != nil && [_currentDocumentSyntaxLanguage length] > 0) {
+        [tab setObject:_currentDocumentSyntaxLanguage forKey:OMDTabSyntaxLanguageKey];
+    } else {
+        [tab removeObjectForKey:OMDTabSyntaxLanguageKey];
+    }
+}
+
+- (NSMutableDictionary *)newDocumentTabWithMarkdown:(NSString *)markdown
+                                         sourcePath:(NSString *)sourcePath
+                                       displayTitle:(NSString *)displayTitle
+                                           readOnly:(BOOL)readOnly
+                                         renderMode:(OMDDocumentRenderMode)renderMode
+                                     syntaxLanguage:(NSString *)syntaxLanguage
+{
+    NSMutableDictionary *tab = [NSMutableDictionary dictionary];
+    [tab setObject:(markdown != nil ? markdown : @"") forKey:OMDTabMarkdownKey];
+    if (sourcePath != nil && [sourcePath length] > 0) {
+        [tab setObject:sourcePath forKey:OMDTabSourcePathKey];
+    }
+    if (displayTitle != nil && [displayTitle length] > 0) {
+        [tab setObject:displayTitle forKey:OMDTabDisplayTitleKey];
+    }
+    [tab setObject:[NSNumber numberWithBool:NO] forKey:OMDTabDirtyKey];
+    [tab setObject:[NSNumber numberWithBool:readOnly] forKey:OMDTabReadOnlyKey];
+    [tab setObject:[NSNumber numberWithInteger:renderMode] forKey:OMDTabRenderModeKey];
+    NSString *normalizedSyntax = OMDTrimmedString(syntaxLanguage);
+    if ([normalizedSyntax length] > 0) {
+        [tab setObject:normalizedSyntax forKey:OMDTabSyntaxLanguageKey];
+    }
+    return tab;
+}
+
+- (void)applyDocumentTabRecord:(NSDictionary *)tabRecord
+{
+    if (tabRecord == nil) {
+        return;
+    }
+
+    NSString *markdown = [tabRecord objectForKey:OMDTabMarkdownKey];
+    NSString *sourcePath = [tabRecord objectForKey:OMDTabSourcePathKey];
+    NSInteger rawRenderMode = [[tabRecord objectForKey:OMDTabRenderModeKey] integerValue];
+    OMDDocumentRenderMode renderMode = (rawRenderMode == OMDDocumentRenderModeVerbatim
+                                        ? OMDDocumentRenderModeVerbatim
+                                        : OMDDocumentRenderModeMarkdown);
+    NSString *syntaxLanguage = [tabRecord objectForKey:OMDTabSyntaxLanguageKey];
+    [self setCurrentDocumentText:(markdown != nil ? markdown : @"")
+                      sourcePath:sourcePath
+                      renderMode:renderMode
+                  syntaxLanguage:syntaxLanguage];
+
+    _sourceIsDirty = [[tabRecord objectForKey:OMDTabDirtyKey] boolValue];
+    NSString *displayTitle = [tabRecord objectForKey:OMDTabDisplayTitleKey];
+    [_currentDisplayTitle release];
+    _currentDisplayTitle = [displayTitle copy];
+    BOOL readOnly = [[tabRecord objectForKey:OMDTabReadOnlyKey] boolValue];
+    BOOL isGitHubTab = [[tabRecord objectForKey:OMDTabIsGitHubKey] boolValue];
+    if (isGitHubTab && readOnly) {
+        readOnly = NO;
+        if ([tabRecord isKindOfClass:[NSMutableDictionary class]]) {
+            [(NSMutableDictionary *)tabRecord setObject:[NSNumber numberWithBool:NO] forKey:OMDTabReadOnlyKey];
+        }
+    }
+    _currentDocumentReadOnly = readOnly;
+    [self applyCurrentDocumentReadOnlyState];
+    [self updatePreviewStatusIndicator];
+    [self updateWindowTitle];
+}
+
+- (void)selectDocumentTabAtIndex:(NSInteger)index
+{
+    if (index < 0 || index >= (NSInteger)[_documentTabs count]) {
+        return;
+    }
+    if (index == _selectedDocumentTabIndex) {
+        return;
+    }
+
+    [self captureCurrentStateIntoSelectedTab];
+    _selectedDocumentTabIndex = index;
+    NSDictionary *tab = [_documentTabs objectAtIndex:index];
+    [self applyDocumentTabRecord:tab];
+    [self updateTabStrip];
+}
+
+- (NSInteger)documentTabIndexForLocalPath:(NSString *)sourcePath
+{
+    NSString *targetPath = OMDTrimmedString(sourcePath);
+    if ([targetPath length] == 0) {
+        return -1;
+    }
+    targetPath = [targetPath stringByStandardizingPath];
+
+    NSInteger index = 0;
+    for (; index < (NSInteger)[_documentTabs count]; index++) {
+        NSDictionary *tab = [_documentTabs objectAtIndex:index];
+        NSString *tabPath = OMDTrimmedString([tab objectForKey:OMDTabSourcePathKey]);
+        if ([tabPath length] == 0) {
+            continue;
+        }
+        tabPath = [tabPath stringByStandardizingPath];
+        if ([tabPath isEqualToString:targetPath]) {
+            return index;
+        }
+    }
+    return -1;
+}
+
+- (NSInteger)documentTabIndexForGitHubUser:(NSString *)user
+                                      repo:(NSString *)repo
+                                      path:(NSString *)path
+{
+    NSString *targetUser = [[OMDTrimmedString(user) lowercaseString] copy];
+    NSString *targetRepo = [[OMDTrimmedString(repo) lowercaseString] copy];
+    NSString *targetPath = [OMDNormalizedRelativePath(path) copy];
+    if ([targetUser length] == 0 || [targetRepo length] == 0 || [targetPath length] == 0) {
+        [targetUser release];
+        [targetRepo release];
+        [targetPath release];
+        return -1;
+    }
+
+    NSInteger found = -1;
+    NSInteger index = 0;
+    for (; index < (NSInteger)[_documentTabs count]; index++) {
+        NSDictionary *tab = [_documentTabs objectAtIndex:index];
+        if (![[tab objectForKey:OMDTabIsGitHubKey] boolValue]) {
+            continue;
+        }
+
+        NSString *tabUser = [[OMDTrimmedString([tab objectForKey:OMDTabGitHubUserKey]) lowercaseString] copy];
+        NSString *tabRepo = [[OMDTrimmedString([tab objectForKey:OMDTabGitHubRepoKey]) lowercaseString] copy];
+        NSString *tabPath = [OMDNormalizedRelativePath([tab objectForKey:OMDTabGitHubPathKey]) copy];
+
+        BOOL matches = ([tabUser isEqualToString:targetUser] &&
+                        [tabRepo isEqualToString:targetRepo] &&
+                        [tabPath isEqualToString:targetPath]);
+        [tabUser release];
+        [tabRepo release];
+        [tabPath release];
+
+        if (matches) {
+            found = index;
+            break;
+        }
+    }
+
+    [targetUser release];
+    [targetRepo release];
+    [targetPath release];
+    return found;
+}
+
+- (BOOL)openDocumentWithMarkdown:(NSString *)markdown
+                      sourcePath:(NSString *)sourcePath
+                    displayTitle:(NSString *)displayTitle
+                        readOnly:(BOOL)readOnly
+                      renderMode:(OMDDocumentRenderMode)renderMode
+                  syntaxLanguage:(NSString *)syntaxLanguage
+                        inNewTab:(BOOL)inNewTab
+             requireDirtyConfirm:(BOOL)requireDirtyConfirm
+{
+    NSString *normalizedSourcePath = OMDTrimmedString(sourcePath);
+    if ([normalizedSourcePath length] > 0) {
+        normalizedSourcePath = [normalizedSourcePath stringByStandardizingPath];
+        NSInteger existingIndex = [self documentTabIndexForLocalPath:normalizedSourcePath];
+        if (existingIndex >= 0) {
+            [self selectDocumentTabAtIndex:existingIndex];
+            return YES;
+        }
+    }
+
+    if (!inNewTab && requireDirtyConfirm && _sourceIsDirty) {
+        if (![self confirmDiscardingUnsavedChangesForAction:@"opening another document"]) {
+            return NO;
+        }
+    }
+
+    NSMutableDictionary *tab = [self newDocumentTabWithMarkdown:markdown
+                                                      sourcePath:sourcePath
+                                                    displayTitle:displayTitle
+                                                        readOnly:readOnly
+                                                      renderMode:renderMode
+                                                  syntaxLanguage:syntaxLanguage];
+
+    if (inNewTab || _selectedDocumentTabIndex < 0 || _selectedDocumentTabIndex >= (NSInteger)[_documentTabs count]) {
+        [self captureCurrentStateIntoSelectedTab];
+        [_documentTabs addObject:tab];
+        _selectedDocumentTabIndex = (NSInteger)[_documentTabs count] - 1;
+    } else {
+        [_documentTabs replaceObjectAtIndex:_selectedDocumentTabIndex withObject:tab];
+    }
+
+    [self applyDocumentTabRecord:tab];
+    [self updateTabStrip];
+    return YES;
+}
+
+- (NSString *)explorerLocalRootPathPreference
+{
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    NSString *stored = [defaults stringForKey:OMDExplorerLocalRootPathDefaultsKey];
+    NSString *resolved = OMDTrimmedString(stored);
+    if ([resolved length] == 0) {
+        resolved = NSHomeDirectory();
+    } else {
+        resolved = [resolved stringByExpandingTildeInPath];
+    }
+
+    BOOL isDirectory = NO;
+    if (![[NSFileManager defaultManager] fileExistsAtPath:resolved isDirectory:&isDirectory] || !isDirectory) {
+        resolved = NSHomeDirectory();
+    }
+    if (resolved == nil || [resolved length] == 0) {
+        resolved = @"/";
+    }
+    return resolved;
+}
+
+- (void)setExplorerLocalRootPathPreference:(NSString *)path
+{
+    NSString *resolved = OMDTrimmedString(path);
+    if ([resolved length] == 0) {
+        resolved = NSHomeDirectory();
+    }
+    resolved = [resolved stringByExpandingTildeInPath];
+
+    BOOL isDirectory = NO;
+    if (![[NSFileManager defaultManager] fileExistsAtPath:resolved isDirectory:&isDirectory] || !isDirectory) {
+        NSAlert *alert = [[[NSAlert alloc] init] autorelease];
+        [alert setMessageText:@"Invalid local root folder"];
+        [alert setInformativeText:@"Choose an existing directory for the local explorer root."];
+        [alert runModal];
+        return;
+    }
+
+    [[NSUserDefaults standardUserDefaults] setObject:resolved forKey:OMDExplorerLocalRootPathDefaultsKey];
+    [_explorerLocalRootPath release];
+    _explorerLocalRootPath = [resolved copy];
+
+    [_explorerLocalCurrentPath release];
+    _explorerLocalCurrentPath = [_explorerLocalRootPath copy];
+    [self reloadExplorerEntries];
+}
+
+- (NSUInteger)explorerMaxOpenFileSizeBytes
+{
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    id value = [defaults objectForKey:OMDExplorerMaxFileSizeMBDefaultsKey];
+    NSInteger megabytes = 5;
+    if ([value respondsToSelector:@selector(integerValue)]) {
+        megabytes = [value integerValue];
+    }
+    if (megabytes < 1) {
+        megabytes = 1;
+    }
+    if (megabytes > 200) {
+        megabytes = 200;
+    }
+    return (NSUInteger)megabytes * 1024U * 1024U;
+}
+
+- (void)setExplorerMaxOpenFileSizeMBPreference:(NSUInteger)megabytes
+{
+    if (megabytes < 1) {
+        megabytes = 1;
+    }
+    if (megabytes > 200) {
+        megabytes = 200;
+    }
+    [[NSUserDefaults standardUserDefaults] setInteger:(NSInteger)megabytes
+                                               forKey:OMDExplorerMaxFileSizeMBDefaultsKey];
+}
+
+- (CGFloat)explorerListFontSizePreference
+{
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    id value = [defaults objectForKey:OMDExplorerListFontSizeDefaultsKey];
+    CGFloat fontSize = OMDExplorerListDefaultFontSize;
+    if ([value respondsToSelector:@selector(doubleValue)]) {
+        fontSize = (CGFloat)[value doubleValue];
+    }
+    if (fontSize < OMDExplorerListMinFontSize) {
+        fontSize = OMDExplorerListMinFontSize;
+    }
+    if (fontSize > OMDExplorerListMaxFontSize) {
+        fontSize = OMDExplorerListMaxFontSize;
+    }
+    return fontSize;
+}
+
+- (void)setExplorerListFontSizePreference:(CGFloat)fontSize
+{
+    if (fontSize < OMDExplorerListMinFontSize) {
+        fontSize = OMDExplorerListMinFontSize;
+    }
+    if (fontSize > OMDExplorerListMaxFontSize) {
+        fontSize = OMDExplorerListMaxFontSize;
+    }
+    [[NSUserDefaults standardUserDefaults] setDouble:fontSize forKey:OMDExplorerListFontSizeDefaultsKey];
+    [self applyExplorerListFontPreference];
+}
+
+- (void)applyExplorerListFontPreference
+{
+    if (_explorerTableView == nil) {
+        return;
+    }
+
+    CGFloat fontSize = [self explorerListFontSizePreference];
+    NSFont *font = [NSFont systemFontOfSize:fontSize];
+    if (font == nil) {
+        font = [NSFont systemFontOfSize:OMDExplorerListDefaultFontSize];
+    }
+    CGFloat rowHeight = ceil(fontSize + 8.0);
+    if (rowHeight < OMDExplorerListMinimumRowHeight) {
+        rowHeight = OMDExplorerListMinimumRowHeight;
+    }
+    [_explorerTableView setRowHeight:rowHeight];
+
+    NSTableColumn *column = [_explorerTableView tableColumnWithIdentifier:@"ExplorerName"];
+    id dataCell = [column dataCell];
+    if (dataCell != nil && [dataCell respondsToSelector:@selector(setFont:)]) {
+        [dataCell setFont:font];
+    }
+    [_explorerTableView reloadData];
+}
+
+- (BOOL)isExplorerIncludeForkArchivedEnabled
+{
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    return [defaults boolForKey:OMDExplorerIncludeForkArchivedDefaultsKey];
+}
+
+- (void)setExplorerIncludeForkArchivedEnabled:(BOOL)enabled
+{
+    [[NSUserDefaults standardUserDefaults] setBool:enabled forKey:OMDExplorerIncludeForkArchivedDefaultsKey];
+}
+
+- (NSString *)explorerGitHubTokenPreference
+{
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    NSString *token = [defaults stringForKey:OMDExplorerGitHubTokenDefaultsKey];
+    return OMDTrimmedString(token);
+}
+
+- (void)setExplorerGitHubTokenPreference:(NSString *)token
+{
+    NSString *trimmed = OMDTrimmedString(token);
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    if ([trimmed length] == 0) {
+        [defaults removeObjectForKey:OMDExplorerGitHubTokenDefaultsKey];
+    } else {
+        [defaults setObject:trimmed forKey:OMDExplorerGitHubTokenDefaultsKey];
+    }
+}
+
+- (BOOL)ensureOpenFileSizeWithinLimit:(unsigned long long)size
+                           descriptor:(NSString *)descriptor
+{
+    NSUInteger limit = [self explorerMaxOpenFileSizeBytes];
+    if (size <= (unsigned long long)limit) {
+        return YES;
+    }
+
+    double sizeMB = (double)size / (1024.0 * 1024.0);
+    double limitMB = (double)limit / (1024.0 * 1024.0);
+    NSAlert *alert = [[[NSAlert alloc] init] autorelease];
+    [alert setMessageText:@"File too large to open"];
+    [alert setInformativeText:[NSString stringWithFormat:@"%@ is %.2f MB. Current limit is %.2f MB (change in Preferences).",
+                                                         descriptor,
+                                                         sizeMB,
+                                                         limitMB]];
+    [alert runModal];
+    return NO;
+}
+
+- (BOOL)isMarkdownTextPath:(NSString *)path
+{
+    NSString *extension = [[path pathExtension] lowercaseString];
+    return OMDIsMarkdownExtension(extension);
+}
+
+- (NSString *)temporaryPathForRemoteImportWithExtension:(NSString *)extension
+{
+    NSString *temporaryDirectory = NSTemporaryDirectory();
+    if (temporaryDirectory == nil || [temporaryDirectory length] == 0) {
+        temporaryDirectory = @"/tmp";
+    }
+    NSString *safeExtension = ([extension length] > 0 ? extension : @"tmp");
+    NSString *name = [NSString stringWithFormat:@"objcmarkdown-remote-%@.%@",
+                                               [[NSProcessInfo processInfo] globallyUniqueString],
+                                               safeExtension];
+    return [temporaryDirectory stringByAppendingPathComponent:name];
+}
+
+- (OMDGitHubClient *)gitHubClient
+{
+    if (_gitHubClient == nil) {
+        _gitHubClient = [[OMDGitHubClient alloc] init];
+    }
+    return _gitHubClient;
+}
+
+- (void)setupExplorerSidebar
+{
+    if (_sidebarContainer == nil) {
+        return;
+    }
+
+    NSRect bounds = [_sidebarContainer bounds];
+    CGFloat width = NSWidth(bounds);
+
+    _explorerSourceModeControl = [[NSSegmentedControl alloc] initWithFrame:NSMakeRect(10, NSHeight(bounds) - 34, width - 20, 24)];
+    [_explorerSourceModeControl setSegmentCount:2];
+    [_explorerSourceModeControl setLabel:@"Local" forSegment:0];
+    [_explorerSourceModeControl setLabel:@"GitHub" forSegment:1];
+    [_explorerSourceModeControl setSelectedSegment:_explorerSourceMode];
+    [_explorerSourceModeControl setTarget:self];
+    [_explorerSourceModeControl setAction:@selector(explorerSourceModeChanged:)];
+    [_explorerSourceModeControl setAutoresizingMask:(NSViewWidthSizable | NSViewMinYMargin)];
+    [_sidebarContainer addSubview:_explorerSourceModeControl];
+
+    _explorerLocalRootLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(10, NSHeight(bounds) - 60, width - 20, 16)];
+    [_explorerLocalRootLabel setBezeled:NO];
+    [_explorerLocalRootLabel setEditable:NO];
+    [_explorerLocalRootLabel setSelectable:NO];
+    [_explorerLocalRootLabel setDrawsBackground:NO];
+    [_explorerLocalRootLabel setFont:[NSFont systemFontOfSize:11.0]];
+    [_explorerLocalRootLabel setAutoresizingMask:(NSViewWidthSizable | NSViewMinYMargin)];
+    [_sidebarContainer addSubview:_explorerLocalRootLabel];
+
+    _explorerGitHubUserLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(10, NSHeight(bounds) - 60, 44, 20)];
+    [_explorerGitHubUserLabel setBezeled:NO];
+    [_explorerGitHubUserLabel setEditable:NO];
+    [_explorerGitHubUserLabel setSelectable:NO];
+    [_explorerGitHubUserLabel setDrawsBackground:NO];
+    [_explorerGitHubUserLabel setStringValue:@"User:"];
+    [_explorerGitHubUserLabel setFont:[NSFont systemFontOfSize:11.0]];
+    [_explorerGitHubUserLabel setAutoresizingMask:NSViewMinYMargin];
+    [_sidebarContainer addSubview:_explorerGitHubUserLabel];
+
+    _explorerGitHubUserComboBox = [[NSComboBox alloc] initWithFrame:NSMakeRect(56, NSHeight(bounds) - 64, width - 66, 22)];
+    [_explorerGitHubUserComboBox setUsesDataSource:NO];
+    [_explorerGitHubUserComboBox setCompletes:YES];
+    [_explorerGitHubUserComboBox setTarget:self];
+    [_explorerGitHubUserComboBox setAction:@selector(explorerGitHubUserChanged:)];
+    [_explorerGitHubUserComboBox setDelegate:self];
+    [_explorerGitHubUserComboBox setAutoresizingMask:(NSViewWidthSizable | NSViewMinYMargin)];
+    [_sidebarContainer addSubview:_explorerGitHubUserComboBox];
+
+    _explorerGitHubRepoComboBox = [[NSComboBox alloc] initWithFrame:NSMakeRect(10, NSHeight(bounds) - 90, width - 20, 22)];
+    [_explorerGitHubRepoComboBox setUsesDataSource:NO];
+    [_explorerGitHubRepoComboBox setCompletes:YES];
+    [_explorerGitHubRepoComboBox setTarget:self];
+    [_explorerGitHubRepoComboBox setAction:@selector(explorerGitHubRepoChanged:)];
+    [_explorerGitHubRepoComboBox setDelegate:self];
+    [_explorerGitHubRepoComboBox setAutoresizingMask:(NSViewWidthSizable | NSViewMinYMargin)];
+    [_sidebarContainer addSubview:_explorerGitHubRepoComboBox];
+
+    _explorerGitHubIncludeForkArchivedButton = [[NSButton alloc] initWithFrame:NSMakeRect(10, NSHeight(bounds) - 116, width - 20, 20)];
+    [_explorerGitHubIncludeForkArchivedButton setButtonType:NSSwitchButton];
+    [_explorerGitHubIncludeForkArchivedButton setTitle:@"Include forked + archived repos"];
+    [_explorerGitHubIncludeForkArchivedButton setFont:[NSFont systemFontOfSize:11.0]];
+    [_explorerGitHubIncludeForkArchivedButton setTarget:self];
+    [_explorerGitHubIncludeForkArchivedButton setAction:@selector(explorerGitHubIncludeForkArchivedChanged:)];
+    [_explorerGitHubIncludeForkArchivedButton setAutoresizingMask:(NSViewWidthSizable | NSViewMinYMargin)];
+    [_sidebarContainer addSubview:_explorerGitHubIncludeForkArchivedButton];
+
+    _explorerNavigateUpButton = [[NSButton alloc] initWithFrame:NSMakeRect(10, NSHeight(bounds) - 144, 52, 22)];
+    [_explorerNavigateUpButton setTitle:@"Up"];
+    [_explorerNavigateUpButton setBezelStyle:NSRoundedBezelStyle];
+    [_explorerNavigateUpButton setTarget:self];
+    [_explorerNavigateUpButton setAction:@selector(explorerNavigateUp:)];
+    [_explorerNavigateUpButton setAutoresizingMask:NSViewMinYMargin];
+    [_sidebarContainer addSubview:_explorerNavigateUpButton];
+
+    _explorerPathLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(66, NSHeight(bounds) - 140, width - 76, 18)];
+    [_explorerPathLabel setBezeled:NO];
+    [_explorerPathLabel setEditable:NO];
+    [_explorerPathLabel setSelectable:NO];
+    [_explorerPathLabel setDrawsBackground:NO];
+    [_explorerPathLabel setFont:[NSFont systemFontOfSize:10.5]];
+    [_explorerPathLabel setAutoresizingMask:(NSViewWidthSizable | NSViewMinYMargin)];
+    [_sidebarContainer addSubview:_explorerPathLabel];
+
+    _explorerScrollView = [[NSScrollView alloc] initWithFrame:NSMakeRect(8, 10, width - 16, NSHeight(bounds) - 160)];
+    [_explorerScrollView setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable)];
+    [_explorerScrollView setHasVerticalScroller:YES];
+    [_explorerScrollView setHasHorizontalScroller:NO];
+    [_explorerScrollView setBorderType:NSBezelBorder];
+
+    _explorerTableView = [[NSTableView alloc] initWithFrame:[_explorerScrollView bounds]];
+    [_explorerTableView setHeaderView:nil];
+    [_explorerTableView setAllowsEmptySelection:YES];
+    [_explorerTableView setAllowsMultipleSelection:NO];
+    [_explorerTableView setRowHeight:OMDExplorerListMinimumRowHeight];
+    [_explorerTableView setTarget:self];
+    [_explorerTableView setAction:@selector(explorerItemClicked:)];
+    [_explorerTableView setDoubleAction:@selector(explorerItemDoubleClicked:)];
+    [_explorerTableView setDataSource:self];
+    [_explorerTableView setDelegate:self];
+    NSTableColumn *column = [[[NSTableColumn alloc] initWithIdentifier:@"ExplorerName"] autorelease];
+    [column setEditable:NO];
+    [column setWidth:NSWidth([_explorerScrollView bounds]) - 2.0];
+    [_explorerTableView addTableColumn:column];
+    [_explorerScrollView setDocumentView:_explorerTableView];
+    [_sidebarContainer addSubview:_explorerScrollView];
+    [self applyExplorerListFontPreference];
+
+    [_explorerLocalRootPath release];
+    _explorerLocalRootPath = [[self explorerLocalRootPathPreference] copy];
+    [_explorerLocalCurrentPath release];
+    _explorerLocalCurrentPath = [_explorerLocalRootPath copy];
+
+    [_explorerGitHubUser release];
+    _explorerGitHubUser = [@"" copy];
+    [_explorerGitHubRepo release];
+    _explorerGitHubRepo = [@"" copy];
+    [_explorerGitHubCurrentPath release];
+    _explorerGitHubCurrentPath = [@"" copy];
+    [_explorerGitHubRepoCachePath release];
+    _explorerGitHubRepoCachePath = [@"" copy];
+
+    [_explorerGitHubIncludeForkArchivedButton setState:([self isExplorerIncludeForkArchivedEnabled] ? NSOnState : NSOffState)];
+    [self refreshCachedGitHubUserOptions];
+    [self updateExplorerControlsVisibility];
+}
+
+- (void)updateExplorerControlsVisibility
+{
+    BOOL githubMode = (_explorerSourceMode == OMDExplorerSourceModeGitHub);
+    [_explorerSourceModeControl setSelectedSegment:_explorerSourceMode];
+    if (_explorerGitHubUserComboBox != nil) {
+        [_explorerGitHubUserComboBox setStringValue:(_explorerGitHubUser != nil ? _explorerGitHubUser : @"")];
+    }
+    if (_explorerGitHubRepoComboBox != nil) {
+        [_explorerGitHubRepoComboBox setStringValue:(_explorerGitHubRepo != nil ? _explorerGitHubRepo : @"")];
+    }
+
+    [_explorerLocalRootLabel setHidden:githubMode];
+    [_explorerGitHubUserLabel setHidden:!githubMode];
+    [_explorerGitHubUserComboBox setHidden:!githubMode];
+    [_explorerGitHubRepoComboBox setHidden:!githubMode];
+    [_explorerGitHubIncludeForkArchivedButton setHidden:!githubMode];
+
+    NSRect bounds = [_sidebarContainer bounds];
+    CGFloat width = NSWidth(bounds);
+    CGFloat height = NSHeight(bounds);
+    [_explorerSourceModeControl setFrame:NSMakeRect(10, height - 34, width - 20, 24)];
+    [_explorerLocalRootLabel setFrame:NSMakeRect(10, height - 60, width - 20, 16)];
+    [_explorerGitHubUserLabel setFrame:NSMakeRect(10, height - 60, 44, 20)];
+    [_explorerGitHubUserComboBox setFrame:NSMakeRect(56, height - 64, width - 66, 22)];
+    [_explorerGitHubRepoComboBox setFrame:NSMakeRect(10, height - 90, width - 20, 22)];
+    [_explorerGitHubIncludeForkArchivedButton setFrame:NSMakeRect(10, height - 116, width - 20, 20)];
+
+    CGFloat navigateUpY = (githubMode ? height - 144 : height - 92);
+    CGFloat pathY = (githubMode ? height - 140 : height - 88);
+    CGFloat scrollHeight = (githubMode ? (height - 160) : (height - 100));
+    if (scrollHeight < 80) {
+        scrollHeight = 80;
+    }
+    [_explorerNavigateUpButton setFrame:NSMakeRect(10, navigateUpY, 52, 22)];
+    [_explorerPathLabel setFrame:NSMakeRect(66, pathY, width - 76, 18)];
+    [_explorerScrollView setFrame:NSMakeRect(8, 10, width - 16, scrollHeight)];
+    NSTableColumn *nameColumn = [_explorerTableView tableColumnWithIdentifier:@"ExplorerName"];
+    if (nameColumn != nil) {
+        [nameColumn setWidth:NSWidth([_explorerScrollView bounds]) - 2.0];
+    }
+
+    if (!githubMode) {
+        NSString *root = (_explorerLocalRootPath != nil ? _explorerLocalRootPath : [self explorerLocalRootPathPreference]);
+        [_explorerLocalRootLabel setStringValue:[NSString stringWithFormat:@"Root: %@", root]];
+    }
+}
+
+- (void)setExplorerLoading:(BOOL)loading message:(NSString *)message
+{
+    _explorerIsLoading = loading;
+    [_explorerTableView setEnabled:!loading];
+    if (loading) {
+        [_explorerEntries removeAllObjects];
+        [_explorerTableView reloadData];
+        if (message != nil) {
+            [_explorerPathLabel setStringValue:message];
+        }
+    }
+}
+
+- (void)reloadExplorerEntries
+{
+    [self updateExplorerControlsVisibility];
+    if (_explorerSourceMode == OMDExplorerSourceModeGitHub) {
+        [self reloadGitHubExplorerEntries];
+    } else {
+        [self reloadLocalExplorerEntries];
+    }
+}
+
+- (void)reloadLocalExplorerEntries
+{
+    [self setExplorerLoading:NO message:nil];
+    if (_explorerLocalRootPath == nil || [_explorerLocalRootPath length] == 0) {
+        [_explorerLocalRootPath release];
+        _explorerLocalRootPath = [[self explorerLocalRootPathPreference] copy];
+    }
+    if (_explorerLocalCurrentPath == nil || [_explorerLocalCurrentPath length] == 0) {
+        [_explorerLocalCurrentPath release];
+        _explorerLocalCurrentPath = [_explorerLocalRootPath copy];
+    }
+
+    NSFileManager *fileManager = [NSFileManager defaultManager];
+    BOOL isDirectory = NO;
+    if (![fileManager fileExistsAtPath:_explorerLocalCurrentPath isDirectory:&isDirectory] || !isDirectory) {
+        [_explorerLocalCurrentPath release];
+        _explorerLocalCurrentPath = [_explorerLocalRootPath copy];
+    }
+
+    NSError *error = nil;
+    NSArray *children = [fileManager contentsOfDirectoryAtPath:_explorerLocalCurrentPath error:&error];
+    if (children == nil) {
+        [_explorerEntries removeAllObjects];
+        [_explorerTableView reloadData];
+        [_explorerPathLabel setStringValue:@"Unable to read folder."];
+        return;
+    }
+
+    NSMutableArray *entries = [NSMutableArray array];
+    if (![_explorerLocalCurrentPath isEqualToString:_explorerLocalRootPath]) {
+        NSString *parent = [_explorerLocalCurrentPath stringByDeletingLastPathComponent];
+        if ([parent length] == 0) {
+            parent = _explorerLocalRootPath;
+        }
+        [entries addObject:[NSMutableDictionary dictionaryWithObjectsAndKeys:
+                            @"..", @"name",
+                            parent, @"path",
+                            [NSNumber numberWithBool:YES], @"isDirectory",
+                            [NSNumber numberWithBool:YES], @"isParent",
+                            [NSNumber numberWithInteger:0], @"colorTier",
+                            nil]];
+    }
+
+    NSMutableArray *sortedChildren = [children mutableCopy];
+    [sortedChildren sortUsingComparator:^NSComparisonResult(id leftValue, id rightValue) {
+        NSString *left = (NSString *)leftValue;
+        NSString *right = (NSString *)rightValue;
+        NSString *leftPath = [_explorerLocalCurrentPath stringByAppendingPathComponent:left];
+        NSString *rightPath = [_explorerLocalCurrentPath stringByAppendingPathComponent:right];
+        BOOL leftDir = NO;
+        BOOL rightDir = NO;
+        [fileManager fileExistsAtPath:leftPath isDirectory:&leftDir];
+        [fileManager fileExistsAtPath:rightPath isDirectory:&rightDir];
+        if (leftDir != rightDir) {
+            return leftDir ? NSOrderedAscending : NSOrderedDescending;
+        }
+        return [left compare:right options:NSCaseInsensitiveSearch];
+    }];
+
+    for (NSString *name in sortedChildren) {
+        if ([name isEqualToString:@"."] || [name isEqualToString:@".."]) {
+            continue;
+        }
+
+        NSString *fullPath = [_explorerLocalCurrentPath stringByAppendingPathComponent:name];
+        BOOL childIsDirectory = NO;
+        if (![fileManager fileExistsAtPath:fullPath isDirectory:&childIsDirectory]) {
+            continue;
+        }
+
+        NSMutableDictionary *entry = [NSMutableDictionary dictionary];
+        [entry setObject:name forKey:@"name"];
+        [entry setObject:fullPath forKey:@"path"];
+        [entry setObject:[NSNumber numberWithBool:childIsDirectory] forKey:@"isDirectory"];
+        [entry setObject:[NSNumber numberWithBool:NO] forKey:@"isParent"];
+        [entry setObject:[NSNumber numberWithInteger:(childIsDirectory ? 0 : OMDExplorerFileColorTierForPath(fullPath))]
+                 forKey:@"colorTier"];
+
+        if (!childIsDirectory) {
+            NSDictionary *attributes = [fileManager attributesOfItemAtPath:fullPath error:NULL];
+            NSNumber *size = [attributes objectForKey:NSFileSize];
+            if ([size respondsToSelector:@selector(unsignedLongLongValue)]) {
+                [entry setObject:size forKey:@"size"];
+            }
+        }
+        [entries addObject:entry];
+    }
+    [sortedChildren release];
+
+    [_explorerEntries removeAllObjects];
+    [_explorerEntries addObjectsFromArray:entries];
+    [_explorerTableView reloadData];
+    [_explorerPathLabel setStringValue:[NSString stringWithFormat:@"Local: %@", _explorerLocalCurrentPath]];
+    [_explorerLocalRootLabel setStringValue:[NSString stringWithFormat:@"Root: %@", _explorerLocalRootPath]];
+}
+
+- (void)reloadGitHubExplorerEntries
+{
+    [self setExplorerLoading:NO message:nil];
+    NSString *trimmedUser = OMDTrimmedString(_explorerGitHubUser);
+    if ([trimmedUser length] == 0) {
+        [_explorerEntries removeAllObjects];
+        [_explorerTableView reloadData];
+        [_explorerPathLabel setStringValue:@"Enter a GitHub user."];
+        return;
+    }
+
+    if ([_explorerGitHubRepos count] == 0) {
+        NSString *manualRepo = OMDTrimmedString(_explorerGitHubRepo);
+        if ([manualRepo length] > 0) {
+            [self loadGitHubCachedContentsForUser:trimmedUser repo:manualRepo path:_explorerGitHubCurrentPath];
+            return;
+        }
+        [self loadGitHubRepositoriesForUser:trimmedUser];
+        return;
+    }
+
+    NSString *trimmedRepo = OMDTrimmedString(_explorerGitHubRepo);
+    if ([trimmedRepo length] == 0) {
+        [_explorerEntries removeAllObjects];
+        [_explorerTableView reloadData];
+        [_explorerPathLabel setStringValue:@"Choose a repository."];
+        return;
+    }
+
+    [self loadGitHubCachedContentsForUser:trimmedUser repo:trimmedRepo path:_explorerGitHubCurrentPath];
+}
+
+- (NSString *)gitHubCacheRootPath
+{
+    NSString *root = [OMDDefaultCacheDirectory() stringByAppendingPathComponent:@"ObjcMarkdownViewer/github"];
+    return [root stringByExpandingTildeInPath];
+}
+
+- (NSString *)gitHubCachePathForUser:(NSString *)user repository:(NSString *)repository
+{
+    NSString *trimmedUser = OMDTrimmedString(user);
+    NSString *trimmedRepo = OMDTrimmedString(repository);
+    if ([trimmedUser length] == 0 || [trimmedRepo length] == 0) {
+        return nil;
+    }
+    NSString *root = [self gitHubCacheRootPath];
+    return [[root stringByAppendingPathComponent:trimmedUser] stringByAppendingPathComponent:trimmedRepo];
+}
+
+- (NSArray *)cachedGitHubUsers
+{
+    NSString *root = [self gitHubCacheRootPath];
+    NSArray *children = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:root error:NULL];
+    if (children == nil) {
+        return [NSArray array];
+    }
+
+    NSMutableArray *users = [NSMutableArray array];
+    for (NSString *candidate in children) {
+        if (candidate == nil || [candidate length] == 0 ||
+            [candidate isEqualToString:@"."] ||
+            [candidate isEqualToString:@".."]) {
+            continue;
+        }
+        NSString *fullPath = [root stringByAppendingPathComponent:candidate];
+        BOOL isDirectory = NO;
+        if (![[NSFileManager defaultManager] fileExistsAtPath:fullPath isDirectory:&isDirectory] || !isDirectory) {
+            continue;
+        }
+        if ([[self cachedGitHubRepositoriesForUser:candidate] count] > 0) {
+            [users addObject:candidate];
+        }
+    }
+    [users sortUsingSelector:@selector(localizedCaseInsensitiveCompare:)];
+    return users;
+}
+
+- (NSArray *)cachedGitHubRepositoriesForUser:(NSString *)user
+{
+    NSString *trimmedUser = OMDTrimmedString(user);
+    if ([trimmedUser length] == 0) {
+        return [NSArray array];
+    }
+
+    NSString *userRoot = [[self gitHubCacheRootPath] stringByAppendingPathComponent:trimmedUser];
+    NSArray *children = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:userRoot error:NULL];
+    if (children == nil) {
+        return [NSArray array];
+    }
+
+    NSMutableArray *repos = [NSMutableArray array];
+    for (NSString *candidate in children) {
+        if (candidate == nil || [candidate length] == 0 ||
+            [candidate isEqualToString:@"."] ||
+            [candidate isEqualToString:@".."]) {
+            continue;
+        }
+
+        NSString *repoPath = [userRoot stringByAppendingPathComponent:candidate];
+        BOOL isDirectory = NO;
+        if (![[NSFileManager defaultManager] fileExistsAtPath:repoPath isDirectory:&isDirectory] || !isDirectory) {
+            continue;
+        }
+        NSString *gitDir = [repoPath stringByAppendingPathComponent:@".git"];
+        BOOL hasGitDirectory = NO;
+        if (![[NSFileManager defaultManager] fileExistsAtPath:gitDir isDirectory:&hasGitDirectory] || !hasGitDirectory) {
+            continue;
+        }
+        [repos addObject:candidate];
+    }
+
+    [repos sortUsingSelector:@selector(localizedCaseInsensitiveCompare:)];
+    return repos;
+}
+
+- (void)refreshCachedGitHubUserOptions
+{
+    if (_explorerGitHubUserComboBox == nil) {
+        return;
+    }
+
+    NSArray *cachedUsers = [self cachedGitHubUsers];
+    [_explorerGitHubUserComboBox removeAllItems];
+    for (NSString *user in cachedUsers) {
+        [_explorerGitHubUserComboBox addItemWithObjectValue:user];
+    }
+
+    NSString *selectedUser = OMDTrimmedString(_explorerGitHubUser);
+    if ([selectedUser length] > 0) {
+        BOOL found = NO;
+        for (NSString *user in cachedUsers) {
+            if ([selectedUser caseInsensitiveCompare:user] == NSOrderedSame) {
+                found = YES;
+                break;
+            }
+        }
+        if (!found) {
+            [_explorerGitHubUserComboBox addItemWithObjectValue:selectedUser];
+        }
+    }
+    [_explorerGitHubUserComboBox setStringValue:(selectedUser != nil ? selectedUser : @"")];
+}
+
+- (BOOL)runGitArguments:(NSArray *)arguments
+            inDirectory:(NSString *)directory
+                 output:(NSString **)output
+                  error:(NSError **)error
+{
+    BOOL hasEnv = [[NSFileManager defaultManager] isExecutableFileAtPath:@"/usr/bin/env"];
+    BOOL hasGit = [[NSFileManager defaultManager] isExecutableFileAtPath:@"/usr/bin/git"];
+    if (!hasEnv && !hasGit) {
+        if (error != NULL) {
+            *error = [NSError errorWithDomain:OMDGitHubCacheErrorDomain
+                                         code:1
+                                     userInfo:@{ NSLocalizedDescriptionKey: @"Git is required for GitHub cache browsing." }];
+        }
+        return NO;
+    }
+
+    NSString *stdoutText = @"";
+    NSString *stderrText = @"";
+    NSString *launchFailureReason = nil;
+    BOOL succeeded = NO;
+    BOOL lastAttemptLaunched = YES;
+
+    NSInteger attempt = 0;
+    for (; attempt < 3; attempt++) {
+        NSTask *task = [[[NSTask alloc] init] autorelease];
+        NSMutableArray *taskArguments = [NSMutableArray array];
+        if (hasEnv) {
+            [task setLaunchPath:@"/usr/bin/env"];
+            [taskArguments addObject:@"git"];
+        } else {
+            [task setLaunchPath:@"/usr/bin/git"];
+        }
+        if (arguments != nil) {
+            [taskArguments addObjectsFromArray:arguments];
+        }
+        [task setArguments:taskArguments];
+        if (directory != nil && [directory length] > 0) {
+            [task setCurrentDirectoryPath:directory];
+        }
+
+        NSPipe *stdoutPipe = [NSPipe pipe];
+        NSPipe *stderrPipe = [NSPipe pipe];
+        [task setStandardOutput:stdoutPipe];
+        [task setStandardError:stderrPipe];
+
+        BOOL launched = YES;
+        NSString *attemptLaunchFailureReason = nil;
+        @try {
+            [task launch];
+            [task waitUntilExit];
+        } @catch (NSException *exception) {
+            launched = NO;
+            attemptLaunchFailureReason = [exception reason];
+        }
+        lastAttemptLaunched = launched;
+        launchFailureReason = attemptLaunchFailureReason;
+
+        NSData *stdoutData = [[stdoutPipe fileHandleForReading] readDataToEndOfFile];
+        NSData *stderrData = [[stderrPipe fileHandleForReading] readDataToEndOfFile];
+        NSString *attemptStdoutText = [[[NSString alloc] initWithData:stdoutData encoding:NSUTF8StringEncoding] autorelease];
+        NSString *attemptStderrText = [[[NSString alloc] initWithData:stderrData encoding:NSUTF8StringEncoding] autorelease];
+        stdoutText = (attemptStdoutText != nil ? attemptStdoutText : @"");
+        stderrText = (attemptStderrText != nil ? attemptStderrText : @"");
+
+        if (launched && [task terminationStatus] == 0) {
+            succeeded = YES;
+            break;
+        }
+
+        NSString *reason = OMDTrimmedString(stderrText);
+        if (!OMDGitErrorLooksLikeLockConflict(reason)) {
+            break;
+        }
+
+        if (attempt == 0) {
+            [NSThread sleepForTimeInterval:OMDGitLockRetryDelaySeconds];
+            continue;
+        }
+        if (attempt == 1) {
+            NSString *lockPath = OMDGitLockPathFromErrorReason(reason);
+            if (!OMDGitRemoveStaleLockFile(lockPath, directory)) {
+                break;
+            }
+            [NSThread sleepForTimeInterval:OMDGitLockRetryDelaySeconds];
+            continue;
+        }
+    }
+
+    if (output != NULL) {
+        *output = [stdoutText copy];
+    }
+    if (succeeded) {
+        return YES;
+    }
+
+    if (error != NULL) {
+        NSString *reason = OMDTrimmedString(stderrText);
+        if ([reason length] == 0 && [launchFailureReason length] > 0) {
+            reason = launchFailureReason;
+        }
+        if ([reason length] == 0) {
+            reason = @"git exited with a non-zero status.";
+        }
+        BOOL launchFailure = (!lastAttemptLaunched && [launchFailureReason length] > 0);
+        *error = [NSError errorWithDomain:OMDGitHubCacheErrorDomain
+                                     code:(launchFailure ? 2 : 3)
+                                 userInfo:@{
+                                     NSLocalizedDescriptionKey: (launchFailure
+                                                                 ? @"Unable to run git command."
+                                                                 : @"Git command failed."),
+                                     NSLocalizedFailureReasonErrorKey: reason
+                                 }];
+    }
+    return NO;
+}
+
+- (BOOL)ensureGitHubRepositoryCacheForUser:(NSString *)user
+                                      repo:(NSString *)repo
+                                 cachePath:(NSString **)cachePath
+                                     error:(NSError **)error
+{
+    NSString *trimmedUser = OMDTrimmedString(user);
+    NSString *trimmedRepo = OMDTrimmedString(repo);
+    if ([trimmedUser length] == 0 || [trimmedRepo length] == 0) {
+        if (error != NULL) {
+            *error = [NSError errorWithDomain:OMDGitHubCacheErrorDomain
+                                         code:4
+                                     userInfo:@{ NSLocalizedDescriptionKey: @"GitHub user/repository is required." }];
+        }
+        return NO;
+    }
+
+    NSString *root = [self gitHubCacheRootPath];
+    NSFileManager *fileManager = [NSFileManager defaultManager];
+    if (![fileManager createDirectoryAtPath:root withIntermediateDirectories:YES attributes:nil error:error]) {
+        return NO;
+    }
+
+    NSString *userRoot = [root stringByAppendingPathComponent:trimmedUser];
+    if (![fileManager createDirectoryAtPath:userRoot withIntermediateDirectories:YES attributes:nil error:error]) {
+        return NO;
+    }
+
+    NSString *repoPath = [userRoot stringByAppendingPathComponent:trimmedRepo];
+    NSString *remoteURL = [NSString stringWithFormat:@"https://github.com/%@/%@.git", trimmedUser, trimmedRepo];
+    NSString *gitDir = [repoPath stringByAppendingPathComponent:@".git"];
+
+    BOOL isDirectory = NO;
+    BOOL exists = [fileManager fileExistsAtPath:repoPath isDirectory:&isDirectory];
+    if (exists) {
+        BOOL hasGit = NO;
+        BOOL hasGitDirectory = [fileManager fileExistsAtPath:gitDir isDirectory:&hasGit] && hasGit;
+        if (!isDirectory || !hasGitDirectory) {
+            // Cache path is stale or partially created from a failed attempt; reset it.
+            [fileManager removeItemAtPath:repoPath error:NULL];
+            exists = [fileManager fileExistsAtPath:repoPath isDirectory:&isDirectory];
+        }
+    }
+
+    if (!exists) {
+        NSError *cloneError = nil;
+        BOOL cloned = [self runGitArguments:@[@"clone", @"--depth", @"1", remoteURL, repoPath]
+                                inDirectory:nil
+                                     output:NULL
+                                      error:&cloneError];
+        if (!cloned) {
+            BOOL hasGitAfterFailure = NO;
+            BOOL gitDirectoryFlag = NO;
+            if ([fileManager fileExistsAtPath:gitDir isDirectory:&gitDirectoryFlag] && gitDirectoryFlag) {
+                hasGitAfterFailure = YES;
+            }
+
+            if (!hasGitAfterFailure) {
+                NSString *reason = [[cloneError userInfo] objectForKey:NSLocalizedFailureReasonErrorKey];
+                NSRange existsRange = [reason rangeOfString:@"already exists and is not an empty directory"
+                                                    options:NSCaseInsensitiveSearch];
+                if (existsRange.location != NSNotFound) {
+                    [fileManager removeItemAtPath:repoPath error:NULL];
+                    cloned = [self runGitArguments:@[@"clone", @"--depth", @"1", remoteURL, repoPath]
+                                       inDirectory:nil
+                                            output:NULL
+                                             error:&cloneError];
+                }
+            } else {
+                cloned = YES;
+            }
+        }
+
+        if (!cloned) {
+            if (error != NULL) {
+                *error = cloneError;
+            }
+            return NO;
+        }
+    }
+
+    BOOL hasGit = NO;
+    if (![fileManager fileExistsAtPath:gitDir isDirectory:&hasGit] || !hasGit) {
+        if (error != NULL) {
+            *error = [NSError errorWithDomain:OMDGitHubCacheErrorDomain
+                                         code:5
+                                     userInfo:@{ NSLocalizedDescriptionKey: @"Unable to initialize GitHub repository cache." }];
+        }
+        return NO;
+    }
+
+    [self runGitArguments:@[@"remote", @"set-url", @"origin", remoteURL]
+              inDirectory:repoPath
+                   output:NULL
+                    error:NULL];
+
+    NSError *fetchError = nil;
+    BOOL fetched = [self runGitArguments:@[@"fetch", @"--depth", @"1", @"origin"]
+                             inDirectory:repoPath
+                                  output:NULL
+                                   error:&fetchError];
+    if (fetched) {
+        BOOL checkedOut = [self runGitArguments:@[@"checkout", @"-f", @"--detach", @"origin/HEAD"]
+                                    inDirectory:repoPath
+                                         output:NULL
+                                          error:NULL];
+        if (!checkedOut) {
+            checkedOut = [self runGitArguments:@[@"checkout", @"-f", @"--detach", @"origin/main"]
+                                    inDirectory:repoPath
+                                         output:NULL
+                                          error:NULL];
+        }
+        if (!checkedOut) {
+            [self runGitArguments:@[@"checkout", @"-f", @"--detach", @"origin/master"]
+                      inDirectory:repoPath
+                           output:NULL
+                            error:NULL];
+        }
+        [self runGitArguments:@[@"reset", @"--hard"]
+                  inDirectory:repoPath
+                       output:NULL
+                        error:NULL];
+    } else {
+        BOOL hasHead = [self runGitArguments:@[@"rev-parse", @"--verify", @"HEAD"]
+                                 inDirectory:repoPath
+                                      output:NULL
+                                       error:NULL];
+        if (!hasHead) {
+            if (error != NULL) {
+                *error = fetchError;
+            }
+            return NO;
+        }
+    }
+
+    if (cachePath != NULL) {
+        *cachePath = [repoPath copy];
+    }
+    return YES;
+}
+
+- (NSArray *)gitHubEntriesForRepositoryCachePath:(NSString *)repoCachePath
+                                     relativePath:(NSString *)relativePath
+                                     resolvedPath:(NSString **)resolvedPath
+                                            error:(NSError **)error
+{
+    NSString *normalizedPath = OMDNormalizedRelativePath(relativePath);
+    NSString *directoryPath = repoCachePath;
+    if ([normalizedPath length] > 0) {
+        directoryPath = [repoCachePath stringByAppendingPathComponent:normalizedPath];
+    }
+
+    NSFileManager *fileManager = [NSFileManager defaultManager];
+    BOOL isDirectory = NO;
+    if (![fileManager fileExistsAtPath:directoryPath isDirectory:&isDirectory] || !isDirectory) {
+        normalizedPath = @"";
+        directoryPath = repoCachePath;
+    }
+
+    NSError *contentsError = nil;
+    NSArray *children = [fileManager contentsOfDirectoryAtPath:directoryPath error:&contentsError];
+    if (children == nil) {
+        if (error != NULL) {
+            *error = contentsError;
+        }
+        return nil;
+    }
+
+    NSMutableArray *sortedChildren = [children mutableCopy];
+    [sortedChildren sortUsingComparator:^NSComparisonResult(id leftValue, id rightValue) {
+        NSString *left = (NSString *)leftValue;
+        NSString *right = (NSString *)rightValue;
+        NSString *leftPath = [directoryPath stringByAppendingPathComponent:left];
+        NSString *rightPath = [directoryPath stringByAppendingPathComponent:right];
+        BOOL leftDir = NO;
+        BOOL rightDir = NO;
+        [fileManager fileExistsAtPath:leftPath isDirectory:&leftDir];
+        [fileManager fileExistsAtPath:rightPath isDirectory:&rightDir];
+        if (leftDir != rightDir) {
+            return leftDir ? NSOrderedAscending : NSOrderedDescending;
+        }
+        return [left compare:right options:NSCaseInsensitiveSearch];
+    }];
+
+    NSMutableArray *entries = [NSMutableArray array];
+    if ([normalizedPath length] > 0) {
+        NSString *parent = [normalizedPath stringByDeletingLastPathComponent];
+        [entries addObject:[NSMutableDictionary dictionaryWithObjectsAndKeys:
+                            @"..", @"name",
+                            parent, @"path",
+                            [NSNumber numberWithBool:YES], @"isDirectory",
+                            [NSNumber numberWithBool:YES], @"isParent",
+                            [NSNumber numberWithInteger:0], @"colorTier",
+                            nil]];
+    }
+
+    for (NSString *name in sortedChildren) {
+        if ([name isEqualToString:@"."] ||
+            [name isEqualToString:@".."] ||
+            [name isEqualToString:@".git"]) {
+            continue;
+        }
+
+        NSString *fullPath = [directoryPath stringByAppendingPathComponent:name];
+        BOOL childIsDirectory = NO;
+        if (![fileManager fileExistsAtPath:fullPath isDirectory:&childIsDirectory]) {
+            continue;
+        }
+
+        NSString *relativeEntryPath = nil;
+        if ([normalizedPath length] > 0) {
+            relativeEntryPath = [normalizedPath stringByAppendingPathComponent:name];
+        } else {
+            relativeEntryPath = name;
+        }
+
+        NSMutableDictionary *entry = [NSMutableDictionary dictionary];
+        [entry setObject:name forKey:@"name"];
+        [entry setObject:relativeEntryPath forKey:@"path"];
+        [entry setObject:[NSNumber numberWithBool:childIsDirectory] forKey:@"isDirectory"];
+        [entry setObject:[NSNumber numberWithBool:NO] forKey:@"isParent"];
+        [entry setObject:[NSNumber numberWithInteger:(childIsDirectory ? 0 : OMDExplorerFileColorTierForPath(relativeEntryPath))]
+                 forKey:@"colorTier"];
+
+        if (!childIsDirectory) {
+            NSDictionary *attributes = [fileManager attributesOfItemAtPath:fullPath error:NULL];
+            NSNumber *size = [attributes objectForKey:NSFileSize];
+            if ([size respondsToSelector:@selector(unsignedLongLongValue)]) {
+                [entry setObject:size forKey:@"size"];
+            }
+        }
+        [entries addObject:entry];
+    }
+    [sortedChildren release];
+
+    if (resolvedPath != NULL) {
+        *resolvedPath = [normalizedPath copy];
+    }
+    return entries;
+}
+
+- (void)loadGitHubRepositoriesForUser:(NSString *)user
+{
+    NSString *trimmedUser = OMDTrimmedString(user);
+    [_explorerGitHubUser release];
+    _explorerGitHubUser = [trimmedUser copy];
+    [self refreshCachedGitHubUserOptions];
+
+    NSArray *cachedRepoNames = [[self cachedGitHubRepositoriesForUser:trimmedUser] retain];
+    if ([trimmedUser length] == 0) {
+        [_explorerGitHubRepos release];
+        _explorerGitHubRepos = [[NSArray alloc] init];
+        [_explorerGitHubRepoComboBox removeAllItems];
+        [_explorerEntries removeAllObjects];
+        [_explorerTableView reloadData];
+        [cachedRepoNames release];
+        return;
+    }
+
+    NSUInteger token = ++_explorerRequestToken;
+    BOOL includeForksAndArchived = [self isExplorerIncludeForkArchivedEnabled];
+    [self setExplorerLoading:YES message:@"Loading repositories..."];
+
+    OMDGitHubClient *client = [[self gitHubClient] retain];
+    NSString *requestUser = [trimmedUser copy];
+
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
+        NSError *requestError = nil;
+        NSArray *repos = [[client publicRepositoriesForUser:requestUser
+                                   includeForksAndArchived:includeForksAndArchived
+                                                     error:&requestError] retain];
+        NSError *retainedError = [requestError retain];
+
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (token != _explorerRequestToken) {
+                [repos release];
+                [retainedError release];
+                [requestUser release];
+                [client release];
+                [cachedRepoNames release];
+                return;
+            }
+
+            [self setExplorerLoading:NO message:nil];
+
+            BOOL usingCachedFallback = NO;
+            NSMutableArray *mergedRepos = [NSMutableArray array];
+            if (retainedError == nil && repos != nil) {
+                [mergedRepos addObjectsFromArray:repos];
+            } else if ([cachedRepoNames count] > 0) {
+                usingCachedFallback = YES;
+                for (NSString *repoName in cachedRepoNames) {
+                    [mergedRepos addObject:[NSDictionary dictionaryWithObjectsAndKeys:
+                                            repoName, @"name",
+                                            @"", @"updated_at",
+                                            [NSNumber numberWithBool:NO], @"fork",
+                                            [NSNumber numberWithBool:NO], @"archived",
+                                            nil]];
+                }
+            } else {
+                [_explorerEntries removeAllObjects];
+                [_explorerTableView reloadData];
+                [_explorerPathLabel setStringValue:@"Unable to load repositories."];
+                NSAlert *alert = [[[NSAlert alloc] init] autorelease];
+                [alert setMessageText:@"GitHub repositories unavailable"];
+                NSString *reason = [[retainedError userInfo] objectForKey:NSLocalizedFailureReasonErrorKey];
+                NSString *detail = [retainedError localizedDescription];
+                if (reason != nil && [reason length] > 0) {
+                    detail = [NSString stringWithFormat:@"%@\n\n%@", detail, reason];
+                }
+                [alert setInformativeText:detail];
+                [alert runModal];
+                [repos release];
+                [retainedError release];
+                [requestUser release];
+                [client release];
+                [cachedRepoNames release];
+                return;
+            }
+
+            if (!usingCachedFallback && [cachedRepoNames count] > 0) {
+                for (NSString *cachedName in cachedRepoNames) {
+                    BOOL exists = NO;
+                    for (NSDictionary *repoRecord in mergedRepos) {
+                        NSString *repoName = [repoRecord objectForKey:@"name"];
+                        if (repoName != nil && [cachedName caseInsensitiveCompare:repoName] == NSOrderedSame) {
+                            exists = YES;
+                            break;
+                        }
+                    }
+                    if (!exists) {
+                        [mergedRepos addObject:[NSDictionary dictionaryWithObjectsAndKeys:
+                                                cachedName, @"name",
+                                                @"", @"updated_at",
+                                                [NSNumber numberWithBool:NO], @"fork",
+                                                [NSNumber numberWithBool:NO], @"archived",
+                                                nil]];
+                    }
+                }
+            }
+
+            [_explorerGitHubRepos release];
+            _explorerGitHubRepos = [mergedRepos copy];
+            [_explorerGitHubRepoComboBox removeAllItems];
+            for (NSDictionary *repoRecord in _explorerGitHubRepos) {
+                NSString *repoName = [repoRecord objectForKey:@"name"];
+                if (repoName != nil && [repoName length] > 0) {
+                    [_explorerGitHubRepoComboBox addItemWithObjectValue:repoName];
+                }
+            }
+
+            NSString *selectedRepo = OMDTrimmedString(_explorerGitHubRepo);
+            BOOL selectedRepoStillExists = NO;
+            for (NSDictionary *repoRecord in _explorerGitHubRepos) {
+                NSString *repoName = [repoRecord objectForKey:@"name"];
+                if (repoName != nil && [selectedRepo caseInsensitiveCompare:repoName] == NSOrderedSame) {
+                    selectedRepo = repoName;
+                    selectedRepoStillExists = YES;
+                    break;
+                }
+            }
+            if (!selectedRepoStillExists) {
+                if ([_explorerGitHubRepos count] > 0) {
+                    selectedRepo = [[_explorerGitHubRepos objectAtIndex:0] objectForKey:@"name"];
+                } else {
+                    selectedRepo = @"";
+                }
+            }
+
+            [_explorerGitHubRepo release];
+            _explorerGitHubRepo = [selectedRepo copy];
+            [_explorerGitHubRepoComboBox setStringValue:(_explorerGitHubRepo != nil ? _explorerGitHubRepo : @"")];
+            [_explorerGitHubCurrentPath release];
+            _explorerGitHubCurrentPath = [@"" copy];
+            [_explorerGitHubRepoCachePath release];
+            _explorerGitHubRepoCachePath = [@"" copy];
+
+            if (usingCachedFallback) {
+                [_explorerPathLabel setStringValue:@"GitHub API unavailable. Showing cached repositories."];
+            }
+
+            if ([_explorerGitHubRepo length] == 0) {
+                [_explorerEntries removeAllObjects];
+                [_explorerTableView reloadData];
+                if ([cachedRepoNames count] > 0) {
+                    [_explorerPathLabel setStringValue:@"No repositories match current filter."];
+                } else {
+                    [_explorerPathLabel setStringValue:@"No public repositories found."];
+                }
+            } else {
+                [self loadGitHubCachedContentsForUser:_explorerGitHubUser repo:_explorerGitHubRepo path:_explorerGitHubCurrentPath];
+            }
+
+            [repos release];
+            [retainedError release];
+            [requestUser release];
+            [client release];
+            [cachedRepoNames release];
+        });
+
+        [pool release];
+    });
+}
+
+- (void)loadGitHubCachedContentsForUser:(NSString *)user repo:(NSString *)repo path:(NSString *)path
+{
+    NSString *trimmedUser = OMDTrimmedString(user);
+    NSString *trimmedRepo = OMDTrimmedString(repo);
+    NSString *trimmedPath = OMDNormalizedRelativePath(path);
+    if ([trimmedUser length] == 0 || [trimmedRepo length] == 0) {
+        return;
+    }
+
+    NSString *expectedCachePath = [self gitHubCachePathForUser:trimmedUser repository:trimmedRepo];
+    BOOL shouldRefreshCache = YES;
+    if (expectedCachePath != nil &&
+        [_explorerGitHubRepoCachePath isEqualToString:expectedCachePath]) {
+        BOOL isDirectory = NO;
+        NSString *gitDir = [expectedCachePath stringByAppendingPathComponent:@".git"];
+        if ([[NSFileManager defaultManager] fileExistsAtPath:gitDir isDirectory:&isDirectory] && isDirectory) {
+            shouldRefreshCache = NO;
+        }
+    }
+
+    NSUInteger token = ++_explorerRequestToken;
+    [self setExplorerLoading:YES message:(shouldRefreshCache ? @"Refreshing repository cache..." : @"Loading files...")];
+
+    NSString *requestUser = [trimmedUser copy];
+    NSString *requestRepo = [trimmedRepo copy];
+    NSString *requestPath = [trimmedPath copy];
+    NSString *requestExpectedCachePath = [expectedCachePath copy];
+
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
+        NSError *cacheError = nil;
+        NSString *repoCachePath = nil;
+        BOOL cached = NO;
+        if (shouldRefreshCache) {
+            cached = [self ensureGitHubRepositoryCacheForUser:requestUser
+                                                         repo:requestRepo
+                                                    cachePath:&repoCachePath
+                                                        error:&cacheError];
+        } else {
+            repoCachePath = [requestExpectedCachePath copy];
+            cached = (repoCachePath != nil && [repoCachePath length] > 0);
+        }
+
+        NSArray *entries = nil;
+        NSString *resolvedPath = nil;
+        NSError *listingError = nil;
+        if (cached) {
+            entries = [[self gitHubEntriesForRepositoryCachePath:repoCachePath
+                                                    relativePath:requestPath
+                                                    resolvedPath:&resolvedPath
+                                                           error:&listingError] retain];
+        }
+
+        NSError *finalError = nil;
+        if (cacheError != nil) {
+            finalError = [cacheError retain];
+        } else if (listingError != nil) {
+            finalError = [listingError retain];
+        }
+
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (token != _explorerRequestToken) {
+                [entries release];
+                [finalError release];
+                [repoCachePath release];
+                [resolvedPath release];
+                [requestUser release];
+                [requestRepo release];
+                [requestPath release];
+                [requestExpectedCachePath release];
+                return;
+            }
+
+            [self setExplorerLoading:NO message:nil];
+            if (finalError != nil) {
+                [_explorerEntries removeAllObjects];
+                [_explorerTableView reloadData];
+                [_explorerPathLabel setStringValue:@"Unable to load repository contents."];
+                NSAlert *alert = [[[NSAlert alloc] init] autorelease];
+                [alert setMessageText:@"GitHub repository unavailable"];
+                NSString *reason = [[finalError userInfo] objectForKey:NSLocalizedFailureReasonErrorKey];
+                NSString *detail = [finalError localizedDescription];
+                if (reason != nil && [reason length] > 0) {
+                    detail = [NSString stringWithFormat:@"%@\n\n%@", detail, reason];
+                }
+                [alert setInformativeText:detail];
+                [alert runModal];
+                [entries release];
+                [finalError release];
+                [repoCachePath release];
+                [resolvedPath release];
+                [requestUser release];
+                [requestRepo release];
+                [requestPath release];
+                [requestExpectedCachePath release];
+                return;
+            }
+
+            [_explorerGitHubRepoCachePath release];
+            _explorerGitHubRepoCachePath = [repoCachePath copy];
+            [_explorerGitHubCurrentPath release];
+            _explorerGitHubCurrentPath = [resolvedPath copy];
+
+            for (NSMutableDictionary *entry in entries) {
+                if ([entry objectForKey:@"githubUser"] == nil) {
+                    [entry setObject:requestUser forKey:@"githubUser"];
+                }
+                if ([entry objectForKey:@"githubRepo"] == nil) {
+                    [entry setObject:requestRepo forKey:@"githubRepo"];
+                }
+            }
+
+            [_explorerEntries removeAllObjects];
+            [_explorerEntries addObjectsFromArray:entries];
+            [_explorerTableView reloadData];
+
+            NSString *pathDisplay = ([_explorerGitHubCurrentPath length] > 0
+                                     ? [@"/" stringByAppendingString:_explorerGitHubCurrentPath]
+                                     : @"/");
+            [_explorerPathLabel setStringValue:[NSString stringWithFormat:@"%@/%@%@",
+                                                requestUser,
+                                                requestRepo,
+                                                pathDisplay]];
+            [self refreshCachedGitHubUserOptions];
+
+            [entries release];
+            [finalError release];
+            [repoCachePath release];
+            [resolvedPath release];
+            [requestUser release];
+            [requestRepo release];
+            [requestPath release];
+            [requestExpectedCachePath release];
+        });
+
+        [pool release];
+    });
+}
+
+- (void)explorerSourceModeChanged:(id)sender
+{
+    NSInteger mode = [_explorerSourceModeControl selectedSegment];
+    if (mode != OMDExplorerSourceModeGitHub) {
+        mode = OMDExplorerSourceModeLocal;
+    }
+    _explorerSourceMode = mode;
+    [self reloadExplorerEntries];
+}
+
+- (void)explorerNavigateUp:(id)sender
+{
+    (void)sender;
+    if (_explorerSourceMode == OMDExplorerSourceModeGitHub) {
+        if (_explorerGitHubCurrentPath != nil && [_explorerGitHubCurrentPath length] > 0) {
+            NSString *parent = [_explorerGitHubCurrentPath stringByDeletingLastPathComponent];
+            [_explorerGitHubCurrentPath release];
+            _explorerGitHubCurrentPath = [parent copy];
+            [self reloadGitHubExplorerEntries];
+        }
+        return;
+    }
+
+    if (_explorerLocalCurrentPath == nil) {
+        return;
+    }
+    if ([_explorerLocalCurrentPath isEqualToString:_explorerLocalRootPath]) {
+        return;
+    }
+
+    NSString *parent = [_explorerLocalCurrentPath stringByDeletingLastPathComponent];
+    if ([parent length] == 0) {
+        parent = _explorerLocalRootPath;
+    }
+    [_explorerLocalCurrentPath release];
+    _explorerLocalCurrentPath = [parent copy];
+    [self reloadLocalExplorerEntries];
+}
+
+- (void)explorerGitHubUserChanged:(id)sender
+{
+    (void)sender;
+    NSString *user = OMDTrimmedComboBoxSelectionOrText(_explorerGitHubUserComboBox);
+    [_explorerGitHubUser release];
+    _explorerGitHubUser = [user copy];
+    [_explorerGitHubRepo release];
+    _explorerGitHubRepo = [@"" copy];
+    [_explorerGitHubCurrentPath release];
+    _explorerGitHubCurrentPath = [@"" copy];
+    [_explorerGitHubRepoCachePath release];
+    _explorerGitHubRepoCachePath = [@"" copy];
+    [_explorerGitHubRepos release];
+    _explorerGitHubRepos = [[NSArray alloc] init];
+    [self loadGitHubRepositoriesForUser:_explorerGitHubUser];
+}
+
+- (void)explorerGitHubRepoChanged:(id)sender
+{
+    (void)sender;
+    NSString *repo = OMDTrimmedComboBoxSelectionOrText(_explorerGitHubRepoComboBox);
+    [_explorerGitHubRepo release];
+    _explorerGitHubRepo = [repo copy];
+    [_explorerGitHubCurrentPath release];
+    _explorerGitHubCurrentPath = [@"" copy];
+    [_explorerGitHubRepoCachePath release];
+    _explorerGitHubRepoCachePath = [@"" copy];
+    [self reloadGitHubExplorerEntries];
+}
+
+- (void)explorerGitHubIncludeForkArchivedChanged:(id)sender
+{
+    BOOL enabled = ([_explorerGitHubIncludeForkArchivedButton state] == NSOnState);
+    [self setExplorerIncludeForkArchivedEnabled:enabled];
+    [_explorerGitHubRepos release];
+    _explorerGitHubRepos = [[NSArray alloc] init];
+    [_explorerGitHubRepo release];
+    _explorerGitHubRepo = [@"" copy];
+    [_explorerGitHubCurrentPath release];
+    _explorerGitHubCurrentPath = [@"" copy];
+    [_explorerGitHubRepoCachePath release];
+    _explorerGitHubRepoCachePath = [@"" copy];
+    [self loadGitHubRepositoriesForUser:_explorerGitHubUser];
+}
+
+- (void)explorerItemClicked:(id)sender
+{
+    (void)sender;
+    NSEvent *event = [NSApp currentEvent];
+    if (event != nil && [event clickCount] > 1) {
+        return;
+    }
+    NSInteger row = [_explorerTableView clickedRow];
+    if (row < 0) {
+        row = [_explorerTableView selectedRow];
+    }
+    if (row < 0 || row >= (NSInteger)[_explorerEntries count]) {
+        return;
+    }
+    NSDictionary *entry = [_explorerEntries objectAtIndex:row];
+    [self openExplorerEntry:entry inNewTab:NO];
+}
+
+- (void)explorerItemDoubleClicked:(id)sender
+{
+    (void)sender;
+    NSInteger row = [_explorerTableView clickedRow];
+    if (row < 0) {
+        row = [_explorerTableView selectedRow];
+    }
+    if (row < 0 || row >= (NSInteger)[_explorerEntries count]) {
+        return;
+    }
+    NSDictionary *entry = [_explorerEntries objectAtIndex:row];
+    [self openExplorerEntry:entry inNewTab:YES];
+}
+
+- (void)openExplorerEntry:(NSDictionary *)entry inNewTab:(BOOL)inNewTab
+{
+    if (entry == nil) {
+        return;
+    }
+
+    BOOL isDirectory = [[entry objectForKey:@"isDirectory"] boolValue];
+    NSString *path = [entry objectForKey:@"path"];
+    BOOL allowEmptyGitHubParent = (isDirectory &&
+                                   _explorerSourceMode == OMDExplorerSourceModeGitHub &&
+                                   [[entry objectForKey:@"isParent"] boolValue]);
+    if ((path == nil || [path length] == 0) && !allowEmptyGitHubParent) {
+        return;
+    }
+
+    if (isDirectory) {
+        if (_explorerSourceMode == OMDExplorerSourceModeGitHub) {
+            [_explorerGitHubCurrentPath release];
+            _explorerGitHubCurrentPath = [path copy];
+            [self reloadGitHubExplorerEntries];
+        } else {
+            [_explorerLocalCurrentPath release];
+            _explorerLocalCurrentPath = [path copy];
+            [self reloadLocalExplorerEntries];
+        }
+        return;
+    }
+
+    if (_explorerSourceMode == OMDExplorerSourceModeGitHub) {
+        [self openGitHubFileEntry:entry inNewTab:inNewTab];
+    } else {
+        [self openLocalPath:path inNewTab:inNewTab];
+    }
+}
+
+- (void)openLocalPath:(NSString *)path inNewTab:(BOOL)inNewTab
+{
+    if (path == nil || [path length] == 0) {
+        return;
+    }
+
+    NSDictionary *attributes = [[NSFileManager defaultManager] attributesOfItemAtPath:path error:NULL];
+    NSNumber *sizeValue = [attributes objectForKey:NSFileSize];
+    if ([sizeValue respondsToSelector:@selector(unsignedLongLongValue)]) {
+        if (![self ensureOpenFileSizeWithinLimit:[sizeValue unsignedLongLongValue]
+                                      descriptor:[path lastPathComponent]]) {
+            return;
+        }
+    }
+
+    NSString *extension = [[path pathExtension] lowercaseString];
+    if ([OMDDocumentConverter isSupportedExtension:extension]) {
+        if (![self ensureConverterAvailableForActionName:@"Import"]) {
+            return;
+        }
+
+        NSString *importedMarkdown = nil;
+        NSError *error = nil;
+        BOOL success = [[self documentConverter] importFileAtPath:path markdown:&importedMarkdown error:&error];
+        if (!success) {
+            [self presentConverterError:error fallbackTitle:@"Import failed"];
+            return;
+        }
+
+        [self openDocumentWithMarkdown:(importedMarkdown != nil ? importedMarkdown : @"")
+                            sourcePath:path
+                          displayTitle:[path lastPathComponent]
+                              readOnly:NO
+                            renderMode:OMDDocumentRenderModeMarkdown
+                        syntaxLanguage:nil
+                              inNewTab:inNewTab
+                   requireDirtyConfirm:!inNewTab];
+        return;
+    }
+
+    NSError *error = nil;
+    NSString *markdown = [self decodedTextForFileAtPath:path error:&error];
+    if (markdown == nil) {
+        NSAlert *alert = [[[NSAlert alloc] init] autorelease];
+        [alert setMessageText:@"Unsupported file type"];
+        [alert setInformativeText:(error != nil ? [error localizedDescription]
+                                                : @"This file cannot be opened as text.")];
+        [alert runModal];
+        return;
+    }
+
+    OMDDocumentRenderMode renderMode = [self isMarkdownTextPath:path]
+                                       ? OMDDocumentRenderModeMarkdown
+                                       : OMDDocumentRenderModeVerbatim;
+    NSString *syntaxLanguage = (renderMode == OMDDocumentRenderModeVerbatim
+                                ? OMDVerbatimSyntaxTokenForExtension(extension)
+                                : nil);
+
+    [self openDocumentWithMarkdown:markdown
+                        sourcePath:path
+                      displayTitle:[path lastPathComponent]
+                          readOnly:NO
+                        renderMode:renderMode
+                    syntaxLanguage:syntaxLanguage
+                          inNewTab:inNewTab
+               requireDirtyConfirm:!inNewTab];
+}
+
+- (void)openGitHubFileEntry:(NSDictionary *)entry inNewTab:(BOOL)inNewTab
+{
+    NSString *entryPath = OMDNormalizedRelativePath([entry objectForKey:@"path"]);
+    if ([entryPath length] == 0) {
+        return;
+    }
+
+    NSString *githubUser = [entry objectForKey:@"githubUser"];
+    NSString *githubRepo = [entry objectForKey:@"githubRepo"];
+    if (githubUser == nil || [githubUser length] == 0) {
+        githubUser = _explorerGitHubUser;
+    }
+    if (githubRepo == nil || [githubRepo length] == 0) {
+        githubRepo = _explorerGitHubRepo;
+    }
+    if ([OMDTrimmedString(githubUser) length] == 0 || [OMDTrimmedString(githubRepo) length] == 0) {
+        return;
+    }
+
+    NSInteger existingIndex = [self documentTabIndexForGitHubUser:githubUser
+                                                             repo:githubRepo
+                                                             path:entryPath];
+    if (existingIndex >= 0) {
+        [self selectDocumentTabAtIndex:existingIndex];
+        return;
+    }
+
+    NSString *repoCachePath = _explorerGitHubRepoCachePath;
+    if (repoCachePath == nil || [repoCachePath length] == 0) {
+        NSError *cacheError = nil;
+        NSString *resolvedPath = nil;
+        if (![self ensureGitHubRepositoryCacheForUser:githubUser
+                                                 repo:githubRepo
+                                            cachePath:&resolvedPath
+                                                error:&cacheError]) {
+            NSAlert *alert = [[[NSAlert alloc] init] autorelease];
+            [alert setMessageText:@"GitHub repository unavailable"];
+            NSString *reason = [[cacheError userInfo] objectForKey:NSLocalizedFailureReasonErrorKey];
+            NSString *detail = [cacheError localizedDescription];
+            if (reason != nil && [reason length] > 0) {
+                detail = [NSString stringWithFormat:@"%@\n\n%@", detail, reason];
+            }
+            [alert setInformativeText:detail];
+            [alert runModal];
+            [resolvedPath release];
+            return;
+        }
+        [_explorerGitHubRepoCachePath release];
+        _explorerGitHubRepoCachePath = [resolvedPath copy];
+        [resolvedPath release];
+        repoCachePath = _explorerGitHubRepoCachePath;
+        [self refreshCachedGitHubUserOptions];
+    }
+
+    NSString *fullPath = [repoCachePath stringByAppendingPathComponent:entryPath];
+    BOOL isDirectory = NO;
+    if (![[NSFileManager defaultManager] fileExistsAtPath:fullPath isDirectory:&isDirectory] || isDirectory) {
+        NSAlert *alert = [[[NSAlert alloc] init] autorelease];
+        [alert setMessageText:@"File unavailable"];
+        [alert setInformativeText:@"The selected file is not available in the local cache."];
+        [alert runModal];
+        return;
+    }
+
+    NSDictionary *attributes = [[NSFileManager defaultManager] attributesOfItemAtPath:fullPath error:NULL];
+    NSNumber *sizeValue = [attributes objectForKey:NSFileSize];
+    if ([sizeValue respondsToSelector:@selector(unsignedLongLongValue)]) {
+        if (![self ensureOpenFileSizeWithinLimit:[sizeValue unsignedLongLongValue]
+                                      descriptor:[entry objectForKey:@"name"]]) {
+            return;
+        }
+    }
+
+    NSString *extension = [[entryPath pathExtension] lowercaseString];
+    BOOL importable = [OMDDocumentConverter isSupportedExtension:extension];
+
+    NSString *markdownResult = nil;
+    OMDDocumentRenderMode renderMode = OMDDocumentRenderModeMarkdown;
+    NSString *syntaxLanguage = nil;
+    if (importable) {
+        if (![self ensureConverterAvailableForActionName:@"Import"]) {
+            return;
+        }
+        NSString *importedMarkdown = nil;
+        NSError *conversionError = nil;
+        BOOL converted = [[self documentConverter] importFileAtPath:fullPath
+                                                           markdown:&importedMarkdown
+                                                              error:&conversionError];
+        if (!converted) {
+            [self presentConverterError:conversionError fallbackTitle:@"Import failed"];
+            return;
+        }
+        markdownResult = importedMarkdown;
+    } else {
+        NSError *readError = nil;
+        markdownResult = [self decodedTextForFileAtPath:fullPath error:&readError];
+        if (markdownResult == nil) {
+            NSAlert *alert = [[[NSAlert alloc] init] autorelease];
+            [alert setMessageText:@"Unsupported file type"];
+            [alert setInformativeText:(readError != nil ? [readError localizedDescription]
+                                                        : @"This cached file cannot be opened as text.")];
+            [alert runModal];
+            return;
+        }
+        renderMode = [self isMarkdownTextPath:entryPath]
+                     ? OMDDocumentRenderModeMarkdown
+                     : OMDDocumentRenderModeVerbatim;
+        if (renderMode == OMDDocumentRenderModeVerbatim) {
+            syntaxLanguage = OMDVerbatimSyntaxTokenForExtension(extension);
+        }
+    }
+
+    NSString *displayTitle = [NSString stringWithFormat:@"%@/%@:%@",
+                              githubUser != nil ? githubUser : @"",
+                              githubRepo != nil ? githubRepo : @"",
+                              entryPath];
+    [self openDocumentWithMarkdown:(markdownResult != nil ? markdownResult : @"")
+                        sourcePath:nil
+                      displayTitle:displayTitle
+                          readOnly:NO
+                        renderMode:renderMode
+                    syntaxLanguage:syntaxLanguage
+                          inNewTab:inNewTab
+               requireDirtyConfirm:!inNewTab];
+    if (_selectedDocumentTabIndex >= 0 && _selectedDocumentTabIndex < (NSInteger)[_documentTabs count]) {
+        NSMutableDictionary *tab = [_documentTabs objectAtIndex:_selectedDocumentTabIndex];
+        [tab setObject:[NSNumber numberWithBool:YES] forKey:OMDTabIsGitHubKey];
+        if (githubUser != nil) {
+            [tab setObject:githubUser forKey:OMDTabGitHubUserKey];
+        }
+        if (githubRepo != nil) {
+            [tab setObject:githubRepo forKey:OMDTabGitHubRepoKey];
+        }
+        [tab setObject:entryPath forKey:OMDTabGitHubPathKey];
+    }
+}
+
+- (NSInteger)numberOfRowsInTableView:(NSTableView *)tableView
+{
+    if (tableView != _explorerTableView) {
+        return 0;
+    }
+    return (NSInteger)[_explorerEntries count];
+}
+
+- (id)tableView:(NSTableView *)tableView
+objectValueForTableColumn:(NSTableColumn *)tableColumn
+            row:(NSInteger)row
+{
+    (void)tableColumn;
+    if (tableView != _explorerTableView) {
+        return @"";
+    }
+    if (row < 0 || row >= (NSInteger)[_explorerEntries count]) {
+        return @"";
+    }
+
+    NSDictionary *entry = [_explorerEntries objectAtIndex:row];
+    NSString *name = [entry objectForKey:@"name"];
+    BOOL isDirectory = [[entry objectForKey:@"isDirectory"] boolValue];
+    BOOL isParent = [[entry objectForKey:@"isParent"] boolValue];
+    if (isParent) {
+        return @"..";
+    }
+    if (isDirectory) {
+        return [NSString stringWithFormat:@"%@/", name != nil ? name : @""];
+    }
+    return name != nil ? name : @"";
+}
+
+- (void)tableView:(NSTableView *)tableView
+ willDisplayCell:(id)cell
+  forTableColumn:(NSTableColumn *)tableColumn
+             row:(NSInteger)row
+{
+    (void)tableColumn;
+    if (tableView != _explorerTableView || row < 0 || row >= (NSInteger)[_explorerEntries count]) {
+        return;
+    }
+    if (![cell respondsToSelector:@selector(setTextColor:)]) {
+        return;
+    }
+
+    NSDictionary *entry = [_explorerEntries objectAtIndex:row];
+    BOOL isDirectory = [[entry objectForKey:@"isDirectory"] boolValue];
+    NSInteger colorTier = [[entry objectForKey:@"colorTier"] integerValue];
+    NSColor *textColor = [NSColor controlTextColor];
+
+    if (isDirectory) {
+        textColor = [NSColor controlTextColor];
+    } else if (colorTier == 1) {
+        textColor = [NSColor colorWithCalibratedRed:0.30 green:0.62 blue:0.93 alpha:1.0];
+    } else if (colorTier == 2) {
+        textColor = [NSColor colorWithCalibratedRed:0.82 green:0.62 blue:0.22 alpha:1.0];
+    } else {
+        textColor = [NSColor disabledControlTextColor];
+    }
+
+    [cell setTextColor:textColor];
+}
+
+- (void)comboBoxSelectionDidChange:(NSNotification *)notification
+{
+    if ([notification object] == _explorerGitHubUserComboBox) {
+        NSString *selected = OMDTrimmedComboBoxSelectionOrText(_explorerGitHubUserComboBox);
+        if ([selected length] > 0) {
+            [_explorerGitHubUserComboBox setStringValue:selected];
+        }
+        [self explorerGitHubUserChanged:_explorerGitHubUserComboBox];
+        return;
+    }
+    if ([notification object] == _explorerGitHubRepoComboBox) {
+        NSString *selected = OMDTrimmedComboBoxSelectionOrText(_explorerGitHubRepoComboBox);
+        if ([selected length] > 0) {
+            [_explorerGitHubRepoComboBox setStringValue:selected];
+        }
+        [self explorerGitHubRepoChanged:_explorerGitHubRepoComboBox];
+    }
+}
+
+- (void)controlTextDidEndEditing:(NSNotification *)notification
+{
+    id object = [notification object];
+    if (object == _explorerGitHubUserComboBox) {
+        [self explorerGitHubUserChanged:_explorerGitHubUserComboBox];
+        return;
+    }
+    if (object == _explorerGitHubRepoComboBox) {
+        [self explorerGitHubRepoChanged:_explorerGitHubRepoComboBox];
+        return;
+    }
+}
+
 - (void)updateModeControlSelection
 {
     if (_modeControl == nil) {
@@ -3199,6 +6466,28 @@ constrainSplitPosition:(CGFloat)proposedPosition
 - (void)updatePreviewStatusIndicator
 {
     if (_previewStatusLabel == nil) {
+        return;
+    }
+
+    if (_sourceVimCommandLine != nil && [_sourceVimCommandLine length] > 0) {
+        [_previewStatusLabel setStringValue:_sourceVimCommandLine];
+        [_previewStatusLabel setTextColor:[NSColor colorWithCalibratedRed:0.85 green:0.50 blue:0.10 alpha:1.0]];
+        [_previewStatusLabel setHidden:NO];
+        return;
+    }
+
+    NSString *vimStatusText = [self sourceVimStatusText];
+    if (vimStatusText != nil) {
+        NSColor *vimStatusColor = [self sourceVimStatusColor];
+        if (vimStatusColor == nil) {
+            vimStatusColor = [NSColor controlTextColor];
+        }
+        if (vimStatusColor == nil) {
+            vimStatusColor = [NSColor textColor];
+        }
+        [_previewStatusLabel setStringValue:vimStatusText];
+        [_previewStatusLabel setTextColor:vimStatusColor];
+        [_previewStatusLabel setHidden:NO];
         return;
     }
 
@@ -3250,6 +6539,43 @@ constrainSplitPosition:(CGFloat)proposedPosition
     } else {
         [_previewStatusLabel setStringValue:@""];
         [_previewStatusLabel setHidden:YES];
+    }
+}
+
+- (NSString *)sourceVimStatusText
+{
+    if (![self isSourceVimKeyBindingsEnabled]) {
+        return nil;
+    }
+    if (_viewerMode == OMDViewerModeRead) {
+        return nil;
+    }
+    if (_sourceTextView == nil || _sourceVimBindingController == nil) {
+        return nil;
+    }
+
+    NSString *modeName = GSVVimModeDisplayName([_sourceVimBindingController mode]);
+    if (modeName == nil || [modeName length] == 0) {
+        modeName = @"NORMAL";
+    }
+    return [NSString stringWithFormat:@"Vim: %@", modeName];
+}
+
+- (NSColor *)sourceVimStatusColor
+{
+    if (_sourceVimBindingController == nil) {
+        return [NSColor controlTextColor];
+    }
+
+    switch ([_sourceVimBindingController mode]) {
+        case GSVVimModeInsert:
+            return [NSColor colorWithCalibratedRed:0.12 green:0.56 blue:0.24 alpha:1.0];
+        case GSVVimModeVisual:
+        case GSVVimModeVisualLine:
+            return [NSColor colorWithCalibratedRed:0.79 green:0.34 blue:0.10 alpha:1.0];
+        case GSVVimModeNormal:
+        default:
+            return [NSColor colorWithCalibratedRed:0.20 green:0.42 blue:0.70 alpha:1.0];
     }
 }
 
@@ -3923,6 +7249,130 @@ constrainSplitPosition:(CGFloat)proposedPosition
     [self setWordSelectionModifierShimEnabled:![self isWordSelectionModifierShimEnabled]];
 }
 
+- (BOOL)isSourceVimKeyBindingsEnabled
+{
+    id value = [[NSUserDefaults standardUserDefaults] objectForKey:OMDSourceVimKeyBindingsDefaultsKey];
+    if ([value respondsToSelector:@selector(boolValue)]) {
+        return [value boolValue];
+    }
+    return NO;
+}
+
+- (void)setSourceVimKeyBindingsEnabled:(BOOL)enabled
+{
+    [[NSUserDefaults standardUserDefaults] setBool:enabled
+                                            forKey:OMDSourceVimKeyBindingsDefaultsKey];
+    if (!enabled) {
+        [_sourceVimCommandLine release];
+        _sourceVimCommandLine = nil;
+    }
+    [self configureSourceVimBindingController];
+    [self syncPreferencesPanelFromSettings];
+}
+
+- (void)toggleSourceVimKeyBindings:(id)sender
+{
+    [self setSourceVimKeyBindingsEnabled:![self isSourceVimKeyBindingsEnabled]];
+}
+
+- (void)configureSourceVimBindingController
+{
+    if (_sourceTextView == nil) {
+        [_sourceVimCommandLine release];
+        _sourceVimCommandLine = nil;
+        [_sourceVimBindingController release];
+        _sourceVimBindingController = nil;
+        return;
+    }
+
+    NSTextView *targetView = _sourceTextView;
+    if (_sourceVimBindingController == nil ||
+        [_sourceVimBindingController textView] != targetView) {
+        [_sourceVimBindingController release];
+        _sourceVimBindingController = [[GSVVimBindingController alloc] initWithTextView:targetView];
+        [_sourceVimBindingController setDelegate:self];
+        [_sourceVimBindingController setConfig:[GSVVimConfigLoader loadDefaultConfig]];
+    }
+
+    [_sourceVimBindingController setEnabled:[self isSourceVimKeyBindingsEnabled]];
+    [self updatePreviewStatusIndicator];
+}
+
+- (BOOL)sourceTextView:(OMDSourceTextView *)textView handleVimKeyEvent:(NSEvent *)event
+{
+    if (textView == nil || event == nil || (NSTextView *)textView != _sourceTextView) {
+        return NO;
+    }
+
+    if (_sourceVimBindingController == nil) {
+        [self configureSourceVimBindingController];
+    }
+    if (_sourceVimBindingController == nil) {
+        return NO;
+    }
+
+    return [_sourceVimBindingController handleKeyEvent:event];
+}
+
+- (BOOL)vimBindingController:(GSVVimBindingController *)controller
+              handleExAction:(GSVVimExAction)action
+                       force:(BOOL)force
+                  rawCommand:(NSString *)rawCommand
+                 forTextView:(NSTextView *)textView
+{
+    (void)controller;
+    (void)rawCommand;
+
+    if (textView == nil || textView != _sourceTextView) {
+        return NO;
+    }
+
+    switch (action) {
+        case GSVVimExActionWrite:
+            return [self saveDocumentFromVimCommand];
+        case GSVVimExActionQuit:
+            [self performCloseFromVimCommandForcingDiscard:force];
+            return YES;
+        case GSVVimExActionWriteQuit:
+            if (![self saveDocumentFromVimCommand]) {
+                return NO;
+            }
+            [self performCloseFromVimCommandForcingDiscard:force];
+            return YES;
+        case GSVVimExActionUnknown:
+        default:
+            return NO;
+    }
+}
+
+- (void)vimBindingController:(GSVVimBindingController *)controller
+        didUpdateCommandLine:(NSString *)commandLine
+                      active:(BOOL)active
+                 forTextView:(NSTextView *)textView
+{
+    (void)controller;
+    if (textView == nil || textView != _sourceTextView) {
+        return;
+    }
+
+    [_sourceVimCommandLine release];
+    _sourceVimCommandLine = nil;
+    if (active && commandLine != nil && [commandLine length] > 0) {
+        _sourceVimCommandLine = [commandLine copy];
+    }
+    [self updatePreviewStatusIndicator];
+}
+
+- (void)vimBindingController:(GSVVimBindingController *)controller
+               didChangeMode:(GSVVimMode)mode
+                 forTextView:(NSTextView *)textView
+{
+    (void)controller;
+    (void)mode;
+    (void)textView;
+    [self updatePreviewStatusIndicator];
+}
+
 - (BOOL)isSourceSyntaxHighlightingEnabled
 {
     id value = [[NSUserDefaults standardUserDefaults] objectForKey:OMDSourceSyntaxHighlightingDefaultsKey];
@@ -4258,7 +7708,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
 - (void)showPreferences:(id)sender
 {
     if (_preferencesPanel == nil) {
-        NSRect frame = NSMakeRect(160, 140, 460, 392);
+        NSRect frame = NSMakeRect(160, 140, 460, 500);
         _preferencesPanel = [[NSPanel alloc] initWithContentRect:frame
                                                         styleMask:(NSTitledWindowMask | NSClosableWindowMask)
                                                           backing:NSBackingStoreBuffered
@@ -4268,6 +7718,104 @@ constrainSplitPosition:(CGFloat)proposedPosition
         [_preferencesPanel setReleasedWhenClosed:NO];
 
         NSView *content = [_preferencesPanel contentView];
+
+        NSTextField *explorerHeader = [[[NSTextField alloc] initWithFrame:NSMakeRect(20, 472, 420, 20)] autorelease];
+        [explorerHeader setBezeled:NO];
+        [explorerHeader setEditable:NO];
+        [explorerHeader setSelectable:NO];
+        [explorerHeader setDrawsBackground:NO];
+        [explorerHeader setFont:[NSFont boldSystemFontOfSize:12.0]];
+        [explorerHeader setStringValue:@"Explorer"];
+        [content addSubview:explorerHeader];
+
+        NSBox *explorerSeparator = [[[NSBox alloc] initWithFrame:NSMakeRect(20, 466, 420, 1)] autorelease];
+        [explorerSeparator setBoxType:NSBoxSeparator];
+        [content addSubview:explorerSeparator];
+
+        NSTextField *localRootLabel = [[[NSTextField alloc] initWithFrame:NSMakeRect(20, 442, 170, 20)] autorelease];
+        [localRootLabel setBezeled:NO];
+        [localRootLabel setEditable:NO];
+        [localRootLabel setSelectable:NO];
+        [localRootLabel setDrawsBackground:NO];
+        [localRootLabel setStringValue:@"Local Explorer Root:"];
+        [content addSubview:localRootLabel];
+
+        _preferencesExplorerLocalRootField = [[NSTextField alloc] initWithFrame:NSMakeRect(172, 438, 206, 24)];
+        [_preferencesExplorerLocalRootField setTarget:self];
+        [_preferencesExplorerLocalRootField setAction:@selector(preferencesExplorerLocalRootChanged:)];
+        [content addSubview:_preferencesExplorerLocalRootField];
+
+        NSButton *explorerRootSetButton = [[[NSButton alloc] initWithFrame:NSMakeRect(384, 438, 52, 24)] autorelease];
+        [explorerRootSetButton setTitle:@"Set"];
+        [explorerRootSetButton setBezelStyle:NSRoundedBezelStyle];
+        [explorerRootSetButton setTarget:self];
+        [explorerRootSetButton setAction:@selector(preferencesExplorerLocalRootChanged:)];
+        [content addSubview:explorerRootSetButton];
+
+        NSTextField *maxFileSizeLabel = [[[NSTextField alloc] initWithFrame:NSMakeRect(20, 414, 170, 20)] autorelease];
+        [maxFileSizeLabel setBezeled:NO];
+        [maxFileSizeLabel setEditable:NO];
+        [maxFileSizeLabel setSelectable:NO];
+        [maxFileSizeLabel setDrawsBackground:NO];
+        [maxFileSizeLabel setStringValue:@"Max Open File Size:"];
+        [content addSubview:maxFileSizeLabel];
+
+        _preferencesExplorerMaxFileSizeField = [[NSTextField alloc] initWithFrame:NSMakeRect(172, 410, 60, 24)];
+        [_preferencesExplorerMaxFileSizeField setTarget:self];
+        [_preferencesExplorerMaxFileSizeField setAction:@selector(preferencesExplorerMaxFileSizeChanged:)];
+        [content addSubview:_preferencesExplorerMaxFileSizeField];
+
+        NSTextField *maxFileSizeSuffix = [[[NSTextField alloc] initWithFrame:NSMakeRect(236, 414, 40, 20)] autorelease];
+        [maxFileSizeSuffix setBezeled:NO];
+        [maxFileSizeSuffix setEditable:NO];
+        [maxFileSizeSuffix setSelectable:NO];
+        [maxFileSizeSuffix setDrawsBackground:NO];
+        [maxFileSizeSuffix setStringValue:@"MB"];
+        [content addSubview:maxFileSizeSuffix];
+
+        NSTextField *listFontSizeLabel = [[[NSTextField alloc] initWithFrame:NSMakeRect(278, 414, 74, 20)] autorelease];
+        [listFontSizeLabel setBezeled:NO];
+        [listFontSizeLabel setEditable:NO];
+        [listFontSizeLabel setSelectable:NO];
+        [listFontSizeLabel setDrawsBackground:NO];
+        [listFontSizeLabel setStringValue:@"List Font:"];
+        [content addSubview:listFontSizeLabel];
+
+        _preferencesExplorerListFontSizeField = [[NSTextField alloc] initWithFrame:NSMakeRect(352, 410, 46, 24)];
+        [_preferencesExplorerListFontSizeField setTarget:self];
+        [_preferencesExplorerListFontSizeField setAction:@selector(preferencesExplorerListFontSizeChanged:)];
+        [content addSubview:_preferencesExplorerListFontSizeField];
+
+        NSTextField *listFontSizeSuffix = [[[NSTextField alloc] initWithFrame:NSMakeRect(402, 414, 24, 20)] autorelease];
+        [listFontSizeSuffix setBezeled:NO];
+        [listFontSizeSuffix setEditable:NO];
+        [listFontSizeSuffix setSelectable:NO];
+        [listFontSizeSuffix setDrawsBackground:NO];
+        [listFontSizeSuffix setStringValue:@"pt"];
+        [content addSubview:listFontSizeSuffix];
+
+        NSTextField *tokenLabel = [[[NSTextField alloc] initWithFrame:NSMakeRect(20, 386, 170, 20)] autorelease];
+        [tokenLabel setBezeled:NO];
+        [tokenLabel setEditable:NO];
+        [tokenLabel setSelectable:NO];
+        [tokenLabel setDrawsBackground:NO];
+        [tokenLabel setStringValue:@"GitHub API Token:"];
+        [content addSubview:tokenLabel];
+
+        _preferencesExplorerGitHubTokenField = [[NSSecureTextField alloc] initWithFrame:NSMakeRect(172, 382, 264, 24)];
+        [_preferencesExplorerGitHubTokenField setTarget:self];
+        [_preferencesExplorerGitHubTokenField setAction:@selector(preferencesExplorerGitHubTokenChanged:)];
+        [content addSubview:_preferencesExplorerGitHubTokenField];
+
+        NSTextField *tokenNote = [[[NSTextField alloc] initWithFrame:NSMakeRect(172, 348, 264, 14)] autorelease];
+        [tokenNote setBezeled:NO];
+        [tokenNote setEditable:NO];
+        [tokenNote setSelectable:NO];
+        [tokenNote setDrawsBackground:NO];
+        [tokenNote setFont:[NSFont systemFontOfSize:10.0]];
+        [tokenNote setTextColor:[NSColor disabledControlTextColor]];
+        [tokenNote setStringValue:@"Optional. Increases GitHub API rate limits."];
+        [content addSubview:tokenNote];
 
         NSTextField *syncHeader = [[[NSTextField alloc] initWithFrame:NSMakeRect(20, 364, 420, 20)] autorelease];
         [syncHeader setBezeled:NO];
@@ -4282,7 +7830,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
         [syncSeparator setBoxType:NSBoxSeparator];
         [content addSubview:syncSeparator];
 
-        NSTextField *splitSyncLabel = [[[NSTextField alloc] initWithFrame:NSMakeRect(20, 332, 170, 20)] autorelease];
+        NSTextField *splitSyncLabel = [[[NSTextField alloc] initWithFrame:NSMakeRect(20, 324, 170, 20)] autorelease];
         [splitSyncLabel setBezeled:NO];
         [splitSyncLabel setEditable:NO];
         [splitSyncLabel setSelectable:NO];
@@ -4290,7 +7838,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
         [splitSyncLabel setStringValue:@"Split Sync Mode:"];
         [content addSubview:splitSyncLabel];
 
-        _preferencesSplitSyncModePopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(210, 328, 225, 26)
+        _preferencesSplitSyncModePopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(210, 320, 225, 26)
                                                                      pullsDown:NO];
         [_preferencesSplitSyncModePopup addItemWithTitle:@"Independent"];
         [[_preferencesSplitSyncModePopup itemAtIndex:0] setTag:OMDSplitSyncModeUnlinked];
@@ -4302,7 +7850,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
         [_preferencesSplitSyncModePopup setAction:@selector(preferencesSplitSyncModeChanged:)];
         [content addSubview:_preferencesSplitSyncModePopup];
 
-        NSTextField *syncHelp = [[[NSTextField alloc] initWithFrame:NSMakeRect(20, 308, 420, 16)] autorelease];
+        NSTextField *syncHelp = [[[NSTextField alloc] initWithFrame:NSMakeRect(20, 300, 420, 16)] autorelease];
         [syncHelp setBezeled:NO];
         [syncHelp setEditable:NO];
         [syncHelp setSelectable:NO];
@@ -4388,21 +7936,28 @@ constrainSplitPosition:(CGFloat)proposedPosition
         [_preferencesWordSelectionShimButton setAction:@selector(preferencesWordSelectionShimChanged:)];
         [content addSubview:_preferencesWordSelectionShimButton];
 
-        _preferencesSyntaxHighlightingButton = [[NSButton alloc] initWithFrame:NSMakeRect(20, 70, 350, 22)];
+        _preferencesSourceVimKeyBindingsButton = [[NSButton alloc] initWithFrame:NSMakeRect(20, 74, 350, 22)];
+        [_preferencesSourceVimKeyBindingsButton setButtonType:NSSwitchButton];
+        [_preferencesSourceVimKeyBindingsButton setTitle:@"Enable Vim Key Bindings (Source Editor)"];
+        [_preferencesSourceVimKeyBindingsButton setTarget:self];
+        [_preferencesSourceVimKeyBindingsButton setAction:@selector(preferencesSourceVimKeyBindingsChanged:)];
+        [content addSubview:_preferencesSourceVimKeyBindingsButton];
+
+        _preferencesSyntaxHighlightingButton = [[NSButton alloc] initWithFrame:NSMakeRect(20, 52, 350, 22)];
         [_preferencesSyntaxHighlightingButton setButtonType:NSSwitchButton];
         [_preferencesSyntaxHighlightingButton setTitle:@"Source Syntax Highlighting"];
         [_preferencesSyntaxHighlightingButton setTarget:self];
         [_preferencesSyntaxHighlightingButton setAction:@selector(preferencesSyntaxHighlightingChanged:)];
         [content addSubview:_preferencesSyntaxHighlightingButton];
 
-        _preferencesSourceHighContrastButton = [[NSButton alloc] initWithFrame:NSMakeRect(40, 44, 330, 22)];
+        _preferencesSourceHighContrastButton = [[NSButton alloc] initWithFrame:NSMakeRect(40, 30, 330, 22)];
         [_preferencesSourceHighContrastButton setButtonType:NSSwitchButton];
         [_preferencesSourceHighContrastButton setTitle:@"High Contrast Source Highlighting"];
         [_preferencesSourceHighContrastButton setTarget:self];
         [_preferencesSourceHighContrastButton setAction:@selector(preferencesSourceHighContrastChanged:)];
         [content addSubview:_preferencesSourceHighContrastButton];
 
-        NSTextField *sourceAccentLabel = [[[NSTextField alloc] initWithFrame:NSMakeRect(40, 18, 140, 20)] autorelease];
+        NSTextField *sourceAccentLabel = [[[NSTextField alloc] initWithFrame:NSMakeRect(40, 8, 140, 20)] autorelease];
         [sourceAccentLabel setBezeled:NO];
         [sourceAccentLabel setEditable:NO];
         [sourceAccentLabel setSelectable:NO];
@@ -4410,12 +7965,12 @@ constrainSplitPosition:(CGFloat)proposedPosition
         [sourceAccentLabel setStringValue:@"Source Accent Color:"];
         [content addSubview:sourceAccentLabel];
 
-        _preferencesSourceAccentColorWell = [[NSColorWell alloc] initWithFrame:NSMakeRect(186, 14, 64, 24)];
+        _preferencesSourceAccentColorWell = [[NSColorWell alloc] initWithFrame:NSMakeRect(186, 4, 64, 24)];
         [_preferencesSourceAccentColorWell setTarget:self];
         [_preferencesSourceAccentColorWell setAction:@selector(preferencesSourceAccentColorChanged:)];
         [content addSubview:_preferencesSourceAccentColorWell];
 
-        _preferencesSourceAccentResetButton = [[NSButton alloc] initWithFrame:NSMakeRect(256, 14, 74, 24)];
+        _preferencesSourceAccentResetButton = [[NSButton alloc] initWithFrame:NSMakeRect(256, 4, 74, 24)];
         [_preferencesSourceAccentResetButton setTitle:@"Reset"];
         [_preferencesSourceAccentResetButton setBezelStyle:NSRoundedBezelStyle];
         [_preferencesSourceAccentResetButton setTarget:self];
@@ -4463,6 +8018,9 @@ constrainSplitPosition:(CGFloat)proposedPosition
     [_preferencesMathPolicyPopup selectItemAtIndex:selectedIndex];
     [_preferencesAllowRemoteImagesButton setState:([self isAllowRemoteImagesEnabled] ? NSOnState : NSOffState)];
     [_preferencesWordSelectionShimButton setState:([self isWordSelectionModifierShimEnabled] ? NSOnState : NSOffState)];
+    if (_preferencesSourceVimKeyBindingsButton != nil) {
+        [_preferencesSourceVimKeyBindingsButton setState:([self isSourceVimKeyBindingsEnabled] ? NSOnState : NSOffState)];
+    }
     [_preferencesSyntaxHighlightingButton setState:([self isSourceSyntaxHighlightingEnabled] ? NSOnState : NSOffState)];
     BOOL sourceHighlightingEnabled = [self isSourceSyntaxHighlightingEnabled];
     if (_preferencesSourceHighContrastButton != nil) {
@@ -4495,6 +8053,27 @@ constrainSplitPosition:(CGFloat)proposedPosition
             [_preferencesRendererSyntaxHighlightingNoteLabel setStringValue:@"Renderer syntax highlighting requires Tree-sitter (install tree-sitter-cli and libtree-sitter-dev)."];
         }
     }
+
+    if (_preferencesExplorerLocalRootField != nil) {
+        NSString *root = [self explorerLocalRootPathPreference];
+        [_preferencesExplorerLocalRootField setStringValue:(root != nil ? root : @"")];
+    }
+    if (_preferencesExplorerMaxFileSizeField != nil) {
+        NSUInteger megabytes = [self explorerMaxOpenFileSizeBytes] / (1024U * 1024U);
+        [_preferencesExplorerMaxFileSizeField setStringValue:[NSString stringWithFormat:@"%lu", (unsigned long)megabytes]];
+    }
+    if (_preferencesExplorerListFontSizeField != nil) {
+        CGFloat listFontSize = [self explorerListFontSizePreference];
+        if (fabs(listFontSize - round(listFontSize)) < 0.05) {
+            [_preferencesExplorerListFontSizeField setStringValue:[NSString stringWithFormat:@"%.0f", listFontSize]];
+        } else {
+            [_preferencesExplorerListFontSizeField setStringValue:[NSString stringWithFormat:@"%.1f", listFontSize]];
+        }
+    }
+    if (_preferencesExplorerGitHubTokenField != nil) {
+        NSString *token = [self explorerGitHubTokenPreference];
+        [_preferencesExplorerGitHubTokenField setStringValue:(token != nil ? token : @"")];
+    }
 }
 
 - (void)preferencesSplitSyncModeChanged:(id)sender
@@ -4522,6 +8101,12 @@ constrainSplitPosition:(CGFloat)proposedPosition
 {
     BOOL enabled = [_preferencesWordSelectionShimButton state] == NSOnState;
     [self setWordSelectionModifierShimEnabled:enabled];
+}
+
+- (void)preferencesSourceVimKeyBindingsChanged:(id)sender
+{
+    BOOL enabled = [_preferencesSourceVimKeyBindingsButton state] == NSOnState;
+    [self setSourceVimKeyBindingsEnabled:enabled];
 }
 
 - (void)preferencesSyntaxHighlightingChanged:(id)sender
@@ -4553,6 +8138,54 @@ constrainSplitPosition:(CGFloat)proposedPosition
     }
     BOOL enabled = [_preferencesRendererSyntaxHighlightingButton state] == NSOnState;
     [self setRendererSyntaxHighlightingPreferenceEnabled:enabled];
+}
+
+- (void)preferencesExplorerLocalRootChanged:(id)sender
+{
+    (void)sender;
+    NSString *path = (_preferencesExplorerLocalRootField != nil
+                      ? [_preferencesExplorerLocalRootField stringValue]
+                      : @"");
+    [self setExplorerLocalRootPathPreference:path];
+    [self syncPreferencesPanelFromSettings];
+}
+
+- (void)preferencesExplorerMaxFileSizeChanged:(id)sender
+{
+    (void)sender;
+    NSString *value = (_preferencesExplorerMaxFileSizeField != nil
+                       ? [_preferencesExplorerMaxFileSizeField stringValue]
+                       : @"");
+    NSInteger megabytes = [OMDTrimmedString(value) integerValue];
+    if (megabytes < 1) {
+        megabytes = 1;
+    }
+    [self setExplorerMaxOpenFileSizeMBPreference:(NSUInteger)megabytes];
+    [self syncPreferencesPanelFromSettings];
+}
+
+- (void)preferencesExplorerListFontSizeChanged:(id)sender
+{
+    (void)sender;
+    NSString *value = (_preferencesExplorerListFontSizeField != nil
+                       ? [_preferencesExplorerListFontSizeField stringValue]
+                       : @"");
+    CGFloat fontSize = (CGFloat)[OMDTrimmedString(value) doubleValue];
+    if (fontSize <= 0.0) {
+        fontSize = OMDExplorerListDefaultFontSize;
+    }
+    [self setExplorerListFontSizePreference:fontSize];
+    [self syncPreferencesPanelFromSettings];
+}
+
+- (void)preferencesExplorerGitHubTokenChanged:(id)sender
+{
+    (void)sender;
+    NSString *token = (_preferencesExplorerGitHubTokenField != nil
+                       ? [_preferencesExplorerGitHubTokenField stringValue]
+                       : @"");
+    [self setExplorerGitHubTokenPreference:token];
+    [self syncPreferencesPanelFromSettings];
 }
 
 - (void)applySourceEditorFontFromDefaults
@@ -4756,11 +8389,19 @@ constrainSplitPosition:(CGFloat)proposedPosition
         return;
     }
 
-    NSString *baseTitle = _currentPath != nil ? [_currentPath lastPathComponent] : @"Markdown Viewer";
+    NSString *baseTitle = nil;
+    if (_currentDisplayTitle != nil && [_currentDisplayTitle length] > 0) {
+        baseTitle = _currentDisplayTitle;
+    } else if (_currentPath != nil) {
+        baseTitle = [_currentPath lastPathComponent];
+    } else {
+        baseTitle = @"Markdown Viewer";
+    }
     NSString *modeTitle = OMDViewerModeTitle(_viewerMode);
+    NSString *readOnlyMarker = _currentDocumentReadOnly ? @" [read-only]" : @"";
     NSString *dirtyMarker = _sourceIsDirty ? @" *" : @"";
     NSString *updatingMarker = _previewIsUpdating ? @" [updating]" : @"";
-    [_window setTitle:[NSString stringWithFormat:@"%@%@ (%@%@)", baseTitle, dirtyMarker, modeTitle, updatingMarker]];
+    [_window setTitle:[NSString stringWithFormat:@"%@%@%@ (%@%@)", baseTitle, readOnlyMarker, dirtyMarker, modeTitle, updatingMarker]];
 }
 
 - (void)updateCodeBlockButtons
@@ -5588,6 +9229,9 @@ constrainSplitPosition:(CGFloat)proposedPosition
     if (![self isFormattingBarVisibleInCurrentMode]) {
         return;
     }
+    if (_currentDocumentReadOnly) {
+        return;
+    }
     NSInteger index = [_formatHeadingPopup indexOfSelectedItem];
     [self applyHeadingLevel:index];
 }
@@ -5596,6 +9240,9 @@ constrainSplitPosition:(CGFloat)proposedPosition
 {
     NSInteger tag = [sender tag];
     if (_sourceTextView == nil || ![self isFormattingBarVisibleInCurrentMode]) {
+        return;
+    }
+    if (_currentDocumentReadOnly) {
         return;
     }
 
@@ -5647,6 +9294,9 @@ constrainSplitPosition:(CGFloat)proposedPosition
     if (_viewerMode == OMDViewerModeRead) {
         return;
     }
+    if (_currentDocumentReadOnly) {
+        return;
+    }
     [self applyInlineWrapWithPrefix:@"**" suffix:@"**" placeholder:@"bold text"];
 }
 
@@ -5659,11 +9309,18 @@ constrainSplitPosition:(CGFloat)proposedPosition
     if (_viewerMode == OMDViewerModeRead) {
         return;
     }
+    if (_currentDocumentReadOnly) {
+        return;
+    }
     [self applyInlineWrapWithPrefix:@"*" suffix:@"*" placeholder:@"italic text"];
 }
 
 - (NSTextView *)activeEditingTextView
 {
+    if (_currentDocumentReadOnly) {
+        return nil;
+    }
+
     if (_window != nil) {
         id responder = [_window firstResponder];
         if ([responder isKindOfClass:[NSTextView class]]) {
@@ -5788,9 +9445,14 @@ constrainSplitPosition:(CGFloat)proposedPosition
     NSString *updatedMarkdown = [[_sourceTextView string] copy];
     [_currentMarkdown release];
     _currentMarkdown = updatedMarkdown;
+    BOOL wasDirty = _sourceIsDirty;
     _sourceIsDirty = YES;
     _sourceRevision += 1;
     [self updateWindowTitle];
+    [self captureCurrentStateIntoSelectedTab];
+    if (!wasDirty) {
+        [self updateTabStrip];
+    }
     [self scheduleRecoveryAutosave];
 
     if (_viewerMode == OMDViewerModeSplit) {
@@ -5851,6 +9513,10 @@ constrainSplitPosition:(CGFloat)proposedPosition
     }
 
     if (url != nil) {
+        if (!OMDShouldOpenURLForUserNavigation(url)) {
+            NSBeep();
+            return NO;
+        }
         BOOL opened = [[NSWorkspace sharedWorkspace] openURL:url];
         if (!opened) {
             opened = OMDOpenURLUsingXDGOpen(url);
@@ -5918,24 +9584,46 @@ constrainSplitPosition:(CGFloat)proposedPosition
         resolvedPath = [cwd stringByAppendingPathComponent:resolvedPath];
     }
 
+    NSDictionary *attributes = [[NSFileManager defaultManager] attributesOfItemAtPath:resolvedPath error:NULL];
+    NSNumber *sizeValue = [attributes objectForKey:NSFileSize];
+    if ([sizeValue respondsToSelector:@selector(unsignedLongLongValue)]) {
+        if (![self ensureOpenFileSizeWithinLimit:[sizeValue unsignedLongLongValue]
+                                      descriptor:[resolvedPath lastPathComponent]]) {
+            return NO;
+        }
+    }
+
     if ([self isImportableDocumentPath:resolvedPath]) {
         return [self importDocumentAtPath:resolvedPath];
     }
 
     NSError *error = nil;
-    NSString *markdown = [NSString stringWithContentsOfFile:resolvedPath
-                                                   encoding:NSUTF8StringEncoding
-                                                      error:&error];
+    NSString *markdown = [self decodedTextForFileAtPath:resolvedPath error:&error];
     if (markdown == nil) {
         NSAlert *alert = [[[NSAlert alloc] init] autorelease];
-        [alert setMessageText:@"Unable to open file"];
-        [alert setInformativeText:[error localizedDescription]];
+        [alert setMessageText:@"Unsupported file type"];
+        [alert setInformativeText:(error != nil ? [error localizedDescription]
+                                                : @"This file cannot be opened as text.")];
         [alert runModal];
         return NO;
     }
 
-    [self setCurrentMarkdown:markdown sourcePath:resolvedPath];
-    return YES;
+    NSString *extension = [[resolvedPath pathExtension] lowercaseString];
+    OMDDocumentRenderMode renderMode = [self isMarkdownTextPath:resolvedPath]
+                                       ? OMDDocumentRenderModeMarkdown
+                                       : OMDDocumentRenderModeVerbatim;
+    NSString *syntaxLanguage = (renderMode == OMDDocumentRenderModeVerbatim
+                                ? OMDVerbatimSyntaxTokenForExtension(extension)
+                                : nil);
+
+    return [self openDocumentWithMarkdown:markdown
+                                sourcePath:resolvedPath
+                              displayTitle:[resolvedPath lastPathComponent]
+                                  readOnly:NO
+                                renderMode:renderMode
+                            syntaxLanguage:syntaxLanguage
+                                  inNewTab:NO
+                       requireDirtyConfirm:YES];
 }
 
 - (BOOL)openDocumentAtPathInNewWindow:(NSString *)path
@@ -5958,7 +9646,36 @@ constrainSplitPosition:(CGFloat)proposedPosition
 
 - (BOOL)windowShouldClose:(id)sender
 {
-    return [self confirmDiscardingUnsavedChangesForAction:@"closing"];
+    if (_sourceVimForceClose) {
+        _sourceVimForceClose = NO;
+        return YES;
+    }
+
+    [self captureCurrentStateIntoSelectedTab];
+    NSInteger dirtyCount = 0;
+    NSInteger index = 0;
+    for (; index < (NSInteger)[_documentTabs count]; index++) {
+        NSDictionary *tab = [_documentTabs objectAtIndex:index];
+        if ([[tab objectForKey:OMDTabDirtyKey] boolValue]) {
+            dirtyCount += 1;
+        }
+    }
+
+    if (dirtyCount == 0) {
+        return YES;
+    }
+    if (dirtyCount == 1 && _sourceIsDirty) {
+        return [self confirmDiscardingUnsavedChangesForAction:@"closing"];
+    }
+
+    NSAlert *alert = [[[NSAlert alloc] init] autorelease];
+    [alert setMessageText:@"Close with unsaved tabs?"];
+    [alert setInformativeText:[NSString stringWithFormat:@"There are %ld tabs with unsaved changes. Save the tabs you want to keep before closing.",
+                                                         (long)dirtyCount]];
+    [alert addButtonWithTitle:@"Discard and Close"];
+    [alert addButtonWithTitle:@"Cancel"];
+    NSInteger buttonIndex = OMDAlertButtonIndexForResponse([alert runModal]);
+    return (buttonIndex == 0);
 }
 
 - (void)windowWillClose:(NSNotification *)notification

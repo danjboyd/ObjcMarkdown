@@ -1,3 +1,7 @@
 [submodule "third_party/libs-OpenSave"]
 	path = third_party/libs-OpenSave
 	url = https://github.com/danjboyd/libs-OpenSave.git
+[submodule "third_party/TextViewVimKit"]
+	path = third_party/TextViewVimKit
+	url = https://github.com/danjboyd/TextViewVimKit.git
+	branch = main

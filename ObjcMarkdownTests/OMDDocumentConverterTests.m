@@ -31,6 +31,8 @@
 
 - (void)testSupportedExtensionList
 {
+    XCTAssertTrue([OMDDocumentConverter isSupportedExtension:@"html"]);
+    XCTAssertTrue([OMDDocumentConverter isSupportedExtension:@"htm"]);
     XCTAssertTrue([OMDDocumentConverter isSupportedExtension:@"rtf"]);
     XCTAssertTrue([OMDDocumentConverter isSupportedExtension:@"docx"]);
     XCTAssertTrue([OMDDocumentConverter isSupportedExtension:@"odt"]);
@@ -78,7 +80,7 @@
     [self removeFileIfPresent:rtfPath];
 }
 
-- (void)testPandocRoundTripsDOCXAndODT
+- (void)testPandocRoundTripsHTMLDOCXAndODT
 {
     OMDDocumentConverter *converter = [OMDDocumentConverter defaultConverter];
     if (converter == nil) {
@@ -87,7 +89,7 @@
     }
 
     NSString *markdown = @"# Export Test\n\nParagraph text.";
-    NSArray *extensions = [NSArray arrayWithObjects:@"docx", @"odt", nil];
+    NSArray *extensions = [NSArray arrayWithObjects:@"html", @"docx", @"odt", nil];
     for (NSString *extension in extensions) {
         NSString *path = [self temporaryPathWithExtension:extension];
         NSError *error = nil;

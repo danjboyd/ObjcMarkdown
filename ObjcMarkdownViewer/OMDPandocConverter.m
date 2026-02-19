@@ -149,6 +149,9 @@ static NSString *OMDResolvePandocPath(void)
     if ([lower isEqualToString:@"odt"]) {
         return @"odt";
     }
+    if ([lower isEqualToString:@"html"] || [lower isEqualToString:@"htm"]) {
+        return @"html";
+    }
     return nil;
 }
 
@@ -223,7 +226,7 @@ static NSString *OMDResolvePandocPath(void)
     if (sourceFormat == nil) {
         if (error != NULL) {
             *error = [self conversionErrorWithDescription:@"Unsupported import format."
-                                                   reason:@"Choose an .rtf, .docx, or .odt file."
+                                                   reason:@"Choose an .html, .rtf, .docx, or .odt file."
                                                      code:OMDDocumentConverterErrorUnsupportedFormat];
         }
         return NO;
@@ -294,7 +297,7 @@ static NSString *OMDResolvePandocPath(void)
     if (targetFormat == nil) {
         if (error != NULL) {
             *error = [self conversionErrorWithDescription:@"Unsupported export format."
-                                                   reason:@"Choose an .rtf, .docx, or .odt destination."
+                                                   reason:@"Choose an .html, .rtf, .docx, or .odt destination."
                                                      code:OMDDocumentConverterErrorUnsupportedFormat];
         }
         return NO;
