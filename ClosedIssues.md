@@ -471,3 +471,15 @@
   - Completed GitHub-like table rendering polish, including table overflow behavior and inline content width handling in split preview.
   - Confirmed final toolbar alignment and control visibility in the stabilized Sombre configuration.
   - User confirmed UAT pass and approved closure of Issue #3.
+
+## 40) Default GNUstep theme compatibility pass
+
+- **Status**: Closed
+- **Closed On**: 2026-02-19
+- **Area**: Viewer / Theme compatibility / UAT
+- **Description**: Validate and polish the app for the default GNUstep theme (separate from Sombre-focused polishing).
+- **Resolution**:
+  - Captured default-theme baseline previews and compared against the Sombre baseline for core split-preview workflows.
+  - Fixed toolbar icon legibility in light/default theme by applying theme-aware tinting to custom toolbar icon assets using resolved control text color.
+  - Verified no regressions in Sombre after the theme-aware icon update.
+  - User requested closure of Issue #6.

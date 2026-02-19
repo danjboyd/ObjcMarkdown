@@ -358,6 +358,34 @@ static NSColor *OMDColorFromDefaultsString(NSString *value)
     return [NSColor colorWithCalibratedRed:red green:green blue:blue alpha:alpha];
 }
 
+static NSColor *OMDResolvedControlTextColor(void)
+{
+    GSTheme *theme = [GSTheme theme];
+    NSColor *color = nil;
+    if (theme != nil) {
+        color = [theme colorNamed:@"controlTextColor" state:GSThemeNormalState];
+        if (color == nil) {
+            color = [theme colorNamed:@"menuBarTextColor" state:GSThemeNormalState];
+        }
+        if (color == nil) {
+            color = [theme colorNamed:@"menuItemTextColor" state:GSThemeNormalState];
+        }
+        if (color == nil) {
+            color = [theme colorNamed:@"textColor" state:GSThemeNormalState];
+        }
+    }
+    if (color == nil) {
+        color = [NSColor controlTextColor];
+    }
+    if (color == nil) {
+        color = [NSColor textColor];
+    }
+    if (color == nil) {
+        color = [NSColor whiteColor];
+    }
+    return color;
+}
+
 static NSImage *OMDToolbarImageNamed(NSString *resourceName)
 {
     if (resourceName == nil || [resourceName length] == 0) {
@@ -385,6 +413,37 @@ static NSImage *OMDToolbarImageNamed(NSString *resourceName)
         }
     }
     return nil;
+}
+
+static NSImage *OMDToolbarThemedImageNamed(NSString *resourceName)
+{
+    NSImage *image = OMDToolbarImageNamed(resourceName);
+    if (image == nil) {
+        return nil;
+    }
+
+    NSColor *tint = OMDResolvedControlTextColor();
+    if (tint == nil) {
+        return image;
+    }
+
+    NSSize size = [image size];
+    if (size.width <= 0.0 || size.height <= 0.0) {
+        return image;
+    }
+
+    NSImage *tinted = [[[NSImage alloc] initWithSize:size] autorelease];
+    if (tinted == nil) {
+        return image;
+    }
+    NSRect rect = NSMakeRect(0.0, 0.0, size.width, size.height);
+    [tinted lockFocus];
+    [image drawInRect:rect fromRect:NSZeroRect operation:NSCompositeSourceOver fraction:1.0];
+    [tint set];
+    NSRectFillUsingOperation(rect, NSCompositeSourceAtop);
+    [tinted unlockFocus];
+    [tinted setSize:size];
+    return tinted;
 }
 
 static NSImage *OMDCodeBlockCopyImage(void)
@@ -2033,7 +2092,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
         [item setToolTip:@"Show or hide the file explorer"];
         [item setTarget:self];
         [item setAction:@selector(toggleExplorerSidebar:)];
-        NSImage *image = OMDToolbarImageNamed(@"toolbar-explorer-toggle.png");
+        NSImage *image = OMDToolbarThemedImageNamed(@"toolbar-explorer-toggle.png");
         if (image == nil) {
             image = [NSImage imageNamed:@"NSMenuOnStateTemplate"];
         }
@@ -2050,7 +2109,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
         [item setToolTip:@"Open a Markdown file"];
         [item setTarget:self];
         [item setAction:@selector(openDocument:)];
-        NSImage *image = OMDToolbarImageNamed(@"toolbar-open.png");
+        NSImage *image = OMDToolbarThemedImageNamed(@"toolbar-open.png");
         if (image == nil) {
             image = OMDToolbarImageNamed(@"open-icon.png");
         }
@@ -2070,7 +2129,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
         [item setToolTip:@"Import RTF, DOCX, or ODT"];
         [item setTarget:self];
         [item setAction:@selector(importDocument:)];
-        NSImage *image = OMDToolbarImageNamed(@"toolbar-import.png");
+        NSImage *image = OMDToolbarThemedImageNamed(@"toolbar-import.png");
         if (image == nil) {
             image = [NSImage imageNamed:@"NSOpen"];
         }
@@ -2087,7 +2146,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
         [item setToolTip:@"Save current markdown changes"];
         [item setTarget:self];
         [item setAction:@selector(saveDocument:)];
-        NSImage *image = OMDToolbarImageNamed(@"toolbar-saveas.png");
+        NSImage *image = OMDToolbarThemedImageNamed(@"toolbar-saveas.png");
         if (image == nil) {
             image = OMDToolbarImageNamed(@"open-icon.png");
         }
@@ -2127,7 +2186,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
         [item setToolTip:@"Print the current document"];
         [item setTarget:self];
         [item setAction:@selector(printDocument:)];
-        NSImage *image = OMDToolbarImageNamed(@"toolbar-print.png");
+        NSImage *image = OMDToolbarThemedImageNamed(@"toolbar-print.png");
         if (image == nil) {
             image = [NSImage imageNamed:@"NSPrint"];
         }
@@ -2147,7 +2206,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
         [item setToolTip:@"Export the current document as PDF (more formats in File > Export)"];
         [item setTarget:self];
         [item setAction:@selector(exportDocumentAsPDF:)];
-        NSImage *image = OMDToolbarImageNamed(@"toolbar-export.png");
+        NSImage *image = OMDToolbarThemedImageNamed(@"toolbar-export.png");
         if (image == nil) {
             image = [NSImage imageNamed:@"NSSave"];
         }
@@ -8406,30 +8465,7 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
 
 - (NSColor *)modeLabelTextColor
 {
-    GSTheme *theme = [GSTheme theme];
-    NSColor *color = nil;
-    if (theme != nil) {
-        color = [theme colorNamed:@"controlTextColor" state:GSThemeNormalState];
-        if (color == nil) {
-            color = [theme colorNamed:@"menuBarTextColor" state:GSThemeNormalState];
-        }
-        if (color == nil) {
-            color = [theme colorNamed:@"menuItemTextColor" state:GSThemeNormalState];
-        }
-        if (color == nil) {
-            color = [theme colorNamed:@"textColor" state:GSThemeNormalState];
-        }
-    }
-    if (color == nil) {
-        color = [NSColor controlTextColor];
-    }
-    if (color == nil) {
-        color = [NSColor textColor];
-    }
-    if (color == nil) {
-        color = [NSColor whiteColor];
-    }
-    return color;
+    return OMDResolvedControlTextColor();
 }
 
 - (void)updateWindowTitle
