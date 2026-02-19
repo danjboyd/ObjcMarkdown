@@ -8,6 +8,7 @@
 @class OMTheme;
 
 FOUNDATION_EXPORT NSString * const OMMarkdownRendererMathArtifactsDidWarmNotification;
+FOUNDATION_EXPORT NSString * const OMMarkdownRendererRemoteImagesDidWarmNotification;
 FOUNDATION_EXPORT NSString * const OMMarkdownRendererAnchorSourceStartLineKey;
 FOUNDATION_EXPORT NSString * const OMMarkdownRendererAnchorSourceEndLineKey;
 FOUNDATION_EXPORT NSString * const OMMarkdownRendererAnchorTargetStartKey;

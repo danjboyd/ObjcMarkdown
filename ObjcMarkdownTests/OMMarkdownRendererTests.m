@@ -3,6 +3,7 @@
 
 #import <XCTest/XCTest.h>
 #import <AppKit/AppKit.h>
+#import <dispatch/dispatch.h>
 #import "OMMarkdownRenderer.h"
 
 @interface OMMarkdownRendererTests : XCTestCase
@@ -56,6 +57,32 @@
     [[NSFileManager defaultManager] removeItemAtPath:path error:NULL];
 }
 
+- (NSString *)uniqueRemoteImageURLString
+{
+    return [NSString stringWithFormat:@"https://example.invalid/%@.png",
+            [[NSProcessInfo processInfo] globallyUniqueString]];
+}
+
+- (NSURL *)linkURLInRenderedString:(NSAttributedString *)rendered
+                    forVisibleText:(NSString *)visibleText
+{
+    if (rendered == nil || visibleText == nil || [visibleText length] == 0) {
+        return nil;
+    }
+
+    NSString *text = [rendered string];
+    NSRange range = [text rangeOfString:visibleText];
+    if (range.location == NSNotFound) {
+        return nil;
+    }
+    NSDictionary *attrs = [rendered attributesAtIndex:range.location effectiveRange:NULL];
+    id linkValue = [attrs objectForKey:NSLinkAttributeName];
+    if ([linkValue isKindOfClass:[NSURL class]]) {
+        return (NSURL *)linkValue;
+    }
+    return nil;
+}
+
 - (void)testBasicMarkdownRenders
 {
     OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
@@ -80,6 +107,55 @@
 
     XCTAssertNotNil(font);
     XCTAssertNotNil(color);
+}
+
+- (void)testPipeTableRendersAsStructuredMultilineContent
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    NSString *markdown = @"| Name | Value |\n| ---- | ----: |\n| alpha | 1 |\n| beta | 23 |";
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
+    XCTAssertNotNil(rendered);
+
+    NSString *text = [rendered string];
+    XCTAssertTrue([text rangeOfString:@"Name"].location != NSNotFound);
+    XCTAssertTrue([text rangeOfString:@"Value"].location != NSNotFound);
+    XCTAssertTrue([text rangeOfString:@"alpha"].location != NSNotFound);
+    XCTAssertTrue([text rangeOfString:@"23"].location != NSNotFound);
+}
+
+- (void)testPipeTableFallsBackToStackedLayoutInNarrowPreview
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    [renderer setLayoutWidth:200.0];
+    NSString *markdown = @"| Area | Notes |\n| --- | --- |\n| Parsing | Handles standard pipe table delimiter row and alignment markers. |\n| Rendering | Output should stay column-aligned and legible on dark theme. |";
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
+    XCTAssertNotNil(rendered);
+
+    NSString *text = [rendered string];
+    XCTAssertTrue([text rangeOfString:@"Row 1"].location != NSNotFound);
+    XCTAssertTrue([text rangeOfString:@"Area: Parsing"].location != NSNotFound);
+    XCTAssertTrue([text rangeOfString:@"Notes: Handles standard pipe table delimiter row"].location != NSNotFound);
+}
+
+- (void)testPipeTableCellInlineLinkRendersAsLinkAttribute
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    [renderer setLayoutWidth:1200.0];
+    NSString *markdown = @"| Label | Link |\n| --- | --- |\n| Repo | [ObjcMarkdown](https://github.com/) |";
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
+    XCTAssertNotNil(rendered);
+
+    NSString *text = [rendered string];
+    NSRange linkRange = [text rangeOfString:@"ObjcMarkdown"];
+    XCTAssertTrue(linkRange.location != NSNotFound);
+    if (linkRange.location != NSNotFound) {
+        NSDictionary *attrs = [rendered attributesAtIndex:linkRange.location effectiveRange:NULL];
+        NSURL *linkURL = [attrs objectForKey:NSLinkAttributeName];
+        XCTAssertNotNil(linkURL);
+        if (linkURL != nil) {
+            XCTAssertEqualObjects([[linkURL scheme] lowercaseString], @"https");
+        }
+    }
 }
 
 - (void)testInlineMathDollarsAreStyled
@@ -304,6 +380,57 @@
     }
 }
 
+- (void)testDisallowedLinkSchemeDoesNotSetLinkAttribute
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:@"Blocked [script](javascript:alert(1))."];
+    XCTAssertNotNil(rendered);
+
+    NSString *text = [rendered string];
+    NSRange range = [text rangeOfString:@"script"];
+    XCTAssertTrue(range.location != NSNotFound);
+    if (range.location != NSNotFound) {
+        NSDictionary *attrs = [rendered attributesAtIndex:range.location effectiveRange:NULL];
+        id link = [attrs objectForKey:NSLinkAttributeName];
+        XCTAssertNil(link);
+    }
+}
+
+- (void)testAllowedMailtoLinkRetainsLinkAttribute
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:@"Email [me](mailto:test@example.com)."];
+    XCTAssertNotNil(rendered);
+
+    NSString *text = [rendered string];
+    NSRange range = [text rangeOfString:@"me"];
+    XCTAssertTrue(range.location != NSNotFound);
+    if (range.location != NSNotFound) {
+        NSDictionary *attrs = [rendered attributesAtIndex:range.location effectiveRange:NULL];
+        NSURL *link = [attrs objectForKey:NSLinkAttributeName];
+        XCTAssertNotNil(link);
+        if (link != nil) {
+            XCTAssertEqualObjects([[link scheme] lowercaseString], @"mailto");
+        }
+    }
+}
+
+- (void)testRemoteImageFirstPassUsesFallbackWithoutBlockingRender
+{
+    OMMarkdownParsingOptions *options = [OMMarkdownParsingOptions defaultOptions];
+    [options setAllowRemoteImages:YES];
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] initWithTheme:nil
+                                                                parsingOptions:options] autorelease];
+    [renderer setLayoutWidth:420.0];
+    NSString *remoteURL = [self uniqueRemoteImageURLString];
+    NSString *markdown = [NSString stringWithFormat:@"Remote ![remote-alt](%@)", remoteURL];
+
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
+    XCTAssertNotNil(rendered);
+    XCTAssertFalse([rendered containsAttachments]);
+    XCTAssertTrue([[rendered string] rangeOfString:@"[image: remote-alt]"].location != NSNotFound);
+}
+
 - (void)testBlockAnchorsExposeSourceLineMapping
 {
     OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
@@ -521,6 +648,83 @@
     NSAttributedString *styledAgain = [renderer attributedStringFromMarkdown:markdown];
     XCTAssertNotNil(styledAgain);
     XCTAssertTrue([[styledAgain string] rangeOfString:@"$a^2+b^2=c^2$"].location == NSNotFound);
+}
+
+- (void)testConcurrentRenderersDoNotCrossContaminateRenderState
+{
+    NSString *markdown = @"# Header\n\nBefore <span class=\"hot\">inline</span> after.\n\nSee [rel](note.md).\n\n```objc\nint value = 42;\n```\n\nInline math: $a+b=c$.\n";
+    NSURL *baseA = [NSURL fileURLWithPath:@"/tmp/objcmarkdown-phase1-a" isDirectory:YES];
+    NSURL *baseB = [NSURL fileURLWithPath:@"/tmp/objcmarkdown-phase1-b" isDirectory:YES];
+    NSMutableArray *failures = [NSMutableArray array];
+
+    dispatch_group_t group = dispatch_group_create();
+    dispatch_queue_t queue = dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0);
+    NSUInteger iterations = 80;
+    NSUInteger i = 0;
+    for (; i < iterations; i++) {
+        dispatch_group_async(group, queue, ^{
+            @autoreleasepool {
+                OMMarkdownParsingOptions *options = [OMMarkdownParsingOptions defaultOptions];
+                [options setInlineHTMLPolicy:OMMarkdownHTMLPolicyIgnore];
+                [options setBlockHTMLPolicy:OMMarkdownHTMLPolicyIgnore];
+                [options setMathRenderingPolicy:OMMarkdownMathRenderingPolicyDisabled];
+                [options setBaseURL:baseA];
+                OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] initWithTheme:nil
+                                                                            parsingOptions:options] autorelease];
+                NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
+                NSString *text = rendered != nil ? [rendered string] : @"";
+                NSURL *linkURL = [self linkURLInRenderedString:rendered forVisibleText:@"rel"];
+                NSArray *anchors = [renderer blockAnchors];
+                NSArray *codeRanges = [renderer codeBlockRanges];
+
+                BOOL htmlSuppressed = [text rangeOfString:@"<span class=\"hot\">inline</span>"].location == NSNotFound;
+                BOOL mathLiteral = [text rangeOfString:@"$a+b=c$"].location != NSNotFound;
+                BOOL linkUsesBase = (linkURL != nil &&
+                                     [[linkURL absoluteString] hasSuffix:@"/tmp/objcmarkdown-phase1-a/note.md"]);
+                BOOL hasAnchors = [anchors count] > 0;
+                BOOL hasCodeRanges = [codeRanges count] > 0;
+                if (rendered == nil || !htmlSuppressed || !mathLiteral || !linkUsesBase || !hasAnchors || !hasCodeRanges) {
+                    @synchronized (failures) {
+                        [failures addObject:@"renderer-A mismatch under concurrent load"];
+                    }
+                }
+            }
+        });
+
+        dispatch_group_async(group, queue, ^{
+            @autoreleasepool {
+                OMMarkdownParsingOptions *options = [OMMarkdownParsingOptions defaultOptions];
+                [options setInlineHTMLPolicy:OMMarkdownHTMLPolicyRenderAsText];
+                [options setBlockHTMLPolicy:OMMarkdownHTMLPolicyRenderAsText];
+                [options setMathRenderingPolicy:OMMarkdownMathRenderingPolicyStyledText];
+                [options setBaseURL:baseB];
+                OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] initWithTheme:nil
+                                                                            parsingOptions:options] autorelease];
+                NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
+                NSString *text = rendered != nil ? [rendered string] : @"";
+                NSURL *linkURL = [self linkURLInRenderedString:rendered forVisibleText:@"rel"];
+                NSArray *anchors = [renderer blockAnchors];
+                NSArray *codeRanges = [renderer codeBlockRanges];
+
+                BOOL htmlVisible = [text rangeOfString:@"<span class=\"hot\">inline</span>"].location != NSNotFound;
+                BOOL mathStyled = [text rangeOfString:@"$a+b=c$"].location == NSNotFound;
+                BOOL linkUsesBase = (linkURL != nil &&
+                                     [[linkURL absoluteString] hasSuffix:@"/tmp/objcmarkdown-phase1-b/note.md"]);
+                BOOL hasAnchors = [anchors count] > 0;
+                BOOL hasCodeRanges = [codeRanges count] > 0;
+                if (rendered == nil || !htmlVisible || !mathStyled || !linkUsesBase || !hasAnchors || !hasCodeRanges) {
+                    @synchronized (failures) {
+                        [failures addObject:@"renderer-B mismatch under concurrent load"];
+                    }
+                }
+            }
+        });
+    }
+
+    long waitResult = dispatch_group_wait(group,
+                                          dispatch_time(DISPATCH_TIME_NOW, (int64_t)(45 * NSEC_PER_SEC)));
+    XCTAssertEqual(waitResult, 0L);
+    XCTAssertEqual([failures count], (NSUInteger)0, @"%@", [failures componentsJoinedByString:@"\n"]);
 }
 
 - (void)testMathHeavyStyledTextRenderPerformanceGuardrail

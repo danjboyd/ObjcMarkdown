@@ -13,6 +13,7 @@
 #include <string.h>
 
 NSString * const OMMarkdownRendererMathArtifactsDidWarmNotification = @"OMMarkdownRendererMathArtifactsDidWarmNotification";
+NSString * const OMMarkdownRendererRemoteImagesDidWarmNotification = @"OMMarkdownRendererRemoteImagesDidWarmNotification";
 NSString * const OMMarkdownRendererAnchorSourceStartLineKey = @"sourceStartLine";
 NSString * const OMMarkdownRendererAnchorSourceEndLineKey = @"sourceEndLine";
 NSString * const OMMarkdownRendererAnchorTargetStartKey = @"targetStart";
@@ -35,13 +36,17 @@ typedef struct {
     NSTimeInterval mathTotalSeconds;
 } OMMathPerfStats;
 
-static OMMathPerfStats *OMCurrentMathPerfStats = NULL;
-static BOOL OMCurrentAsyncMathGenerationEnabled = NO;
-static NSMutableArray *OMCurrentBlockAnchors = nil;
-static NSArray *OMCurrentSourceLines = nil;
-static CGFloat OMCurrentLayoutWidth = 0.0;
-static OMMarkdownParsingOptions *OMCurrentParsingOptions = nil;
+typedef struct {
+    OMMarkdownParsingOptions *parsingOptions;
+    NSArray *sourceLines;
+    NSMutableArray *blockAnchors;
+    OMMathPerfStats *mathPerfStats;
+    CGFloat layoutWidth;
+    BOOL asynchronousMathGenerationEnabled;
+} OMRenderContext;
+
 static NSString *OMExecutablePathNamed(NSString *name);
+static BOOL OMURLUsesRemoteScheme(NSURL *url);
 
 static NSTimeInterval OMNow(void)
 {
@@ -80,41 +85,44 @@ static BOOL OMPerformanceLoggingEnabled(void)
     return enabled;
 }
 
-static OMMarkdownParsingOptions *OMActiveParsingOptions(void)
+static OMMarkdownParsingOptions *OMRenderContextParsingOptions(const OMRenderContext *renderContext)
 {
-    return OMCurrentParsingOptions;
+    if (renderContext == NULL) {
+        return nil;
+    }
+    return renderContext->parsingOptions;
 }
 
-static BOOL OMShouldParseMathSpans(void)
+static BOOL OMShouldParseMathSpans(const OMRenderContext *renderContext)
 {
-    OMMarkdownParsingOptions *options = OMActiveParsingOptions();
+    OMMarkdownParsingOptions *options = OMRenderContextParsingOptions(renderContext);
     if (options == nil) {
         return YES;
     }
     return [options mathRenderingPolicy] != OMMarkdownMathRenderingPolicyDisabled;
 }
 
-static BOOL OMExternalMathRenderingEnabled(void)
+static BOOL OMExternalMathRenderingEnabled(const OMRenderContext *renderContext)
 {
-    OMMarkdownParsingOptions *options = OMActiveParsingOptions();
+    OMMarkdownParsingOptions *options = OMRenderContextParsingOptions(renderContext);
     if (options == nil) {
         return NO;
     }
     return [options mathRenderingPolicy] == OMMarkdownMathRenderingPolicyExternalTools;
 }
 
-static NSUInteger OMMathMaximumFormulaLength(void)
+static NSUInteger OMMathMaximumFormulaLength(const OMRenderContext *renderContext)
 {
-    OMMarkdownParsingOptions *options = OMActiveParsingOptions();
+    OMMarkdownParsingOptions *options = OMRenderContextParsingOptions(renderContext);
     if (options == nil || [options maximumMathFormulaLength] == 0) {
         return 2048;
     }
     return [options maximumMathFormulaLength];
 }
 
-static NSTimeInterval OMExternalToolTimeout(void)
+static NSTimeInterval OMExternalToolTimeout(const OMRenderContext *renderContext)
 {
-    OMMarkdownParsingOptions *options = OMActiveParsingOptions();
+    OMMarkdownParsingOptions *options = OMRenderContextParsingOptions(renderContext);
     if (options == nil) {
         return 4.0;
     }
@@ -125,22 +133,64 @@ static NSTimeInterval OMExternalToolTimeout(void)
     return timeout;
 }
 
-static BOOL OMShouldRenderImages(void)
+static BOOL OMShouldRenderImages(const OMRenderContext *renderContext)
 {
-    OMMarkdownParsingOptions *options = OMActiveParsingOptions();
+    OMMarkdownParsingOptions *options = OMRenderContextParsingOptions(renderContext);
     if (options == nil) {
         return YES;
     }
     return [options renderImages];
 }
 
-static BOOL OMShouldAllowRemoteImages(void)
+static BOOL OMShouldAllowRemoteImages(const OMRenderContext *renderContext)
 {
-    OMMarkdownParsingOptions *options = OMActiveParsingOptions();
+    OMMarkdownParsingOptions *options = OMRenderContextParsingOptions(renderContext);
     if (options == nil) {
         return NO;
     }
     return [options allowRemoteImages];
+}
+
+static NSSet *OMAllowedImageSchemes(void)
+{
+    static NSSet *schemes = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        schemes = [[NSSet alloc] initWithObjects:@"file", @"http", @"https", nil];
+    });
+    return schemes;
+}
+
+static NSSet *OMAllowedLinkSchemes(void)
+{
+    static NSSet *schemes = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        schemes = [[NSSet alloc] initWithObjects:@"file", @"http", @"https", @"mailto", nil];
+    });
+    return schemes;
+}
+
+static BOOL OMURLUsesAllowedScheme(NSURL *url, NSSet *allowedSchemes)
+{
+    if (url == nil || allowedSchemes == nil) {
+        return NO;
+    }
+    NSString *scheme = [[url scheme] lowercaseString];
+    if (scheme == nil || [scheme length] == 0) {
+        return NO;
+    }
+    return [allowedSchemes containsObject:scheme];
+}
+
+static BOOL OMURLUsesAllowedImageScheme(NSURL *url)
+{
+    return OMURLUsesAllowedScheme(url, OMAllowedImageSchemes());
+}
+
+static BOOL OMURLUsesAllowedLinkScheme(NSURL *url)
+{
+    return OMURLUsesAllowedScheme(url, OMAllowedLinkSchemes());
 }
 
 static BOOL OMTreeSitterRuntimeAvailable(void)
@@ -176,18 +226,19 @@ static BOOL OMTreeSitterRuntimeAvailable(void)
     return available;
 }
 
-static BOOL OMShouldApplyCodeSyntaxHighlighting(void)
+static BOOL OMShouldApplyCodeSyntaxHighlighting(const OMRenderContext *renderContext)
 {
-    OMMarkdownParsingOptions *options = OMActiveParsingOptions();
+    OMMarkdownParsingOptions *options = OMRenderContextParsingOptions(renderContext);
     if (options != nil && ![options codeSyntaxHighlightingEnabled]) {
         return NO;
     }
     return OMTreeSitterRuntimeAvailable();
 }
 
-static OMMarkdownHTMLPolicy OMHTMLPolicyForBlockNode(BOOL blockNode)
+static OMMarkdownHTMLPolicy OMHTMLPolicyForBlockNode(const OMRenderContext *renderContext,
+                                                     BOOL blockNode)
 {
-    OMMarkdownParsingOptions *options = OMActiveParsingOptions();
+    OMMarkdownParsingOptions *options = OMRenderContextParsingOptions(renderContext);
     if (options == nil) {
         return OMMarkdownHTMLPolicyRenderAsText;
     }
@@ -813,9 +864,10 @@ static void OMApplyMarkupSyntaxHighlighting(NSMutableAttributedString *codeSegme
 
 static void OMApplyCodeSyntaxHighlighting(cmark_node *codeBlockNode,
                                           NSMutableAttributedString *codeSegment,
-                                          NSColor *backgroundColor)
+                                          NSColor *backgroundColor,
+                                          const OMRenderContext *renderContext)
 {
-    if (!OMShouldApplyCodeSyntaxHighlighting()) {
+    if (!OMShouldApplyCodeSyntaxHighlighting(renderContext)) {
         return;
     }
 
@@ -1039,9 +1091,11 @@ static NSString *OMBlockSignatureForLineRange(NSArray *sourceLines,
     return OMNormalizedBlockIDText(joined);
 }
 
-static NSString *OMStableBlockIDForNode(cmark_node *node)
+static NSString *OMStableBlockIDForNode(cmark_node *node,
+                                        const OMRenderContext *renderContext)
 {
-    if (node == NULL || OMCurrentSourceLines == nil) {
+    NSArray *sourceLines = renderContext != NULL ? renderContext->sourceLines : nil;
+    if (node == NULL || sourceLines == nil) {
         return nil;
     }
 
@@ -1051,7 +1105,7 @@ static NSString *OMStableBlockIDForNode(cmark_node *node)
         return nil;
     }
 
-    NSString *signature = OMBlockSignatureForLineRange(OMCurrentSourceLines, startLine, endLine);
+    NSString *signature = OMBlockSignatureForLineRange(sourceLines, startLine, endLine);
     if (signature == nil || [signature length] == 0) {
         signature = @"_";
     }
@@ -1060,9 +1114,11 @@ static NSString *OMStableBlockIDForNode(cmark_node *node)
 
 static void OMRecordBlockAnchor(cmark_node *node,
                                 NSUInteger targetStart,
-                                NSUInteger targetEnd)
+                                NSUInteger targetEnd,
+                                const OMRenderContext *renderContext)
 {
-    if (OMCurrentBlockAnchors == nil || node == NULL) {
+    NSMutableArray *blockAnchors = renderContext != NULL ? renderContext->blockAnchors : nil;
+    if (blockAnchors == nil || node == NULL) {
         return;
     }
     if (targetEnd <= targetStart) {
@@ -1081,18 +1137,19 @@ static void OMRecordBlockAnchor(cmark_node *node,
                                    [NSNumber numberWithUnsignedInteger:targetStart], OMMarkdownRendererAnchorTargetStartKey,
                                    [NSNumber numberWithUnsignedInteger:(targetEnd - targetStart)], OMMarkdownRendererAnchorTargetLengthKey,
                                    nil];
-    NSString *blockID = OMStableBlockIDForNode(node);
+    NSString *blockID = OMStableBlockIDForNode(node, renderContext);
     if (blockID != nil && [blockID length] > 0) {
         [anchor setObject:blockID forKey:OMMarkdownRendererAnchorBlockIDKey];
     }
-    [OMCurrentBlockAnchors addObject:anchor];
+    [blockAnchors addObject:anchor];
 }
 
 static void OMRenderInlines(cmark_node *node,
                             OMTheme *theme,
                             NSMutableAttributedString *output,
                             NSMutableDictionary *attributes,
-                            CGFloat scale);
+                            CGFloat scale,
+                            const OMRenderContext *renderContext);
 
 static void OMRenderBlocks(cmark_node *node,
                            OMTheme *theme,
@@ -1103,7 +1160,8 @@ static void OMRenderBlocks(cmark_node *node,
                            NSMutableArray *listStack,
                            NSUInteger quoteLevel,
                            CGFloat scale,
-                           CGFloat layoutWidth);
+                           CGFloat layoutWidth,
+                           const OMRenderContext *renderContext);
 
 static NSMutableDictionary *OMListContext(NSMutableArray *listStack)
 {
@@ -1194,6 +1252,132 @@ static NSCache *OMImageAttachmentCache(void)
     return cache;
 }
 
+static dispatch_queue_t OMRemoteImageQueue(void)
+{
+    static dispatch_queue_t queue = NULL;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        queue = dispatch_queue_create("org.objcmarkdown.remote-images", DISPATCH_QUEUE_SERIAL);
+    });
+    return queue;
+}
+
+static NSMutableSet *OMPendingRemoteImageCacheKeys(void)
+{
+    static NSMutableSet *keys = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        keys = [[NSMutableSet alloc] init];
+    });
+    return keys;
+}
+
+static NSString *OMImageAttachmentCacheKey(NSString *urlKey,
+                                           CGFloat scale,
+                                           CGFloat layoutWidth,
+                                           BOOL allowRemoteImages)
+{
+    return [NSString stringWithFormat:@"%@|%.2f|%.1f|allowRemote:%d",
+            urlKey,
+            scale,
+            layoutWidth,
+            (int)(allowRemoteImages ? 1 : 0)];
+}
+
+static NSImage *OMPreparedImageForAttachment(NSImage *image,
+                                             CGFloat scale,
+                                             CGFloat layoutWidth)
+{
+    if (image == nil) {
+        return nil;
+    }
+
+    NSImage *preparedImage = [[image copy] autorelease];
+    NSSize imageSize = [preparedImage size];
+    CGFloat maxWidth = 0.0;
+    if (layoutWidth > 0.0) {
+        maxWidth = floor(layoutWidth - (24.0 * scale));
+    }
+    if (maxWidth > 0.0 && imageSize.width > maxWidth && imageSize.width > 0.0) {
+        CGFloat ratio = maxWidth / imageSize.width;
+        if (ratio > 0.0) {
+            CGFloat height = floor(imageSize.height * ratio);
+            if (height < 1.0) {
+                height = 1.0;
+            }
+            [preparedImage setScalesWhenResized:YES];
+            [preparedImage setSize:NSMakeSize(maxWidth, height)];
+        }
+    }
+    return preparedImage;
+}
+
+static void OMScheduleAsyncRemoteImageWarm(NSURL *url,
+                                           NSString *cacheKey,
+                                           CGFloat scale,
+                                           CGFloat layoutWidth,
+                                           BOOL allowRemoteImages)
+{
+    if (url == nil || cacheKey == nil || [cacheKey length] == 0) {
+        return;
+    }
+    if (!OMURLUsesRemoteScheme(url) || !allowRemoteImages) {
+        return;
+    }
+
+    NSCache *cache = OMImageAttachmentCache();
+    @synchronized (cache) {
+        if ([cache objectForKey:cacheKey] != nil) {
+            return;
+        }
+    }
+
+    NSMutableSet *pending = OMPendingRemoteImageCacheKeys();
+    BOOL shouldSchedule = NO;
+    @synchronized (pending) {
+        if (![pending containsObject:cacheKey]) {
+            [pending addObject:cacheKey];
+            shouldSchedule = YES;
+        }
+    }
+    if (!shouldSchedule) {
+        return;
+    }
+
+    NSString *urlStringCopy = [[url absoluteString] copy];
+    NSString *cacheKeyCopy = [cacheKey copy];
+    dispatch_async(OMRemoteImageQueue(), ^{
+        @autoreleasepool {
+            NSURL *remoteURL = urlStringCopy != nil ? [NSURL URLWithString:urlStringCopy] : nil;
+            NSData *data = nil;
+            if (remoteURL != nil) {
+                data = [NSData dataWithContentsOfURL:remoteURL];
+            }
+            NSData *dataCopy = [data retain];
+            dispatch_async(dispatch_get_main_queue(), ^{
+                if (dataCopy != nil && [dataCopy length] > 0) {
+                    NSImage *loaded = [[[NSImage alloc] initWithData:dataCopy] autorelease];
+                    NSImage *prepared = OMPreparedImageForAttachment(loaded, scale, layoutWidth);
+                    if (prepared != nil) {
+                        @synchronized (cache) {
+                            [cache setObject:prepared forKey:cacheKeyCopy];
+                        }
+                        [[NSNotificationCenter defaultCenter]
+                            postNotificationName:OMMarkdownRendererRemoteImagesDidWarmNotification
+                                          object:nil];
+                    }
+                }
+                [dataCopy release];
+                @synchronized (pending) {
+                    [pending removeObject:cacheKeyCopy];
+                }
+                [urlStringCopy release];
+                [cacheKeyCopy release];
+            });
+        }
+    });
+}
+
 static void OMAppendInlineTextFromNode(cmark_node *node, NSMutableString *buffer)
 {
     if (node == NULL || buffer == nil) {
@@ -1236,6 +1420,676 @@ static NSString *OMInlinePlainText(cmark_node *node)
     return [buffer stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
 }
 
+typedef NS_ENUM(NSUInteger, OMPipeTableAlignment) {
+    OMPipeTableAlignmentLeft = 0,
+    OMPipeTableAlignmentCenter = 1,
+    OMPipeTableAlignmentRight = 2
+};
+
+static NSString *OMTrimmedCellText(NSString *value)
+{
+    if (value == nil) {
+        return @"";
+    }
+    return [value stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+}
+
+static NSArray *OMPipeTableCellsFromLine(NSString *line)
+{
+    NSString *trimmed = OMTrimmedCellText(line);
+    if ([trimmed length] == 0) {
+        return nil;
+    }
+
+    BOOL hasPipe = NO;
+    NSUInteger i = 0;
+    NSUInteger length = [trimmed length];
+    for (; i < length; i++) {
+        unichar ch = [trimmed characterAtIndex:i];
+        if (ch == '\\' && (i + 1) < length && [trimmed characterAtIndex:(i + 1)] == '|') {
+            i += 1;
+            continue;
+        }
+        if (ch == '|') {
+            hasPipe = YES;
+            break;
+        }
+    }
+    if (!hasPipe) {
+        return nil;
+    }
+
+    BOOL startsWithPipe = ([trimmed characterAtIndex:0] == '|');
+    BOOL endsWithPipe = ([trimmed characterAtIndex:(length - 1)] == '|');
+    NSMutableArray *rawCells = [NSMutableArray array];
+    NSMutableString *current = [NSMutableString string];
+
+    i = 0;
+    for (; i < length; i++) {
+        unichar ch = [trimmed characterAtIndex:i];
+        if (ch == '\\' && (i + 1) < length && [trimmed characterAtIndex:(i + 1)] == '|') {
+            [current appendString:@"|"];
+            i += 1;
+            continue;
+        }
+        if (ch == '|') {
+            [rawCells addObject:[NSString stringWithString:current]];
+            [current setString:@""];
+            continue;
+        }
+        [current appendFormat:@"%C", ch];
+    }
+    [rawCells addObject:[NSString stringWithString:current]];
+
+    if (startsWithPipe && [rawCells count] > 0) {
+        NSString *first = OMTrimmedCellText([rawCells objectAtIndex:0]);
+        if ([first length] == 0) {
+            [rawCells removeObjectAtIndex:0];
+        }
+    }
+    if (endsWithPipe && [rawCells count] > 0) {
+        NSString *last = OMTrimmedCellText([rawCells lastObject]);
+        if ([last length] == 0) {
+            [rawCells removeLastObject];
+        }
+    }
+    if ([rawCells count] == 0) {
+        return nil;
+    }
+
+    NSMutableArray *cells = [NSMutableArray arrayWithCapacity:[rawCells count]];
+    for (NSString *raw in rawCells) {
+        [cells addObject:OMTrimmedCellText(raw)];
+    }
+    return cells;
+}
+
+static BOOL OMPipeTableAlignmentFromSeparatorCell(NSString *cell, OMPipeTableAlignment *alignmentOut)
+{
+    NSString *trimmed = OMTrimmedCellText(cell);
+    if ([trimmed length] == 0) {
+        return NO;
+    }
+
+    BOOL hasLeadingColon = [trimmed hasPrefix:@":"];
+    BOOL hasTrailingColon = [trimmed hasSuffix:@":"];
+    NSUInteger start = hasLeadingColon ? 1 : 0;
+    NSUInteger end = [trimmed length] - (hasTrailingColon ? 1 : 0);
+    if (end <= start) {
+        return NO;
+    }
+
+    NSString *core = [trimmed substringWithRange:NSMakeRange(start, end - start)];
+    if ([core length] < 3) {
+        return NO;
+    }
+    NSUInteger index = 0;
+    for (; index < [core length]; index++) {
+        if ([core characterAtIndex:index] != '-') {
+            return NO;
+        }
+    }
+
+    OMPipeTableAlignment alignment = OMPipeTableAlignmentLeft;
+    if (hasLeadingColon && hasTrailingColon) {
+        alignment = OMPipeTableAlignmentCenter;
+    } else if (hasTrailingColon) {
+        alignment = OMPipeTableAlignmentRight;
+    }
+    if (alignmentOut != NULL) {
+        *alignmentOut = alignment;
+    }
+    return YES;
+}
+
+static BOOL OMPipeTableParseFromLines(NSArray *candidateLines,
+                                      NSArray **rowsOut,
+                                      NSArray **alignmentsOut)
+{
+    if (candidateLines == nil || [candidateLines count] < 2) {
+        return NO;
+    }
+
+    NSMutableArray *lines = [NSMutableArray arrayWithArray:candidateLines];
+    while ([lines count] > 0 && [OMTrimmedCellText([lines objectAtIndex:0]) length] == 0) {
+        [lines removeObjectAtIndex:0];
+    }
+    while ([lines count] > 0 && [OMTrimmedCellText([lines lastObject]) length] == 0) {
+        [lines removeLastObject];
+    }
+    if ([lines count] < 2) {
+        return NO;
+    }
+
+    NSArray *headerCells = OMPipeTableCellsFromLine([lines objectAtIndex:0]);
+    NSArray *separatorCells = OMPipeTableCellsFromLine([lines objectAtIndex:1]);
+    if (headerCells == nil || separatorCells == nil) {
+        return NO;
+    }
+
+    NSUInteger columnCount = [headerCells count];
+    if (columnCount == 0 || [separatorCells count] != columnCount) {
+        return NO;
+    }
+
+    NSMutableArray *alignments = [NSMutableArray arrayWithCapacity:columnCount];
+    for (NSString *separatorCell in separatorCells) {
+        OMPipeTableAlignment alignment = OMPipeTableAlignmentLeft;
+        if (!OMPipeTableAlignmentFromSeparatorCell(separatorCell, &alignment)) {
+            return NO;
+        }
+        [alignments addObject:[NSNumber numberWithUnsignedInteger:alignment]];
+    }
+
+    NSMutableArray *rows = [NSMutableArray array];
+    [rows addObject:headerCells];
+    NSUInteger lineIndex = 2;
+    for (; lineIndex < [lines count]; lineIndex++) {
+        NSString *line = [lines objectAtIndex:lineIndex];
+        if ([OMTrimmedCellText(line) length] == 0) {
+            continue;
+        }
+
+        NSArray *parsedCells = OMPipeTableCellsFromLine(line);
+        if (parsedCells == nil) {
+            return NO;
+        }
+        NSMutableArray *cells = [NSMutableArray arrayWithArray:parsedCells];
+        while ([cells count] < columnCount) {
+            [cells addObject:@""];
+        }
+        if ([cells count] > columnCount) {
+            NSMutableArray *normalized = [NSMutableArray arrayWithCapacity:columnCount];
+            NSUInteger colIndex = 0;
+            for (; colIndex + 1 < columnCount; colIndex++) {
+                [normalized addObject:[cells objectAtIndex:colIndex]];
+            }
+            NSArray *overflow = [cells subarrayWithRange:NSMakeRange(columnCount - 1, [cells count] - (columnCount - 1))];
+            [normalized addObject:[overflow componentsJoinedByString:@" | "]];
+            cells = normalized;
+        }
+        [rows addObject:cells];
+    }
+
+    if (rowsOut != NULL) {
+        *rowsOut = rows;
+    }
+    if (alignmentsOut != NULL) {
+        *alignmentsOut = alignments;
+    }
+    return YES;
+}
+
+static BOOL OMPipeTableDataForParagraphNode(cmark_node *node,
+                                            const OMRenderContext *renderContext,
+                                            NSArray **rowsOut,
+                                            NSArray **alignmentsOut)
+{
+    if (node == NULL || renderContext == NULL || renderContext->sourceLines == nil) {
+        return NO;
+    }
+
+    NSUInteger startLine = 0;
+    NSUInteger endLine = 0;
+    if (!OMNodeLineBounds(node, &startLine, &endLine)) {
+        return NO;
+    }
+
+    NSArray *sourceLines = renderContext->sourceLines;
+    if (startLine == 0 || startLine > [sourceLines count]) {
+        return NO;
+    }
+    if (endLine < startLine) {
+        endLine = startLine;
+    }
+    if (endLine > [sourceLines count]) {
+        endLine = [sourceLines count];
+    }
+
+    NSRange range = NSMakeRange(startLine - 1, endLine - startLine + 1);
+    NSArray *candidateLines = [sourceLines subarrayWithRange:range];
+    return OMPipeTableParseFromLines(candidateLines, rowsOut, alignmentsOut);
+}
+
+static CGFloat OMPipeTableMonospaceCharacterWidth(NSFont *font)
+{
+    if (font == nil) {
+        return 7.0;
+    }
+    NSSize advance = [font maximumAdvancement];
+    CGFloat width = advance.width;
+    if (width <= 0.0) {
+        width = [font pointSize] * 0.62;
+    }
+    if (width <= 0.0) {
+        width = 7.0;
+    }
+    return width;
+}
+
+static CGFloat OMPipeTableEstimatedGridWidth(NSArray *columnWidths,
+                                             NSFont *monospace,
+                                             CGFloat scale)
+{
+    if (columnWidths == nil || [columnWidths count] == 0) {
+        return 0.0;
+    }
+    CGFloat charWidth = OMPipeTableMonospaceCharacterWidth(monospace);
+    CGFloat horizontalPadding = 24.0 * scale;
+    CGFloat total = 0.0;
+    for (NSNumber *value in columnWidths) {
+        NSUInteger width = [value unsignedIntegerValue];
+        if (width < 3) {
+            width = 3;
+        }
+        total += ((CGFloat)width * charWidth) + horizontalPadding;
+    }
+    total += 2.0 * scale;
+    return total;
+}
+
+static BOOL OMPipeTableNeedsStackedFallback(NSArray *columnWidths,
+                                            CGFloat layoutWidth,
+                                            CGFloat indent,
+                                            NSFont *monospace,
+                                            CGFloat scale)
+{
+    if (columnWidths == nil || [columnWidths count] == 0) {
+        return NO;
+    }
+    if (layoutWidth <= 0.0) {
+        return NO;
+    }
+
+    CGFloat availableWidth = layoutWidth - indent - (24.0 * scale);
+    if (availableWidth <= 0.0) {
+        return YES;
+    }
+    if (availableWidth < (280.0 * scale)) {
+        return YES;
+    }
+
+    CGFloat estimatedWidth = OMPipeTableEstimatedGridWidth(columnWidths, monospace, scale);
+    if (estimatedWidth <= 0.0) {
+        return NO;
+    }
+    return estimatedWidth > availableWidth;
+}
+
+static NSString *OMPipeTableColumnLabel(NSArray *headers, NSUInteger columnIndex)
+{
+    if (headers != nil && columnIndex < [headers count]) {
+        NSString *header = OMTrimmedCellText([headers objectAtIndex:columnIndex]);
+        if ([header length] > 0) {
+            return header;
+        }
+    }
+    return [NSString stringWithFormat:@"Column %lu", (unsigned long)(columnIndex + 1)];
+}
+
+static NSString *OMPipeTableStackedText(NSArray *rows)
+{
+    if (rows == nil || [rows count] == 0) {
+        return @"";
+    }
+
+    NSArray *headers = [rows objectAtIndex:0];
+    NSUInteger columnCount = [headers count];
+    NSMutableArray *lines = [NSMutableArray array];
+    NSUInteger rowIndex = 1;
+    for (; rowIndex < [rows count]; rowIndex++) {
+        NSArray *row = [rows objectAtIndex:rowIndex];
+        [lines addObject:[NSString stringWithFormat:@"Row %lu", (unsigned long)rowIndex]];
+        NSUInteger columnIndex = 0;
+        for (; columnIndex < columnCount; columnIndex++) {
+            NSString *label = OMPipeTableColumnLabel(headers, columnIndex);
+            NSString *value = (columnIndex < [row count] ? [row objectAtIndex:columnIndex] : @"");
+            [lines addObject:[NSString stringWithFormat:@"  %@: %@", label, value]];
+        }
+        if (rowIndex + 1 < [rows count]) {
+            [lines addObject:@""];
+        }
+    }
+
+    if ([lines count] == 0) {
+        [lines addObject:[headers componentsJoinedByString:@" | "]];
+    }
+    return [lines componentsJoinedByString:@"\n"];
+}
+
+static NSTextAlignment OMPipeTableTextAlignment(OMPipeTableAlignment alignment)
+{
+    switch (alignment) {
+        case OMPipeTableAlignmentCenter:
+            return NSCenterTextAlignment;
+        case OMPipeTableAlignmentRight:
+            return NSRightTextAlignment;
+        case OMPipeTableAlignmentLeft:
+        default:
+            return NSLeftTextAlignment;
+    }
+}
+
+static BOOL OMThemeBackgroundIsDark(OMTheme *theme)
+{
+    if (theme == nil || theme.baseBackgroundColor == nil) {
+        return NO;
+    }
+    CGFloat red = 0.0;
+    CGFloat green = 0.0;
+    CGFloat blue = 0.0;
+    if (!OMColorRGBA(theme.baseBackgroundColor, &red, &green, &blue, NULL)) {
+        return NO;
+    }
+    CGFloat luminance = (0.2126 * red) + (0.7152 * green) + (0.0722 * blue);
+    return luminance < 0.5;
+}
+
+static NSColor *OMPipeTableBorderColorForTheme(OMTheme *theme)
+{
+    if (OMThemeBackgroundIsDark(theme)) {
+        return [NSColor colorWithCalibratedRed:(61.0 / 255.0)
+                                         green:(68.0 / 255.0)
+                                          blue:(77.0 / 255.0)
+                                         alpha:1.0];
+    }
+    return [NSColor colorWithCalibratedRed:(208.0 / 255.0)
+                                     green:(215.0 / 255.0)
+                                      blue:(222.0 / 255.0)
+                                     alpha:1.0];
+}
+
+static NSColor *OMPipeTableHeaderBackgroundColorForTheme(OMTheme *theme)
+{
+    if (OMThemeBackgroundIsDark(theme)) {
+        return [NSColor colorWithCalibratedRed:(22.0 / 255.0)
+                                         green:(27.0 / 255.0)
+                                          blue:(34.0 / 255.0)
+                                         alpha:1.0];
+    }
+    return [NSColor colorWithCalibratedRed:(246.0 / 255.0)
+                                     green:(248.0 / 255.0)
+                                      blue:(250.0 / 255.0)
+                                     alpha:1.0];
+}
+
+static NSColor *OMPipeTableBodyBackgroundColorForTheme(OMTheme *theme)
+{
+    if (OMThemeBackgroundIsDark(theme)) {
+        return [NSColor colorWithCalibratedRed:(13.0 / 255.0)
+                                         green:(17.0 / 255.0)
+                                          blue:(23.0 / 255.0)
+                                         alpha:1.0];
+    }
+    if (theme != nil && theme.baseBackgroundColor != nil) {
+        return theme.baseBackgroundColor;
+    }
+    return [NSColor whiteColor];
+}
+
+static NSMutableAttributedString *OMPipeTableAttributedCellContent(NSString *cellMarkdown,
+                                                                   OMTheme *theme,
+                                                                   NSDictionary *cellAttributes,
+                                                                   CGFloat scale,
+                                                                   const OMRenderContext *renderContext)
+{
+    NSString *normalized = (cellMarkdown != nil ? cellMarkdown : @"");
+    NSMutableAttributedString *result = [[[NSMutableAttributedString alloc] init] autorelease];
+    if ([normalized length] == 0) {
+        return result;
+    }
+
+    NSData *data = [normalized dataUsingEncoding:NSUTF8StringEncoding];
+    if (data == nil) {
+        OMAppendString(result, normalized, cellAttributes);
+        return result;
+    }
+
+    const char *bytes = (const char *)[data bytes];
+    NSUInteger length = [data length];
+    NSUInteger cmarkOptions = (renderContext != NULL && renderContext->parsingOptions != nil)
+                              ? [renderContext->parsingOptions cmarkOptions]
+                              : (NSUInteger)CMARK_OPT_DEFAULT;
+    cmark_node *document = cmark_parse_document(bytes, length, (int)cmarkOptions);
+    if (document == NULL) {
+        OMAppendString(result, normalized, cellAttributes);
+        return result;
+    }
+
+    NSMutableDictionary *inlineAttributes = [NSMutableDictionary dictionaryWithDictionary:cellAttributes];
+    BOOL rendered = NO;
+    cmark_node *child = cmark_node_first_child(document);
+    while (child != NULL) {
+        cmark_node_type type = cmark_node_get_type(child);
+        if (type == CMARK_NODE_PARAGRAPH) {
+            OMRenderInlines(child, theme, result, inlineAttributes, scale, renderContext);
+            rendered = YES;
+        }
+        child = cmark_node_next(child);
+    }
+    if (!rendered) {
+        OMAppendString(result, normalized, cellAttributes);
+    }
+    cmark_node_free(document);
+    return result;
+}
+
+static void OMConfigurePipeTableCellBlock(NSTextTableBlock *block,
+                                          CGFloat columnPercentWidth,
+                                          CGFloat indent,
+                                          BOOL firstColumn,
+                                          NSColor *borderColor,
+                                          NSColor *backgroundColor,
+                                          CGFloat scale)
+{
+    if (block == nil) {
+        return;
+    }
+
+    CGFloat borderWidth = 1.0 * scale;
+    if (borderWidth < 1.0) {
+        borderWidth = 1.0;
+    }
+    CGFloat horizontalPadding = 12.0 * scale;
+    if (horizontalPadding < 6.0) {
+        horizontalPadding = 6.0;
+    }
+    CGFloat verticalPadding = 6.0 * scale;
+    if (verticalPadding < 3.0) {
+        verticalPadding = 3.0;
+    }
+
+    [block setContentWidth:columnPercentWidth type:NSTextBlockPercentageValueType];
+    [block setBackgroundColor:backgroundColor];
+    [block setBorderColor:borderColor];
+    [block setWidth:borderWidth type:NSTextBlockAbsoluteValueType forLayer:NSTextBlockBorder];
+    [block setWidth:horizontalPadding type:NSTextBlockAbsoluteValueType forLayer:NSTextBlockPadding edge:NSMinXEdge];
+    [block setWidth:horizontalPadding type:NSTextBlockAbsoluteValueType forLayer:NSTextBlockPadding edge:NSMaxXEdge];
+    [block setWidth:verticalPadding type:NSTextBlockAbsoluteValueType forLayer:NSTextBlockPadding edge:NSMinYEdge];
+    [block setWidth:verticalPadding type:NSTextBlockAbsoluteValueType forLayer:NSTextBlockPadding edge:NSMaxYEdge];
+    if (firstColumn && indent > 0.0) {
+        [block setWidth:indent type:NSTextBlockAbsoluteValueType forLayer:NSTextBlockMargin edge:NSMinXEdge];
+    }
+}
+
+static void OMRenderPipeTable(NSArray *rows,
+                              NSArray *alignments,
+                              OMTheme *theme,
+                              NSMutableAttributedString *output,
+                              NSMutableDictionary *attributes,
+                              NSMutableArray *listStack,
+                              NSUInteger quoteLevel,
+                              CGFloat scale,
+                              CGFloat layoutWidth,
+                              const OMRenderContext *renderContext)
+{
+    if (rows == nil || [rows count] == 0 || alignments == nil || [alignments count] == 0) {
+        return;
+    }
+
+    NSUInteger columnCount = [alignments count];
+    NSMutableArray *columnWidths = [NSMutableArray arrayWithCapacity:columnCount];
+    NSUInteger colIndex = 0;
+    for (; colIndex < columnCount; colIndex++) {
+        [columnWidths addObject:[NSNumber numberWithUnsignedInteger:0]];
+    }
+
+    for (NSArray *row in rows) {
+        NSUInteger column = 0;
+        for (; column < columnCount; column++) {
+            NSString *cell = (column < [row count] ? [row objectAtIndex:column] : @"");
+            NSUInteger width = [cell length];
+            NSUInteger existing = [[columnWidths objectAtIndex:column] unsignedIntegerValue];
+            if (width > existing) {
+                [columnWidths replaceObjectAtIndex:column withObject:[NSNumber numberWithUnsignedInteger:width]];
+            }
+        }
+    }
+
+    NSMutableDictionary *tableAttrs = [attributes mutableCopy];
+    NSFont *font = [attributes objectForKey:NSFontAttributeName];
+    CGFloat fontSize = font != nil ? [font pointSize] : (theme.baseFont != nil ? [theme.baseFont pointSize] * scale : 14.0 * scale);
+    CGFloat tableFontSize = fontSize * 0.92;
+    if (tableFontSize < 11.0 * scale) {
+        tableFontSize = 11.0 * scale;
+    }
+    NSFont *monospace = [NSFont userFixedPitchFontOfSize:tableFontSize];
+    if (monospace == nil) {
+        monospace = [NSFont fontWithName:@"Courier" size:tableFontSize];
+    }
+    if (monospace != nil) {
+        [tableAttrs setObject:monospace forKey:NSFontAttributeName];
+    }
+
+    CGFloat indent = (CGFloat)(quoteLevel * 20.0 * scale);
+    NSParagraphStyle *style = OMParagraphStyleWithIndent(indent, indent, 12.0 * scale, 0.0, 1.50, tableFontSize);
+    [tableAttrs setObject:style forKey:NSParagraphStyleAttributeName];
+
+    BOOL useStackedFallback = OMPipeTableNeedsStackedFallback(columnWidths,
+                                                              layoutWidth,
+                                                              indent,
+                                                              monospace,
+                                                              scale);
+    if (useStackedFallback) {
+        NSString *tableText = OMPipeTableStackedText(rows);
+        if (font != nil) {
+            [tableAttrs setObject:font forKey:NSFontAttributeName];
+        }
+        NSMutableAttributedString *tableSegment = [[[NSMutableAttributedString alloc] initWithString:tableText
+                                                                                           attributes:tableAttrs] autorelease];
+        OMAppendAttributedSegment(output, tableSegment);
+        [tableAttrs release];
+        if (OMIsTightList(listStack)) {
+            OMAppendString(output, @"\n", attributes);
+        } else {
+            OMAppendString(output, @"\n\n", attributes);
+        }
+        return;
+    }
+
+    NSUInteger totalWidthUnits = 0;
+    for (NSNumber *value in columnWidths) {
+        NSUInteger width = [value unsignedIntegerValue];
+        if (width == 0) {
+            width = 1;
+        }
+        totalWidthUnits += width;
+    }
+    if (totalWidthUnits == 0) {
+        totalWidthUnits = columnCount;
+    }
+
+    NSColor *borderColor = OMPipeTableBorderColorForTheme(theme);
+    NSColor *headerBackgroundColor = OMPipeTableHeaderBackgroundColorForTheme(theme);
+    NSColor *bodyBackgroundColor = OMPipeTableBodyBackgroundColorForTheme(theme);
+
+    NSTextTable *textTable = [[[NSTextTable alloc] init] autorelease];
+    [textTable setNumberOfColumns:columnCount];
+    [textTable setCollapsesBorders:YES];
+    [textTable setHidesEmptyCells:NO];
+    [textTable setLayoutAlgorithm:NSTextTableFixedLayoutAlgorithm];
+    [textTable setBorderColor:borderColor];
+    [textTable setWidth:1.0 type:NSTextBlockAbsoluteValueType forLayer:NSTextBlockBorder];
+
+    NSMutableAttributedString *tableSegment = [[[NSMutableAttributedString alloc] init] autorelease];
+    NSUInteger rowCount = [rows count];
+    NSUInteger rowIndex = 0;
+    for (; rowIndex < rowCount; rowIndex++) {
+        NSArray *row = [rows objectAtIndex:rowIndex];
+        BOOL headerRow = (rowIndex == 0);
+        NSColor *cellBackgroundColor = headerRow ? headerBackgroundColor : bodyBackgroundColor;
+
+        for (colIndex = 0; colIndex < columnCount; colIndex++) {
+            NSString *cellText = (colIndex < [row count] ? [row objectAtIndex:colIndex] : @"");
+            NSUInteger widthUnits = [[columnWidths objectAtIndex:colIndex] unsignedIntegerValue];
+            if (widthUnits == 0) {
+                widthUnits = 1;
+            }
+            CGFloat percentWidth = ((CGFloat)widthUnits * 100.0) / (CGFloat)totalWidthUnits;
+
+            NSTextTableBlock *block = [[[NSTextTableBlock alloc] initWithTable:textTable
+                                                                    startingRow:(int)rowIndex + 1
+                                                                        rowSpan:1
+                                                                 startingColumn:(int)colIndex + 1
+                                                                     columnSpan:1] autorelease];
+            OMConfigurePipeTableCellBlock(block,
+                                          percentWidth,
+                                          indent,
+                                          (colIndex == 0),
+                                          borderColor,
+                                          cellBackgroundColor,
+                                          scale);
+
+            NSMutableParagraphStyle *cellStyle = OMParagraphStyleWithIndent(0.0, 0.0, 0.0, 0.0, 1.38, tableFontSize);
+            [cellStyle setTextBlocks:[NSArray arrayWithObject:block]];
+            [cellStyle setAlignment:OMPipeTableTextAlignment((OMPipeTableAlignment)[[alignments objectAtIndex:colIndex] unsignedIntegerValue])];
+
+            NSMutableDictionary *cellAttrs = [tableAttrs mutableCopy];
+            [cellAttrs setObject:cellStyle forKey:NSParagraphStyleAttributeName];
+            if (headerRow) {
+                NSFont *headerFont = monospace != nil ? OMFontWithTraits(monospace, NSBoldFontMask) : nil;
+                if (headerFont == nil && monospace != nil) {
+                    headerFont = [NSFont boldSystemFontOfSize:[monospace pointSize]];
+                }
+                if (headerFont != nil) {
+                    [cellAttrs setObject:headerFont forKey:NSFontAttributeName];
+                }
+            }
+
+            NSMutableAttributedString *cellSegment = OMPipeTableAttributedCellContent(cellText,
+                                                                                       theme,
+                                                                                       cellAttrs,
+                                                                                       scale,
+                                                                                       renderContext);
+            if ([cellSegment length] == 0) {
+                OMAppendString(cellSegment, @" ", cellAttrs);
+            }
+            [cellSegment addAttribute:NSParagraphStyleAttributeName
+                                value:cellStyle
+                                range:NSMakeRange(0, [cellSegment length])];
+            OMAppendAttributedSegment(tableSegment, cellSegment);
+            OMAppendString(tableSegment, @"\n", cellAttrs);
+            [cellAttrs release];
+        }
+    }
+
+    if ([tableSegment length] > 0) {
+        NSString *text = [tableSegment string];
+        if ([text length] > 0 && [text characterAtIndex:([text length] - 1)] == '\n') {
+            [tableSegment deleteCharactersInRange:NSMakeRange([tableSegment length] - 1, 1)];
+        }
+    }
+
+    OMAppendAttributedSegment(output, tableSegment);
+    [tableAttrs release];
+
+    if (OMIsTightList(listStack)) {
+        OMAppendString(output, @"\n", attributes);
+    } else {
+        OMAppendString(output, @"\n\n", attributes);
+    }
+}
+
 static NSString *OMFallbackImageTextForNode(cmark_node *imageNode)
 {
     NSString *altText = OMInlinePlainText(imageNode);
@@ -1254,7 +2108,8 @@ static BOOL OMURLUsesRemoteScheme(NSURL *url)
     return [scheme isEqualToString:@"http"] || [scheme isEqualToString:@"https"];
 }
 
-static NSURL *OMResolvedImageURL(NSString *urlString)
+static NSURL *OMResolvedImageURL(NSString *urlString,
+                                 const OMRenderContext *renderContext)
 {
     if (urlString == nil || [urlString length] == 0) {
         return nil;
@@ -1262,10 +2117,16 @@ static NSURL *OMResolvedImageURL(NSString *urlString)
 
     NSURL *url = [NSURL URLWithString:urlString];
     if (url != nil && [url scheme] != nil) {
-        return url;
+        if (!OMURLUsesAllowedImageScheme(url)) {
+            return nil;
+        }
+        if (OMURLUsesRemoteScheme(url) && !OMShouldAllowRemoteImages(renderContext)) {
+            return nil;
+        }
+        return [url absoluteURL];
     }
 
-    OMMarkdownParsingOptions *options = OMActiveParsingOptions();
+    OMMarkdownParsingOptions *options = OMRenderContextParsingOptions(renderContext);
     NSURL *baseURL = options != nil ? [options baseURL] : nil;
     if (baseURL != nil) {
         NSURL *resolved = [NSURL URLWithString:urlString relativeToURL:baseURL];
@@ -1290,7 +2151,11 @@ static NSURL *OMResolvedImageURL(NSString *urlString)
             path = [cwd stringByAppendingPathComponent:path];
         }
     }
-    return [NSURL fileURLWithPath:path];
+    NSURL *fileURL = [NSURL fileURLWithPath:path];
+    if (!OMURLUsesAllowedImageScheme(fileURL)) {
+        return nil;
+    }
+    return fileURL;
 }
 
 static NSImage *OMLoadImageFromURL(NSURL *url)
@@ -1306,19 +2171,11 @@ static NSImage *OMLoadImageFromURL(NSURL *url)
         }
         return [[[NSImage alloc] initWithContentsOfFile:path] autorelease];
     }
-
-    if (OMURLUsesRemoteScheme(url) && !OMShouldAllowRemoteImages()) {
-        return nil;
-    }
-
-    NSData *data = [NSData dataWithContentsOfURL:url];
-    if (data == nil || [data length] == 0) {
-        return nil;
-    }
-    return [[[NSImage alloc] initWithData:data] autorelease];
+    return nil;
 }
 
-static NSURL *OMResolvedLinkURL(NSString *urlString)
+static NSURL *OMResolvedLinkURL(NSString *urlString,
+                                const OMRenderContext *renderContext)
 {
     if (urlString == nil || [urlString length] == 0) {
         return nil;
@@ -1326,10 +2183,13 @@ static NSURL *OMResolvedLinkURL(NSString *urlString)
 
     NSURL *url = [NSURL URLWithString:urlString];
     if (url != nil && [url scheme] != nil) {
-        return url;
+        if (!OMURLUsesAllowedLinkScheme(url)) {
+            return nil;
+        }
+        return [url absoluteURL];
     }
 
-    OMMarkdownParsingOptions *options = OMActiveParsingOptions();
+    OMMarkdownParsingOptions *options = OMRenderContextParsingOptions(renderContext);
     NSURL *baseURL = options != nil ? [options baseURL] : nil;
     if (baseURL != nil) {
         NSURL *resolved = [NSURL URLWithString:urlString relativeToURL:baseURL];
@@ -1354,12 +2214,17 @@ static NSURL *OMResolvedLinkURL(NSString *urlString)
             path = [cwd stringByAppendingPathComponent:path];
         }
     }
-    return [NSURL fileURLWithPath:path];
+    NSURL *fileURL = [NSURL fileURLWithPath:path];
+    if (!OMURLUsesAllowedLinkScheme(fileURL)) {
+        return nil;
+    }
+    return fileURL;
 }
 
 static NSAttributedString *OMImageAttachmentAttributedString(cmark_node *imageNode,
                                                              NSMutableDictionary *attributes,
-                                                             CGFloat scale)
+                                                             CGFloat scale,
+                                                             const OMRenderContext *renderContext)
 {
     if (imageNode == NULL) {
         return nil;
@@ -1367,7 +2232,7 @@ static NSAttributedString *OMImageAttachmentAttributedString(cmark_node *imageNo
 
     const char *urlLiteral = cmark_node_get_url(imageNode);
     NSString *urlString = urlLiteral != NULL ? [NSString stringWithUTF8String:urlLiteral] : nil;
-    NSURL *url = OMResolvedImageURL(urlString);
+    NSURL *url = OMResolvedImageURL(urlString, renderContext);
     if (url == nil) {
         return nil;
     }
@@ -1380,11 +2245,12 @@ static NSAttributedString *OMImageAttachmentAttributedString(cmark_node *imageNo
         return nil;
     }
 
-    NSString *cacheKey = [NSString stringWithFormat:@"%@|%.2f|%.1f|allowRemote:%d",
-                          urlKey,
-                          scale,
-                          OMCurrentLayoutWidth,
-                          (int)(OMShouldAllowRemoteImages() ? 1 : 0)];
+    BOOL allowRemoteImages = OMShouldAllowRemoteImages(renderContext);
+    CGFloat layoutWidth = renderContext != NULL ? renderContext->layoutWidth : 0.0;
+    NSString *cacheKey = OMImageAttachmentCacheKey(urlKey,
+                                                   scale,
+                                                   layoutWidth,
+                                                   allowRemoteImages);
     NSCache *cache = OMImageAttachmentCache();
     NSImage *cachedImage = nil;
     @synchronized (cache) {
@@ -1395,27 +2261,19 @@ static NSAttributedString *OMImageAttachmentAttributedString(cmark_node *imageNo
     if (cachedImage != nil) {
         preparedImage = [[cachedImage retain] autorelease];
     } else {
+        if (OMURLUsesRemoteScheme(url)) {
+            OMScheduleAsyncRemoteImageWarm(url, cacheKey, scale, layoutWidth, allowRemoteImages);
+            return nil;
+        }
+
         NSImage *loaded = OMLoadImageFromURL(url);
         if (loaded == nil) {
             return nil;
         }
 
-        preparedImage = [[loaded copy] autorelease];
-        NSSize imageSize = [preparedImage size];
-        CGFloat maxWidth = 0.0;
-        if (OMCurrentLayoutWidth > 0.0) {
-            maxWidth = floor(OMCurrentLayoutWidth - (24.0 * scale));
-        }
-        if (maxWidth > 0.0 && imageSize.width > maxWidth && imageSize.width > 0.0) {
-            CGFloat ratio = maxWidth / imageSize.width;
-            if (ratio > 0.0) {
-                CGFloat height = floor(imageSize.height * ratio);
-                if (height < 1.0) {
-                    height = 1.0;
-                }
-                [preparedImage setScalesWhenResized:YES];
-                [preparedImage setSize:NSMakeSize(maxWidth, height)];
-            }
+        preparedImage = OMPreparedImageForAttachment(loaded, scale, layoutWidth);
+        if (preparedImage == nil) {
+            return nil;
         }
 
         @synchronized (cache) {
@@ -1442,9 +2300,10 @@ static NSAttributedString *OMImageAttachmentAttributedString(cmark_node *imageNo
 static void OMAppendHTMLLiteral(const char *literal,
                                 NSMutableAttributedString *output,
                                 NSMutableDictionary *attributes,
-                                BOOL blockNode)
+                                BOOL blockNode,
+                                const OMRenderContext *renderContext)
 {
-    if (OMHTMLPolicyForBlockNode(blockNode) == OMMarkdownHTMLPolicyIgnore) {
+    if (OMHTMLPolicyForBlockNode(renderContext, blockNode) == OMMarkdownHTMLPolicyIgnore) {
         return;
     }
 
@@ -1801,13 +2660,15 @@ static NSString *OMCreateMathTempDirectory(void)
 
 static NSData *OMSVGDataForMathFormula(NSString *formula,
                                        BOOL displayMath,
-                                       CGFloat renderZoom)
+                                       CGFloat renderZoom,
+                                       NSUInteger maximumFormulaLength,
+                                       NSTimeInterval externalToolTimeout,
+                                       OMMathPerfStats *stats)
 {
-    if (!OMExternalMathRenderingEnabled() ||
-        !OMMathBackendAvailable() ||
+    if (!OMMathBackendAvailable() ||
         formula == nil ||
         [formula length] == 0 ||
-        [formula length] > OMMathMaximumFormulaLength()) {
+        (maximumFormulaLength > 0 && [formula length] > maximumFormulaLength)) {
         return nil;
     }
 
@@ -1874,10 +2735,10 @@ static NSData *OMSVGDataForMathFormula(NSString *formula,
                            NULL,
                            NULL,
                            &texStatus,
-                           OMExternalToolTimeout());
-    if (OMCurrentMathPerfStats != NULL) {
-        OMCurrentMathPerfStats->latexRuns += 1;
-        OMCurrentMathPerfStats->latexSeconds += (OMNow() - texStart);
+                           externalToolTimeout);
+    if (stats != NULL) {
+        stats->latexRuns += 1;
+        stats->latexSeconds += (OMNow() - texStart);
     }
     if (!texOK || ![[NSFileManager defaultManager] fileExistsAtPath:dviPath]) {
         [[NSFileManager defaultManager] removeItemAtPath:tempDir error:NULL];
@@ -1906,10 +2767,10 @@ static NSData *OMSVGDataForMathFormula(NSString *formula,
                            &svgData,
                            NULL,
                            &svgStatus,
-                           OMExternalToolTimeout());
-    if (OMCurrentMathPerfStats != NULL) {
-        OMCurrentMathPerfStats->dvisvgmRuns += 1;
-        OMCurrentMathPerfStats->dvisvgmSeconds += (OMNow() - svgStart);
+                           externalToolTimeout);
+    if (stats != NULL) {
+        stats->dvisvgmRuns += 1;
+        stats->dvisvgmSeconds += (OMNow() - svgStart);
     }
     [[NSFileManager defaultManager] removeItemAtPath:tempDir error:NULL];
 
@@ -1921,13 +2782,14 @@ static NSData *OMSVGDataForMathFormula(NSString *formula,
 
 static void OMScheduleAsyncMathAssetGeneration(NSString *formula,
                                                BOOL displayMath,
-                                               CGFloat renderZoom)
+                                               CGFloat renderZoom,
+                                               NSUInteger maximumFormulaLength,
+                                               NSTimeInterval externalToolTimeout)
 {
-    if (!OMExternalMathRenderingEnabled() ||
-        !OMMathBackendAvailable() ||
+    if (!OMMathBackendAvailable() ||
         formula == nil ||
         [formula length] == 0 ||
-        [formula length] > OMMathMaximumFormulaLength()) {
+        (maximumFormulaLength > 0 && [formula length] > maximumFormulaLength)) {
         return;
     }
 
@@ -1953,7 +2815,12 @@ static void OMScheduleAsyncMathAssetGeneration(NSString *formula,
     NSString *assetKeyCopy = [assetKey copy];
     dispatch_async(OMMathArtifactQueue(), ^{
         @autoreleasepool {
-            NSData *svgData = OMSVGDataForMathFormula(formulaCopy, displayMath, renderZoom);
+            NSData *svgData = OMSVGDataForMathFormula(formulaCopy,
+                                                      displayMath,
+                                                      renderZoom,
+                                                      maximumFormulaLength,
+                                                      externalToolTimeout,
+                                                      NULL);
             if (svgData != nil) {
                 [OMMathBaseSVGDataCache() setObject:svgData forKey:assetKeyCopy];
                 dispatch_async(dispatch_get_main_queue(), ^{
@@ -1976,22 +2843,26 @@ static NSAttributedString *OMMathAttachmentAttributedString(NSString *formula,
                                                             OMTheme *theme,
                                                             NSMutableDictionary *attributes,
                                                             CGFloat scale,
-                                                            BOOL displayMath)
+                                                            BOOL displayMath,
+                                                            const OMRenderContext *renderContext)
 {
-    if (!OMExternalMathRenderingEnabled()) {
+    if (!OMExternalMathRenderingEnabled(renderContext)) {
         return nil;
     }
 
-    if (OMCurrentMathPerfStats != NULL) {
-        OMCurrentMathPerfStats->mathRequests += 1;
+    OMMathPerfStats *stats = renderContext != NULL ? renderContext->mathPerfStats : NULL;
+    if (stats != NULL) {
+        stats->mathRequests += 1;
     }
-    NSUInteger maxFormulaLength = OMMathMaximumFormulaLength();
+    NSUInteger maxFormulaLength = OMMathMaximumFormulaLength(renderContext);
+    NSTimeInterval externalToolTimeout = OMExternalToolTimeout(renderContext);
+    BOOL asyncMathGenerationEnabled = (renderContext != NULL && renderContext->asynchronousMathGenerationEnabled);
     if (!OMMathBackendAvailable() ||
         formula == nil ||
         [formula length] == 0 ||
         (maxFormulaLength > 0 && [formula length] > maxFormulaLength)) {
-        if (OMCurrentMathPerfStats != NULL) {
-            OMCurrentMathPerfStats->mathFailures += 1;
+        if (stats != NULL) {
+            stats->mathFailures += 1;
         }
         return nil;
     }
@@ -2007,13 +2878,13 @@ static NSAttributedString *OMMathAttachmentAttributedString(NSString *formula,
                           formula];
     NSAttributedString *cached = [OMMathAttachmentCache() objectForKey:cacheKey];
     if (cached != nil) {
-        if (OMCurrentMathPerfStats != NULL) {
-            OMCurrentMathPerfStats->mathCacheHits += 1;
+        if (stats != NULL) {
+            stats->mathCacheHits += 1;
         }
         return cached;
     }
-    if (OMCurrentMathPerfStats != NULL) {
-        OMCurrentMathPerfStats->mathCacheMisses += 1;
+    if (stats != NULL) {
+        stats->mathCacheMisses += 1;
     }
 
     NSTimeInterval mathStart = OMNow();
@@ -2023,31 +2894,35 @@ static NSAttributedString *OMMathAttachmentAttributedString(NSString *formula,
     CGFloat imageRenderZoom = renderZoom;
     BOOL usedFallbackImage = NO;
     if (baseImage != nil) {
-        if (OMCurrentMathPerfStats != NULL) {
-            OMCurrentMathPerfStats->mathAssetCacheHits += 1;
+        if (stats != NULL) {
+            stats->mathAssetCacheHits += 1;
         }
         OMRecordBestAvailableMathImage(formula, displayMath, renderZoom, baseImage);
     } else {
         svgData = [OMMathBaseSVGDataCache() objectForKey:assetKey];
         if (svgData != nil) {
-            if (OMCurrentMathPerfStats != NULL) {
-                OMCurrentMathPerfStats->mathAssetCacheHits += 1;
+            if (stats != NULL) {
+                stats->mathAssetCacheHits += 1;
             }
         } else {
-            if (OMCurrentMathPerfStats != NULL) {
-                OMCurrentMathPerfStats->mathAssetCacheMisses += 1;
+            if (stats != NULL) {
+                stats->mathAssetCacheMisses += 1;
             }
 
-            if (OMCurrentAsyncMathGenerationEnabled) {
-                OMScheduleAsyncMathAssetGeneration(formula, displayMath, renderZoom);
+            if (asyncMathGenerationEnabled) {
+                OMScheduleAsyncMathAssetGeneration(formula,
+                                                   displayMath,
+                                                   renderZoom,
+                                                   maxFormulaLength,
+                                                   externalToolTimeout);
                 CGFloat fallbackRenderZoom = 0.0;
                 NSImage *fallbackImage = OMBestAvailableMathImage(formula, displayMath, &fallbackRenderZoom);
                 if (fallbackImage != nil) {
                     baseImage = fallbackImage;
                     usedFallbackImage = YES;
                     imageRenderZoom = fallbackRenderZoom > 0.0 ? fallbackRenderZoom : oversample;
-                    if (OMCurrentMathPerfStats != NULL) {
-                        OMCurrentMathPerfStats->mathAssetCacheHits += 1;
+                    if (stats != NULL) {
+                        stats->mathAssetCacheHits += 1;
                     }
                 } else {
                     return nil;
@@ -2055,11 +2930,16 @@ static NSAttributedString *OMMathAttachmentAttributedString(NSString *formula,
             }
 
             if (!usedFallbackImage) {
-                svgData = OMSVGDataForMathFormula(formula, displayMath, renderZoom);
+                svgData = OMSVGDataForMathFormula(formula,
+                                                  displayMath,
+                                                  renderZoom,
+                                                  maxFormulaLength,
+                                                  externalToolTimeout,
+                                                  stats);
                 if (svgData == nil) {
-                    if (OMCurrentMathPerfStats != NULL) {
-                        OMCurrentMathPerfStats->mathFailures += 1;
-                        OMCurrentMathPerfStats->mathTotalSeconds += (OMNow() - mathStart);
+                    if (stats != NULL) {
+                        stats->mathFailures += 1;
+                        stats->mathTotalSeconds += (OMNow() - mathStart);
                     }
                     return nil;
                 }
@@ -2070,13 +2950,13 @@ static NSAttributedString *OMMathAttachmentAttributedString(NSString *formula,
         if (baseImage == nil) {
             NSTimeInterval decodeStart = OMNow();
             NSImage *decodedImage = [[[NSImage alloc] initWithData:svgData] autorelease];
-            if (OMCurrentMathPerfStats != NULL) {
-                OMCurrentMathPerfStats->svgDecodeSeconds += (OMNow() - decodeStart);
+            if (stats != NULL) {
+                stats->svgDecodeSeconds += (OMNow() - decodeStart);
             }
             if (decodedImage == nil) {
-                if (OMCurrentMathPerfStats != NULL) {
-                    OMCurrentMathPerfStats->mathFailures += 1;
-                    OMCurrentMathPerfStats->mathTotalSeconds += (OMNow() - mathStart);
+                if (stats != NULL) {
+                    stats->mathFailures += 1;
+                    stats->mathTotalSeconds += (OMNow() - mathStart);
                 }
                 return nil;
             }
@@ -2088,9 +2968,9 @@ static NSAttributedString *OMMathAttachmentAttributedString(NSString *formula,
 
     NSImage *image = [[baseImage copy] autorelease];
     if (image == nil) {
-        if (OMCurrentMathPerfStats != NULL) {
-            OMCurrentMathPerfStats->mathFailures += 1;
-            OMCurrentMathPerfStats->mathTotalSeconds += (OMNow() - mathStart);
+        if (stats != NULL) {
+            stats->mathFailures += 1;
+            stats->mathTotalSeconds += (OMNow() - mathStart);
         }
         return nil;
     }
@@ -2122,9 +3002,9 @@ static NSAttributedString *OMMathAttachmentAttributedString(NSString *formula,
     if (!usedFallbackImage) {
         [OMMathAttachmentCache() setObject:immutable forKey:cacheKey];
     }
-    if (OMCurrentMathPerfStats != NULL) {
-        OMCurrentMathPerfStats->mathRendered += 1;
-        OMCurrentMathPerfStats->mathTotalSeconds += (OMNow() - mathStart);
+    if (stats != NULL) {
+        stats->mathRendered += 1;
+        stats->mathTotalSeconds += (OMNow() - mathStart);
     }
     return immutable;
 }
@@ -2133,12 +3013,13 @@ static void OMAppendTextWithMathSpans(NSString *text,
                                       OMTheme *theme,
                                       NSMutableAttributedString *output,
                                       NSMutableDictionary *attributes,
-                                      CGFloat scale)
+                                      CGFloat scale,
+                                      const OMRenderContext *renderContext)
 {
     if (text == nil || [text length] == 0) {
         return;
     }
-    if (!OMShouldParseMathSpans()) {
+    if (!OMShouldParseMathSpans(renderContext)) {
         OMAppendString(output, text, attributes);
         return;
     }
@@ -2176,7 +3057,12 @@ static void OMAppendTextWithMathSpans(NSString *text,
                     !OMDollarIsEscaped(text, i)) {
                     if (i > contentStart) {
                         NSString *formula = [text substringWithRange:NSMakeRange(contentStart, i - contentStart)];
-                        NSAttributedString *attachment = OMMathAttachmentAttributedString(formula, theme, attributes, scale, YES);
+                        NSAttributedString *attachment = OMMathAttachmentAttributedString(formula,
+                                                                                           theme,
+                                                                                           attributes,
+                                                                                           scale,
+                                                                                           YES,
+                                                                                           renderContext);
                         if (attachment != nil) {
                             OMAppendAttributedSegment(output, attachment);
                         } else {
@@ -2202,7 +3088,12 @@ static void OMAppendTextWithMathSpans(NSString *text,
                     if (!precededByWhitespace && !followedByDigit && !adjacentToDollar) {
                         NSString *formula = [text substringWithRange:NSMakeRange(dollarLocation + 1, i - (dollarLocation + 1))];
                         if ([formula length] > 0) {
-                            NSAttributedString *attachment = OMMathAttachmentAttributedString(formula, theme, attributes, scale, NO);
+                            NSAttributedString *attachment = OMMathAttachmentAttributedString(formula,
+                                                                                               theme,
+                                                                                               attributes,
+                                                                                               scale,
+                                                                                               NO,
+                                                                                               renderContext);
                             if (attachment != nil) {
                                 OMAppendAttributedSegment(output, attachment);
                             } else {
@@ -2250,12 +3141,13 @@ static cmark_node *OMTryAppendMultiNodeDisplayMath(cmark_node *startNode,
                                                     NSMutableAttributedString *output,
                                                     NSMutableDictionary *attributes,
                                                     CGFloat scale,
-                                                    BOOL *didRender)
+                                                    BOOL *didRender,
+                                                    const OMRenderContext *renderContext)
 {
     if (didRender != NULL) {
         *didRender = NO;
     }
-    if (!OMShouldParseMathSpans()) {
+    if (!OMShouldParseMathSpans(renderContext)) {
         return NULL;
     }
     if (!OMTextNodeIsDisplayMathFence(startNode)) {
@@ -2276,7 +3168,12 @@ static cmark_node *OMTryAppendMultiNodeDisplayMath(cmark_node *startNode,
                     return NULL;
                 }
 
-                NSAttributedString *attachment = OMMathAttachmentAttributedString(normalized, theme, attributes, scale, YES);
+                NSAttributedString *attachment = OMMathAttachmentAttributedString(normalized,
+                                                                                  theme,
+                                                                                  attributes,
+                                                                                  scale,
+                                                                                  YES,
+                                                                                  renderContext);
                 if (attachment != nil) {
                     OMAppendAttributedSegment(output, attachment);
                 } else {
@@ -2428,27 +3325,26 @@ static cmark_node *OMTryAppendMultiNodeDisplayMath(cmark_node *startNode,
     NSMutableArray *blockAnchors = [NSMutableArray array];
     NSArray *sourceLines = OMSourceLinesForMarkdown(markdown);
     OMMathPerfStats stats = {0};
-    OMMathPerfStats *previousStats = OMCurrentMathPerfStats;
-    BOOL previousAsyncMathEnabled = OMCurrentAsyncMathGenerationEnabled;
-    NSMutableArray *previousBlockAnchors = OMCurrentBlockAnchors;
-    NSArray *previousSourceLines = OMCurrentSourceLines;
-    OMMarkdownParsingOptions *previousParsingOptions = OMCurrentParsingOptions;
-    CGFloat previousLayoutWidth = OMCurrentLayoutWidth;
-    OMCurrentAsyncMathGenerationEnabled = self.asynchronousMathGenerationEnabled;
-    OMCurrentMathPerfStats = &stats;
-    OMCurrentBlockAnchors = blockAnchors;
-    OMCurrentSourceLines = sourceLines;
-    OMCurrentParsingOptions = self.parsingOptions;
-    OMCurrentLayoutWidth = self.layoutWidth;
+    OMRenderContext renderContext;
+    renderContext.parsingOptions = self.parsingOptions;
+    renderContext.sourceLines = sourceLines;
+    renderContext.blockAnchors = blockAnchors;
+    renderContext.mathPerfStats = &stats;
+    renderContext.layoutWidth = self.layoutWidth;
+    renderContext.asynchronousMathGenerationEnabled = self.asynchronousMathGenerationEnabled;
     NSTimeInterval renderStart = perfLogging ? OMNow() : 0.0;
-    OMRenderBlocks(document, self.theme, output, attributes, codeRanges, blockquoteRanges, listStack, 0, scale, self.layoutWidth);
+    OMRenderBlocks(document,
+                   self.theme,
+                   output,
+                   attributes,
+                   codeRanges,
+                   blockquoteRanges,
+                   listStack,
+                   0,
+                   scale,
+                   self.layoutWidth,
+                   &renderContext);
     NSTimeInterval renderMs = perfLogging ? ((OMNow() - renderStart) * 1000.0) : 0.0;
-    OMCurrentAsyncMathGenerationEnabled = previousAsyncMathEnabled;
-    OMCurrentMathPerfStats = previousStats;
-    OMCurrentBlockAnchors = previousBlockAnchors;
-    OMCurrentSourceLines = previousSourceLines;
-    OMCurrentParsingOptions = previousParsingOptions;
-    OMCurrentLayoutWidth = previousLayoutWidth;
     [self setCodeBlockRanges:codeRanges];
     [self setBlockquoteRanges:blockquoteRanges];
     [self setBlockAnchors:blockAnchors];
@@ -2491,8 +3387,26 @@ static void OMRenderParagraph(cmark_node *node,
                               NSMutableDictionary *attributes,
                               NSMutableArray *listStack,
                               NSUInteger quoteLevel,
-                              CGFloat scale)
+                              CGFloat scale,
+                              const OMRenderContext *renderContext)
 {
+    NSArray *tableRows = nil;
+    NSArray *tableAlignments = nil;
+    if (OMPipeTableDataForParagraphNode(node, renderContext, &tableRows, &tableAlignments)) {
+        CGFloat layoutWidth = (renderContext != NULL ? renderContext->layoutWidth : 0.0);
+        OMRenderPipeTable(tableRows,
+                          tableAlignments,
+                          theme,
+                          output,
+                          attributes,
+                          listStack,
+                          quoteLevel,
+                          scale,
+                          layoutWidth,
+                          renderContext);
+        return;
+    }
+
     NSMutableDictionary *paraAttrs = [attributes mutableCopy];
     CGFloat indent = (CGFloat)(quoteLevel * 20.0 * scale);
     NSFont *font = [attributes objectForKey:NSFontAttributeName];
@@ -2500,7 +3414,7 @@ static void OMRenderParagraph(cmark_node *node,
     NSParagraphStyle *style = OMParagraphStyleWithIndent(indent, indent, 12.0 * scale, 0.0, 1.725, fontSize);
     [paraAttrs setObject:style forKey:NSParagraphStyleAttributeName];
 
-    OMRenderInlines(node, theme, output, paraAttrs, scale);
+    OMRenderInlines(node, theme, output, paraAttrs, scale, renderContext);
     [paraAttrs release];
 
     if (OMIsTightList(listStack)) {
@@ -2516,7 +3430,8 @@ static void OMRenderHeading(cmark_node *node,
                             NSMutableDictionary *attributes,
                             NSUInteger quoteLevel,
                             CGFloat scale,
-                            CGFloat layoutWidth)
+                            CGFloat layoutWidth,
+                            const OMRenderContext *renderContext)
 {
     int level = cmark_node_get_heading_level(node);
     NSMutableDictionary *headingAttrs = [attributes mutableCopy];
@@ -2531,7 +3446,7 @@ static void OMRenderHeading(cmark_node *node,
     [style setParagraphSpacingBefore:spacingBefore];
     [headingAttrs setObject:style forKey:NSParagraphStyleAttributeName];
 
-    OMRenderInlines(node, theme, output, headingAttrs, scale);
+    OMRenderInlines(node, theme, output, headingAttrs, scale, renderContext);
     [headingAttrs release];
     OMAppendString(output, @"\n", attributes);
 
@@ -2564,7 +3479,8 @@ static void OMRenderCodeBlock(cmark_node *node,
                               NSMutableDictionary *attributes,
                               NSUInteger quoteLevel,
                               CGFloat scale,
-                              NSMutableArray *codeRanges)
+                              NSMutableArray *codeRanges,
+                              const OMRenderContext *renderContext)
 {
     const char *literal = cmark_node_get_literal(node);
     NSString *code = literal != NULL ? [NSString stringWithUTF8String:literal] : @"";
@@ -2600,7 +3516,7 @@ static void OMRenderCodeBlock(cmark_node *node,
     NSUInteger startLocation = [output length];
     NSMutableAttributedString *codeSegment = [[[NSMutableAttributedString alloc] initWithString:code
                                                                                       attributes:blockAttrs] autorelease];
-    OMApplyCodeSyntaxHighlighting(node, codeSegment, codeBackgroundColor);
+    OMApplyCodeSyntaxHighlighting(node, codeSegment, codeBackgroundColor, renderContext);
     OMAppendAttributedSegment(output, codeSegment);
     if ([code length] > 0) {
         [codeRanges addObject:[NSValue valueWithRange:NSMakeRange(startLocation, [code length])]];
@@ -2632,7 +3548,8 @@ static void OMRenderList(cmark_node *node,
                          NSMutableArray *listStack,
                          NSUInteger quoteLevel,
                          CGFloat scale,
-                         CGFloat layoutWidth)
+                         CGFloat layoutWidth,
+                         const OMRenderContext *renderContext)
 {
     cmark_list_type type = cmark_node_get_list_type(node);
     int start = cmark_node_get_list_start(node);
@@ -2646,7 +3563,17 @@ static void OMRenderList(cmark_node *node,
 
     cmark_node *child = cmark_node_first_child(node);
     while (child != NULL) {
-        OMRenderBlocks(child, theme, output, attributes, codeRanges, blockquoteRanges, listStack, quoteLevel, scale, layoutWidth);
+        OMRenderBlocks(child,
+                       theme,
+                       output,
+                       attributes,
+                       codeRanges,
+                       blockquoteRanges,
+                       listStack,
+                       quoteLevel,
+                       scale,
+                       layoutWidth,
+                       renderContext);
         child = cmark_node_next(child);
     }
 
@@ -2676,7 +3603,8 @@ static void OMRenderListItem(cmark_node *node,
                              NSMutableArray *listStack,
                              NSUInteger quoteLevel,
                              CGFloat scale,
-                             CGFloat layoutWidth)
+                             CGFloat layoutWidth,
+                             const OMRenderContext *renderContext)
 {
     NSUInteger startLocation = [output length];
     NSString *prefix = OMListPrefix(listStack);
@@ -2684,7 +3612,17 @@ static void OMRenderListItem(cmark_node *node,
 
     cmark_node *child = cmark_node_first_child(node);
     while (child != NULL) {
-        OMRenderBlocks(child, theme, output, attributes, codeRanges, blockquoteRanges, listStack, quoteLevel, scale, layoutWidth);
+        OMRenderBlocks(child,
+                       theme,
+                       output,
+                       attributes,
+                       codeRanges,
+                       blockquoteRanges,
+                       listStack,
+                       quoteLevel,
+                       scale,
+                       layoutWidth,
+                       renderContext);
         child = cmark_node_next(child);
     }
 
@@ -2735,20 +3673,31 @@ static void OMRenderBlocks(cmark_node *node,
                            NSMutableArray *listStack,
                            NSUInteger quoteLevel,
                            CGFloat scale,
-                           CGFloat layoutWidth)
+                           CGFloat layoutWidth,
+                           const OMRenderContext *renderContext)
 {
     NSUInteger startLocation = [output length];
     cmark_node_type type = cmark_node_get_type(node);
     if (type == CMARK_NODE_BLOCK_QUOTE) {
         cmark_node *child = cmark_node_first_child(node);
         while (child != NULL) {
-            OMRenderBlocks(child, theme, output, attributes, codeRanges, blockquoteRanges, listStack, quoteLevel + 1, scale, layoutWidth);
+            OMRenderBlocks(child,
+                           theme,
+                           output,
+                           attributes,
+                           codeRanges,
+                           blockquoteRanges,
+                           listStack,
+                           quoteLevel + 1,
+                           scale,
+                           layoutWidth,
+                           renderContext);
             child = cmark_node_next(child);
         }
         NSUInteger endLocation = [output length];
         if (endLocation > startLocation) {
             [blockquoteRanges addObject:[NSValue valueWithRange:NSMakeRange(startLocation, endLocation - startLocation)]];
-            OMRecordBlockAnchor(node, startLocation, endLocation);
+            OMRecordBlockAnchor(node, startLocation, endLocation, renderContext);
         }
         return;
     }
@@ -2756,42 +3705,42 @@ static void OMRenderBlocks(cmark_node *node,
         case CMARK_NODE_DOCUMENT:
             break;
         case CMARK_NODE_PARAGRAPH:
-            OMRenderParagraph(node, theme, output, attributes, listStack, quoteLevel, scale);
-            OMRecordBlockAnchor(node, startLocation, [output length]);
+            OMRenderParagraph(node, theme, output, attributes, listStack, quoteLevel, scale, renderContext);
+            OMRecordBlockAnchor(node, startLocation, [output length], renderContext);
             return;
         case CMARK_NODE_HEADING:
-            OMRenderHeading(node, theme, output, attributes, quoteLevel, scale, layoutWidth);
-            OMRecordBlockAnchor(node, startLocation, [output length]);
+            OMRenderHeading(node, theme, output, attributes, quoteLevel, scale, layoutWidth, renderContext);
+            OMRecordBlockAnchor(node, startLocation, [output length], renderContext);
             return;
         case CMARK_NODE_CODE_BLOCK:
-            OMRenderCodeBlock(node, theme, output, attributes, quoteLevel, scale, codeRanges);
-            OMRecordBlockAnchor(node, startLocation, [output length]);
+            OMRenderCodeBlock(node, theme, output, attributes, quoteLevel, scale, codeRanges, renderContext);
+            OMRecordBlockAnchor(node, startLocation, [output length], renderContext);
             return;
         case CMARK_NODE_THEMATIC_BREAK:
             OMRenderThematicBreak(theme, output, attributes, layoutWidth);
-            OMRecordBlockAnchor(node, startLocation, [output length]);
+            OMRecordBlockAnchor(node, startLocation, [output length], renderContext);
             return;
         case CMARK_NODE_BLOCK_QUOTE:
             quoteLevel += 1;
             break;
         case CMARK_NODE_LIST:
-            OMRenderList(node, theme, output, attributes, codeRanges, blockquoteRanges, listStack, quoteLevel, scale, layoutWidth);
-            OMRecordBlockAnchor(node, startLocation, [output length]);
+            OMRenderList(node, theme, output, attributes, codeRanges, blockquoteRanges, listStack, quoteLevel, scale, layoutWidth, renderContext);
+            OMRecordBlockAnchor(node, startLocation, [output length], renderContext);
             return;
         case CMARK_NODE_ITEM:
-            OMRenderListItem(node, theme, output, attributes, codeRanges, blockquoteRanges, listStack, quoteLevel, scale, layoutWidth);
-            OMRecordBlockAnchor(node, startLocation, [output length]);
+            OMRenderListItem(node, theme, output, attributes, codeRanges, blockquoteRanges, listStack, quoteLevel, scale, layoutWidth, renderContext);
+            OMRecordBlockAnchor(node, startLocation, [output length], renderContext);
             return;
         case CMARK_NODE_HTML_BLOCK: {
             const char *literal = cmark_node_get_literal(node);
-            OMAppendHTMLLiteral(literal, output, attributes, YES);
-            OMRecordBlockAnchor(node, startLocation, [output length]);
+            OMAppendHTMLLiteral(literal, output, attributes, YES, renderContext);
+            OMRecordBlockAnchor(node, startLocation, [output length], renderContext);
             return;
         }
         case CMARK_NODE_CUSTOM_BLOCK: {
             const char *literal = cmark_node_get_literal(node);
-            OMAppendHTMLLiteral(literal, output, attributes, YES);
-            OMRecordBlockAnchor(node, startLocation, [output length]);
+            OMAppendHTMLLiteral(literal, output, attributes, YES, renderContext);
+            OMRecordBlockAnchor(node, startLocation, [output length], renderContext);
             return;
         }
         default:
@@ -2800,7 +3749,17 @@ static void OMRenderBlocks(cmark_node *node,
 
     cmark_node *child = cmark_node_first_child(node);
     while (child != NULL) {
-        OMRenderBlocks(child, theme, output, attributes, codeRanges, blockquoteRanges, listStack, quoteLevel, scale, layoutWidth);
+        OMRenderBlocks(child,
+                       theme,
+                       output,
+                       attributes,
+                       codeRanges,
+                       blockquoteRanges,
+                       listStack,
+                       quoteLevel,
+                       scale,
+                       layoutWidth,
+                       renderContext);
         child = cmark_node_next(child);
     }
 }
@@ -2809,7 +3768,8 @@ static void OMRenderInlines(cmark_node *node,
                             OMTheme *theme,
                             NSMutableAttributedString *output,
                             NSMutableDictionary *attributes,
-                            CGFloat scale)
+                            CGFloat scale,
+                            const OMRenderContext *renderContext)
 {
     cmark_node *child = cmark_node_first_child(node);
     while (child != NULL) {
@@ -2817,14 +3777,20 @@ static void OMRenderInlines(cmark_node *node,
         switch (type) {
             case CMARK_NODE_TEXT: {
                 BOOL renderedDisplayMath = NO;
-                cmark_node *nextAfterDisplayMath = OMTryAppendMultiNodeDisplayMath(child, theme, output, attributes, scale, &renderedDisplayMath);
+                cmark_node *nextAfterDisplayMath = OMTryAppendMultiNodeDisplayMath(child,
+                                                                                    theme,
+                                                                                    output,
+                                                                                    attributes,
+                                                                                    scale,
+                                                                                    &renderedDisplayMath,
+                                                                                    renderContext);
                 if (renderedDisplayMath) {
                     child = nextAfterDisplayMath;
                     continue;
                 }
                 const char *literal = cmark_node_get_literal(child);
                 NSString *text = literal != NULL ? [NSString stringWithUTF8String:literal] : @"";
-                OMAppendTextWithMathSpans(text, theme, output, attributes, scale);
+                OMAppendTextWithMathSpans(text, theme, output, attributes, scale, renderContext);
                 break;
             }
             case CMARK_NODE_SOFTBREAK:
@@ -2852,7 +3818,7 @@ static void OMRenderInlines(cmark_node *node,
                 if (newFont != nil) {
                     [emphAttrs setObject:newFont forKey:NSFontAttributeName];
                 }
-                OMRenderInlines(child, theme, output, emphAttrs, scale);
+                OMRenderInlines(child, theme, output, emphAttrs, scale, renderContext);
                 [emphAttrs release];
                 break;
             }
@@ -2863,7 +3829,7 @@ static void OMRenderInlines(cmark_node *node,
                 if (newFont != nil) {
                     [strongAttrs setObject:newFont forKey:NSFontAttributeName];
                 }
-                OMRenderInlines(child, theme, output, strongAttrs, scale);
+                OMRenderInlines(child, theme, output, strongAttrs, scale, renderContext);
                 [strongAttrs release];
                 break;
             }
@@ -2871,24 +3837,29 @@ static void OMRenderInlines(cmark_node *node,
                 const char *url = cmark_node_get_url(child);
                 NSString *urlString = url != NULL ? [NSString stringWithUTF8String:url] : @"";
                 NSMutableDictionary *linkAttrs = [attributes mutableCopy];
+                BOOL hasValidLinkURL = NO;
                 if ([urlString length] > 0) {
-                    NSURL *linkURL = OMResolvedLinkURL(urlString);
+                    NSURL *linkURL = OMResolvedLinkURL(urlString, renderContext);
                     if (linkURL != nil) {
                         [linkAttrs setObject:linkURL forKey:NSLinkAttributeName];
+                        hasValidLinkURL = YES;
                     }
                 }
-                if (theme.linkColor != nil) {
+                if (hasValidLinkURL && theme.linkColor != nil) {
                     [linkAttrs setObject:theme.linkColor forKey:NSForegroundColorAttributeName];
                 }
-                OMRenderInlines(child, theme, output, linkAttrs, scale);
+                OMRenderInlines(child, theme, output, linkAttrs, scale, renderContext);
                 [linkAttrs release];
                 break;
             }
             case CMARK_NODE_IMAGE: {
-                if (!OMShouldRenderImages()) {
+                if (!OMShouldRenderImages(renderContext)) {
                     OMAppendString(output, OMFallbackImageTextForNode(child), attributes);
                 } else {
-                    NSAttributedString *attachment = OMImageAttachmentAttributedString(child, attributes, scale);
+                    NSAttributedString *attachment = OMImageAttachmentAttributedString(child,
+                                                                                       attributes,
+                                                                                       scale,
+                                                                                       renderContext);
                     if (attachment != nil) {
                         OMAppendAttributedSegment(output, attachment);
                     } else {
@@ -2899,20 +3870,20 @@ static void OMRenderInlines(cmark_node *node,
             }
             case CMARK_NODE_HTML_INLINE: {
                 const char *literal = cmark_node_get_literal(child);
-                OMAppendHTMLLiteral(literal, output, attributes, NO);
+                OMAppendHTMLLiteral(literal, output, attributes, NO, renderContext);
                 break;
             }
             case CMARK_NODE_CUSTOM_INLINE: {
                 const char *literal = cmark_node_get_literal(child);
                 if (literal != NULL) {
-                    OMAppendHTMLLiteral(literal, output, attributes, NO);
+                    OMAppendHTMLLiteral(literal, output, attributes, NO, renderContext);
                 } else {
-                    OMRenderInlines(child, theme, output, attributes, scale);
+                    OMRenderInlines(child, theme, output, attributes, scale, renderContext);
                 }
                 break;
             }
             default:
-                OMRenderInlines(child, theme, output, attributes, scale);
+                OMRenderInlines(child, theme, output, attributes, scale, renderContext);
                 break;
         }
         child = cmark_node_next(child);
