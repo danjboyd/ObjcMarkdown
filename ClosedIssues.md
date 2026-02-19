@@ -333,3 +333,93 @@
   - Added robust toolbar-image loading with explicit bundle-path fallback.
   - Updated toolbar item construction to use fallback-aware image lookup.
   - User verification confirmed `Open`/`Save` icon rendering issue is resolved.
+
+## 29) Source editor line-number gutter click artifacts
+
+- **Status**: Closed
+- **Closed On**: 2026-02-18
+- **Area**: Viewer / Source editor / Line-number ruler
+- **Description**: Clicking in the source-editor line-number gutter could produce visual artifacts along the left edge.
+- **Resolution**:
+  - Made line-number ruler mouse interactions inert by consuming gutter mouse events (`mouseDown`, drag/up, and alternate-button down).
+  - Prevented default `NSRulerView` interaction paths from running on gutter clicks.
+
+## 30) Source-editor selection highlight too bright and syntax-obscuring
+
+- **Status**: Closed
+- **Closed On**: 2026-02-18
+- **Area**: Viewer / Source editor / Selection styling
+- **Description**: Source selection highlight was overly bright under some GNUstep themes and could obscure syntax-color distinctions.
+- **Resolution**:
+  - Added source-editor-specific selected-text styling with a calmer semi-transparent blue background tuned against editor background luminance.
+  - Set source-editor selected-text attributes to use a custom calm background and transparent selected-foreground override.
+  - Added selected-range syntax overlay drawing in `OMDSourceTextView` so selected text re-renders with original token foreground colors.
+  - Added regression test coverage for selection-style defaults and non-mutation of stored syntax foreground attributes.
+
+## 31) Source editor hover cursor showed arrow instead of text insertion cursor
+
+- **Status**: Closed
+- **Closed On**: 2026-02-18
+- **Area**: Viewer / Source editor / Cursor UX
+- **Description**: Hovering source-editor text could show the default arrow cursor rather than an insertion (I-beam) cursor.
+- **Resolution**:
+  - Added explicit source-editor cursor rect handling in `OMDSourceTextView resetCursorRects`.
+  - Source editor now forces `IBeamCursor` over visible editing content with arrow fallback only if unavailable.
+
+## 32) I-beam cursor leaked into modal save-confirmation dialog
+
+- **Status**: Closed
+- **Closed On**: 2026-02-18
+- **Area**: Viewer / Source editor / Cursor UX
+- **Description**: After Vim `:q` on dirty documents, cursor forcing from source editor could persist as I-beam while hovering the save-confirmation dialog where arrow cursor is expected.
+- **Resolution**:
+  - Scoped source-editor cursor forcing to only run when the source view is first responder, in the key window, and currently hovered.
+  - Added modal-window guard so deferred cursor updates do not override cursor shape while alert dialogs are active.
+  - Switched deferred cursor update to a view-scoped callback (`omdApplyDeferredEditorCursorShape`) with condition re-checking before applying I-beam.
+  - Before dirty-close confirmation `runModal`, now cancels pending source-view deferred cursor updates and explicitly sets arrow cursor.
+  - Disabled selectable `NSTextField` behavior in the close-confirmation alert window so GNUstep alert text regions also keep arrow cursor.
+
+## 33) Link opening lacked explicit safe scheme allowlist
+
+- **Status**: Closed
+- **Closed On**: 2026-02-18
+- **Area**: Viewer / Link safety / Navigation policy
+- **Description**: Link rendering/opening accepted arbitrary URL schemes, risking unsafe or surprising launches from Markdown content.
+- **Resolution**:
+  - Added explicit link scheme allowlist in renderer and viewer open path (`file`, `http`, `https`, `mailto`).
+  - Disallowed schemes now do not get `NSLink` attributes and are blocked from runtime open attempts.
+  - Added renderer tests for blocked `javascript:` links and allowed `mailto:` links.
+
+## 34) Remote image fetch could block render path
+
+- **Status**: Closed
+- **Closed On**: 2026-02-18
+- **Area**: Renderer / Performance / Remote image policy
+- **Description**: Remote image fetches in render path used synchronous URL loading, risking UI stalls during preview updates.
+- **Resolution**:
+  - Removed synchronous remote image loading from render pass.
+  - Added async remote image warm queue with pending-key de-duplication and cache fill on completion.
+  - Added renderer notification `OMMarkdownRendererRemoteImagesDidWarmNotification`; viewer now listens and schedules rerender.
+  - Added renderer regression test to verify first-pass remote image rendering uses fallback text (non-blocking path).
+
+## 35) Sprint-1 list continuation edge-case test coverage gap
+
+- **Status**: Closed
+- **Closed On**: 2026-02-18
+- **Area**: Viewer / Source editor / Structured newline behavior
+- **Description**: Sprint-1 lacked focused tests for task-list continuation, ordered-list incrementing, and quote-exit newline behavior.
+- **Resolution**:
+  - Added dedicated structured-newline test suite (`OMDSourceTextViewStructuredNewlineTests`).
+  - Covered task-list continuation, empty task-list exit, ordered-list increment, and empty blockquote exit.
+
+## 36) Phase-1 renderer global-state contamination risk
+
+- **Status**: Closed
+- **Closed On**: 2026-02-18
+- **Area**: Renderer / Concurrency / State isolation
+- **Description**: Renderer flow relied on process-global mutable `OMCurrent*` context variables, creating cross-render contamination risk under concurrent/mixed-option rendering.
+- **Resolution**:
+  - Removed mutable process-global render context (`OMCurrent*`) from `OMMarkdownRenderer`.
+  - Introduced per-render context (`OMRenderContext`) passed through render helpers for parsing options, anchors/source lines, math perf accounting, layout width, and async-math mode.
+  - Updated math/image/link/HTML policy resolution to consume per-render context rather than globals.
+  - Added concurrent stress test coverage (`testConcurrentRenderersDoNotCrossContaminateRenderState`) to validate deterministic behavior under parallel mixed-policy renders.

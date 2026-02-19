@@ -9,6 +9,42 @@ Current baseline:
 - Test suite is green.
 - Core product is a hybrid editor/viewer with split sync, preferences, syntax highlighting, import/export, and math modes.
 - Full-fidelity WYSIWYG round-trip is not implemented yet.
+- HTML document import/export is available through Pandoc when installed.
+
+## Status Update (2026-02-18)
+
+Completed since prior snapshot:
+- Phase 0 safety goals are implemented (remote image non-blocking warm path + link scheme allowlist).
+- Phase 1 renderer-concurrency/state-isolation goals are implemented:
+  - removed process-global mutable render context in `OMMarkdownRenderer`,
+  - introduced per-render context passed through render helpers,
+  - added concurrent render stress coverage for mixed parsing-option workloads.
+- Full build + test suite remain green after the refactor.
+
+## End-of-Day Handoff (2026-02-19)
+
+Completed today:
+- Started GitHub table-parity implementation for pipe tables (`| ... |`) in preview.
+- Added a dedicated validation fixture: `TableRenderDemo.md`.
+- Added/updated renderer tests to exercise structured table output, narrow-layout fallback behavior, and inline markdown in cells.
+- Build + tests pass locally with GNUstep workflow.
+
+Current gap:
+- Table preview is still not close enough to GitHub styling/structure, and narrow preview widths still degrade table readability.
+- This remains open and is tracked in `OpenIssues.md` issue 7.
+
+Morning restart checklist:
+1. `source /usr/GNUstep/System/Library/Makefiles/GNUstep.sh`
+2. `gmake`
+3. `mkdir -p ~/GNUstep/Defaults/.lck`
+4. `MALLOC_CHECK_=0 LD_LIBRARY_PATH=$PWD/ObjcMarkdown/obj:/usr/GNUstep/System/Library/Libraries xctest ObjcMarkdownTests/ObjcMarkdownTests.bundle`
+5. `gmake run TableRenderDemo.md`
+6. Validate table parity in split preview and while narrowing the preview pane.
+
+Definition of done for this slice:
+- Preview table structure visually matches GitHub much more closely (header row, borders, cell spacing/alignment).
+- Narrow pane behavior remains readable (degrade gracefully instead of collapsing/distorting).
+- Automated tests stay green after final renderer adjustment.
 
 ## End-of-Day Status (2026-02-17)
 
@@ -25,7 +61,6 @@ Current roadmap position:
 
 Remaining work to finish Sprint 1:
 - Add focused automated tests for multiline/mixed inline toggle behavior.
-- Add focused automated tests for list continuation edge cases (nested list items, task-list continuity).
 - Final manual UX QA pass for editor transforms in both `Edit` and `Split` modes.
 - Resolve any regressions found during QA and lock Sprint 1 checklist.
 
@@ -168,7 +203,7 @@ Acceptance criteria:
 - Links with unsupported or unsafe schemes do not launch silently.
 - Existing tests remain green; add coverage for scheme allowlist behavior.
 
-## Phase 1: Renderer Concurrency and State Isolation (P0)
+## Phase 1: Renderer Concurrency and State Isolation (P0, Completed 2026-02-18)
 
 Goal: make rendering re-entrant and predictable.
 
@@ -192,11 +227,16 @@ Scope:
 - Add indexes/cached line starts for source text operations used by scrolling and line display.
 - Add benchmark tests for large source documents and split sync scenarios.
 - Define performance budgets for render, apply, and post-layout stages.
+- Implement inline/block HTML preview rendering strategy (deferred from earlier phases):
+  - move beyond current `RenderAsText` fallback,
+  - keep behavior safe-by-default via explicit sanitization/allowlist policy,
+  - preserve deterministic fallback text for unsupported tags.
 
 Acceptance criteria:
 - Smooth scrolling and stable line numbers in large documents.
 - Measured improvement in large-doc scenarios.
 - Performance tests/checks run in CI or pre-release validation workflow.
+- Inline/block HTML rendering behavior is explicit, safe, and test-covered.
 
 ## Phase 3: UI Regression Automation and Polish Closure (P1)
 
@@ -279,16 +319,16 @@ Notes:
 ## Suggested Next 2 Sprints
 
 Sprint A:
-- Implement async image loading path.
-- Introduce URL scheme allowlist for link opening.
-- Add tests for link safety and image-loading non-blocking behavior.
-- Start renderer context de-globalization design.
+- Complete large-document line-number/indexing optimization (Phase 2).
+- Add measurable performance budget checks for preview render/apply/post stages.
+- Add benchmark-oriented validation for split sync + large files.
+- Start UI regression harness work for split/layout screenshots (Phase 3).
 
 Sprint B:
-- Complete renderer context de-globalization.
-- Add concurrency/render stress tests.
-- Optimize line-number indexing path.
-- Add measurable large-doc performance benchmark checks.
+- Finish UI regression harness and visual baseline capture flow.
+- Close remaining phase-1 polish follow-up items (zoom slider visibility, toolbar alignment, preferences default decision).
+- Add automated checks for split-pane hierarchy/layout regressions.
+- Lock updated P1 performance/polish checklist for release readiness.
 
 ## Completion Criteria for "World-Class" Claim
 

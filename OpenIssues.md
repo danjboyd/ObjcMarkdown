@@ -67,10 +67,53 @@
   - `Enter` continuation/exit behavior is in place for list and quote structures.
   - List `Tab` / `Shift+Tab` indent-outdent behavior is implemented.
   - Inline wrap toggles were hardened for multiline/mixed selection behavior.
+  - Added structured-newline regression tests for task-list, ordered-list increment, and blockquote exit paths.
 - **Remaining Work**:
   - Add explicit tests for inline toggle reversibility on multiline/mixed selections.
-  - Add explicit tests for list continuation edge cases (nested levels, task-list paths).
   - Run a manual QA matrix for formatting commands in `Edit` and `Split` modes.
   - Triage and resolve any regressions discovered by that matrix.
 - **Exit Criteria**:
   - Sprint 1 acceptance criteria in `Roadmap.md` are fully met and validated.
+
+## 6) Inline HTML rendering support (deferred to Phase 2)
+
+- **Status**: Open
+- **Opened On**: 2026-02-18
+- **Area**: Renderer / HTML policy / Preview fidelity
+- **Description**: Inline and block HTML are currently handled as literal text (or dropped via policy), not rendered as rich HTML in preview.
+- **Current State**:
+  - Default parsing policy is `RenderAsText` for inline and block HTML.
+  - HTML import/export is supported through Pandoc when available.
+- **Planned Work**:
+  - Design a safe rendering strategy for inline/block HTML (likely constrained subset + sanitization).
+  - Define fallback behavior when markup is unsupported.
+  - Add dedicated renderer tests for allowed/blocked HTML rendering paths.
+- **Notes**:
+  - Explicitly scheduled for Phase 2 work in `Roadmap.md`.
+
+## 7) GFM table preview parity and narrow-pane behavior
+
+- **Status**: Open
+- **Opened On**: 2026-02-19
+- **Area**: Renderer / GitHub parity / Preview layout
+- **Description**: GitHub-flavored Markdown pipe tables do not currently render with GitHub-like structure/styling in preview, and table output degrades badly in narrow preview panes.
+- **Current State**:
+  - Recent renderer changes introduced table parsing and alternate layout paths.
+  - In-app preview still diverges from GitHub:
+    - table headers/cells are not visually structured like GitHub tables,
+    - narrow preview widths produce severe distortion/unreadable layout.
+  - A reproducible fixture exists in `TableRenderDemo.md`.
+- **Repro**:
+  1. Launch app with `gmake run TableRenderDemo.md`.
+  2. Open in `Split` mode and compare preview against GitHub rendering.
+  3. Shrink preview pane width and observe table distortion.
+- **Next Work**:
+  - Replace/adjust current table drawing path to produce deterministic grid/header/body rendering on GNUstep.
+  - Preserve readable fallback behavior for narrow panes.
+  - Add renderer tests for:
+    - structured table output,
+    - inline markdown inside cells,
+    - narrow-pane fallback behavior.
+  - Capture before/after screenshots to close parity gap.
+- **Tracking**:
+  - Use `GitHubTableParityChecklist.md` as the visual parity checklist for closure.
