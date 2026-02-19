@@ -174,6 +174,27 @@ static BOOL OMDPerformanceLoggingEnabled(void)
     return enabled;
 }
 
+static BOOL OMDFontIsMonospaced(NSFont *font)
+{
+    if (font == nil) {
+        return NO;
+    }
+    if ([font respondsToSelector:@selector(isFixedPitch)] && [font isFixedPitch]) {
+        return YES;
+    }
+
+    NSDictionary *attrs = [NSDictionary dictionaryWithObject:font forKey:NSFontAttributeName];
+    CGFloat iWidth = [@"iiiiiiiiii" sizeWithAttributes:attrs].width;
+    CGFloat wWidth = [@"WWWWWWWWWW" sizeWithAttributes:attrs].width;
+    if (iWidth <= 0.0 || wWidth <= 0.0) {
+        return NO;
+    }
+
+    CGFloat averageI = iWidth / 10.0;
+    CGFloat averageW = wWidth / 10.0;
+    return fabs(averageI - averageW) < 0.05;
+}
+
 static NSInteger OMDAlertButtonIndexForResponse(NSInteger response)
 {
     // Newer AppKit-style responses are 1000 + buttonIndex.
@@ -8205,10 +8226,10 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
     if (fontName != nil && [fontName length] > 0) {
         font = [NSFont fontWithName:fontName size:fontSize];
     }
-    if (font == nil || ![font isFixedPitch]) {
+    if (font == nil || !OMDFontIsMonospaced(font)) {
         font = [NSFont userFixedPitchFontOfSize:fontSize];
     }
-    if (font == nil || ![font isFixedPitch]) {
+    if (font == nil || !OMDFontIsMonospaced(font)) {
         font = [NSFont fontWithName:@"Courier" size:fontSize];
     }
     if (font == nil) {
@@ -8238,9 +8259,9 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
         }
     }
 
-    if (![resolved isFixedPitch]) {
+    if (!OMDFontIsMonospaced(resolved)) {
         NSFont *fallback = [NSFont userFixedPitchFontOfSize:size];
-        if (fallback == nil || ![fallback isFixedPitch]) {
+        if (fallback == nil || !OMDFontIsMonospaced(fallback)) {
             fallback = [NSFont fontWithName:@"Courier" size:size];
         }
         if (fallback != nil) {

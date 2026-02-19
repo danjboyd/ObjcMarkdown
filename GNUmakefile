@@ -4,8 +4,17 @@ SUBPROJECTS = third_party/libs-OpenSave/Source third_party/TextViewVimKitBuild O
 
 include $(GNUSTEP_MAKEFILES)/aggregate.make
 
+OMD_RUNTIME_LIB_DIRS = $(CURDIR)/ObjcMarkdown/$(GNUSTEP_OBJ_DIR):$(CURDIR)/third_party/libs-OpenSave/Source/$(GNUSTEP_OBJ_DIR):$(CURDIR)/third_party/TextViewVimKitBuild/$(GNUSTEP_OBJ_DIR)
+
 .PHONY: run
 run: all
-	. /usr/GNUstep/System/Library/Makefiles/GNUstep.sh; \
-	LD_LIBRARY_PATH="$(CURDIR)/ObjcMarkdown/obj:$(CURDIR)/third_party/libs-OpenSave/Source/obj:$(CURDIR)/third_party/TextViewVimKitBuild/obj:/usr/GNUstep/System/Library/Libraries$${LD_LIBRARY_PATH:+:$$LD_LIBRARY_PATH}" \
+	. "$(GNUSTEP_MAKEFILES)/GNUstep.sh"; \
+	case "$$(uname -s)" in \
+		MINGW*|MSYS*|CYGWIN*) \
+			PATH="$(OMD_RUNTIME_LIB_DIRS):$${PATH}"; \
+			;; \
+		*) \
+			LD_LIBRARY_PATH="$(OMD_RUNTIME_LIB_DIRS):/usr/GNUstep/System/Library/Libraries$${LD_LIBRARY_PATH:+:$$LD_LIBRARY_PATH}"; \
+			;; \
+	esac; \
 	openapp "$(CURDIR)/ObjcMarkdownViewer/ObjcMarkdownViewer.app" $(filter-out run,$(MAKECMDGOALS))

@@ -2,8 +2,9 @@ include $(GNUSTEP_MAKEFILES)/common.make
 
 LIBRARY_NAME = ObjcMarkdown
 
-CMARK_CFLAGS := $(shell pkg-config --cflags cmark 2>/dev/null)
-CMARK_LIBS := $(shell pkg-config --libs cmark 2>/dev/null)
+CMARK_PKG := $(shell pkg-config --exists cmark 2>/dev/null && echo cmark || echo libcmark)
+CMARK_CFLAGS := $(shell pkg-config --cflags $(CMARK_PKG) 2>/dev/null)
+CMARK_LIBS := $(shell pkg-config --libs $(CMARK_PKG) 2>/dev/null)
 OBJCMARKDOWN_ENABLE_TOML_THEME ?= 1
 
 ObjcMarkdown_OBJC_FILES = OMMarkdownRenderer.m OMTheme.m OMMarkdownParsingOptions.m
@@ -13,7 +14,6 @@ ifeq ($(OBJCMARKDOWN_ENABLE_TOML_THEME),1)
 ObjcMarkdown_C_FILES = ../third_party/tomlc99/toml.c
 ObjcMarkdown_CPPFLAGS += -I../third_party/tomlc99
 endif
-ObjcMarkdown_LDFLAGS += $(CMARK_LIBS)
-ObjcMarkdown_LIBRARIES += -lcmark -ldispatch
+ObjcMarkdown_LIBRARIES_DEPEND_UPON += $(CMARK_LIBS) -lcmark -ldispatch
 
 include $(GNUSTEP_MAKEFILES)/library.make

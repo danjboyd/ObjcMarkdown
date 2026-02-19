@@ -6,7 +6,6 @@ ObjcMarkdownTests_OBJC_FILES = OMMarkdownRendererTests.m OMDDocumentConverterTes
 ObjcMarkdownTests_CPPFLAGS += -I../ObjcMarkdown
 ObjcMarkdownTests_CPPFLAGS += -I../ObjcMarkdownViewer
 ObjcMarkdownTests_LDFLAGS += -L../ObjcMarkdown/$(GNUSTEP_OBJ_DIR)
-ObjcMarkdownTests_LDFLAGS += $(shell pkg-config --libs cmark 2>/dev/null)
-ObjcMarkdownTests_BUNDLE_LIBS += -lObjcMarkdown -lXCTest -lcmark
+ObjcMarkdownTests_BUNDLE_LIBS += -lObjcMarkdown -lXCTest -ldispatch -lcmark
 
 include $(GNUSTEP_MAKEFILES)/bundle.make

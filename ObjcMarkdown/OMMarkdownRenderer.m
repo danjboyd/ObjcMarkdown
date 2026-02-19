@@ -7,7 +7,11 @@
 #import <dispatch/dispatch.h>
 
 #include <cmark.h>
+#if defined(_WIN32)
+#include <windows.h>
+#else
 #include <dlfcn.h>
+#endif
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -205,16 +209,29 @@ static BOOL OMTreeSitterRuntimeAvailable(void)
             "libtree-sitter.so.0",
             "libtree-sitter.so.0.22",
             "libtree-sitter.dylib",
+#if defined(_WIN32)
+            "tree-sitter.dll",
+            "libtree-sitter.dll",
+#endif
             NULL
         };
         const char **cursor = libraryCandidates;
         for (; *cursor != NULL; cursor++) {
+#if defined(_WIN32)
+            HMODULE handle = LoadLibraryA(*cursor);
+            if (handle != NULL) {
+                available = YES;
+                FreeLibrary(handle);
+                break;
+            }
+#else
             void *handle = dlopen(*cursor, RTLD_LAZY | RTLD_LOCAL);
             if (handle != NULL) {
                 available = YES;
                 dlclose(handle);
                 break;
             }
+#endif
         }
 
         if (!available) {

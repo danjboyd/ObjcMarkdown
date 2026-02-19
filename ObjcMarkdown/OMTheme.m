@@ -71,7 +71,11 @@
         resolvedPath = [cwd stringByAppendingPathComponent:resolvedPath];
     }
 
-    FILE *fp = fopen([resolvedPath fileSystemRepresentation], "r");
+    const char *resolvedPathUTF8 = [resolvedPath cStringUsingEncoding:NSUTF8StringEncoding];
+    FILE *fp = NULL;
+    if (resolvedPathUTF8 != NULL) {
+        fp = fopen(resolvedPathUTF8, "r");
+    }
     if (fp == NULL) {
         if (error != NULL) {
             *error = [NSError errorWithDomain:@"ObjcMarkdownTheme"

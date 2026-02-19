@@ -2,12 +2,15 @@ include $(GNUSTEP_MAKEFILES)/common.make
 
 APP_NAME = ObjcMarkdownViewer
 
+CMARK_PKG := $(shell pkg-config --exists cmark 2>/dev/null && echo cmark || echo libcmark)
+CMARK_LIBS := $(shell pkg-config --libs $(CMARK_PKG) 2>/dev/null)
+
 ObjcMarkdownViewer_OBJC_FILES = main.m OMDAppDelegate.m OMDTextView.m OMDSourceTextView.m OMDSourceHighlighter.m OMDLineNumberRulerView.m OMDDocumentConverter.m OMDPandocConverter.m OMDPreviewSync.m OMDViewerModeState.m OMDCodeCopyButton.m OMDCopyFeedbackBadgeView.m OMDFormattingBarView.m OMDGitHubClient.m
 ObjcMarkdownViewer_CPPFLAGS += -I../ObjcMarkdown
 ObjcMarkdownViewer_CPPFLAGS += -I../third_party/libs-OpenSave/Headers
 ObjcMarkdownViewer_CPPFLAGS += -I../third_party/TextViewVimKit/src
 ObjcMarkdownViewer_LDFLAGS += -L../ObjcMarkdown/$(GNUSTEP_OBJ_DIR) -lObjcMarkdown -lcmark
-ObjcMarkdownViewer_LDFLAGS += $(shell pkg-config --libs cmark 2>/dev/null)
+ObjcMarkdownViewer_LDFLAGS += $(CMARK_LIBS)
 ObjcMarkdownViewer_LDFLAGS += -L../third_party/libs-OpenSave/Source/$(GNUSTEP_OBJ_DIR) -lOpenSave
 ObjcMarkdownViewer_LDFLAGS += -L../third_party/TextViewVimKitBuild/$(GNUSTEP_OBJ_DIR) -lTextViewVimKit
 ObjcMarkdownViewer_LDFLAGS += -Wl,-rpath,$(CURDIR)/../ObjcMarkdown/$(GNUSTEP_OBJ_DIR)
