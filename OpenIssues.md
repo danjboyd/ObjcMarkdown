@@ -1,14 +1,5 @@
 # Open Issues
 
-## 1) Open source license alignment (GNUstep)
-
-- **Status**: Open
-- **Area**: Project licensing
-- **Description**: Choose license consistent with GNUstep (likely LGPL-2.1+ for libraries).
-- **Notes**:
-  - Evaluate GNUstep's recommended license.
-  - Update `LICENSE` and source headers accordingly.
-
 ## 2) Feasibility: Full WYSIWYG Markdown editor
 
 - **Status**: Open

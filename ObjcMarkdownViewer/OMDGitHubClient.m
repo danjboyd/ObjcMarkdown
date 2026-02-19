@@ -1,5 +1,5 @@
 // ObjcMarkdownViewer
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 #import "OMDGitHubClient.h"
 
@@ -164,7 +164,7 @@ static NSString *OMDPercentEscapedPath(NSString *value)
                                  @"-L",
                                  @"--connect-timeout", @"8",
                                  @"--max-time", @"20",
-                                 @"-H", @"User-Agent: ObjcMarkdownViewer",
+                                 @"-H", @"User-Agent: MarkdownViewer",
                                  nil];
     if (acceptJSON) {
         [arguments addObjectsFromArray:[NSArray arrayWithObjects:@"-H",

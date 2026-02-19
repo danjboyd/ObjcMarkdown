@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
-Name=Markdown Viewer
-Comment=Open Markdown, RTF, DOCX, and ODT with ObjcMarkdownViewer
+Name=MarkdownViewer
+Comment=Open Markdown, RTF, DOCX, and ODT with MarkdownViewer
 Exec=@EXEC@ %F
 Terminal=false
 Categories=Office;Viewer;TextTools;

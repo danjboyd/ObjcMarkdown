@@ -68,7 +68,7 @@ This builds:
 - `third_party/libs-OpenSave/Source`
 - `third_party/TextViewVimKitBuild`
 - `ObjcMarkdown`
-- `ObjcMarkdownViewer`
+- `MarkdownViewer`
 - `ObjcMarkdownTests`
 
 ### 4) Run
@@ -82,7 +82,7 @@ gmake run TableRenderDemo.md
 If `openapp` is unavailable in your Windows GNUstep environment, run the app binary directly:
 
 ```bash
-ObjcMarkdownViewer/ObjcMarkdownViewer.app/ObjcMarkdownViewer TableRenderDemo.md
+ObjcMarkdownViewer/MarkdownViewer.app/MarkdownViewer TableRenderDemo.md
 ```
 
 ### 5) Tests

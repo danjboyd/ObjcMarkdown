@@ -8,4 +8,4 @@ include $(GNUSTEP_MAKEFILES)/aggregate.make
 run: all
 	. /usr/GNUstep/System/Library/Makefiles/GNUstep.sh; \
 	LD_LIBRARY_PATH="$(CURDIR)/ObjcMarkdown/obj:$(CURDIR)/third_party/libs-OpenSave/Source/obj:$(CURDIR)/third_party/TextViewVimKitBuild/obj:/usr/GNUstep/System/Library/Libraries$${LD_LIBRARY_PATH:+:$$LD_LIBRARY_PATH}" \
-	openapp "$(CURDIR)/ObjcMarkdownViewer/ObjcMarkdownViewer.app" $(filter-out run,$(MAKECMDGOALS))
+	openapp "$(CURDIR)/ObjcMarkdownViewer/MarkdownViewer.app" $(filter-out run,$(MAKECMDGOALS))

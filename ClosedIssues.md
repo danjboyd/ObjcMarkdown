@@ -483,3 +483,19 @@
   - Fixed toolbar icon legibility in light/default theme by applying theme-aware tinting to custom toolbar icon assets using resolved control text color.
   - Verified no regressions in Sombre after the theme-aware icon update.
   - User requested closure of Issue #6.
+
+## 41) Open source license alignment (GNUstep)
+
+- **Status**: Closed
+- **Closed On**: 2026-02-19
+- **Area**: Project licensing
+- **Description**: Align project licensing with GNUstep expectations while matching repository structure (reusable library + GUI application).
+- **Resolution**:
+  - Adopted split licensing by component:
+    - `ObjcMarkdown/` library code uses `LGPL-2.1-or-later`.
+    - `ObjcMarkdownViewer/` and `ObjcMarkdownTests/` use `GPL-2.0-or-later`.
+  - Updated project-owned source headers from `Apache-2.0` SPDX identifiers to the component-appropriate SPDX identifiers above.
+  - Replaced top-level `LICENSE` with a clear licensing map and added full license texts:
+    - `LICENSES/LGPL-2.1.txt`
+    - `LICENSES/GPL-2.0.txt`
+  - Kept `third_party/` components under their upstream licenses (no relicensing of vendored dependencies).

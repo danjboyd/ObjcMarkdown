@@ -3,8 +3,8 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DESKTOP_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
-TEMPLATE="$ROOT/Resources/ObjcMarkdownViewer.desktop.in"
-OUT="$DESKTOP_DIR/objcmarkdownviewer.desktop"
+TEMPLATE="$ROOT/Resources/MarkdownViewer.desktop.in"
+OUT="$DESKTOP_DIR/markdownviewer.desktop"
 EXEC_PATH="$ROOT/scripts/omd-viewer.sh"
 ICON_PATH="$ROOT/Resources/markdown_icon.png"
 
