@@ -81,3 +81,22 @@
   - Establish workaround options (theme fallback, selective feature disable) if full Sombre support is not feasible.
 - **Notes**:
   - Outcome should include a go/no-go feasibility decision and recommended implementation path.
+
+## 9) Automated Linux Flatpak packaging pipeline (GNUstep runtime included)
+
+- **Status**: Open
+- **Opened On**: 2026-02-19
+- **Area**: Release engineering / Linux packaging / CI-CD
+- **Description**: Build automated GitHub pipelines that produce a Flatpak for `MarkdownViewer` that runs on a stock Linux desktop without requiring users to manually install GNUstep or related runtime dependencies.
+- **Current State**:
+  - Linux builds run from source in a configured GNUstep development environment.
+  - No Flatpak manifest or CI pipeline currently publishes installable Linux bundles.
+  - Runtime tools/features that depend on external binaries (for example `pandoc`) are not bundled for end users.
+- **Requirements**:
+  - Create a Flatpak manifest and builder flow for `MarkdownViewer`.
+  - Include all required runtime components for app startup and core features (GNUstep libs, Objective-C runtime, cmark, OpenSave/TextViewVimKit dependencies, and other required shared libraries).
+  - Include `pandoc` (or an equivalent clearly documented strategy) so import/export features work on stock systems.
+  - Add GitHub Actions workflow(s) to build, validate, and publish Flatpak artifacts (nightly and/or tagged releases).
+  - Validate installation and launch on a clean Linux box with no preinstalled GNUstep toolchain.
+- **Notes**:
+  - Target reproducible builds with pinned versions and explicit dependency provenance.
