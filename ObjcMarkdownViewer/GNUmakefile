@@ -2,7 +2,7 @@ include $(GNUSTEP_MAKEFILES)/common.make
 
 APP_NAME = ObjcMarkdownViewer
 
-ObjcMarkdownViewer_OBJC_FILES = main.m OMDAppDelegate.m OMDTextView.m OMDSourceTextView.m OMDSourceHighlighter.m OMDLineNumberRulerView.m OMDDocumentConverter.m OMDPandocConverter.m OMDPreviewSync.m OMDViewerModeState.m OMDCodeCopyButton.m OMDCopyFeedbackBadgeView.m OMDFormattingBarView.m OMDGitHubClient.m
+ObjcMarkdownViewer_OBJC_FILES = main.m OMDAppDelegate.m OMDTextView.m OMDSourceTextView.m OMDSourceHighlighter.m OMDLineNumberRulerView.m OMDDocumentConverter.m OMDPandocConverter.m OMDPreviewSync.m OMDViewerModeState.m OMDCodeCopyButton.m OMDCopyFeedbackBadgeView.m OMDFormattingBarView.m OMDGitHubClient.m OMDInlineToggle.m
 ObjcMarkdownViewer_CPPFLAGS += -I../ObjcMarkdown
 ObjcMarkdownViewer_CPPFLAGS += -I../third_party/libs-OpenSave/Headers
 ObjcMarkdownViewer_CPPFLAGS += -I../third_party/TextViewVimKit/src

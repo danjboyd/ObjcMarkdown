@@ -23,6 +23,7 @@ FOUNDATION_EXPORT NSString * const OMMarkdownRendererAnchorBlockIDKey;
 + (BOOL)isTreeSitterAvailable;
 @property (nonatomic, assign) CGFloat zoomScale;
 @property (nonatomic, assign) CGFloat layoutWidth;
+@property (nonatomic, assign) BOOL allowTableHorizontalOverflow;
 @property (nonatomic, assign) BOOL asynchronousMathGenerationEnabled;
 @property (nonatomic, retain) OMMarkdownParsingOptions *parsingOptions;
 - (NSColor *)backgroundColor;

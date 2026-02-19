@@ -45,6 +45,7 @@
     NSComboBox *_explorerGitHubUserComboBox;
     NSComboBox *_explorerGitHubRepoComboBox;
     NSButton *_explorerGitHubIncludeForkArchivedButton;
+    NSButton *_explorerShowHiddenFilesButton;
     NSButton *_explorerNavigateUpButton;
     NSTextField *_explorerPathLabel;
     NSScrollView *_explorerScrollView;

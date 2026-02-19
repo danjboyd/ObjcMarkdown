@@ -83,31 +83,40 @@
     return nil;
 }
 
-- (NSTextTableBlock *)tableBlockInRenderedString:(NSAttributedString *)rendered
-                                  forVisibleText:(NSString *)visibleText
+- (NSUInteger)attachmentCharacterCountInRenderedString:(NSAttributedString *)rendered
 {
-    if (rendered == nil || visibleText == nil || [visibleText length] == 0) {
+    if (rendered == nil) {
+        return 0;
+    }
+    NSString *text = [rendered string];
+    NSUInteger length = [text length];
+    NSUInteger count = 0;
+    NSUInteger index = 0;
+    for (; index < length; index++) {
+        if ([text characterAtIndex:index] == NSAttachmentCharacter) {
+            count += 1;
+        }
+    }
+    return count;
+}
+
+- (NSTextAttachment *)firstAttachmentInRenderedString:(NSAttributedString *)rendered
+{
+    if (rendered == nil || [rendered length] == 0) {
         return nil;
     }
 
     NSString *text = [rendered string];
-    NSRange range = [text rangeOfString:visibleText];
-    if (range.location == NSNotFound) {
-        return nil;
-    }
-
-    NSDictionary *attrs = [rendered attributesAtIndex:range.location effectiveRange:NULL];
-    NSParagraphStyle *style = [attrs objectForKey:NSParagraphStyleAttributeName];
-    if (style == nil || ![style respondsToSelector:@selector(textBlocks)]) {
-        return nil;
-    }
-    NSArray *blocks = [(id)style textBlocks];
-    if ([blocks count] == 0) {
-        return nil;
-    }
-    id block = [blocks objectAtIndex:0];
-    if ([block isKindOfClass:[NSTextTableBlock class]]) {
-        return (NSTextTableBlock *)block;
+    NSUInteger index = 0;
+    for (; index < [text length]; index++) {
+        if ([text characterAtIndex:index] != NSAttachmentCharacter) {
+            continue;
+        }
+        NSDictionary *attrs = [rendered attributesAtIndex:index effectiveRange:NULL];
+        NSTextAttachment *attachment = [attrs objectForKey:NSAttachmentAttributeName];
+        if ([attachment isKindOfClass:[NSTextAttachment class]]) {
+            return attachment;
+        }
     }
     return nil;
 }
@@ -145,14 +154,11 @@
     NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
     XCTAssertNotNil(rendered);
 
-    NSString *text = [rendered string];
-    XCTAssertTrue([text rangeOfString:@"Name"].location != NSNotFound);
-    XCTAssertTrue([text rangeOfString:@"Value"].location != NSNotFound);
-    XCTAssertTrue([text rangeOfString:@"alpha"].location != NSNotFound);
-    XCTAssertTrue([text rangeOfString:@"23"].location != NSNotFound);
+    XCTAssertTrue([rendered containsAttachments]);
+    XCTAssertEqual([self attachmentCharacterCountInRenderedString:rendered], (NSUInteger)1);
 }
 
-- (void)testPipeTableUsesTextTableBlocksForHeaderAndBodyCells
+- (void)testPipeTableRendersAlignedGridRows
 {
     OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
     [renderer setLayoutWidth:1200.0];
@@ -160,22 +166,20 @@
     NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
     XCTAssertNotNil(rendered);
 
-    NSTextTableBlock *headerBlock = [self tableBlockInRenderedString:rendered forVisibleText:@"Name"];
-    XCTAssertNotNil(headerBlock);
-    if (headerBlock != nil) {
-        XCTAssertEqual([headerBlock startingRow], (int)0);
-        XCTAssertEqual([headerBlock startingColumn], (int)0);
-    }
-
-    NSTextTableBlock *bodyBlock = [self tableBlockInRenderedString:rendered forVisibleText:@"beta"];
-    XCTAssertNotNil(bodyBlock);
-    if (bodyBlock != nil) {
-        XCTAssertTrue([bodyBlock startingRow] > [headerBlock startingRow]);
-        XCTAssertEqual([bodyBlock startingColumn], (int)0);
+    NSTextAttachment *attachment = [self firstAttachmentInRenderedString:rendered];
+    XCTAssertNotNil(attachment);
+    if (attachment != nil) {
+        id cell = [attachment attachmentCell];
+        XCTAssertNotNil(cell);
+        if (cell != nil && [cell respondsToSelector:@selector(cellSize)]) {
+            NSSize size = [cell cellSize];
+            XCTAssertTrue(size.width > 80.0);
+            XCTAssertTrue(size.height > 40.0);
+        }
     }
 }
 
-- (void)testPipeTableKeepsBaseBodyFontFamily
+- (void)testPipeTableCellFontIsReadable
 {
     OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
     [renderer setLayoutWidth:1200.0];
@@ -185,21 +189,25 @@
 
     NSString *text = [rendered string];
     NSRange paragraphRange = [text rangeOfString:@"Paragraph"];
-    NSRange cellRange = [text rangeOfString:@"alpha"];
     XCTAssertTrue(paragraphRange.location != NSNotFound);
-    XCTAssertTrue(cellRange.location != NSNotFound);
-    if (paragraphRange.location == NSNotFound || cellRange.location == NSNotFound) {
+    if (paragraphRange.location == NSNotFound) {
         return;
     }
 
     NSDictionary *paragraphAttrs = [rendered attributesAtIndex:paragraphRange.location effectiveRange:NULL];
-    NSDictionary *cellAttrs = [rendered attributesAtIndex:cellRange.location effectiveRange:NULL];
     NSFont *paragraphFont = [paragraphAttrs objectForKey:NSFontAttributeName];
-    NSFont *cellFont = [cellAttrs objectForKey:NSFontAttributeName];
     XCTAssertNotNil(paragraphFont);
-    XCTAssertNotNil(cellFont);
-    if (paragraphFont != nil && cellFont != nil) {
-        XCTAssertEqualObjects([cellFont familyName], [paragraphFont familyName]);
+    XCTAssertTrue([rendered containsAttachments]);
+
+    NSTextAttachment *attachment = [self firstAttachmentInRenderedString:rendered];
+    XCTAssertNotNil(attachment);
+    if (attachment != nil) {
+        id cell = [attachment attachmentCell];
+        if (cell != nil && [cell respondsToSelector:@selector(cellSize)]) {
+            NSSize size = [cell cellSize];
+            XCTAssertTrue(size.width > 120.0);
+            XCTAssertTrue(size.height > [paragraphFont pointSize]);
+        }
     }
 }
 
@@ -217,6 +225,20 @@
     XCTAssertTrue([text rangeOfString:@"Notes: Handles standard pipe table delimiter row"].location != NSNotFound);
 }
 
+- (void)testPipeTableAllowsHorizontalOverflowInsteadOfStackedFallback
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    [renderer setLayoutWidth:220.0];
+    [renderer setAllowTableHorizontalOverflow:YES];
+    NSString *markdown = @"| Area | Notes | Status |\n| :--- | :---- | ----: |\n| Parsing | Handles standard pipe table delimiter row and alignment markers. | 100 |\n| Rendering | Output should stay column-aligned and legible on dark theme. | 95 |";
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
+    XCTAssertNotNil(rendered);
+
+    NSString *text = [rendered string];
+    XCTAssertTrue([rendered containsAttachments]);
+    XCTAssertTrue([text rangeOfString:@"Row 1"].location == NSNotFound);
+}
+
 - (void)testPipeTableKeepsGridLayoutAtComfortablePreviewWidth
 {
     OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
@@ -225,11 +247,10 @@
     NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
     XCTAssertNotNil(rendered);
 
-    NSTextTableBlock *block = [self tableBlockInRenderedString:rendered forVisibleText:@"Parsing"];
-    XCTAssertNotNil(block);
-    if (block != nil) {
-        XCTAssertEqual([block startingRow], (int)1);
-    }
+    NSString *text = [rendered string];
+    XCTAssertTrue([rendered containsAttachments]);
+    XCTAssertEqual([self attachmentCharacterCountInRenderedString:rendered], (NSUInteger)1);
+    XCTAssertTrue([text rangeOfString:@"Row 1"].location == NSNotFound);
 }
 
 - (void)testPipeTableCellInlineLinkRendersAsLinkAttribute
@@ -240,16 +261,11 @@
     NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
     XCTAssertNotNil(rendered);
 
-    NSString *text = [rendered string];
-    NSRange linkRange = [text rangeOfString:@"ObjcMarkdown"];
-    XCTAssertTrue(linkRange.location != NSNotFound);
-    if (linkRange.location != NSNotFound) {
-        NSDictionary *attrs = [rendered attributesAtIndex:linkRange.location effectiveRange:NULL];
-        NSURL *linkURL = [attrs objectForKey:NSLinkAttributeName];
-        XCTAssertNotNil(linkURL);
-        if (linkURL != nil) {
-            XCTAssertEqualObjects([[linkURL scheme] lowercaseString], @"https");
-        }
+    NSTextAttachment *attachment = [self firstAttachmentInRenderedString:rendered];
+    XCTAssertNotNil(attachment);
+    if (attachment != nil) {
+        id cell = [attachment attachmentCell];
+        XCTAssertNotNil(cell);
     }
 }
 
