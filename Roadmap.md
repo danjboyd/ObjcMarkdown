@@ -30,8 +30,7 @@ Completed today:
 - Build + tests pass locally with GNUstep workflow.
 
 Current gap:
-- Table preview is still not close enough to GitHub styling/structure, and narrow preview widths still degrade table readability.
-- This remains open and is tracked in `OpenIssues.md` issue 7.
+- Table parity slice is complete and closed (see `ClosedIssues.md` issue 37).
 
 Morning restart checklist:
 1. `source /usr/GNUstep/System/Library/Makefiles/GNUstep.sh`
@@ -56,13 +55,11 @@ Completed today:
 - Added source-editor list indentation tests (`OMDSourceTextViewTests`) and kept full test suite green.
 
 Current roadmap position:
-- Sprint 1 is active and partially complete.
+- Sprint 1 editing-correctness closeout is complete (see `ClosedIssues.md` issue 38).
 - Sprint 2 and Sprint 3 remain queued after Sprint 1 acceptance criteria are fully met.
 
 Remaining work to finish Sprint 1:
-- Add focused automated tests for multiline/mixed inline toggle behavior.
-- Final manual UX QA pass for editor transforms in both `Edit` and `Split` modes.
-- Resolve any regressions found during QA and lock Sprint 1 checklist.
+- All Sprint 1 acceptance items are satisfied and test/UAT-validated.
 
 ## Formatting Bar Initiative (2026-02-17)
 

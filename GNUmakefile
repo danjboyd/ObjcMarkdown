@@ -17,4 +17,4 @@ run: all
 			LD_LIBRARY_PATH="$(OMD_RUNTIME_LIB_DIRS):/usr/GNUstep/System/Library/Libraries$${LD_LIBRARY_PATH:+:$$LD_LIBRARY_PATH}"; \
 			;; \
 	esac; \
-	openapp "$(CURDIR)/ObjcMarkdownViewer/ObjcMarkdownViewer.app" $(filter-out run,$(MAKECMDGOALS))
+	openapp "$(CURDIR)/ObjcMarkdownViewer/MarkdownViewer.app" $(filter-out run,$(MAKECMDGOALS))

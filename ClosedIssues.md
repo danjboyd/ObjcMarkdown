@@ -423,3 +423,79 @@
   - Introduced per-render context (`OMRenderContext`) passed through render helpers for parsing options, anchors/source lines, math perf accounting, layout width, and async-math mode.
   - Updated math/image/link/HTML policy resolution to consume per-render context rather than globals.
   - Added concurrent stress test coverage (`testConcurrentRenderersDoNotCrossContaminateRenderState`) to validate deterministic behavior under parallel mixed-policy renders.
+
+## 37) GFM table preview parity and narrow-pane behavior
+
+- **Status**: Closed
+- **Closed On**: 2026-02-19
+- **Area**: Renderer / GitHub parity / Preview layout
+- **Description**: GitHub-flavored Markdown pipe tables lacked GitHub-like structure/styling and degraded badly in narrow/zoomed previews.
+- **Resolution**:
+  - Shipped attachment-based rich table rendering with GitHub-like header/background/border styling and inline markdown-in-cell rendering.
+  - Switched table drawing to vector attachment cells and added pixel-snapped geometry to improve text clarity at non-integer zoom levels.
+  - Enabled horizontal overflow behavior in preview (content-width growth + horizontal scrollbar) instead of stacked fallback for wide tables.
+  - Fixed inline-code cell width clipping (including `printf("hello")`) by measuring real attributed cell content when computing column widths.
+  - Added/updated renderer and table behavior tests; full test suite passes.
+  - User confirmed UAT pass and requested closure.
+
+## 38) Sprint-1 editing correctness closeout
+
+- **Status**: Closed
+- **Closed On**: 2026-02-19
+- **Area**: Source editor UX / Formatting commands
+- **Description**: Complete Sprint 1 hardening for deterministic source-editing behavior and formatting command coverage.
+- **Resolution**:
+  - Finalized deterministic editing behavior for:
+    - list/quote `Enter` continuation and clean structure exit,
+    - list `Tab` / `Shift+Tab` indent-outdent,
+    - inline toggle two-press reversibility (`bold` / `italic` / `inline code`) across multiline, mixed, in-wrapper, and selected-word cases.
+  - Added focused regression tests:
+    - `OMDInlineToggleTests` for inline toggle reversibility,
+    - expanded `OMDSourceTextViewTests` for shortcut routing and Vim interaction,
+    - `OMDSourceTextViewStructuredNewlineTests` for structure continuation/exit.
+  - Fixed shortcut dispatch gap where `Ctrl/Cmd+B` and `Ctrl/Cmd+I` could fail under GNUstep/Vim key paths:
+    - source-editor standard shortcuts now preempt Vim handler for recognized formatting shortcuts,
+    - control-character key variants are normalized,
+    - added explicit Edit menu bindings for `Ctrl+B`/`Ctrl+I` as fallback dispatch path.
+  - Full build and test suite remained green after fixes.
+  - User confirmed UAT pass, including `Ctrl+B` and `Ctrl+I`.
+
+## 39) Phase-1 UI polish follow-up (post-regression cleanup)
+
+- **Status**: Closed
+- **Closed On**: 2026-02-19
+- **Area**: Viewer / Toolbar / Split UX
+- **Description**: Finish final visual/interaction polish after Milestone 11 stabilization fixes.
+- **Resolution**:
+  - Verified zoom slider thumb/track visibility in the Sombre baseline and corrected rendering/interaction regressions uncovered during parity checks.
+  - Completed GitHub-like table rendering polish, including table overflow behavior and inline content width handling in split preview.
+  - Confirmed final toolbar alignment and control visibility in the stabilized Sombre configuration.
+  - User confirmed UAT pass and approved closure of Issue #3.
+
+## 40) Default GNUstep theme compatibility pass
+
+- **Status**: Closed
+- **Closed On**: 2026-02-19
+- **Area**: Viewer / Theme compatibility / UAT
+- **Description**: Validate and polish the app for the default GNUstep theme (separate from Sombre-focused polishing).
+- **Resolution**:
+  - Captured default-theme baseline previews and compared against the Sombre baseline for core split-preview workflows.
+  - Fixed toolbar icon legibility in light/default theme by applying theme-aware tinting to custom toolbar icon assets using resolved control text color.
+  - Verified no regressions in Sombre after the theme-aware icon update.
+  - User requested closure of Issue #6.
+
+## 41) Open source license alignment (GNUstep)
+
+- **Status**: Closed
+- **Closed On**: 2026-02-19
+- **Area**: Project licensing
+- **Description**: Align project licensing with GNUstep expectations while matching repository structure (reusable library + GUI application).
+- **Resolution**:
+  - Adopted split licensing by component:
+    - `ObjcMarkdown/` library code uses `LGPL-2.1-or-later`.
+    - `ObjcMarkdownViewer/` and `ObjcMarkdownTests/` use `GPL-2.0-or-later`.
+  - Updated project-owned source headers from `Apache-2.0` SPDX identifiers to the component-appropriate SPDX identifiers above.
+  - Replaced top-level `LICENSE` with a clear licensing map and added full license texts:
+    - `LICENSES/LGPL-2.1.txt`
+    - `LICENSES/GPL-2.0.txt`
+  - Kept `third_party/` components under their upstream licenses (no relicensing of vendored dependencies).

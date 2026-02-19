@@ -32,4 +32,4 @@ if [[ "${OMD_USE_SOMBRE_THEME:-1}" == "1" && -z "${GSTheme:-}" ]]; then
   export GSTheme=Sombre
 fi
 
-openapp "$ROOT/ObjcMarkdownViewer/ObjcMarkdownViewer.app" "$@"
+openapp "$ROOT/ObjcMarkdownViewer/MarkdownViewer.app" "$@"

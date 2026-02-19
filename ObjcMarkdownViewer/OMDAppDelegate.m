@@ -1,5 +1,5 @@
 // ObjcMarkdownViewer
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 #import "OMDAppDelegate.h"
 #import "OMMarkdownRenderer.h"
@@ -14,6 +14,7 @@
 #import "OMDPreviewSync.h"
 #import "OMDViewerModeState.h"
 #import "OMDGitHubClient.h"
+#import "OMDInlineToggle.h"
 #import "GSVVimBindingController.h"
 #import "GSVVimConfigLoader.h"
 #import <AppKit/NSInterfaceStyle.h>
@@ -76,6 +77,7 @@ static NSString * const OMDExplorerLocalRootPathDefaultsKey = @"ObjcMarkdownExpl
 static NSString * const OMDExplorerMaxFileSizeMBDefaultsKey = @"ObjcMarkdownExplorerMaxFileSizeMB";
 static NSString * const OMDExplorerListFontSizeDefaultsKey = @"ObjcMarkdownExplorerListFontSize";
 static NSString * const OMDExplorerIncludeForkArchivedDefaultsKey = @"ObjcMarkdownExplorerIncludeForkArchived";
+static NSString * const OMDExplorerShowHiddenFilesDefaultsKey = @"ObjcMarkdownExplorerShowHiddenFiles";
 static NSString * const OMDExplorerSidebarVisibleDefaultsKey = @"ObjcMarkdownExplorerSidebarVisible";
 static NSString * const OMDExplorerGitHubTokenDefaultsKey = @"ObjcMarkdownGitHubToken";
 static NSString * const OMDGitHubCacheErrorDomain = @"OMDGitHubCacheErrorDomain";
@@ -377,6 +379,34 @@ static NSColor *OMDColorFromDefaultsString(NSString *value)
     return [NSColor colorWithCalibratedRed:red green:green blue:blue alpha:alpha];
 }
 
+static NSColor *OMDResolvedControlTextColor(void)
+{
+    GSTheme *theme = [GSTheme theme];
+    NSColor *color = nil;
+    if (theme != nil) {
+        color = [theme colorNamed:@"controlTextColor" state:GSThemeNormalState];
+        if (color == nil) {
+            color = [theme colorNamed:@"menuBarTextColor" state:GSThemeNormalState];
+        }
+        if (color == nil) {
+            color = [theme colorNamed:@"menuItemTextColor" state:GSThemeNormalState];
+        }
+        if (color == nil) {
+            color = [theme colorNamed:@"textColor" state:GSThemeNormalState];
+        }
+    }
+    if (color == nil) {
+        color = [NSColor controlTextColor];
+    }
+    if (color == nil) {
+        color = [NSColor textColor];
+    }
+    if (color == nil) {
+        color = [NSColor whiteColor];
+    }
+    return color;
+}
+
 static NSImage *OMDToolbarImageNamed(NSString *resourceName)
 {
     if (resourceName == nil || [resourceName length] == 0) {
@@ -404,6 +434,37 @@ static NSImage *OMDToolbarImageNamed(NSString *resourceName)
         }
     }
     return nil;
+}
+
+static NSImage *OMDToolbarThemedImageNamed(NSString *resourceName)
+{
+    NSImage *image = OMDToolbarImageNamed(resourceName);
+    if (image == nil) {
+        return nil;
+    }
+
+    NSColor *tint = OMDResolvedControlTextColor();
+    if (tint == nil) {
+        return image;
+    }
+
+    NSSize size = [image size];
+    if (size.width <= 0.0 || size.height <= 0.0) {
+        return image;
+    }
+
+    NSImage *tinted = [[[NSImage alloc] initWithSize:size] autorelease];
+    if (tinted == nil) {
+        return image;
+    }
+    NSRect rect = NSMakeRect(0.0, 0.0, size.width, size.height);
+    [tinted lockFocus];
+    [image drawInRect:rect fromRect:NSZeroRect operation:NSCompositeSourceOver fraction:1.0];
+    [tint set];
+    NSRectFillUsingOperation(rect, NSCompositeSourceAtop);
+    [tinted unlockFocus];
+    [tinted setSize:size];
+    return tinted;
 }
 
 static NSImage *OMDCodeBlockCopyImage(void)
@@ -847,84 +908,6 @@ static NSString *OMDDefaultCacheDirectory(void)
 #endif
 }
 
-static BOOL OMDIsInlineWhitespace(unichar ch)
-{
-    return ch == ' ' || ch == '\t';
-}
-
-static NSUInteger OMDLeadingRunLengthForCharacter(NSString *text, unichar token)
-{
-    if (text == nil) {
-        return 0;
-    }
-    NSUInteger length = [text length];
-    NSUInteger count = 0;
-    while (count < length && [text characterAtIndex:count] == token) {
-        count += 1;
-    }
-    return count;
-}
-
-static NSUInteger OMDTrailingRunLengthForCharacter(NSString *text, unichar token)
-{
-    if (text == nil) {
-        return 0;
-    }
-    NSUInteger length = [text length];
-    NSUInteger count = 0;
-    while (count < length && [text characterAtIndex:(length - count - 1)] == token) {
-        count += 1;
-    }
-    return count;
-}
-
-static BOOL OMDInlineSingleCharacterWrapperToken(NSString *prefix, NSString *suffix, unichar *tokenOut)
-{
-    if (prefix == nil || suffix == nil) {
-        return NO;
-    }
-    if ([prefix length] != 1 || [suffix length] != 1) {
-        return NO;
-    }
-    unichar token = [prefix characterAtIndex:0];
-    if ([suffix characterAtIndex:0] != token) {
-        return NO;
-    }
-    if (tokenOut != NULL) {
-        *tokenOut = token;
-    }
-    return YES;
-}
-
-static BOOL OMDInlineTextHasToggleWrapper(NSString *text,
-                                          NSString *prefix,
-                                          NSString *suffix)
-{
-    if (text == nil || prefix == nil || suffix == nil) {
-        return NO;
-    }
-    NSUInteger prefixLength = [prefix length];
-    NSUInteger suffixLength = [suffix length];
-    if (prefixLength == 0 || suffixLength == 0) {
-        return NO;
-    }
-    if ([text length] < prefixLength + suffixLength) {
-        return NO;
-    }
-    if (![text hasPrefix:prefix] || ![text hasSuffix:suffix]) {
-        return NO;
-    }
-
-    unichar token = 0;
-    if (!OMDInlineSingleCharacterWrapperToken(prefix, suffix, &token)) {
-        return YES;
-    }
-
-    NSUInteger leadingRun = OMDLeadingRunLengthForCharacter(text, token);
-    NSUInteger trailingRun = OMDTrailingRunLengthForCharacter(text, token);
-    return ((leadingRun % 2) == 1) && ((trailingRun % 2) == 1);
-}
-
 @interface OMDMainWindow : NSWindow
 @end
 
@@ -994,6 +977,8 @@ static BOOL OMDInlineTextHasToggleWrapper(NSString *text,
 - (void)applyExplorerListFontPreference;
 - (BOOL)isExplorerIncludeForkArchivedEnabled;
 - (void)setExplorerIncludeForkArchivedEnabled:(BOOL)enabled;
+- (BOOL)isExplorerShowHiddenFilesEnabled;
+- (void)setExplorerShowHiddenFilesEnabled:(BOOL)enabled;
 - (NSString *)explorerGitHubTokenPreference;
 - (void)setExplorerGitHubTokenPreference:(NSString *)token;
 - (void)explorerSourceModeChanged:(id)sender;
@@ -1001,6 +986,7 @@ static BOOL OMDInlineTextHasToggleWrapper(NSString *text,
 - (void)explorerGitHubUserChanged:(id)sender;
 - (void)explorerGitHubRepoChanged:(id)sender;
 - (void)explorerGitHubIncludeForkArchivedChanged:(id)sender;
+- (void)explorerShowHiddenFilesChanged:(id)sender;
 - (void)explorerItemClicked:(id)sender;
 - (void)explorerItemDoubleClicked:(id)sender;
 - (void)openExplorerEntry:(NSDictionary *)entry inNewTab:(BOOL)inNewTab;
@@ -1079,6 +1065,7 @@ static BOOL OMDInlineTextHasToggleWrapper(NSString *text,
 - (void)updateAdaptiveZoomDebounceWithRenderDurationMs:(NSTimeInterval)durationMs
                                      sampledAsZoomRender:(BOOL)isZoomRender;
 - (CGFloat)currentPreviewLayoutWidth;
+- (void)updatePreviewDocumentGeometry;
 - (void)scheduleInteractiveRenderAfterDelay:(NSTimeInterval)delay;
 - (void)interactiveRenderTimerFired:(NSTimer *)timer;
 - (void)cancelPendingInteractiveRender;
@@ -1310,6 +1297,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [_explorerGitHubUserComboBox release];
     [_explorerGitHubRepoComboBox release];
     [_explorerGitHubIncludeForkArchivedButton release];
+    [_explorerShowHiddenFilesButton release];
     [_explorerNavigateUpButton release];
     [_explorerPathLabel release];
     [_explorerTableView setDelegate:nil];
@@ -1547,6 +1535,17 @@ static NSMutableArray *OMDSecondaryWindows(void)
                                                                    action:@selector(selectAll:)
                                                             keyEquivalent:@"a"];
     [selectAllItem setTarget:nil];
+    [editMenu addItem:[NSMenuItem separatorItem]];
+    NSMenuItem *toggleBoldItem = (NSMenuItem *)[editMenu addItemWithTitle:@"Toggle Bold"
+                                                                    action:@selector(toggleBoldFormatting:)
+                                                             keyEquivalent:@"b"];
+    [toggleBoldItem setTarget:self];
+    [toggleBoldItem setKeyEquivalentModifierMask:NSControlKeyMask];
+    NSMenuItem *toggleItalicItem = (NSMenuItem *)[editMenu addItemWithTitle:@"Toggle Italic"
+                                                                      action:@selector(toggleItalicFormatting:)
+                                                               keyEquivalent:@"i"];
+    [toggleItalicItem setTarget:self];
+    [toggleItalicItem setKeyEquivalentModifierMask:NSControlKeyMask];
     [editMenuItem setSubmenu:editMenu];
 
     NSMenuItem *viewMenuItem = [[[NSMenuItem alloc] initWithTitle:@"View"
@@ -1725,17 +1724,31 @@ static NSMutableArray *OMDSecondaryWindows(void)
     _previewScrollView = [[NSScrollView alloc] initWithFrame:[_documentContainer bounds]];
     [_previewScrollView setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable)];
     [_previewScrollView setHasVerticalScroller:YES];
+    [_previewScrollView setHasHorizontalScroller:YES];
+    [_previewScrollView setAutohidesScrollers:YES];
     [_previewScrollView setDrawsBackground:YES];
     [_previewScrollView setBackgroundColor:[NSColor whiteColor]];
 
     _textView = [[OMDTextView alloc] initWithFrame:[[_previewScrollView contentView] bounds]];
-    [_textView setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable)];
+    [_textView setAutoresizingMask:NSViewHeightSizable];
+    [_textView setMinSize:NSMakeSize(0.0, 0.0)];
+    [_textView setMaxSize:NSMakeSize(FLT_MAX, FLT_MAX)];
+    [_textView setHorizontallyResizable:YES];
+    [_textView setVerticallyResizable:YES];
     [_textView setEditable:NO];
     [_textView setSelectable:YES];
     [_textView setRichText:YES];
     [_textView setDrawsBackground:NO];
     [_textView setTextContainerInset:NSMakeSize(20.0, 16.0)];
-    [[_textView textContainer] setLineFragmentPadding:0.0];
+    NSTextContainer *previewContainer = [_textView textContainer];
+    [previewContainer setLineFragmentPadding:0.0];
+    [previewContainer setWidthTracksTextView:NO];
+    [previewContainer setHeightTracksTextView:NO];
+    CGFloat initialLayoutWidth = NSWidth([[_previewScrollView contentView] bounds]) - 40.0;
+    if (initialLayoutWidth < 1.0) {
+        initialLayoutWidth = 1.0;
+    }
+    [previewContainer setContainerSize:NSMakeSize(initialLayoutWidth, FLT_MAX)];
     [_textView setDelegate:self];
 
     [_textView setLinkTextAttributes:@{
@@ -1829,6 +1842,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [self updateRendererParsingOptionsForSourcePath:nil];
     _lastRenderedLayoutWidth = -1.0;
     [_renderer setAsynchronousMathGenerationEnabled:YES];
+    [_renderer setAllowTableHorizontalOverflow:YES];
     [_renderer setZoomScale:_zoomScale];
     [[NSNotificationCenter defaultCenter] addObserver:self
                                              selector:@selector(mathArtifactsDidWarm:)
@@ -2099,7 +2113,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
         [item setToolTip:@"Show or hide the file explorer"];
         [item setTarget:self];
         [item setAction:@selector(toggleExplorerSidebar:)];
-        NSImage *image = OMDToolbarImageNamed(@"toolbar-explorer-toggle.png");
+        NSImage *image = OMDToolbarThemedImageNamed(@"toolbar-explorer-toggle.png");
         if (image == nil) {
             image = [NSImage imageNamed:@"NSMenuOnStateTemplate"];
         }
@@ -2116,7 +2130,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
         [item setToolTip:@"Open a Markdown file"];
         [item setTarget:self];
         [item setAction:@selector(openDocument:)];
-        NSImage *image = OMDToolbarImageNamed(@"toolbar-open.png");
+        NSImage *image = OMDToolbarThemedImageNamed(@"toolbar-open.png");
         if (image == nil) {
             image = OMDToolbarImageNamed(@"open-icon.png");
         }
@@ -2136,7 +2150,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
         [item setToolTip:@"Import RTF, DOCX, or ODT"];
         [item setTarget:self];
         [item setAction:@selector(importDocument:)];
-        NSImage *image = OMDToolbarImageNamed(@"toolbar-import.png");
+        NSImage *image = OMDToolbarThemedImageNamed(@"toolbar-import.png");
         if (image == nil) {
             image = [NSImage imageNamed:@"NSOpen"];
         }
@@ -2153,7 +2167,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
         [item setToolTip:@"Save current markdown changes"];
         [item setTarget:self];
         [item setAction:@selector(saveDocument:)];
-        NSImage *image = OMDToolbarImageNamed(@"toolbar-saveas.png");
+        NSImage *image = OMDToolbarThemedImageNamed(@"toolbar-saveas.png");
         if (image == nil) {
             image = OMDToolbarImageNamed(@"open-icon.png");
         }
@@ -2193,7 +2207,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
         [item setToolTip:@"Print the current document"];
         [item setTarget:self];
         [item setAction:@selector(printDocument:)];
-        NSImage *image = OMDToolbarImageNamed(@"toolbar-print.png");
+        NSImage *image = OMDToolbarThemedImageNamed(@"toolbar-print.png");
         if (image == nil) {
             image = [NSImage imageNamed:@"NSPrint"];
         }
@@ -2213,7 +2227,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
         [item setToolTip:@"Export the current document as PDF (more formats in File > Export)"];
         [item setTarget:self];
         [item setAction:@selector(exportDocumentAsPDF:)];
-        NSImage *image = OMDToolbarImageNamed(@"toolbar-export.png");
+        NSImage *image = OMDToolbarThemedImageNamed(@"toolbar-export.png");
         if (image == nil) {
             image = [NSImage imageNamed:@"NSSave"];
         }
@@ -3487,6 +3501,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [[_textView textStorage] setAttributedString:rendered];
     _isProgrammaticPreviewUpdate = NO;
     NSTimeInterval applyMs = perfLogging ? ((OMDNow() - applyStart) * 1000.0) : 0.0;
+    [self updatePreviewDocumentGeometry];
     NSTimeInterval postStart = perfLogging ? OMDNow() : 0.0;
     [self updateCodeBlockButtons];
     if ([_textView isKindOfClass:[OMDTextView class]]) {
@@ -3704,7 +3719,12 @@ constrainSplitPosition:(CGFloat)proposedPosition
         return 0.0;
     }
 
-    NSRect bounds = [_textView bounds];
+    NSRect bounds = NSZeroRect;
+    if (_previewScrollView != nil) {
+        bounds = [[_previewScrollView contentView] bounds];
+    } else {
+        bounds = [_textView bounds];
+    }
     NSSize inset = [_textView textContainerInset];
     NSTextContainer *container = [_textView textContainer];
     CGFloat padding = container != nil ? [container lineFragmentPadding] : 0.0;
@@ -3713,6 +3733,56 @@ constrainSplitPosition:(CGFloat)proposedPosition
         width = 0.0;
     }
     return width;
+}
+
+- (void)updatePreviewDocumentGeometry
+{
+    if (_textView == nil || _previewScrollView == nil) {
+        return;
+    }
+
+    NSTextContainer *container = [_textView textContainer];
+    NSLayoutManager *layoutManager = [_textView layoutManager];
+    if (container == nil || layoutManager == nil) {
+        return;
+    }
+
+    NSClipView *clipView = [_previewScrollView contentView];
+    NSRect clipBounds = [clipView bounds];
+    NSSize inset = [_textView textContainerInset];
+    CGFloat padding = [container lineFragmentPadding];
+    CGFloat layoutWidth = clipBounds.size.width - (inset.width * 2.0) - (padding * 2.0);
+    if (layoutWidth < 1.0) {
+        layoutWidth = 1.0;
+    }
+
+    [container setContainerSize:NSMakeSize(layoutWidth, FLT_MAX)];
+    [layoutManager ensureLayoutForTextContainer:container];
+    NSRect usedRect = [layoutManager usedRectForTextContainer:container];
+
+    CGFloat contentWidth = ceil(usedRect.size.width + (inset.width * 2.0) + (padding * 2.0) + 2.0);
+    CGFloat targetWidth = clipBounds.size.width;
+    if (contentWidth > targetWidth) {
+        targetWidth = contentWidth;
+    }
+    if (targetWidth < 1.0) {
+        targetWidth = 1.0;
+    }
+
+    CGFloat contentHeight = ceil(usedRect.size.height + (inset.height * 2.0) + 2.0);
+    CGFloat targetHeight = clipBounds.size.height;
+    if (contentHeight > targetHeight) {
+        targetHeight = contentHeight;
+    }
+    if (targetHeight < 1.0) {
+        targetHeight = 1.0;
+    }
+
+    NSRect frame = [_textView frame];
+    if (fabs(frame.size.width - targetWidth) > 0.5 ||
+        fabs(frame.size.height - targetHeight) > 0.5) {
+        [_textView setFrameSize:NSMakeSize(targetWidth, targetHeight)];
+    }
 }
 
 - (void)scheduleInteractiveRenderAfterDelay:(NSTimeInterval)delay
@@ -4862,6 +4932,17 @@ constrainSplitPosition:(CGFloat)proposedPosition
     [[NSUserDefaults standardUserDefaults] setBool:enabled forKey:OMDExplorerIncludeForkArchivedDefaultsKey];
 }
 
+- (BOOL)isExplorerShowHiddenFilesEnabled
+{
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    return [defaults boolForKey:OMDExplorerShowHiddenFilesDefaultsKey];
+}
+
+- (void)setExplorerShowHiddenFilesEnabled:(BOOL)enabled
+{
+    [[NSUserDefaults standardUserDefaults] setBool:enabled forKey:OMDExplorerShowHiddenFilesDefaultsKey];
+}
+
 - (NSString *)explorerGitHubTokenPreference
 {
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
@@ -4992,6 +5073,16 @@ constrainSplitPosition:(CGFloat)proposedPosition
     [_explorerGitHubIncludeForkArchivedButton setAutoresizingMask:(NSViewWidthSizable | NSViewMinYMargin)];
     [_sidebarContainer addSubview:_explorerGitHubIncludeForkArchivedButton];
 
+    _explorerShowHiddenFilesButton = [[NSButton alloc] initWithFrame:NSMakeRect(10, NSHeight(bounds) - 84, width - 20, 20)];
+    [_explorerShowHiddenFilesButton setButtonType:NSSwitchButton];
+    [_explorerShowHiddenFilesButton setTitle:@"Show hidden files"];
+    [_explorerShowHiddenFilesButton setFont:[NSFont systemFontOfSize:11.0]];
+    [_explorerShowHiddenFilesButton setState:([self isExplorerShowHiddenFilesEnabled] ? NSOnState : NSOffState)];
+    [_explorerShowHiddenFilesButton setTarget:self];
+    [_explorerShowHiddenFilesButton setAction:@selector(explorerShowHiddenFilesChanged:)];
+    [_explorerShowHiddenFilesButton setAutoresizingMask:(NSViewWidthSizable | NSViewMinYMargin)];
+    [_sidebarContainer addSubview:_explorerShowHiddenFilesButton];
+
     _explorerNavigateUpButton = [[NSButton alloc] initWithFrame:NSMakeRect(10, NSHeight(bounds) - 144, 52, 22)];
     [_explorerNavigateUpButton setTitle:@"Up"];
     [_explorerNavigateUpButton setBezelStyle:NSRoundedBezelStyle];
@@ -5064,10 +5155,12 @@ constrainSplitPosition:(CGFloat)proposedPosition
     }
 
     [_explorerLocalRootLabel setHidden:githubMode];
+    [_explorerShowHiddenFilesButton setHidden:githubMode];
     [_explorerGitHubUserLabel setHidden:!githubMode];
     [_explorerGitHubUserComboBox setHidden:!githubMode];
     [_explorerGitHubRepoComboBox setHidden:!githubMode];
     [_explorerGitHubIncludeForkArchivedButton setHidden:!githubMode];
+    [_explorerShowHiddenFilesButton setState:([self isExplorerShowHiddenFilesEnabled] ? NSOnState : NSOffState)];
 
     NSRect bounds = [_sidebarContainer bounds];
     CGFloat width = NSWidth(bounds);
@@ -5078,10 +5171,11 @@ constrainSplitPosition:(CGFloat)proposedPosition
     [_explorerGitHubUserComboBox setFrame:NSMakeRect(56, height - 64, width - 66, 22)];
     [_explorerGitHubRepoComboBox setFrame:NSMakeRect(10, height - 90, width - 20, 22)];
     [_explorerGitHubIncludeForkArchivedButton setFrame:NSMakeRect(10, height - 116, width - 20, 20)];
+    [_explorerShowHiddenFilesButton setFrame:NSMakeRect(10, height - 84, width - 20, 20)];
 
-    CGFloat navigateUpY = (githubMode ? height - 144 : height - 92);
-    CGFloat pathY = (githubMode ? height - 140 : height - 88);
-    CGFloat scrollHeight = (githubMode ? (height - 160) : (height - 100));
+    CGFloat navigateUpY = (githubMode ? height - 144 : height - 118);
+    CGFloat pathY = (githubMode ? height - 140 : height - 114);
+    CGFloat scrollHeight = (githubMode ? (height - 160) : (height - 126));
     if (scrollHeight < 80) {
         scrollHeight = 80;
     }
@@ -5181,8 +5275,12 @@ constrainSplitPosition:(CGFloat)proposedPosition
         return [left compare:right options:NSCaseInsensitiveSearch];
     }];
 
+    BOOL showHiddenFiles = [self isExplorerShowHiddenFilesEnabled];
     for (NSString *name in sortedChildren) {
         if ([name isEqualToString:@"."] || [name isEqualToString:@".."]) {
+            continue;
+        }
+        if (!showHiddenFiles && [name hasPrefix:@"."]) {
             continue;
         }
 
@@ -6102,6 +6200,16 @@ constrainSplitPosition:(CGFloat)proposedPosition
     [_explorerGitHubRepoCachePath release];
     _explorerGitHubRepoCachePath = [@"" copy];
     [self loadGitHubRepositoriesForUser:_explorerGitHubUser];
+}
+
+- (void)explorerShowHiddenFilesChanged:(id)sender
+{
+    (void)sender;
+    BOOL enabled = ([_explorerShowHiddenFilesButton state] == NSOnState);
+    [self setExplorerShowHiddenFilesEnabled:enabled];
+    if (_explorerSourceMode == OMDExplorerSourceModeLocal) {
+        [self reloadLocalExplorerEntries];
+    }
 }
 
 - (void)explorerItemClicked:(id)sender
@@ -8378,30 +8486,7 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
 
 - (NSColor *)modeLabelTextColor
 {
-    GSTheme *theme = [GSTheme theme];
-    NSColor *color = nil;
-    if (theme != nil) {
-        color = [theme colorNamed:@"controlTextColor" state:GSThemeNormalState];
-        if (color == nil) {
-            color = [theme colorNamed:@"menuBarTextColor" state:GSThemeNormalState];
-        }
-        if (color == nil) {
-            color = [theme colorNamed:@"menuItemTextColor" state:GSThemeNormalState];
-        }
-        if (color == nil) {
-            color = [theme colorNamed:@"textColor" state:GSThemeNormalState];
-        }
-    }
-    if (color == nil) {
-        color = [NSColor controlTextColor];
-    }
-    if (color == nil) {
-        color = [NSColor textColor];
-    }
-    if (color == nil) {
-        color = [NSColor whiteColor];
-    }
-    return color;
+    return OMDResolvedControlTextColor();
 }
 
 - (void)updateWindowTitle
@@ -8740,178 +8825,23 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
     }
 
     NSString *source = [_sourceTextView string];
-    if (source == nil) {
-        source = @"";
-    }
-
     NSRange selection = [_sourceTextView selectedRange];
-    if (selection.location > [source length]) {
-        selection.location = [source length];
-        selection.length = 0;
-    }
-    if (selection.length > [source length] - selection.location) {
-        selection.length = [source length] - selection.location;
-    }
-
-    NSString *resolvedPrefix = (prefix != nil ? prefix : @"");
-    NSString *resolvedSuffix = (suffix != nil ? suffix : @"");
-    NSUInteger prefixLength = [resolvedPrefix length];
-    NSUInteger suffixLength = [resolvedSuffix length];
-
-    if (selection.length > 0) {
-        NSString *selectedText = [source substringWithRange:selection];
-
-        // For multiline selections, toggle line-by-line for deterministic behavior:
-        // first pass normalizes mixed states, second pass reverts.
-        if (prefixLength > 0 &&
-            suffixLength > 0 &&
-            [selectedText rangeOfString:@"\n"].location != NSNotFound) {
-            NSArray *lines = [selectedText componentsSeparatedByString:@"\n"];
-            BOOL sawToggleEligibleLine = NO;
-            BOOL allLinesWrapped = YES;
-            NSMutableArray *lineMetadata = [NSMutableArray arrayWithCapacity:[lines count]];
-
-            for (NSString *line in lines) {
-                NSString *work = (line != nil ? line : @"");
-                NSUInteger length = [work length];
-                NSUInteger leadingWhitespace = 0;
-                while (leadingWhitespace < length &&
-                       OMDIsInlineWhitespace([work characterAtIndex:leadingWhitespace])) {
-                    leadingWhitespace += 1;
-                }
-
-                NSUInteger trailingWhitespace = 0;
-                while (trailingWhitespace < length - leadingWhitespace &&
-                       OMDIsInlineWhitespace([work characterAtIndex:(length - trailingWhitespace - 1)])) {
-                    trailingWhitespace += 1;
-                }
-
-                NSUInteger coreLength = length - leadingWhitespace - trailingWhitespace;
-                BOOL wrapped = NO;
-                if (coreLength > 0) {
-                    sawToggleEligibleLine = YES;
-                    NSString *core = [work substringWithRange:NSMakeRange(leadingWhitespace, coreLength)];
-                    wrapped = OMDInlineTextHasToggleWrapper(core, resolvedPrefix, resolvedSuffix);
-                    if (!wrapped) {
-                        allLinesWrapped = NO;
-                    }
-                }
-
-                NSDictionary *meta = @{
-                    @"line": work,
-                    @"leading": [NSNumber numberWithUnsignedInteger:leadingWhitespace],
-                    @"trailing": [NSNumber numberWithUnsignedInteger:trailingWhitespace],
-                    @"coreLength": [NSNumber numberWithUnsignedInteger:coreLength],
-                    @"wrapped": [NSNumber numberWithBool:wrapped]
-                };
-                [lineMetadata addObject:meta];
-            }
-
-            if (sawToggleEligibleLine) {
-                NSMutableArray *updatedLines = [NSMutableArray arrayWithCapacity:[lineMetadata count]];
-                NSEnumerator *lineEnum = [lineMetadata objectEnumerator];
-                NSDictionary *meta = nil;
-                while ((meta = [lineEnum nextObject]) != nil) {
-                    NSString *line = [meta objectForKey:@"line"];
-                    NSUInteger leadingWhitespace = [[meta objectForKey:@"leading"] unsignedIntegerValue];
-                    NSUInteger trailingWhitespace = [[meta objectForKey:@"trailing"] unsignedIntegerValue];
-                    NSUInteger coreLength = [[meta objectForKey:@"coreLength"] unsignedIntegerValue];
-                    BOOL wrapped = [[meta objectForKey:@"wrapped"] boolValue];
-
-                    if (coreLength == 0) {
-                        [updatedLines addObject:line];
-                        continue;
-                    }
-
-                    NSUInteger lineLength = [line length];
-                    NSString *leading = [line substringToIndex:leadingWhitespace];
-                    NSString *trailing = [line substringFromIndex:(lineLength - trailingWhitespace)];
-                    NSString *core = [line substringWithRange:NSMakeRange(leadingWhitespace, coreLength)];
-                    NSString *nextCore = core;
-
-                    if (allLinesWrapped) {
-                        if (wrapped && [core length] >= prefixLength + suffixLength) {
-                            NSRange unwrapRange = NSMakeRange(prefixLength, [core length] - prefixLength - suffixLength);
-                            nextCore = [core substringWithRange:unwrapRange];
-                        }
-                    } else if (!wrapped) {
-                        nextCore = [NSString stringWithFormat:@"%@%@%@", resolvedPrefix, core, resolvedSuffix];
-                    }
-
-                    NSString *updatedLine = [NSString stringWithFormat:@"%@%@%@", leading, nextCore, trailing];
-                    [updatedLines addObject:updatedLine];
-                }
-
-                NSString *replacement = [updatedLines componentsJoinedByString:@"\n"];
-                NSRange nextSelection = NSMakeRange(selection.location, [replacement length]);
-                [self replaceSourceTextInRange:selection withString:replacement selectedRange:nextSelection];
-                return;
-            }
-        }
-
-        // Toggle-off path 1: selection itself includes both wrappers.
-        if (OMDInlineTextHasToggleWrapper(selectedText, resolvedPrefix, resolvedSuffix)) {
-            NSRange unwrapRange = NSMakeRange(prefixLength, [selectedText length] - prefixLength - suffixLength);
-            NSString *unwrapped = [selectedText substringWithRange:unwrapRange];
-            NSRange nextSelection = NSMakeRange(selection.location, [unwrapped length]);
-            [self replaceSourceTextInRange:selection withString:unwrapped selectedRange:nextSelection];
-            return;
-        }
-
-        // Toggle-off path 2: selection is inside wrappers.
-        BOOL hasWrappedBefore = selection.location >= prefixLength;
-        BOOL hasWrappedAfter = (selection.location + selection.length + suffixLength) <= [source length];
-        if (prefixLength > 0 &&
-            suffixLength > 0 &&
-            hasWrappedBefore &&
-            hasWrappedAfter) {
-            NSRange beforeRange = NSMakeRange(selection.location - prefixLength, prefixLength);
-            NSRange afterRange = NSMakeRange(selection.location + selection.length, suffixLength);
-            NSString *beforeText = [source substringWithRange:beforeRange];
-            NSString *afterText = [source substringWithRange:afterRange];
-            BOOL matchesSurroundingWrapper = [beforeText isEqualToString:resolvedPrefix] &&
-                                             [afterText isEqualToString:resolvedSuffix];
-            if (matchesSurroundingWrapper) {
-                unichar token = 0;
-                if (OMDInlineSingleCharacterWrapperToken(resolvedPrefix, resolvedSuffix, &token)) {
-                    NSUInteger leftRun = 0;
-                    while (selection.location > leftRun &&
-                           [source characterAtIndex:(selection.location - leftRun - 1)] == token) {
-                        leftRun += 1;
-                    }
-                    NSUInteger rightRun = 0;
-                    NSUInteger rightStart = selection.location + selection.length;
-                    while (rightStart + rightRun < [source length] &&
-                           [source characterAtIndex:(rightStart + rightRun)] == token) {
-                        rightRun += 1;
-                    }
-                    matchesSurroundingWrapper = ((leftRun % 2) == 1) && ((rightRun % 2) == 1);
-                }
-            }
-            if (matchesSurroundingWrapper) {
-                NSRange wrappedRange = NSMakeRange(selection.location - prefixLength,
-                                                   selection.length + prefixLength + suffixLength);
-                NSString *unwrapped = selectedText;
-                NSRange nextSelection = NSMakeRange(wrappedRange.location, [unwrapped length]);
-                [self replaceSourceTextInRange:wrappedRange withString:unwrapped selectedRange:nextSelection];
-                return;
-            }
-        }
+    NSRange replaceRange = NSMakeRange(0, 0);
+    NSRange nextSelection = NSMakeRange(0, 0);
+    NSString *replacement = nil;
+    BOOL hasEdit = OMDComputeInlineToggleEdit(source,
+                                              selection,
+                                              prefix,
+                                              suffix,
+                                              placeholder,
+                                              &replaceRange,
+                                              &replacement,
+                                              &nextSelection);
+    if (!hasEdit || replacement == nil) {
+        return;
     }
 
-    NSString *selectedText = @"";
-    if (selection.length > 0) {
-        selectedText = [source substringWithRange:selection];
-    } else if (placeholder != nil) {
-        selectedText = placeholder;
-    }
-
-    NSString *replacement = [NSString stringWithFormat:@"%@%@%@",
-                                                       resolvedPrefix,
-                                                       selectedText,
-                                                       resolvedSuffix];
-    NSRange nextSelection = NSMakeRange(selection.location + prefixLength, [selectedText length]);
-    [self replaceSourceTextInRange:selection withString:replacement selectedRange:nextSelection];
+    [self replaceSourceTextInRange:replaceRange withString:replacement selectedRange:nextSelection];
 }
 
 - (void)applyLinkTemplateCommand

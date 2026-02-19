@@ -1,5 +1,5 @@
 // ObjcMarkdownViewer
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 #import "OMDSourceTextView.h"
 
@@ -407,13 +407,13 @@ static NSUInteger OMDPositionAfterRemovingRange(NSUInteger position, NSRange rem
         }
     }
 
-    if ([self omdHandleVimKeyEvent:event]) {
+    if ([self omdHandleStandardEditingShortcutEvent:event]) {
         _omdHasPendingKeyContext = NO;
         [self omdEnsureEditorCursorShape];
         return;
     }
 
-    if ([self omdHandleStandardEditingShortcutEvent:event]) {
+    if ([self omdHandleVimKeyEvent:event]) {
         _omdHasPendingKeyContext = NO;
         [self omdEnsureEditorCursorShape];
         return;
@@ -567,24 +567,22 @@ static NSUInteger OMDPositionAfterRemovingRange(NSUInteger position, NSRange rem
     BOOL hasControl = (normalized & NSControlKeyMask) != 0;
     BOOL hasCommand = (normalized & NSCommandKeyMask) != 0;
     BOOL hasShift = (normalized & NSShiftKeyMask) != 0;
-    BOOL hasAlternate = (normalized & NSAlternateKeyMask) != 0;
-
-    if (hasAlternate) {
-        return NO;
-    }
     if (!hasControl && !hasCommand) {
-        return NO;
-    }
-    if (hasControl && hasCommand) {
         return NO;
     }
 
     NSString *chars = [event charactersIgnoringModifiers];
-    if ([chars length] != 1) {
+    if (chars == nil || [chars length] == 0) {
+        chars = [event characters];
+    }
+    if (chars == nil || [chars length] == 0) {
         return NO;
     }
 
     unichar key = [chars characterAtIndex:0];
+    if (hasControl && key >= 1 && key <= 26) {
+        key = (unichar)('a' + (key - 1));
+    }
     if (key >= 'A' && key <= 'Z') {
         key = (unichar)(key - 'A' + 'a');
     }

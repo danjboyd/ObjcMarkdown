@@ -1,5 +1,5 @@
 // ObjcMarkdownTests
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 #import <XCTest/XCTest.h>
 #import <AppKit/AppKit.h>
@@ -221,7 +221,87 @@
     [view release];
 }
 
-- (void)testKeyDownVimHandlerConsumesEventBeforeEditorShortcuts
+- (void)testControlBTriggersBoldFormattingAction
+{
+    OMDSourceTextViewShortcutSpy *view = [self newShortcutSpyView];
+    NSEvent *event = [self shortcutEventWithCharactersIgnoringModifiers:@"b"
+                                                              modifiers:NSControlKeyMask];
+
+    BOOL handled = [view omdHandleStandardEditingShortcutEvent:event];
+
+    XCTAssertTrue(handled);
+    XCTAssertTrue([view lastEditorAction] == @selector(toggleBoldFormatting:));
+    [view release];
+}
+
+- (void)testControlITriggersItalicFormattingAction
+{
+    OMDSourceTextViewShortcutSpy *view = [self newShortcutSpyView];
+    NSEvent *event = [self shortcutEventWithCharactersIgnoringModifiers:@"i"
+                                                              modifiers:NSControlKeyMask];
+
+    BOOL handled = [view omdHandleStandardEditingShortcutEvent:event];
+
+    XCTAssertTrue(handled);
+    XCTAssertTrue([view lastEditorAction] == @selector(toggleItalicFormatting:));
+    [view release];
+}
+
+- (void)testControlCharacterBTriggersBoldFormattingAction
+{
+    OMDSourceTextViewShortcutSpy *view = [self newShortcutSpyView];
+    NSString *controlB = [NSString stringWithFormat:@"%C", (unichar)0x02];
+    NSEvent *event = [self shortcutEventWithCharactersIgnoringModifiers:controlB
+                                                              modifiers:NSControlKeyMask];
+
+    BOOL handled = [view omdHandleStandardEditingShortcutEvent:event];
+
+    XCTAssertTrue(handled);
+    XCTAssertTrue([view lastEditorAction] == @selector(toggleBoldFormatting:));
+    [view release];
+}
+
+- (void)testControlCharacterITriggersItalicFormattingAction
+{
+    OMDSourceTextViewShortcutSpy *view = [self newShortcutSpyView];
+    NSString *controlI = [NSString stringWithFormat:@"%C", (unichar)0x09];
+    NSEvent *event = [self shortcutEventWithCharactersIgnoringModifiers:controlI
+                                                              modifiers:NSControlKeyMask];
+
+    BOOL handled = [view omdHandleStandardEditingShortcutEvent:event];
+
+    XCTAssertTrue(handled);
+    XCTAssertTrue([view lastEditorAction] == @selector(toggleItalicFormatting:));
+    [view release];
+}
+
+- (void)testCommandBTriggersBoldFormattingAction
+{
+    OMDSourceTextViewShortcutSpy *view = [self newShortcutSpyView];
+    NSEvent *event = [self shortcutEventWithCharactersIgnoringModifiers:@"b"
+                                                              modifiers:NSCommandKeyMask];
+
+    BOOL handled = [view omdHandleStandardEditingShortcutEvent:event];
+
+    XCTAssertTrue(handled);
+    XCTAssertTrue([view lastEditorAction] == @selector(toggleBoldFormatting:));
+    [view release];
+}
+
+- (void)testControlAlternateBStillTriggersBoldFormattingAction
+{
+    OMDSourceTextViewShortcutSpy *view = [self newShortcutSpyView];
+    NSEvent *event = [self shortcutEventWithCharactersIgnoringModifiers:@"b"
+                                                              modifiers:(NSControlKeyMask | NSAlternateKeyMask)];
+
+    BOOL handled = [view omdHandleStandardEditingShortcutEvent:event];
+
+    XCTAssertTrue(handled);
+    XCTAssertTrue([view lastEditorAction] == @selector(toggleBoldFormatting:));
+    [view release];
+}
+
+- (void)testKeyDownEditorShortcutPreemptsVimHandler
 {
     OMDSourceTextViewShortcutSpy *view = [self newShortcutSpyView];
     [view setVimHandled:YES];
@@ -230,22 +310,22 @@
 
     [view keyDown:event];
 
-    XCTAssertTrue([view vimWasCalled]);
-    XCTAssertTrue([view lastEditorAction] == NULL);
+    XCTAssertFalse([view vimWasCalled]);
+    XCTAssertTrue([view lastEditorAction] == @selector(increaseSourceEditorFontSize:));
     [view release];
 }
 
-- (void)testKeyDownFallsBackToEditorShortcutWhenVimDoesNotHandle
+- (void)testKeyDownRoutesNonShortcutInputToVimWhenHandled
 {
     OMDSourceTextViewShortcutSpy *view = [self newShortcutSpyView];
-    [view setVimHandled:NO];
-    NSEvent *event = [self shortcutEventWithCharactersIgnoringModifiers:@"="
-                                                              modifiers:NSControlKeyMask];
+    [view setVimHandled:YES];
+    NSEvent *event = [self shortcutEventWithCharactersIgnoringModifiers:@"j"
+                                                              modifiers:0];
 
     [view keyDown:event];
 
     XCTAssertTrue([view vimWasCalled]);
-    XCTAssertTrue([view lastEditorAction] == @selector(increaseSourceEditorFontSize:));
+    XCTAssertTrue([view lastEditorAction] == NULL);
     [view release];
 }
 
