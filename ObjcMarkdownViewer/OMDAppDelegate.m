@@ -17,6 +17,7 @@
 #import "OMDInlineToggle.h"
 #import "GSVVimBindingController.h"
 #import "GSVVimConfigLoader.h"
+#import "GSOpenSave.h"
 #import <AppKit/NSInterfaceStyle.h>
 #import <GNUstepGUI/GSTheme.h>
 
@@ -379,6 +380,18 @@ static NSColor *OMDColorFromDefaultsString(NSString *value)
     return [NSColor colorWithCalibratedRed:red green:green blue:blue alpha:alpha];
 }
 
+static BOOL OMDThemeLikelyLight(void)
+{
+    NSString *themeName = [[NSUserDefaults standardUserDefaults] stringForKey:@"GSTheme"];
+    if (themeName == nil || [themeName length] == 0) {
+        return NO;
+    }
+    NSString *lower = [themeName lowercaseString];
+    return ([lower rangeOfString:@"winux"].location != NSNotFound ||
+            [lower rangeOfString:@"windows"].location != NSNotFound ||
+            [lower rangeOfString:@"aqua"].location != NSNotFound);
+}
+
 static NSColor *OMDResolvedControlTextColor(void)
 {
     GSTheme *theme = [GSTheme theme];
@@ -402,7 +415,7 @@ static NSColor *OMDResolvedControlTextColor(void)
         color = [NSColor textColor];
     }
     if (color == nil) {
-        color = [NSColor whiteColor];
+        color = OMDThemeLikelyLight() ? [NSColor blackColor] : [NSColor whiteColor];
     }
     return color;
 }
@@ -1361,6 +1374,13 @@ static NSMutableArray *OMDSecondaryWindows(void)
 
 - (void)applicationDidFinishLaunching:(NSNotification *)notification
 {
+#if defined(_WIN32)
+    // Ensure OpenSave is initialized and prefers native Win32 dialogs.
+    GSOpenSaveSetMode(GSOpenSaveModeWin32);
+#else
+    GSOpenSaveSetMode(GSOpenSaveModeAuto);
+#endif
+
     [self setupWindow];
     BOOL openedFromArgs = [self openDocumentFromArguments];
     if (!_openedFileOnLaunch && !openedFromArgs) {

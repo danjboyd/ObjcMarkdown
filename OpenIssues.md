@@ -45,3 +45,21 @@
   - Add dedicated renderer tests for allowed/blocked HTML rendering paths.
 - **Notes**:
   - Explicitly scheduled for Phase 2 work in `Roadmap.md`.
+
+## 7) Automated Windows MSI packaging pipeline (GNUstep runtime included)
+
+- **Status**: Open
+- **Opened On**: 2026-02-19
+- **Area**: Release engineering / Windows packaging / CI-CD
+- **Description**: Build automated GitHub pipelines that produce a usable Windows MSI for the MSYS2/clang GNUstep build, including all required runtime components.
+- **Current State**:
+  - Windows builds run locally in MSYS2 `clang64`.
+  - No automated CI artifact currently produces an installable MSI.
+  - Runtime dependencies are not yet bundled as an installer payload.
+- **Requirements**:
+  - Generate MSI artifacts from GitHub Actions on tagged releases (and optionally on `main` as pre-release builds).
+  - Bundle app binaries plus required runtime libraries (including GNUstep base/gui/back and dependent DLLs such as cmark, dispatch, OpenSave, TextViewVimKit, and Objective-C runtime dependencies).
+  - Install/start menu shortcuts and uninstall entry should be included.
+  - Validate clean-install launch on a fresh Windows environment (no preinstalled GNUstep/MSYS2).
+- **Notes**:
+  - Prefer reproducible packaging with explicit dependency manifests and versioned artifacts.
