@@ -29,14 +29,16 @@ This checklist tracks visual/behavioral parity for GitHub-flavored Markdown pipe
 - Implemented/in progress:
 - Parser-driven table handling path is in place.
 - Test fixture and renderer test updates exist.
+- Table block indexing/alignment path was tightened in renderer.
+- Grid table typography now uses body-font defaults (instead of forced monospace) for GitHub-like readability.
+- Narrow-pane fallback heuristics now use visible-cell text width estimation (not raw markdown syntax length), which reduces false fallback/distortion for link-heavy cells.
 
 - Not yet matched:
-- Preview still diverges significantly from GitHub table appearance.
-- Narrow preview widths can produce distorted output.
+- Full visual confirmation against GitHub screenshots is still pending.
 
 ## Next Iteration Plan
 
-1. Finalize deterministic table layout path for GNUstep that renders stable header/body/cell boundaries.
-2. Tune colors/padding to approach GitHub visual baseline.
-3. Keep/readjust narrow-width fallback so output remains readable.
-4. Re-run fixture screenshots and update this checklist to pass/fail each target.
+1. Capture before/after screenshots for `TableRenderDemo.md` in local preview and GitHub.
+2. Tune colors/padding/line-height only where screenshot diffs still show visible parity gaps.
+3. Re-check narrow-width behavior with screenshot evidence and adjust fallback threshold only if needed.
+4. Mark each parity target as pass/fail with date-stamped notes.

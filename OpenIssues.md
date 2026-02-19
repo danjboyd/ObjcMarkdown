@@ -99,21 +99,21 @@
 - **Description**: GitHub-flavored Markdown pipe tables do not currently render with GitHub-like structure/styling in preview, and table output degrades badly in narrow preview panes.
 - **Current State**:
   - Recent renderer changes introduced table parsing and alternate layout paths.
-  - In-app preview still diverges from GitHub:
-    - table headers/cells are not visually structured like GitHub tables,
-    - narrow preview widths produce severe distortion/unreadable layout.
+  - In-app renderer now includes:
+    - corrected table block row/column indexing for deterministic cell placement,
+    - body-font table typography (no forced monospace table text),
+    - improved narrow-width fallback heuristics based on visible cell text width (not raw markdown syntax length).
+  - Remaining gap:
+    - visual parity still needs side-by-side screenshot confirmation/tuning versus GitHub output.
   - A reproducible fixture exists in `TableRenderDemo.md`.
 - **Repro**:
   1. Launch app with `gmake run TableRenderDemo.md`.
   2. Open in `Split` mode and compare preview against GitHub rendering.
   3. Shrink preview pane width and observe table distortion.
 - **Next Work**:
-  - Replace/adjust current table drawing path to produce deterministic grid/header/body rendering on GNUstep.
-  - Preserve readable fallback behavior for narrow panes.
-  - Add renderer tests for:
-    - structured table output,
-    - inline markdown inside cells,
-    - narrow-pane fallback behavior.
-  - Capture before/after screenshots to close parity gap.
+  - Capture local-vs-GitHub screenshots for `TableRenderDemo.md` and evaluate each parity target in `GitHubTableParityChecklist.md`.
+  - Tune header/body border + padding + line-height based on screenshot diffs.
+  - Verify/readjust narrow-pane fallback threshold after visual comparison.
+  - Keep renderer tests aligned with the finalized behavior.
 - **Tracking**:
   - Use `GitHubTableParityChecklist.md` as the visual parity checklist for closure.

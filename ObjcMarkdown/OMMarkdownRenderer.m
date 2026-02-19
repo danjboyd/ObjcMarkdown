@@ -1651,15 +1651,36 @@ static BOOL OMPipeTableDataForParagraphNode(cmark_node *node,
     return OMPipeTableParseFromLines(candidateLines, rowsOut, alignmentsOut);
 }
 
-static CGFloat OMPipeTableMonospaceCharacterWidth(NSFont *font)
+static CGFloat OMPipeTableHorizontalPadding(CGFloat scale)
+{
+    CGFloat padding = 10.0 * scale;
+    if (padding < 6.0) {
+        padding = 6.0;
+    }
+    return padding;
+}
+
+static CGFloat OMPipeTableVerticalPadding(CGFloat scale)
+{
+    CGFloat padding = 5.0 * scale;
+    if (padding < 3.0) {
+        padding = 3.0;
+    }
+    return padding;
+}
+
+static CGFloat OMPipeTableAverageCharacterWidth(NSFont *font)
 {
     if (font == nil) {
         return 7.0;
     }
-    NSSize advance = [font maximumAdvancement];
-    CGFloat width = advance.width;
+
+    NSDictionary *attrs = [NSDictionary dictionaryWithObject:font forKey:NSFontAttributeName];
+    NSString *sample = @"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    NSSize sampleSize = [sample sizeWithAttributes:attrs];
+    CGFloat width = [sample length] > 0 ? (sampleSize.width / (CGFloat)[sample length]) : 0.0;
     if (width <= 0.0) {
-        width = [font pointSize] * 0.62;
+        width = [font pointSize] * 0.52;
     }
     if (width <= 0.0) {
         width = 7.0;
@@ -1668,30 +1689,46 @@ static CGFloat OMPipeTableMonospaceCharacterWidth(NSFont *font)
 }
 
 static CGFloat OMPipeTableEstimatedGridWidth(NSArray *columnWidths,
-                                             NSFont *monospace,
+                                             NSFont *tableFont,
+                                             CGFloat cellHorizontalPadding,
                                              CGFloat scale)
 {
     if (columnWidths == nil || [columnWidths count] == 0) {
         return 0.0;
     }
-    CGFloat charWidth = OMPipeTableMonospaceCharacterWidth(monospace);
-    CGFloat horizontalPadding = 24.0 * scale;
+    CGFloat charWidth = OMPipeTableAverageCharacterWidth(tableFont);
     CGFloat total = 0.0;
     for (NSNumber *value in columnWidths) {
         NSUInteger width = [value unsignedIntegerValue];
         if (width < 3) {
             width = 3;
         }
-        total += ((CGFloat)width * charWidth) + horizontalPadding;
+        total += ((CGFloat)width * charWidth) + (cellHorizontalPadding * 2.0);
     }
     total += 2.0 * scale;
     return total;
 }
 
+static CGFloat OMPipeTableMinimumReadableGridWidth(NSUInteger columnCount,
+                                                   CGFloat cellHorizontalPadding,
+                                                   CGFloat scale)
+{
+    if (columnCount == 0) {
+        return 0.0;
+    }
+
+    CGFloat minColumnTextWidth = 72.0 * scale;
+    if (columnCount >= 4) {
+        minColumnTextWidth = 64.0 * scale;
+    }
+    return ((CGFloat)columnCount * (minColumnTextWidth + (cellHorizontalPadding * 2.0))) + (2.0 * scale);
+}
+
 static BOOL OMPipeTableNeedsStackedFallback(NSArray *columnWidths,
                                             CGFloat layoutWidth,
                                             CGFloat indent,
-                                            NSFont *monospace,
+                                            NSFont *tableFont,
+                                            CGFloat cellHorizontalPadding,
                                             CGFloat scale)
 {
     if (columnWidths == nil || [columnWidths count] == 0) {
@@ -1701,19 +1738,25 @@ static BOOL OMPipeTableNeedsStackedFallback(NSArray *columnWidths,
         return NO;
     }
 
-    CGFloat availableWidth = layoutWidth - indent - (24.0 * scale);
+    CGFloat availableWidth = layoutWidth - indent - (16.0 * scale);
     if (availableWidth <= 0.0) {
         return YES;
     }
-    if (availableWidth < (280.0 * scale)) {
+    CGFloat minimumReadableWidth = OMPipeTableMinimumReadableGridWidth([columnWidths count],
+                                                                        cellHorizontalPadding,
+                                                                        scale);
+    if (availableWidth < minimumReadableWidth) {
         return YES;
     }
 
-    CGFloat estimatedWidth = OMPipeTableEstimatedGridWidth(columnWidths, monospace, scale);
+    CGFloat estimatedWidth = OMPipeTableEstimatedGridWidth(columnWidths,
+                                                           tableFont,
+                                                           cellHorizontalPadding,
+                                                           scale);
     if (estimatedWidth <= 0.0) {
         return NO;
     }
-    return estimatedWidth > availableWidth;
+    return estimatedWidth > (availableWidth * 1.03);
 }
 
 static NSString *OMPipeTableColumnLabel(NSArray *headers, NSUInteger columnIndex)
@@ -1755,6 +1798,63 @@ static NSString *OMPipeTableStackedText(NSArray *rows)
         [lines addObject:[headers componentsJoinedByString:@" | "]];
     }
     return [lines componentsJoinedByString:@"\n"];
+}
+
+static NSString *OMPipeTableVisibleCellText(NSString *cellMarkdown)
+{
+    NSString *normalized = (cellMarkdown != nil ? cellMarkdown : @"");
+    if ([normalized length] == 0) {
+        return @"";
+    }
+
+    NSData *data = [normalized dataUsingEncoding:NSUTF8StringEncoding];
+    if (data == nil) {
+        return OMTrimmedCellText(normalized);
+    }
+
+    const char *bytes = (const char *)[data bytes];
+    NSUInteger length = [data length];
+    cmark_node *document = cmark_parse_document(bytes, length, (int)CMARK_OPT_DEFAULT);
+    if (document == NULL) {
+        return OMTrimmedCellText(normalized);
+    }
+
+    NSMutableArray *parts = [NSMutableArray array];
+    cmark_node *child = cmark_node_first_child(document);
+    while (child != NULL) {
+        cmark_node_type type = cmark_node_get_type(child);
+        if (type == CMARK_NODE_PARAGRAPH) {
+            NSString *plain = OMInlinePlainText(child);
+            if (plain != nil && [plain length] > 0) {
+                [parts addObject:plain];
+            }
+        }
+        child = cmark_node_next(child);
+    }
+    cmark_node_free(document);
+
+    if ([parts count] == 0) {
+        return OMTrimmedCellText(normalized);
+    }
+    return [[parts componentsJoinedByString:@" "] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+}
+
+static NSArray *OMPipeTableVisibleRows(NSArray *rows)
+{
+    if (rows == nil || [rows count] == 0) {
+        return [NSArray array];
+    }
+
+    NSMutableArray *visibleRows = [NSMutableArray arrayWithCapacity:[rows count]];
+    for (NSArray *row in rows) {
+        NSMutableArray *visibleCells = [NSMutableArray arrayWithCapacity:[row count]];
+        for (NSString *cell in row) {
+            NSString *plain = OMPipeTableVisibleCellText(cell);
+            [visibleCells addObject:(plain != nil ? plain : @"")];
+        }
+        [visibleRows addObject:visibleCells];
+    }
+    return visibleRows;
 }
 
 static NSTextAlignment OMPipeTableTextAlignment(OMPipeTableAlignment alignment)
@@ -1890,14 +1990,8 @@ static void OMConfigurePipeTableCellBlock(NSTextTableBlock *block,
     if (borderWidth < 1.0) {
         borderWidth = 1.0;
     }
-    CGFloat horizontalPadding = 12.0 * scale;
-    if (horizontalPadding < 6.0) {
-        horizontalPadding = 6.0;
-    }
-    CGFloat verticalPadding = 6.0 * scale;
-    if (verticalPadding < 3.0) {
-        verticalPadding = 3.0;
-    }
+    CGFloat horizontalPadding = OMPipeTableHorizontalPadding(scale);
+    CGFloat verticalPadding = OMPipeTableVerticalPadding(scale);
 
     [block setContentWidth:columnPercentWidth type:NSTextBlockPercentageValueType];
     [block setBackgroundColor:backgroundColor];
@@ -1929,12 +2023,13 @@ static void OMRenderPipeTable(NSArray *rows,
 
     NSUInteger columnCount = [alignments count];
     NSMutableArray *columnWidths = [NSMutableArray arrayWithCapacity:columnCount];
+    NSArray *visibleRows = OMPipeTableVisibleRows(rows);
     NSUInteger colIndex = 0;
     for (; colIndex < columnCount; colIndex++) {
         [columnWidths addObject:[NSNumber numberWithUnsignedInteger:0]];
     }
 
-    for (NSArray *row in rows) {
+    for (NSArray *row in visibleRows) {
         NSUInteger column = 0;
         for (; column < columnCount; column++) {
             NSString *cell = (column < [row count] ? [row objectAtIndex:column] : @"");
@@ -1949,29 +2044,36 @@ static void OMRenderPipeTable(NSArray *rows,
     NSMutableDictionary *tableAttrs = [attributes mutableCopy];
     NSFont *font = [attributes objectForKey:NSFontAttributeName];
     CGFloat fontSize = font != nil ? [font pointSize] : (theme.baseFont != nil ? [theme.baseFont pointSize] * scale : 14.0 * scale);
-    CGFloat tableFontSize = fontSize * 0.92;
-    if (tableFontSize < 11.0 * scale) {
-        tableFontSize = 11.0 * scale;
+    CGFloat tableFontSize = fontSize;
+    if (tableFontSize < 12.0 * scale) {
+        tableFontSize = 12.0 * scale;
     }
-    NSFont *monospace = [NSFont userFixedPitchFontOfSize:tableFontSize];
-    if (monospace == nil) {
-        monospace = [NSFont fontWithName:@"Courier" size:tableFontSize];
+    NSFont *tableFont = font;
+    if (tableFont == nil && theme.baseFont != nil) {
+        tableFont = [NSFont fontWithName:[theme.baseFont fontName]
+                                    size:[theme.baseFont pointSize] * scale];
     }
-    if (monospace != nil) {
-        [tableAttrs setObject:monospace forKey:NSFontAttributeName];
+    if (tableFont == nil) {
+        tableFont = [NSFont systemFontOfSize:tableFontSize];
+    }
+    if (tableFont != nil) {
+        tableFontSize = [tableFont pointSize];
+        [tableAttrs setObject:tableFont forKey:NSFontAttributeName];
     }
 
     CGFloat indent = (CGFloat)(quoteLevel * 20.0 * scale);
-    NSParagraphStyle *style = OMParagraphStyleWithIndent(indent, indent, 12.0 * scale, 0.0, 1.50, tableFontSize);
+    NSParagraphStyle *style = OMParagraphStyleWithIndent(indent, indent, 10.0 * scale, 0.0, 1.52, tableFontSize);
     [tableAttrs setObject:style forKey:NSParagraphStyleAttributeName];
 
+    CGFloat cellHorizontalPadding = OMPipeTableHorizontalPadding(scale);
     BOOL useStackedFallback = OMPipeTableNeedsStackedFallback(columnWidths,
                                                               layoutWidth,
                                                               indent,
-                                                              monospace,
+                                                              tableFont,
+                                                              cellHorizontalPadding,
                                                               scale);
     if (useStackedFallback) {
-        NSString *tableText = OMPipeTableStackedText(rows);
+        NSString *tableText = OMPipeTableStackedText(visibleRows);
         if (font != nil) {
             [tableAttrs setObject:font forKey:NSFontAttributeName];
         }
@@ -2007,7 +2109,7 @@ static void OMRenderPipeTable(NSArray *rows,
     [textTable setNumberOfColumns:columnCount];
     [textTable setCollapsesBorders:YES];
     [textTable setHidesEmptyCells:NO];
-    [textTable setLayoutAlgorithm:NSTextTableFixedLayoutAlgorithm];
+    [textTable setLayoutAlgorithm:NSTextTableAutomaticLayoutAlgorithm];
     [textTable setBorderColor:borderColor];
     [textTable setWidth:1.0 type:NSTextBlockAbsoluteValueType forLayer:NSTextBlockBorder];
 
@@ -2028,9 +2130,9 @@ static void OMRenderPipeTable(NSArray *rows,
             CGFloat percentWidth = ((CGFloat)widthUnits * 100.0) / (CGFloat)totalWidthUnits;
 
             NSTextTableBlock *block = [[[NSTextTableBlock alloc] initWithTable:textTable
-                                                                    startingRow:(int)rowIndex + 1
+                                                                    startingRow:(int)rowIndex
                                                                         rowSpan:1
-                                                                 startingColumn:(int)colIndex + 1
+                                                                 startingColumn:(int)colIndex
                                                                      columnSpan:1] autorelease];
             OMConfigurePipeTableCellBlock(block,
                                           percentWidth,
@@ -2040,16 +2142,16 @@ static void OMRenderPipeTable(NSArray *rows,
                                           cellBackgroundColor,
                                           scale);
 
-            NSMutableParagraphStyle *cellStyle = OMParagraphStyleWithIndent(0.0, 0.0, 0.0, 0.0, 1.38, tableFontSize);
+            NSMutableParagraphStyle *cellStyle = OMParagraphStyleWithIndent(0.0, 0.0, 0.0, 0.0, 1.48, tableFontSize);
             [cellStyle setTextBlocks:[NSArray arrayWithObject:block]];
             [cellStyle setAlignment:OMPipeTableTextAlignment((OMPipeTableAlignment)[[alignments objectAtIndex:colIndex] unsignedIntegerValue])];
 
             NSMutableDictionary *cellAttrs = [tableAttrs mutableCopy];
             [cellAttrs setObject:cellStyle forKey:NSParagraphStyleAttributeName];
             if (headerRow) {
-                NSFont *headerFont = monospace != nil ? OMFontWithTraits(monospace, NSBoldFontMask) : nil;
-                if (headerFont == nil && monospace != nil) {
-                    headerFont = [NSFont boldSystemFontOfSize:[monospace pointSize]];
+                NSFont *headerFont = tableFont != nil ? OMFontWithTraits(tableFont, NSBoldFontMask) : nil;
+                if (headerFont == nil && tableFont != nil) {
+                    headerFont = [NSFont boldSystemFontOfSize:[tableFont pointSize]];
                 }
                 if (headerFont != nil) {
                     [cellAttrs setObject:headerFont forKey:NSFontAttributeName];

@@ -83,6 +83,35 @@
     return nil;
 }
 
+- (NSTextTableBlock *)tableBlockInRenderedString:(NSAttributedString *)rendered
+                                  forVisibleText:(NSString *)visibleText
+{
+    if (rendered == nil || visibleText == nil || [visibleText length] == 0) {
+        return nil;
+    }
+
+    NSString *text = [rendered string];
+    NSRange range = [text rangeOfString:visibleText];
+    if (range.location == NSNotFound) {
+        return nil;
+    }
+
+    NSDictionary *attrs = [rendered attributesAtIndex:range.location effectiveRange:NULL];
+    NSParagraphStyle *style = [attrs objectForKey:NSParagraphStyleAttributeName];
+    if (style == nil || ![style respondsToSelector:@selector(textBlocks)]) {
+        return nil;
+    }
+    NSArray *blocks = [(id)style textBlocks];
+    if ([blocks count] == 0) {
+        return nil;
+    }
+    id block = [blocks objectAtIndex:0];
+    if ([block isKindOfClass:[NSTextTableBlock class]]) {
+        return (NSTextTableBlock *)block;
+    }
+    return nil;
+}
+
 - (void)testBasicMarkdownRenders
 {
     OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
@@ -123,6 +152,57 @@
     XCTAssertTrue([text rangeOfString:@"23"].location != NSNotFound);
 }
 
+- (void)testPipeTableUsesTextTableBlocksForHeaderAndBodyCells
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    [renderer setLayoutWidth:1200.0];
+    NSString *markdown = @"| Name | Value |\n| ---- | ----: |\n| alpha | 1 |\n| beta | 23 |";
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
+    XCTAssertNotNil(rendered);
+
+    NSTextTableBlock *headerBlock = [self tableBlockInRenderedString:rendered forVisibleText:@"Name"];
+    XCTAssertNotNil(headerBlock);
+    if (headerBlock != nil) {
+        XCTAssertEqual([headerBlock startingRow], (int)0);
+        XCTAssertEqual([headerBlock startingColumn], (int)0);
+    }
+
+    NSTextTableBlock *bodyBlock = [self tableBlockInRenderedString:rendered forVisibleText:@"beta"];
+    XCTAssertNotNil(bodyBlock);
+    if (bodyBlock != nil) {
+        XCTAssertTrue([bodyBlock startingRow] > [headerBlock startingRow]);
+        XCTAssertEqual([bodyBlock startingColumn], (int)0);
+    }
+}
+
+- (void)testPipeTableKeepsBaseBodyFontFamily
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    [renderer setLayoutWidth:1200.0];
+    NSString *markdown = @"Paragraph.\n\n| Name | Value |\n| ---- | ----: |\n| alpha | 1 |";
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
+    XCTAssertNotNil(rendered);
+
+    NSString *text = [rendered string];
+    NSRange paragraphRange = [text rangeOfString:@"Paragraph"];
+    NSRange cellRange = [text rangeOfString:@"alpha"];
+    XCTAssertTrue(paragraphRange.location != NSNotFound);
+    XCTAssertTrue(cellRange.location != NSNotFound);
+    if (paragraphRange.location == NSNotFound || cellRange.location == NSNotFound) {
+        return;
+    }
+
+    NSDictionary *paragraphAttrs = [rendered attributesAtIndex:paragraphRange.location effectiveRange:NULL];
+    NSDictionary *cellAttrs = [rendered attributesAtIndex:cellRange.location effectiveRange:NULL];
+    NSFont *paragraphFont = [paragraphAttrs objectForKey:NSFontAttributeName];
+    NSFont *cellFont = [cellAttrs objectForKey:NSFontAttributeName];
+    XCTAssertNotNil(paragraphFont);
+    XCTAssertNotNil(cellFont);
+    if (paragraphFont != nil && cellFont != nil) {
+        XCTAssertEqualObjects([cellFont familyName], [paragraphFont familyName]);
+    }
+}
+
 - (void)testPipeTableFallsBackToStackedLayoutInNarrowPreview
 {
     OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
@@ -135,6 +215,21 @@
     XCTAssertTrue([text rangeOfString:@"Row 1"].location != NSNotFound);
     XCTAssertTrue([text rangeOfString:@"Area: Parsing"].location != NSNotFound);
     XCTAssertTrue([text rangeOfString:@"Notes: Handles standard pipe table delimiter row"].location != NSNotFound);
+}
+
+- (void)testPipeTableKeepsGridLayoutAtComfortablePreviewWidth
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    [renderer setLayoutWidth:900.0];
+    NSString *markdown = @"| Area | Notes | Status |\n| :--- | :---- | ----: |\n| Parsing | Handles delimiter rows. | 100 |\n| Rendering | Should remain structured. | 95 |";
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
+    XCTAssertNotNil(rendered);
+
+    NSTextTableBlock *block = [self tableBlockInRenderedString:rendered forVisibleText:@"Parsing"];
+    XCTAssertNotNil(block);
+    if (block != nil) {
+        XCTAssertEqual([block startingRow], (int)1);
+    }
 }
 
 - (void)testPipeTableCellInlineLinkRendersAsLinkAttribute
