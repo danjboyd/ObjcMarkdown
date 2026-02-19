@@ -63,3 +63,21 @@
   - Validate clean-install launch on a fresh Windows environment (no preinstalled GNUstep/MSYS2).
 - **Notes**:
   - Prefer reproducible packaging with explicit dependency manifests and versioned artifacts.
+
+## 8) Investigate Sombre theme failure on Windows (feasibility + fix path)
+
+- **Status**: Open
+- **Opened On**: 2026-02-19
+- **Area**: Windows runtime / GNUstep theming / Compatibility
+- **Description**: Determine why `GSTheme=Sombre` does not produce a usable window on Windows and assess whether a practical fix is feasible.
+- **Current State**:
+  - Under Windows GNUstep + MSYS2, launching with Sombre can start the process but fail to present a normal main window.
+  - Observed runtime exception during launch path under Sombre:
+    - `NSInvalidArgumentException` with `NSConstantString ... forwardInvocation: ... hash`.
+  - App remains usable under `WinUXTheme`, so issue appears theme/runtime specific rather than core app startup.
+- **Investigation Goals**:
+  - Reproduce in a minimal GNUstep app with and without Sombre to isolate theme plugin vs app interaction.
+  - Identify whether failure is caused by Sombre plugin code, GNUstep backend incompatibility on Windows, or app-side assumptions.
+  - Establish workaround options (theme fallback, selective feature disable) if full Sombre support is not feasible.
+- **Notes**:
+  - Outcome should include a go/no-go feasibility decision and recommended implementation path.
