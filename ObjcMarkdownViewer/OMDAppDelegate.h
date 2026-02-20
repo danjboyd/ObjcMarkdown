@@ -92,6 +92,7 @@
     NSPanel *_preferencesPanel;
     NSPopUpButton *_preferencesMathPolicyPopup;
     NSPopUpButton *_preferencesSplitSyncModePopup;
+    NSPopUpButton *_preferencesThemePopup;
     NSButton *_preferencesAllowRemoteImagesButton;
     NSButton *_preferencesWordSelectionShimButton;
     NSButton *_preferencesSourceVimKeyBindingsButton;

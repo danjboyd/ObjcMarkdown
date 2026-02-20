@@ -74,6 +74,7 @@ static NSString * const OMDSourceHighlightAccentColorDefaultsKey = @"ObjcMarkdow
 static NSString * const OMDSourceVimKeyBindingsDefaultsKey = @"ObjcMarkdownSourceVimKeyBindingsEnabled";
 static NSString * const OMDRendererSyntaxHighlightingDefaultsKey = @"ObjcMarkdownRendererSyntaxHighlightingEnabled";
 static NSString * const OMDShowFormattingBarDefaultsKey = @"ObjcMarkdownShowFormattingBar";
+static NSString * const OMDThemeDefaultsKey = @"GSTheme";
 static NSString * const OMDExplorerLocalRootPathDefaultsKey = @"ObjcMarkdownExplorerLocalRootPath";
 static NSString * const OMDExplorerMaxFileSizeMBDefaultsKey = @"ObjcMarkdownExplorerMaxFileSizeMB";
 static NSString * const OMDExplorerListFontSizeDefaultsKey = @"ObjcMarkdownExplorerListFontSize";
@@ -382,7 +383,7 @@ static NSColor *OMDColorFromDefaultsString(NSString *value)
 
 static BOOL OMDThemeLikelyLight(void)
 {
-    NSString *themeName = [[NSUserDefaults standardUserDefaults] stringForKey:@"GSTheme"];
+    NSString *themeName = [[NSUserDefaults standardUserDefaults] stringForKey:OMDThemeDefaultsKey];
     if (themeName == nil || [themeName length] == 0) {
         return NO;
     }
@@ -1209,6 +1210,12 @@ static NSString *OMDDefaultCacheDirectory(void)
 - (void)scheduleSourceSyntaxHighlightingAfterDelay:(NSTimeInterval)delay;
 - (void)sourceSyntaxHighlightTimerFired:(NSTimer *)timer;
 - (void)cancelPendingSourceSyntaxHighlighting;
+- (NSString *)themePreference;
+- (void)setThemePreference:(NSString *)themeName;
+- (NSArray *)availableThemeNames;
+- (void)reloadThemePopupItems;
+- (void)preferencesThemeChanged:(id)sender;
+- (void)showThemeRestartNotice;
 - (NSColor *)sourceEditorBaseTextColor;
 - (NSRange)sourceSyntaxHighlightIncrementalRangeForStorage:(NSTextStorage *)storage;
 - (void)applySourceSyntaxHighlightingNow;
@@ -1335,6 +1342,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [_modeContainer release];
     [_preferencesMathPolicyPopup release];
     [_preferencesSplitSyncModePopup release];
+    [_preferencesThemePopup release];
     [_preferencesAllowRemoteImagesButton release];
     [_preferencesWordSelectionShimButton release];
     [_preferencesSourceVimKeyBindingsButton release];
@@ -7857,7 +7865,7 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
 - (void)showPreferences:(id)sender
 {
     if (_preferencesPanel == nil) {
-        NSRect frame = NSMakeRect(160, 140, 460, 500);
+        NSRect frame = NSMakeRect(160, 140, 460, 560);
         _preferencesPanel = [[NSPanel alloc] initWithContentRect:frame
                                                         styleMask:(NSTitledWindowMask | NSClosableWindowMask)
                                                           backing:NSBackingStoreBuffered
@@ -7867,6 +7875,34 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
         [_preferencesPanel setReleasedWhenClosed:NO];
 
         NSView *content = [_preferencesPanel contentView];
+
+        NSTextField *appearanceHeader = [[[NSTextField alloc] initWithFrame:NSMakeRect(20, 532, 420, 20)] autorelease];
+        [appearanceHeader setBezeled:NO];
+        [appearanceHeader setEditable:NO];
+        [appearanceHeader setSelectable:NO];
+        [appearanceHeader setDrawsBackground:NO];
+        [appearanceHeader setFont:[NSFont boldSystemFontOfSize:12.0]];
+        [appearanceHeader setStringValue:@"Appearance"];
+        [content addSubview:appearanceHeader];
+
+        NSBox *appearanceSeparator = [[[NSBox alloc] initWithFrame:NSMakeRect(20, 526, 420, 1)] autorelease];
+        [appearanceSeparator setBoxType:NSBoxSeparator];
+        [content addSubview:appearanceSeparator];
+
+        NSTextField *themeLabel = [[[NSTextField alloc] initWithFrame:NSMakeRect(20, 502, 170, 20)] autorelease];
+        [themeLabel setBezeled:NO];
+        [themeLabel setEditable:NO];
+        [themeLabel setSelectable:NO];
+        [themeLabel setDrawsBackground:NO];
+        [themeLabel setStringValue:@"GNUstep Theme:"];
+        [content addSubview:themeLabel];
+
+        _preferencesThemePopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(210, 498, 225, 26)
+                                                             pullsDown:NO];
+        [_preferencesThemePopup setTarget:self];
+        [_preferencesThemePopup setAction:@selector(preferencesThemeChanged:)];
+        [_preferencesThemePopup setToolTip:@"Theme changes apply on next launch."];
+        [content addSubview:_preferencesThemePopup];
 
         NSTextField *explorerHeader = [[[NSTextField alloc] initWithFrame:NSMakeRect(20, 472, 420, 20)] autorelease];
         [explorerHeader setBezeled:NO];
@@ -8138,6 +8174,37 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
         return;
     }
 
+    if (_preferencesThemePopup != nil) {
+        [self reloadThemePopupItems];
+        NSString *themeName = [self themePreference];
+        NSInteger themeIndex = 0;
+        NSInteger themeCount = [_preferencesThemePopup numberOfItems];
+        NSInteger index = 0;
+        BOOL matched = NO;
+        for (; index < themeCount; index++) {
+            id<NSMenuItem> item = [_preferencesThemePopup itemAtIndex:index];
+            NSString *value = [item representedObject];
+            if (themeName == nil || [themeName length] == 0) {
+                if (value == nil || [value length] == 0) {
+                    themeIndex = index;
+                    matched = YES;
+                    break;
+                }
+            } else if (value != nil && [value isEqualToString:themeName]) {
+                themeIndex = index;
+                matched = YES;
+                break;
+            }
+        }
+        if (!matched && themeName != nil && [themeName length] > 0) {
+            [_preferencesThemePopup addItemWithTitle:themeName];
+            id<NSMenuItem> newItem = [_preferencesThemePopup itemAtIndex:[_preferencesThemePopup numberOfItems] - 1];
+            [newItem setRepresentedObject:themeName];
+            themeIndex = [_preferencesThemePopup indexOfItem:newItem];
+        }
+        [_preferencesThemePopup selectItemAtIndex:themeIndex];
+    }
+
     if (_preferencesSplitSyncModePopup != nil) {
         OMDSplitSyncMode splitSyncMode = [self currentSplitSyncMode];
         NSInteger splitSelectedIndex = 0;
@@ -8289,6 +8356,20 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
     [self setRendererSyntaxHighlightingPreferenceEnabled:enabled];
 }
 
+- (void)preferencesThemeChanged:(id)sender
+{
+    (void)sender;
+    id<NSMenuItem> item = [_preferencesThemePopup selectedItem];
+    NSString *themeName = [item representedObject];
+    if (themeName == nil || [themeName length] == 0) {
+        [self setThemePreference:nil];
+    } else {
+        [self setThemePreference:themeName];
+    }
+    [self syncPreferencesPanelFromSettings];
+    [self showThemeRestartNotice];
+}
+
 - (void)preferencesExplorerLocalRootChanged:(id)sender
 {
     (void)sender;
@@ -8335,6 +8416,77 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
                        : @"");
     [self setExplorerGitHubTokenPreference:token];
     [self syncPreferencesPanelFromSettings];
+}
+
+- (NSString *)themePreference
+{
+    return [[NSUserDefaults standardUserDefaults] stringForKey:OMDThemeDefaultsKey];
+}
+
+- (void)setThemePreference:(NSString *)themeName
+{
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    if (themeName == nil || [themeName length] == 0) {
+        [defaults removeObjectForKey:OMDThemeDefaultsKey];
+        return;
+    }
+    [defaults setObject:themeName forKey:OMDThemeDefaultsKey];
+}
+
+- (NSArray *)availableThemeNames
+{
+    NSMutableSet *names = [NSMutableSet set];
+    NSArray *libraryPaths = NSSearchPathForDirectoriesInDomains(NSLibraryDirectory, NSAllDomainsMask, YES);
+    NSFileManager *manager = [NSFileManager defaultManager];
+
+    for (NSString *libraryPath in libraryPaths) {
+        if (libraryPath == nil || [libraryPath length] == 0) {
+            continue;
+        }
+        NSString *themesPath = [libraryPath stringByAppendingPathComponent:@"Themes"];
+        BOOL isDir = NO;
+        if (![manager fileExistsAtPath:themesPath isDirectory:&isDir] || !isDir) {
+            continue;
+        }
+        NSArray *entries = [manager contentsOfDirectoryAtPath:themesPath error:nil];
+        for (NSString *entry in entries) {
+            if ([[entry pathExtension] caseInsensitiveCompare:@"theme"] != NSOrderedSame) {
+                continue;
+            }
+            NSString *name = [entry stringByDeletingPathExtension];
+            if (name != nil && [name length] > 0) {
+                [names addObject:name];
+            }
+        }
+    }
+
+    NSArray *sorted = [[names allObjects] sortedArrayUsingSelector:@selector(caseInsensitiveCompare:)];
+    return sorted;
+}
+
+- (void)reloadThemePopupItems
+{
+    if (_preferencesThemePopup == nil) {
+        return;
+    }
+    [_preferencesThemePopup removeAllItems];
+    [_preferencesThemePopup addItemWithTitle:@"System Default"];
+    [[_preferencesThemePopup itemAtIndex:0] setRepresentedObject:@""];
+    NSArray *themes = [self availableThemeNames];
+    for (NSString *name in themes) {
+        [_preferencesThemePopup addItemWithTitle:name];
+        id<NSMenuItem> item = [_preferencesThemePopup itemAtIndex:[_preferencesThemePopup numberOfItems] - 1];
+        [item setRepresentedObject:name];
+    }
+}
+
+- (void)showThemeRestartNotice
+{
+    NSAlert *alert = [[[NSAlert alloc] init] autorelease];
+    [alert setMessageText:@"Theme change will apply on next launch."];
+    [alert setInformativeText:@"Close and reopen the app to load the selected GNUstep theme."];
+    [alert addButtonWithTitle:@"OK"];
+    [alert runModal];
 }
 
 - (void)applySourceEditorFontFromDefaults

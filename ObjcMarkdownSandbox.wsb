@@ -1,0 +1,11 @@
+<Configuration>
+  <MappedFolders>
+    <MappedFolder>
+      <HostFolder>C:\Users\Support\git\ObjcMarkdown\dist</HostFolder>
+      <ReadOnly>true</ReadOnly>
+    </MappedFolder>
+  </MappedFolders>
+  <LogonCommand>
+    <Command>cmd /c "dir C:\Users\WDAGUtilityAccount\Desktop\dist &amp;&amp; start C:\Users\WDAGUtilityAccount\Desktop\dist"</Command>
+  </LogonCommand>
+</Configuration>

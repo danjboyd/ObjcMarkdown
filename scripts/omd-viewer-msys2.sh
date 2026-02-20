@@ -28,8 +28,13 @@ RUNTIME_PATHS="$ROOT/ObjcMarkdown/obj:$ROOT/third_party/libs-OpenSave/Source/obj
 PATH="$RUNTIME_PATHS:$PATH"
 export PATH
 
-if [[ "${OMD_USE_SOMBRE_THEME:-1}" == "1" && -z "${GSTheme:-}" ]]; then
-  export GSTheme=Sombre
+if [[ -z "${GSTheme:-}" ]]; then
+  if [[ "${OMD_USE_SOMBRE_THEME:-0}" == "1" ]]; then
+    export GSTheme=Sombre
+  else
+    # Sombre is unstable on Windows GNUstep; default to WinUX unless explicitly enabled.
+    export GSTheme=WinUXTheme
+  fi
 fi
 
 openapp "$ROOT/ObjcMarkdownViewer/MarkdownViewer.app" "$@"

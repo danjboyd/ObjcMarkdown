@@ -17,3 +17,8 @@ obj/
 
 # Local secrets / env overrides
 local.env
+
+# Windows packaging artifacts
+dist/
+tools/wix/
+tools/wix311-binaries.zip

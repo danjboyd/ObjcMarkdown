@@ -1,0 +1,85 @@
+name: windows-packaging
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build-msi:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup MSYS2 (clang64)
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: CLANG64
+          update: true
+          install: >-
+            make
+            mingw-w64-clang-x86_64-gnustep-make
+            mingw-w64-clang-x86_64-gnustep-base
+            mingw-w64-clang-x86_64-gnustep-gui
+            mingw-w64-clang-x86_64-gnustep-back
+            mingw-w64-clang-x86_64-libdispatch
+            mingw-w64-clang-x86_64-cmark
+            mingw-w64-clang-x86_64-libobjc2
+            mingw-w64-clang-x86_64-toolchain
+
+      - name: Download WiX
+        run: |
+          $url = "https://github.com/wixtoolset/wix3/releases/download/wix3112rtm/wix311-binaries.zip"
+          $zip = "$env:RUNNER_TEMP\\wix.zip"
+          $dest = "$PWD\\tools\\wix"
+          New-Item -ItemType Directory -Force -Path $dest | Out-Null
+          Invoke-WebRequest -Uri $url -OutFile $zip
+          Expand-Archive -Path $zip -DestinationPath $dest -Force
+
+      - name: Build (MSYS2)
+        shell: msys2 {0}
+        run: |
+          source /clang64/share/GNUstep/Makefiles/GNUstep.sh
+          make
+
+      - name: Stage Runtime (MSYS2)
+        shell: msys2 {0}
+        run: |
+          source /clang64/share/GNUstep/Makefiles/GNUstep.sh
+          ./scripts/windows/stage-runtime.sh dist/ObjcMarkdown
+
+      - name: Resolve Version
+        id: version
+        run: |
+          $tag = (git describe --tags --abbrev=0 2>$null)
+          if ($tag -match 'v?(\d+\.\d+\.\d+)') {
+            $version = $Matches[1]
+          } else {
+            $version = "0.0.0"
+          }
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Build MSI
+        run: |
+          ./scripts/windows/build-msi.ps1 -StagingDir dist/ObjcMarkdown -Version ${{ steps.version.outputs.version }} -OutDir dist
+
+      - name: Build Portable ZIP
+        run: |
+          $zipName = "ObjcMarkdown-${{ steps.version.outputs.version }}-win64-portable.zip"
+          if (Test-Path "dist/$zipName") { Remove-Item "dist/$zipName" }
+          Compress-Archive -Path "dist/ObjcMarkdown/*" -DestinationPath "dist/$zipName"
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: objcmarkdown-windows
+          path: |
+            dist/*.msi
+            dist/*.zip

@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi"
+     xmlns:util="http://schemas.microsoft.com/wix/UtilExtension">
+  <Product Id="*"
+           Name="ObjcMarkdown"
+           Manufacturer="ObjcMarkdown"
+           Version="$(var.ProductVersion)"
+           Language="1033"
+           UpgradeCode="ca1cb9b9-e6d5-41fd-bc64-a1782423500e">
+    <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" />
+    <MajorUpgrade DowngradeErrorMessage="A newer version of ObjcMarkdown is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFilesFolder">
+        <Directory Id="INSTALLDIR" Name="ObjcMarkdown" />
+      </Directory>
+      <Directory Id="SystemDrive">
+        <Directory Id="CLANG64DIR" Name="clang64">
+          <Directory Id="CLANG64BIN" Name="bin" />
+          <Directory Id="CLANG64LIB" Name="lib">
+            <Directory Id="CLANG64GNUSTEP" Name="GNUstep" />
+          </Directory>
+        </Directory>
+      </Directory>
+      <Directory Id="ProgramMenuFolder">
+        <Directory Id="ProgramMenuDir" Name="ObjcMarkdown" />
+      </Directory>
+    </Directory>
+
+    <DirectoryRef Id="INSTALLDIR">
+      <Component Id="AppShortcut" Guid="c49d7049-7b76-49a1-b979-a939ef72cbc0">
+        <Shortcut Id="StartMenuShortcut"
+                  Directory="ProgramMenuDir"
+                  Name="ObjcMarkdown"
+                  WorkingDirectory="INSTALLDIR"
+                  Target="[INSTALLDIR]MarkdownViewer.cmd" />
+        <RemoveFolder Id="RemoveProgramMenuDir" Directory="ProgramMenuDir" On="uninstall" />
+        <RegistryValue Root="HKCU" Key="Software\ObjcMarkdown" Name="installed" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </DirectoryRef>
+
+    <Feature Id="MainFeature" Title="ObjcMarkdown" Level="1">
+      <ComponentGroupRef Id="AppFiles" />
+      <ComponentGroupRef Id="RuntimeFiles" />
+      <ComponentRef Id="AppShortcut" />
+    </Feature>
+  </Product>
+</Wix>

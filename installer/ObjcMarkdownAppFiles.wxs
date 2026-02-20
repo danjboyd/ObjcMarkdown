@@ -1,0 +1,81 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+    <Fragment>
+        <DirectoryRef Id="INSTALLDIR">
+            <Component Id="cmpD8174694134518878C473FB81BC15A78" Guid="C987FCFB-1E69-496B-B49C-B06AD0C42063">
+                <File Id="fil3455B6718FE14915C6D9757488FBAF5E" KeyPath="yes" Source="$(var.AppSourceDir)\MarkdownViewer.cmd" />
+            </Component>
+            <Directory Id="dirE346A75FEDD174A44A845475C6757E1F" Name="app">
+                <Directory Id="dir7AC2B3BFE771AA9277485621E97B842E" Name="MarkdownViewer.app">
+                    <Component Id="cmp530A19ACD17FEEB4113E373A5F3C7BFD" Guid="241AD876-273F-4066-BD5E-3245DEBC1ED0">
+                        <File Id="fil3B4E50E48D27C68FEC1E3348BFBAE3C5" KeyPath="yes" Source="$(var.AppSourceDir)\app\MarkdownViewer.app\MarkdownViewer.exe" />
+                    </Component>
+                    <Component Id="cmp60DACCD45936E5FFFEADFFE8159D705F" Guid="086895C3-5ECE-445C-A79D-DC61F86E2B71">
+                        <File Id="fil5CFADFDAFA5FECAD92ACB15C181DF9F1" KeyPath="yes" Source="$(var.AppSourceDir)\app\MarkdownViewer.app\MarkdownViewer.exe.a" />
+                    </Component>
+                    <Component Id="cmp569BB13F0882A31B33C4B2E1864D9197" Guid="623ABEEE-A206-4720-9A68-28D21EBFA190">
+                        <File Id="fil5A2A0CB71DD9260E5387DCAACF4F5EA4" KeyPath="yes" Source="$(var.AppSourceDir)\app\MarkdownViewer.app\stamp.make" />
+                    </Component>
+                    <Directory Id="dirBBE3CC142482B7053A70DAA70B81A13D" Name="Resources">
+                        <Component Id="cmpC3C47CC364D4F77A54BEEFEF3A1699EE" Guid="8B1B9B37-2B6E-48BD-BEB0-73458F15CB66">
+                            <File Id="fil53B97228E675FEA7803DAF6480DECA4C" KeyPath="yes" Source="$(var.AppSourceDir)\app\MarkdownViewer.app\Resources\code-copy-icon.png" />
+                        </Component>
+                        <Component Id="cmpF284283E873E36269E5911D207190CC5" Guid="BE096A99-8EF5-4E57-B532-9098FCABF674">
+                            <File Id="fil7D8541C42EB97B6A35C3F45598125706" KeyPath="yes" Source="$(var.AppSourceDir)\app\MarkdownViewer.app\Resources\Info-gnustep.plist" />
+                        </Component>
+                        <Component Id="cmp27054817CC620D0D86CDDDB92F95EAD5" Guid="02D5F171-0D28-4655-99EA-C67D2FE6AD71">
+                            <File Id="fil4D31E7863015D4FE946386BBA68E5CB7" KeyPath="yes" Source="$(var.AppSourceDir)\app\MarkdownViewer.app\Resources\MarkdownViewer.desktop" />
+                        </Component>
+                        <Component Id="cmp9B4CE67B3CFB74FD7F1288B750A97CF7" Guid="FB62A639-8679-4E37-85F9-FA9EF4C41982">
+                            <File Id="fil73F2DA1E15F1D3B5F8D7BA2178463797" KeyPath="yes" Source="$(var.AppSourceDir)\app\MarkdownViewer.app\Resources\markdown_icon.png" />
+                        </Component>
+                        <Component Id="cmpE6CFCE6A10F76B151686AFE8D79EB785" Guid="DF4B2EF5-D9BE-447F-84DA-2E11B7C4BB5B">
+                            <File Id="filC65BFCA265AD208744FDC453182DD094" KeyPath="yes" Source="$(var.AppSourceDir)\app\MarkdownViewer.app\Resources\open-icon.png" />
+                        </Component>
+                        <Component Id="cmp7B10856C7952878B2FDEC9C99B1EED66" Guid="A4BD060E-0E5F-491F-993E-83A02DAFAF07">
+                            <File Id="filA1E97A394641BF43AE805FAE170661DE" KeyPath="yes" Source="$(var.AppSourceDir)\app\MarkdownViewer.app\Resources\theme-github.toml" />
+                        </Component>
+                        <Component Id="cmp09A8A5A6E7E665C4637628EF5B88785E" Guid="904CAC43-9B50-4712-91FE-662CC910E11E">
+                            <File Id="fil8F3EF0EC8B645F4B5CCB5012FEC7DBD4" KeyPath="yes" Source="$(var.AppSourceDir)\app\MarkdownViewer.app\Resources\toolbar-explorer-toggle.png" />
+                        </Component>
+                        <Component Id="cmpCF4438F09F03ADE02CE91419D956EF3F" Guid="0200B6CF-F8F5-4E16-9A92-48CBBDA906B1">
+                            <File Id="fil63EA133E33AE07D5297BB15F5494CD4B" KeyPath="yes" Source="$(var.AppSourceDir)\app\MarkdownViewer.app\Resources\toolbar-export.png" />
+                        </Component>
+                        <Component Id="cmp8E042EF8A0CF1824CD67EF2FE0A15AC6" Guid="2A8CE908-4586-41D7-AFB1-8CDEBB7DC159">
+                            <File Id="fil66EF31AC705758B2DBD2358C6FD2D9B1" KeyPath="yes" Source="$(var.AppSourceDir)\app\MarkdownViewer.app\Resources\toolbar-import.png" />
+                        </Component>
+                        <Component Id="cmpF7E88C5ECCAFBCD1F386FEE4B0D5FFB1" Guid="4AFF91A4-625F-4F6D-800B-C4C6B350C4D1">
+                            <File Id="filBD350CEDA2567F3041B1480FC2343928" KeyPath="yes" Source="$(var.AppSourceDir)\app\MarkdownViewer.app\Resources\toolbar-open.png" />
+                        </Component>
+                        <Component Id="cmp310480DBD9B80A26F4FF115C6C0E43BE" Guid="80A8D97B-BBBF-49BF-9E19-EB05D8CAD62E">
+                            <File Id="fil9EF9A6AD58809308805E12F38786BD52" KeyPath="yes" Source="$(var.AppSourceDir)\app\MarkdownViewer.app\Resources\toolbar-print.png" />
+                        </Component>
+                        <Component Id="cmpFDFB7110F94F13A23FCB7D4BC7490412" Guid="138070B4-DFDE-4255-93C5-6C8A8BAF35E1">
+                            <File Id="filFDCDB73E7517684512B8E191427FF1A3" KeyPath="yes" Source="$(var.AppSourceDir)\app\MarkdownViewer.app\Resources\toolbar-saveas.png" />
+                        </Component>
+                    </Directory>
+                </Directory>
+            </Directory>
+        </DirectoryRef>
+    </Fragment>
+    <Fragment>
+        <ComponentGroup Id="AppFiles">
+            <ComponentRef Id="cmpD8174694134518878C473FB81BC15A78" />
+            <ComponentRef Id="cmp530A19ACD17FEEB4113E373A5F3C7BFD" />
+            <ComponentRef Id="cmp60DACCD45936E5FFFEADFFE8159D705F" />
+            <ComponentRef Id="cmp569BB13F0882A31B33C4B2E1864D9197" />
+            <ComponentRef Id="cmpC3C47CC364D4F77A54BEEFEF3A1699EE" />
+            <ComponentRef Id="cmpF284283E873E36269E5911D207190CC5" />
+            <ComponentRef Id="cmp27054817CC620D0D86CDDDB92F95EAD5" />
+            <ComponentRef Id="cmp9B4CE67B3CFB74FD7F1288B750A97CF7" />
+            <ComponentRef Id="cmpE6CFCE6A10F76B151686AFE8D79EB785" />
+            <ComponentRef Id="cmp7B10856C7952878B2FDEC9C99B1EED66" />
+            <ComponentRef Id="cmp09A8A5A6E7E665C4637628EF5B88785E" />
+            <ComponentRef Id="cmpCF4438F09F03ADE02CE91419D956EF3F" />
+            <ComponentRef Id="cmp8E042EF8A0CF1824CD67EF2FE0A15AC6" />
+            <ComponentRef Id="cmpF7E88C5ECCAFBCD1F386FEE4B0D5FFB1" />
+            <ComponentRef Id="cmp310480DBD9B80A26F4FF115C6C0E43BE" />
+            <ComponentRef Id="cmpFDFB7110F94F13A23FCB7D4BC7490412" />
+        </ComponentGroup>
+    </Fragment>
+</Wix>

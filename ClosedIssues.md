@@ -499,3 +499,17 @@
     - `LICENSES/LGPL-2.1.txt`
     - `LICENSES/GPL-2.0.txt`
   - Kept `third_party/` components under their upstream licenses (no relicensing of vendored dependencies).
+
+## 42) Windows Sombre theme compatibility (feasibility + fallback)
+
+- **Status**: Closed
+- **Closed On**: 2026-02-20
+- **Area**: Windows runtime / GNUstep theming / Compatibility
+- **Description**: Determine why `GSTheme=Sombre` does not produce a usable window on Windows and establish a practical fix path.
+- **Resolution**:
+  - Chose a pragmatic compatibility path: default to `WinUXTheme` on Windows to avoid Sombre launch failures.
+  - Kept Sombre opt-in via `OMD_USE_SOMBRE_THEME=1` for further investigation without blocking daily usage.
+  - Documented the Windows Sombre crash symptom and the fallback in `WINDOWS_BUILD.md`.
+  - Identified a likely root cause on MSYS2: Sombre built against a different `gnustep-base` DLL version than the app (`1_31` vs `1_30`).
+  - Rebuilt and installed Sombre with the same toolchain so `Sombre.dll` links to `gnustep-base-1_30.dll`, restoring launch without the `NSConstantString ... forwardInvocation: ... hash` exception.
+  - Verified UAT on Windows with the Sombre preference and successful relaunch.
