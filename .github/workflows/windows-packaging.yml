@@ -83,3 +83,33 @@ jobs:
           path: |
             dist/*.msi
             dist/*.zip
+
+  validate-msi:
+    needs: build-msi
+    runs-on: [self-hosted, kvm-host]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download MSI Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: objcmarkdown-windows
+          path: dist
+
+      - name: Validate MSI on Clean VM
+        env:
+          WINRM_HOST: ${{ secrets.WINRM_HOST }}
+          WINRM_USER: ${{ secrets.WINRM_USER }}
+          WINRM_PASS: ${{ secrets.WINRM_PASS }}
+          VM_NAME: iep-abbyy
+          SNAPSHOT: clean
+          RUN_SMOKE: "1"
+        run: |
+          ls -la dist
+          MSI_PATH=$(ls dist/*.msi | head -n 1)
+          if [ -z "$MSI_PATH" ]; then
+            echo "MSI not found in dist" >&2
+            exit 2
+          fi
+          scripts/windows/validate-msi.sh "$MSI_PATH"
