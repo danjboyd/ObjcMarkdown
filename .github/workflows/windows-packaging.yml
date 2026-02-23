@@ -47,7 +47,7 @@ jobs:
         shell: msys2 {0}
         run: |
           source /clang64/share/GNUstep/Makefiles/GNUstep.sh
-          make
+          make OMD_SKIP_TESTS=1
 
       - name: Stage Runtime (MSYS2)
         shell: msys2 {0}
