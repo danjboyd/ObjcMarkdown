@@ -59,7 +59,10 @@ jobs:
         id: version
         run: |
           $tag = (git describe --tags --abbrev=0 2>$null)
-          if ($LASTEXITCODE -ne 0) { $tag = "" }
+          if ($LASTEXITCODE -ne 0) {
+            $tag = ""
+            $global:LASTEXITCODE = 0
+          }
           if ($tag -match 'v?(\d+\.\d+\.\d+)') {
             $version = $Matches[1]
           } else {
