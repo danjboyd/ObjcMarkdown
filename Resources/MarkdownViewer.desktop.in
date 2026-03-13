@@ -2,8 +2,16 @@
 Type=Application
 Name=MarkdownViewer
 Comment=Open Markdown, RTF, DOCX, and ODT with MarkdownViewer
-Exec=@EXEC@ %F
+Exec=/usr/bin/env bash "@EXEC@" %F
 Terminal=false
+StartupNotify=true
+StartupWMClass=GNUstep
+X-GNOME-WMClass=MarkdownViewer
+Actions=NewWindow;
 Categories=Office;Viewer;TextTools;
 MimeType=text/markdown;text/x-markdown;application/rtf;text/rtf;application/vnd.openxmlformats-officedocument.wordprocessingml.document;application/vnd.oasis.opendocument.text;
 Icon=@ICON@
+
+[Desktop Action NewWindow]
+Name=New Window
+Exec=/usr/bin/env bash "@EXEC@" --new-window

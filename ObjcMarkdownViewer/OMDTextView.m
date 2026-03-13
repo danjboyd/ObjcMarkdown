@@ -7,6 +7,8 @@
 
 - (void)dealloc
 {
+    [_documentBackgroundColor release];
+    [_documentBorderColor release];
     [_codeBlockRanges release];
     [_codeBlockBackgroundColor release];
     [_codeBlockBorderColor release];
@@ -17,9 +19,42 @@
 
 - (void)drawRect:(NSRect)dirtyRect
 {
+    [self drawDocumentSurface];
     [self drawCodeBlockBackgrounds];
     [super drawRect:dirtyRect];
     [self drawBlockquoteLines];
+}
+
+- (void)drawDocumentSurface
+{
+    if (self.documentBackgroundColor == nil && self.documentBorderColor == nil) {
+        return;
+    }
+
+    CGFloat borderWidth = self.documentBorderWidth;
+    if (borderWidth < 0.0) {
+        borderWidth = 0.0;
+    }
+
+    NSRect bounds = [self bounds];
+    if (borderWidth > 0.0) {
+        bounds = NSInsetRect(bounds, borderWidth * 0.5, borderWidth * 0.5);
+    }
+    if (bounds.size.width <= 0.0 || bounds.size.height <= 0.0) {
+        return;
+    }
+
+    CGFloat radius = self.documentCornerRadius > 0.0 ? self.documentCornerRadius : 10.0;
+    NSBezierPath *path = [NSBezierPath bezierPathWithRoundedRect:bounds xRadius:radius yRadius:radius];
+    if (self.documentBackgroundColor != nil) {
+        [self.documentBackgroundColor setFill];
+        [path fill];
+    }
+    if (self.documentBorderColor != nil && borderWidth > 0.0) {
+        [path setLineWidth:borderWidth];
+        [self.documentBorderColor setStroke];
+        [path stroke];
+    }
 }
 
 - (void)drawCodeBlockBackgrounds

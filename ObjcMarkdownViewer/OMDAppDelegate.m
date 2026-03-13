@@ -59,6 +59,13 @@ static const CGFloat OMDExplorerListMinimumRowHeight = 20.0;
 static const CGFloat OMDToolbarControlHeight = 22.0;
 static const CGFloat OMDToolbarLabelHeight = 20.0;
 static const CGFloat OMDToolbarItemHeight = 26.0;
+static const CGFloat OMDToolbarIconSize = 20.0;
+static const CGFloat OMDToolbarActionSegmentWidth = 32.0;
+static const CGFloat OMDToolbarActionGroupSpacing = 8.0;
+static const CGFloat OMDPreviewCanvasHorizontalMargin = 32.0;
+static const CGFloat OMDPreviewMaximumLayoutWidth = 920.0;
+static const CGFloat OMDPreviewPageCornerRadius = 10.0;
+static const CGFloat OMDPreviewPageBorderWidth = 1.0;
 static const NSTimeInterval OMDGitLockRetryDelaySeconds = 0.20;
 static const NSTimeInterval OMDGitStaleLockMinimumAgeSeconds = 2.0;
 static NSString * const OMDTextFileErrorDomain = @"OMDTextFileErrorDomain";
@@ -421,7 +428,51 @@ static NSColor *OMDResolvedControlTextColor(void)
     return color;
 }
 
-static NSImage *OMDToolbarImageNamed(NSString *resourceName)
+static NSColor *OMDResolvedChromeBackgroundColor(void)
+{
+    GSTheme *theme = [GSTheme theme];
+    NSColor *color = nil;
+    if (theme != nil) {
+        color = [theme colorNamed:@"windowBackgroundColor" state:GSThemeNormalState];
+        if (color == nil) {
+            color = [theme colorNamed:@"controlBackgroundColor" state:GSThemeNormalState];
+        }
+        if (color == nil) {
+            color = [theme colorNamed:@"scrollViewBackgroundColor" state:GSThemeNormalState];
+        }
+    }
+    if (color == nil) {
+        color = [NSColor windowBackgroundColor];
+    }
+    if (color == nil) {
+        color = [NSColor controlBackgroundColor];
+    }
+    if (color == nil) {
+        color = [NSColor colorWithCalibratedWhite:0.94 alpha:1.0];
+    }
+    return color;
+}
+
+static NSColor *OMDResolvedSubtleSeparatorColor(void)
+{
+    GSTheme *theme = [GSTheme theme];
+    NSColor *color = nil;
+    if (theme != nil) {
+        color = [theme colorNamed:@"gridColor" state:GSThemeNormalState];
+        if (color == nil) {
+            color = [theme colorNamed:@"controlShadowColor" state:GSThemeNormalState];
+        }
+    }
+    if (color == nil) {
+        color = [NSColor gridColor];
+    }
+    if (color == nil) {
+        color = [NSColor colorWithCalibratedWhite:0.80 alpha:1.0];
+    }
+    return color;
+}
+
+static NSImage *OMDImageNamed(NSString *resourceName)
 {
     if (resourceName == nil || [resourceName length] == 0) {
         return nil;
@@ -450,6 +501,41 @@ static NSImage *OMDToolbarImageNamed(NSString *resourceName)
     return nil;
 }
 
+static NSImage *OMDToolbarPreparedImage(NSImage *image)
+{
+    if (image == nil) {
+        return nil;
+    }
+
+    NSSize targetSize = NSMakeSize(OMDToolbarIconSize, OMDToolbarIconSize);
+    NSImage *prepared = [[[NSImage alloc] initWithSize:targetSize] autorelease];
+    if (prepared == nil) {
+        return image;
+    }
+
+    NSRect rect = NSMakeRect(0.0, 0.0, targetSize.width, targetSize.height);
+    [prepared lockFocus];
+    [image drawInRect:rect fromRect:NSZeroRect operation:NSCompositeCopy fraction:1.0];
+    [prepared unlockFocus];
+    [prepared setSize:targetSize];
+    return prepared;
+}
+
+static void OMDSetToolbarItemImage(NSToolbarItem *item, NSImage *image)
+{
+    if (item == nil || image == nil) {
+        return;
+    }
+
+    NSImage *prepared = OMDToolbarPreparedImage(image);
+    [item setImage:(prepared != nil ? prepared : image)];
+}
+
+static NSImage *OMDToolbarImageNamed(NSString *resourceName)
+{
+    return OMDToolbarPreparedImage(OMDImageNamed(resourceName));
+}
+
 static NSImage *OMDToolbarThemedImageNamed(NSString *resourceName)
 {
     NSImage *image = OMDToolbarImageNamed(resourceName);
@@ -473,9 +559,9 @@ static NSImage *OMDToolbarThemedImageNamed(NSString *resourceName)
     }
     NSRect rect = NSMakeRect(0.0, 0.0, size.width, size.height);
     [tinted lockFocus];
-    [image drawInRect:rect fromRect:NSZeroRect operation:NSCompositeSourceOver fraction:1.0];
     [tint set];
-    NSRectFillUsingOperation(rect, NSCompositeSourceAtop);
+    NSRectFill(rect);
+    [image drawInRect:rect fromRect:NSZeroRect operation:NSCompositeDestinationIn fraction:1.0];
     [tinted unlockFocus];
     [tinted setSize:size];
     return tinted;
@@ -488,7 +574,7 @@ static NSImage *OMDCodeBlockCopyImage(void)
         return cached;
     }
 
-    NSImage *image = OMDToolbarImageNamed(@"code-copy-icon.png");
+    NSImage *image = OMDImageNamed(@"code-copy-icon.png");
     if (image == nil) {
         return nil;
     }
@@ -946,6 +1032,7 @@ static NSString *OMDDefaultCacheDirectory(void)
 
 @interface OMDAppDelegate () <GSVVimBindingControllerDelegate>
 - (void)importDocument:(id)sender;
+- (void)newWindow:(id)sender;
 - (void)saveDocument:(id)sender;
 - (void)saveDocumentAsMarkdown:(id)sender;
 - (void)printDocument:(id)sender;
@@ -970,8 +1057,13 @@ static NSString *OMDDefaultCacheDirectory(void)
 - (NSString *)decodedTextForFileAtPath:(NSString *)path error:(NSError **)error;
 - (BOOL)openDocumentAtPath:(NSString *)path;
 - (BOOL)openDocumentAtPathInNewWindow:(NSString *)path;
+- (void)openRecentDocumentFromMenuItem:(id)sender;
+- (void)clearRecentDocumentsMenu:(id)sender;
+- (void)rebuildOpenRecentMenu;
+- (void)noteRecentDocumentAtPathIfAvailable:(NSString *)path;
 - (void)setupWorkspaceChrome;
 - (void)layoutWorkspaceChrome;
+- (CGFloat)currentTabStripHeight;
 - (BOOL)isExplorerSidebarVisiblePreference;
 - (void)setExplorerSidebarVisiblePreference:(BOOL)visible;
 - (void)applyExplorerSidebarVisibility;
@@ -1056,6 +1148,8 @@ static NSString *OMDDefaultCacheDirectory(void)
                         inNewTab:(BOOL)inNewTab
              requireDirtyConfirm:(BOOL)requireDirtyConfirm;
 - (void)applyCurrentDocumentReadOnlyState;
+- (void)toolbarActionControlChanged:(id)sender;
+- (void)updateToolbarActionControlsState;
 - (void)preferencesExplorerLocalRootChanged:(id)sender;
 - (void)preferencesExplorerMaxFileSizeChanged:(id)sender;
 - (void)preferencesExplorerListFontSizeChanged:(id)sender;
@@ -1311,6 +1405,10 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [_currentPath release];
     [_documentTabs release];
     [_gitHubClient release];
+    if (_fileOpenRecentMenu != nil) {
+        [_fileOpenRecentMenu setDelegate:nil];
+        [_fileOpenRecentMenu release];
+    }
     [_explorerSourceModeControl release];
     [_explorerLocalRootLabel release];
     [_explorerGitHubUserLabel release];
@@ -1332,6 +1430,9 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [_explorerGitHubRepo release];
     [_explorerGitHubCurrentPath release];
     [_explorerGitHubRepoCachePath release];
+    [_toolbarFileActionsControl release];
+    [_toolbarUtilityActionsControl release];
+    [_toolbarPrimaryActionsContainer release];
     [_zoomSlider release];
     [_zoomLabel release];
     [_zoomResetButton release];
@@ -1374,6 +1475,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [_sourceTextView release];
     [_sourceScrollView release];
     [_previewScrollView release];
+    [_previewCanvasView release];
     [_documentContainer release];
     [_textView release];
     [_window release];
@@ -1472,6 +1574,22 @@ static NSMutableArray *OMDSecondaryWindows(void)
                                                              action:@selector(openDocument:)
                                                       keyEquivalent:@"o"];
     [openItem setTarget:self];
+
+    NSMenuItem *newWindowItem = (NSMenuItem *)[fileMenu addItemWithTitle:@"New Window"
+                                                                   action:@selector(newWindow:)
+                                                            keyEquivalent:@"n"];
+    [newWindowItem setTarget:self];
+
+    NSMenuItem *openRecentItem = (NSMenuItem *)[fileMenu addItemWithTitle:@"Open Recent"
+                                                                    action:NULL
+                                                             keyEquivalent:@""];
+    NSMenu *openRecentMenu = [[[NSMenu alloc] initWithTitle:@"Open Recent"] autorelease];
+    [openRecentMenu setAutoenablesItems:NO];
+    [openRecentMenu setDelegate:(id)self];
+    [openRecentItem setSubmenu:openRecentMenu];
+    [_fileOpenRecentMenu release];
+    _fileOpenRecentMenu = [openRecentMenu retain];
+    [self rebuildOpenRecentMenu];
 
     NSMenuItem *importItem = (NSMenuItem *)[fileMenu addItemWithTitle:@"Import..."
                                                                 action:@selector(importDocument:)
@@ -1712,6 +1830,10 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [self normalizeWindowFrameIfNeeded];
     [_window setTitle:@"Markdown Viewer"];
     [_window setDelegate:self];
+    NSImage *appIcon = OMDImageNamed(@"markdown_icon.png");
+    if (appIcon != nil) {
+        [NSApp setApplicationIconImage:appIcon];
+    }
 
     NSInterfaceStyle style = NSInterfaceStyleForKey(@"NSMenuInterfaceStyle", nil);
     if (style == NSWindows95InterfaceStyle) {
@@ -1736,6 +1858,8 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [self setupWorkspaceChrome];
 
     _splitRatio = 0.5;
+    _lastObservedSplitAvailableWidth = -1.0;
+    _isApplyingSplitViewRatio = NO;
     NSNumber *savedSplitRatio = [[NSUserDefaults standardUserDefaults] objectForKey:@"ObjcMarkdownSplitRatio"];
     if ([savedSplitRatio respondsToSelector:@selector(doubleValue)]) {
         double value = [savedSplitRatio doubleValue];
@@ -1755,10 +1879,13 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [_previewScrollView setHasHorizontalScroller:YES];
     [_previewScrollView setAutohidesScrollers:YES];
     [_previewScrollView setDrawsBackground:YES];
-    [_previewScrollView setBackgroundColor:[NSColor whiteColor]];
+    [_previewScrollView setBackgroundColor:OMDResolvedChromeBackgroundColor()];
+
+    _previewCanvasView = [[NSView alloc] initWithFrame:[[_previewScrollView contentView] bounds]];
+    [_previewCanvasView setAutoresizesSubviews:NO];
 
     _textView = [[OMDTextView alloc] initWithFrame:[[_previewScrollView contentView] bounds]];
-    [_textView setAutoresizingMask:NSViewHeightSizable];
+    [_textView setAutoresizingMask:0];
     [_textView setMinSize:NSMakeSize(0.0, 0.0)];
     [_textView setMaxSize:NSMakeSize(FLT_MAX, FLT_MAX)];
     [_textView setHorizontallyResizable:YES];
@@ -1768,6 +1895,13 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [_textView setRichText:YES];
     [_textView setDrawsBackground:NO];
     [_textView setTextContainerInset:NSMakeSize(20.0, 16.0)];
+    if ([_textView isKindOfClass:[OMDTextView class]]) {
+        OMDTextView *previewTextView = (OMDTextView *)_textView;
+        [previewTextView setDocumentBackgroundColor:[NSColor whiteColor]];
+        [previewTextView setDocumentBorderColor:OMDResolvedSubtleSeparatorColor()];
+        [previewTextView setDocumentCornerRadius:OMDPreviewPageCornerRadius];
+        [previewTextView setDocumentBorderWidth:OMDPreviewPageBorderWidth];
+    }
     NSTextContainer *previewContainer = [_textView textContainer];
     [previewContainer setLineFragmentPadding:0.0];
     [previewContainer setWidthTracksTextView:NO];
@@ -1784,7 +1918,8 @@ static NSMutableArray *OMDSecondaryWindows(void)
         NSUnderlineStyleAttributeName: [NSNumber numberWithInt:NSUnderlineStyleSingle]
     }];
 
-    [_previewScrollView setDocumentView:_textView];
+    [_previewCanvasView addSubview:_textView];
+    [_previewScrollView setDocumentView:_previewCanvasView];
     [[_previewScrollView contentView] setPostsBoundsChangedNotifications:YES];
     [[NSNotificationCenter defaultCenter] addObserver:self
                                              selector:@selector(scrollViewContentBoundsDidChange:)
@@ -1931,7 +2066,6 @@ static NSMutableArray *OMDSecondaryWindows(void)
     _explorerSidebarVisible = [self isExplorerSidebarVisiblePreference];
     _explorerSidebarLastVisibleWidth = OMDExplorerSidebarDefaultWidth;
 
-    [self setupExplorerSidebar];
     [self layoutWorkspaceChrome];
     [_workspaceSplitView adjustSubviews];
 
@@ -1960,6 +2094,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
     }
 
     [self applyExplorerSidebarVisibility];
+    [self setupExplorerSidebar];
 }
 
 - (void)layoutWorkspaceChrome
@@ -1969,10 +2104,11 @@ static NSMutableArray *OMDSecondaryWindows(void)
     }
 
     NSRect bounds = [_workspaceMainContainer bounds];
-    CGFloat tabHeight = OMDTabStripHeight;
+    CGFloat tabHeight = [self currentTabStripHeight];
     if (tabHeight > NSHeight(bounds)) {
         tabHeight = NSHeight(bounds);
     }
+    [_tabStripView setHidden:(tabHeight <= 0.0)];
 
     NSRect tabFrame = NSMakeRect(NSMinX(bounds),
                                  NSMaxY(bounds) - tabHeight,
@@ -1990,6 +2126,17 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [_documentContainer setFrame:NSIntegralRect(documentFrame)];
     [self layoutDocumentViews];
     [self updateTabStrip];
+}
+
+- (CGFloat)currentTabStripHeight
+{
+    if (_documentTabs == nil) {
+        return 0.0;
+    }
+    if ([_documentTabs count] <= 1) {
+        return 0.0;
+    }
+    return OMDTabStripHeight;
 }
 
 - (BOOL)isExplorerSidebarVisiblePreference
@@ -2134,6 +2281,69 @@ static NSMutableArray *OMDSecondaryWindows(void)
       itemForItemIdentifier:(NSString *)identifier
   willBeInsertedIntoToolbar:(BOOL)flag
 {
+    if ([identifier isEqualToString:@"PrimaryActions"]) {
+        CGFloat fileActionsWidth = OMDToolbarActionSegmentWidth * 4.0;
+        CGFloat utilityActionsWidth = OMDToolbarActionSegmentWidth * 3.0;
+        CGFloat containerWidth = fileActionsWidth + OMDToolbarActionGroupSpacing + utilityActionsWidth;
+        if (_toolbarPrimaryActionsContainer == nil) {
+            CGFloat controlY = floor((OMDToolbarItemHeight - OMDToolbarControlHeight) * 0.5);
+            _toolbarPrimaryActionsContainer = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, containerWidth, OMDToolbarItemHeight)];
+
+            _toolbarFileActionsControl = [[NSSegmentedControl alloc] initWithFrame:NSMakeRect(0, controlY, fileActionsWidth, OMDToolbarControlHeight)];
+            [_toolbarFileActionsControl setSegmentCount:4];
+            [_toolbarFileActionsControl setSegmentStyle:NSSegmentStyleRounded];
+            [[_toolbarFileActionsControl cell] setTrackingMode:NSSegmentSwitchTrackingMomentary];
+            [_toolbarFileActionsControl setTarget:self];
+            [_toolbarFileActionsControl setAction:@selector(toolbarActionControlChanged:)];
+            [_toolbarFileActionsControl setTag:1];
+            [_toolbarFileActionsControl setImage:(OMDToolbarThemedImageNamed(@"toolbar-explorer-toggle.png") ?: [NSImage imageNamed:@"NSMenuOnStateTemplate"]) forSegment:0];
+            [_toolbarFileActionsControl setImage:(OMDToolbarThemedImageNamed(@"toolbar-open.png") ?: OMDToolbarImageNamed(@"open-icon.png")) forSegment:1];
+            [_toolbarFileActionsControl setImage:(OMDToolbarThemedImageNamed(@"toolbar-import.png") ?: [NSImage imageNamed:@"NSOpen"]) forSegment:2];
+            [_toolbarFileActionsControl setImage:(OMDToolbarThemedImageNamed(@"toolbar-saveas.png") ?: [NSImage imageNamed:@"NSSave"]) forSegment:3];
+            [[_toolbarFileActionsControl cell] setToolTip:@"Show or hide the file explorer" forSegment:0];
+            [[_toolbarFileActionsControl cell] setToolTip:@"Open a Markdown file" forSegment:1];
+            [[_toolbarFileActionsControl cell] setToolTip:@"Import RTF, DOCX, or ODT" forSegment:2];
+            [[_toolbarFileActionsControl cell] setToolTip:@"Save current markdown changes" forSegment:3];
+            [_toolbarFileActionsControl setWidth:OMDToolbarActionSegmentWidth forSegment:0];
+            [_toolbarFileActionsControl setWidth:OMDToolbarActionSegmentWidth forSegment:1];
+            [_toolbarFileActionsControl setWidth:OMDToolbarActionSegmentWidth forSegment:2];
+            [_toolbarFileActionsControl setWidth:OMDToolbarActionSegmentWidth forSegment:3];
+            [_toolbarPrimaryActionsContainer addSubview:_toolbarFileActionsControl];
+
+            _toolbarUtilityActionsControl = [[NSSegmentedControl alloc] initWithFrame:NSMakeRect(fileActionsWidth + OMDToolbarActionGroupSpacing,
+                                                                                                 controlY,
+                                                                                                 utilityActionsWidth,
+                                                                                                 OMDToolbarControlHeight)];
+            [_toolbarUtilityActionsControl setSegmentCount:3];
+            [_toolbarUtilityActionsControl setSegmentStyle:NSSegmentStyleRounded];
+            [[_toolbarUtilityActionsControl cell] setTrackingMode:NSSegmentSwitchTrackingMomentary];
+            [_toolbarUtilityActionsControl setTarget:self];
+            [_toolbarUtilityActionsControl setAction:@selector(toolbarActionControlChanged:)];
+            [_toolbarUtilityActionsControl setTag:2];
+            [_toolbarUtilityActionsControl setImage:(OMDToolbarThemedImageNamed(@"toolbar-export.png") ?: [NSImage imageNamed:@"NSSave"]) forSegment:0];
+            [_toolbarUtilityActionsControl setImage:(OMDToolbarThemedImageNamed(@"toolbar-print.png") ?: [NSImage imageNamed:@"NSPrint"]) forSegment:1];
+            [_toolbarUtilityActionsControl setImage:([NSImage imageNamed:@"NSPreferencesGeneral"] ?: [NSImage imageNamed:@"preferences"]) forSegment:2];
+            [[_toolbarUtilityActionsControl cell] setToolTip:@"Export the current document as PDF" forSegment:0];
+            [[_toolbarUtilityActionsControl cell] setToolTip:@"Print the current document" forSegment:1];
+            [[_toolbarUtilityActionsControl cell] setToolTip:@"Open Preferences" forSegment:2];
+            [_toolbarUtilityActionsControl setWidth:OMDToolbarActionSegmentWidth forSegment:0];
+            [_toolbarUtilityActionsControl setWidth:OMDToolbarActionSegmentWidth forSegment:1];
+            [_toolbarUtilityActionsControl setWidth:OMDToolbarActionSegmentWidth forSegment:2];
+            [_toolbarPrimaryActionsContainer addSubview:_toolbarUtilityActionsControl];
+
+            [self updateToolbarActionControlsState];
+        }
+
+        NSToolbarItem *item = [[[NSToolbarItem alloc] initWithItemIdentifier:@"PrimaryActions"] autorelease];
+        [item setView:_toolbarPrimaryActionsContainer];
+        [item setMinSize:NSMakeSize(containerWidth, OMDToolbarItemHeight)];
+        [item setMaxSize:NSMakeSize(containerWidth, OMDToolbarItemHeight)];
+        [item setLabel:@""];
+        [item setPaletteLabel:@"Actions"];
+        [item setToolTip:@"Common document and workspace actions"];
+        return item;
+    }
+
     if ([identifier isEqualToString:@"ToggleExplorer"]) {
         NSToolbarItem *item = [[[NSToolbarItem alloc] initWithItemIdentifier:@"ToggleExplorer"] autorelease];
         [item setLabel:@"Explorer"];
@@ -2145,9 +2355,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
         if (image == nil) {
             image = [NSImage imageNamed:@"NSMenuOnStateTemplate"];
         }
-        if (image != nil) {
-            [item setImage:image];
-        }
+        OMDSetToolbarItemImage(item, image);
         return item;
     }
 
@@ -2165,9 +2373,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
         if (image == nil) {
             image = [NSImage imageNamed:@"NSOpen"];
         }
-        if (image != nil) {
-            [item setImage:image];
-        }
+        OMDSetToolbarItemImage(item, image);
         return item;
     }
 
@@ -2182,9 +2388,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
         if (image == nil) {
             image = [NSImage imageNamed:@"NSOpen"];
         }
-        if (image != nil) {
-            [item setImage:image];
-        }
+        OMDSetToolbarItemImage(item, image);
         return item;
     }
 
@@ -2202,9 +2406,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
         if (image == nil) {
             image = [NSImage imageNamed:@"NSSave"];
         }
-        if (image != nil) {
-            [item setImage:image];
-        }
+        OMDSetToolbarItemImage(item, image);
         return item;
     }
 
@@ -2222,9 +2424,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
         if (image == nil) {
             image = [NSImage imageNamed:@"NSAdvanced"];
         }
-        if (image != nil) {
-            [item setImage:image];
-        }
+        OMDSetToolbarItemImage(item, image);
         return item;
     }
 
@@ -2242,9 +2442,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
         if (image == nil) {
             image = [NSImage imageNamed:@"common_Printer.tiff"];
         }
-        if (image != nil) {
-            [item setImage:image];
-        }
+        OMDSetToolbarItemImage(item, image);
         return item;
     }
 
@@ -2259,9 +2457,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
         if (image == nil) {
             image = [NSImage imageNamed:@"NSSave"];
         }
-        if (image != nil) {
-            [item setImage:image];
-        }
+        OMDSetToolbarItemImage(item, image);
         return item;
     }
 
@@ -2360,13 +2556,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
 - (NSArray *)toolbarAllowedItemIdentifiers:(NSToolbar *)toolbar
 {
     return [NSArray arrayWithObjects:
-        @"ToggleExplorer",
-        @"OpenDocument",
-        @"ImportDocument",
-        @"SaveDocument",
-        @"Preferences",
-        @"ExportDocument",
-        @"PrintDocument",
+        @"PrimaryActions",
         @"ModeControls",
         NSToolbarFlexibleSpaceItemIdentifier,
         @"ZoomControls",
@@ -2376,13 +2566,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
 - (NSArray *)toolbarDefaultItemIdentifiers:(NSToolbar *)toolbar
 {
     return [NSArray arrayWithObjects:
-        @"ToggleExplorer",
-        @"OpenDocument",
-        @"ImportDocument",
-        @"SaveDocument",
-        @"Preferences",
-        @"ExportDocument",
-        @"PrintDocument",
+        @"PrimaryActions",
         @"ModeControls",
         NSToolbarFlexibleSpaceItemIdentifier,
         @"ZoomControls",
@@ -2396,6 +2580,71 @@ static NSMutableArray *OMDSecondaryWindows(void)
     }
     NSInteger percent = (NSInteger)lrint(_zoomScale * 100.0);
     [_zoomLabel setStringValue:[NSString stringWithFormat:@"%ld%%", (long)percent]];
+}
+
+- (void)toolbarActionControlChanged:(id)sender
+{
+    NSSegmentedControl *control = (NSSegmentedControl *)sender;
+    NSInteger segment = [control selectedSegment];
+    if (segment < 0) {
+        return;
+    }
+
+    if (control == _toolbarFileActionsControl) {
+        switch (segment) {
+            case 0:
+                [self toggleExplorerSidebar:control];
+                break;
+            case 1:
+                [self openDocument:control];
+                break;
+            case 2:
+                [self importDocument:control];
+                break;
+            case 3:
+                [self saveDocument:control];
+                break;
+            default:
+                break;
+        }
+    } else if (control == _toolbarUtilityActionsControl) {
+        switch (segment) {
+            case 0:
+                [self exportDocumentAsPDF:control];
+                break;
+            case 1:
+                [self printDocument:control];
+                break;
+            case 2:
+                [self showPreferences:control];
+                break;
+            default:
+                break;
+        }
+    }
+
+    [control setSelectedSegment:-1];
+    [self updateToolbarActionControlsState];
+}
+
+- (void)updateToolbarActionControlsState
+{
+    BOOL hasDocument = [self hasLoadedDocument];
+    if (_toolbarFileActionsControl != nil) {
+        [_toolbarFileActionsControl setEnabled:YES forSegment:0];
+        [_toolbarFileActionsControl setEnabled:YES forSegment:1];
+        [_toolbarFileActionsControl setEnabled:YES forSegment:2];
+        [_toolbarFileActionsControl setEnabled:hasDocument forSegment:3];
+        [[_toolbarFileActionsControl cell] setToolTip:(_explorerSidebarVisible
+                                                        ? @"Hide the file explorer"
+                                                        : @"Show the file explorer")
+                                           forSegment:0];
+    }
+    if (_toolbarUtilityActionsControl != nil) {
+        [_toolbarUtilityActionsControl setEnabled:hasDocument forSegment:0];
+        [_toolbarUtilityActionsControl setEnabled:hasDocument forSegment:1];
+        [_toolbarUtilityActionsControl setEnabled:YES forSegment:2];
+    }
 }
 
 - (void)zoomSliderChanged:(id)sender
@@ -2559,6 +2808,127 @@ static NSMutableArray *OMDSecondaryWindows(void)
         return [self hasLoadedDocument];
     }
     return YES;
+}
+
+- (void)menuNeedsUpdate:(NSMenu *)menu
+{
+    if (menu == _fileOpenRecentMenu) {
+        [self rebuildOpenRecentMenu];
+    }
+}
+
+- (void)rebuildOpenRecentMenu
+{
+    if (_fileOpenRecentMenu == nil) {
+        return;
+    }
+
+    while ([_fileOpenRecentMenu numberOfItems] > 0) {
+        [_fileOpenRecentMenu removeItemAtIndex:0];
+    }
+
+    NSArray *recentURLs = [[NSDocumentController sharedDocumentController] recentDocumentURLs];
+    NSUInteger addedCount = 0;
+    NSUInteger index = 0;
+    for (; index < [recentURLs count]; index++) {
+        NSURL *url = [recentURLs objectAtIndex:index];
+        if (url == nil || ![url isFileURL]) {
+            continue;
+        }
+
+        NSString *path = [url path];
+        if (path == nil || [path length] == 0) {
+            continue;
+        }
+
+        NSString *title = [path lastPathComponent];
+        if (title == nil || [title length] == 0) {
+            title = path;
+        }
+
+        NSMenuItem *item = [[[NSMenuItem alloc] initWithTitle:title
+                                                        action:@selector(openRecentDocumentFromMenuItem:)
+                                                 keyEquivalent:@""] autorelease];
+        [item setTarget:self];
+        [item setRepresentedObject:path];
+        if ([item respondsToSelector:@selector(setToolTip:)]) {
+            [item setToolTip:path];
+        }
+        [_fileOpenRecentMenu addItem:item];
+        addedCount += 1;
+    }
+
+    if (addedCount == 0) {
+        NSMenuItem *empty = [[[NSMenuItem alloc] initWithTitle:@"No Recent Documents"
+                                                         action:NULL
+                                                  keyEquivalent:@""] autorelease];
+        [empty setEnabled:NO];
+        [_fileOpenRecentMenu addItem:empty];
+        return;
+    }
+
+    [_fileOpenRecentMenu addItem:[NSMenuItem separatorItem]];
+    NSMenuItem *clearItem = [[[NSMenuItem alloc] initWithTitle:@"Clear Menu"
+                                                         action:@selector(clearRecentDocumentsMenu:)
+                                                  keyEquivalent:@""] autorelease];
+    [clearItem setTarget:self];
+    [_fileOpenRecentMenu addItem:clearItem];
+}
+
+- (void)noteRecentDocumentAtPathIfAvailable:(NSString *)path
+{
+    NSString *trimmedPath = OMDTrimmedString(path);
+    if ([trimmedPath length] == 0) {
+        return;
+    }
+
+    NSString *resolvedPath = [trimmedPath stringByExpandingTildeInPath];
+    if (![resolvedPath isAbsolutePath]) {
+        NSString *cwd = [[NSFileManager defaultManager] currentDirectoryPath];
+        resolvedPath = [cwd stringByAppendingPathComponent:resolvedPath];
+    }
+
+    NSURL *url = [NSURL fileURLWithPath:resolvedPath];
+    if (url != nil) {
+        [[NSDocumentController sharedDocumentController] noteNewRecentDocumentURL:url];
+    }
+}
+
+- (void)openRecentDocumentFromMenuItem:(id)sender
+{
+    NSString *path = nil;
+    if ([sender respondsToSelector:@selector(representedObject)]) {
+        id represented = [sender representedObject];
+        if ([represented isKindOfClass:[NSString class]]) {
+            path = (NSString *)represented;
+        }
+    }
+
+    if (path == nil || [path length] == 0) {
+        return;
+    }
+
+    if ([_documentTabs count] == 0 && _currentPath == nil && _currentMarkdown == nil) {
+        [self openDocumentAtPath:path];
+    } else {
+        [self openDocumentAtPathInNewWindow:path];
+    }
+}
+
+- (void)clearRecentDocumentsMenu:(id)sender
+{
+    [[NSDocumentController sharedDocumentController] clearRecentDocuments:sender];
+    [self rebuildOpenRecentMenu];
+}
+
+- (void)newWindow:(id)sender
+{
+    (void)sender;
+
+    OMDAppDelegate *controller = [[OMDAppDelegate alloc] init];
+    [controller setupWindow];
+    [controller registerAsSecondaryWindow];
+    [controller release];
 }
 
 - (void)openDocument:(id)sender
@@ -2845,14 +3215,18 @@ static NSMutableArray *OMDSecondaryWindows(void)
         return NO;
     }
 
-    return [self openDocumentWithMarkdown:(importedMarkdown != nil ? importedMarkdown : @"")
-                                sourcePath:path
-                              displayTitle:[path lastPathComponent]
-                                  readOnly:NO
-                                renderMode:OMDDocumentRenderModeMarkdown
-                            syntaxLanguage:nil
-                                  inNewTab:NO
-                       requireDirtyConfirm:YES];
+    BOOL opened = [self openDocumentWithMarkdown:(importedMarkdown != nil ? importedMarkdown : @"")
+                                       sourcePath:path
+                                     displayTitle:[path lastPathComponent]
+                                         readOnly:NO
+                                       renderMode:OMDDocumentRenderModeMarkdown
+                                   syntaxLanguage:nil
+                                         inNewTab:NO
+                              requireDirtyConfirm:YES];
+    if (opened) {
+        [self noteRecentDocumentAtPathIfAvailable:path];
+    }
+    return opened;
 }
 
 - (NSString *)defaultExportFileNameWithExtension:(NSString *)extension
@@ -3532,8 +3906,13 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [self updatePreviewDocumentGeometry];
     NSTimeInterval postStart = perfLogging ? OMDNow() : 0.0;
     [self updateCodeBlockButtons];
+    NSColor *bg = [_renderer backgroundColor];
     if ([_textView isKindOfClass:[OMDTextView class]]) {
         OMDTextView *codeView = (OMDTextView *)_textView;
+        [codeView setDocumentBackgroundColor:(bg != nil ? bg : [NSColor whiteColor])];
+        [codeView setDocumentBorderColor:OMDResolvedSubtleSeparatorColor()];
+        [codeView setDocumentCornerRadius:OMDPreviewPageCornerRadius];
+        [codeView setDocumentBorderWidth:OMDPreviewPageBorderWidth];
         [codeView setCodeBlockRanges:[_renderer codeBlockRanges]];
         [codeView setCodeBlockBackgroundColor:[NSColor colorWithCalibratedRed:(239.0 / 255.0)
                                                                          green:(243.0 / 255.0)
@@ -3551,15 +3930,13 @@ static NSMutableArray *OMDSecondaryWindows(void)
         [codeView setBlockquoteLineWidth:3.0];
         [codeView setNeedsDisplay:YES];
     }
-    NSColor *bg = [_renderer backgroundColor];
     if (bg != nil) {
         [_textView setDrawsBackground:NO];
-        [_textView setBackgroundColor:bg];
         [_previewScrollView setDrawsBackground:YES];
-        [_previewScrollView setBackgroundColor:bg];
+        [_previewScrollView setBackgroundColor:OMDResolvedChromeBackgroundColor()];
     } else {
         [_previewScrollView setDrawsBackground:YES];
-        [_previewScrollView setBackgroundColor:[NSColor whiteColor]];
+        [_previewScrollView setBackgroundColor:OMDResolvedChromeBackgroundColor()];
     }
     _lastRenderedSourceRevision = revisionAtRenderStart;
     if (_viewerMode == OMDViewerModeSplit) {
@@ -3705,8 +4082,26 @@ constrainSplitPosition:(CGFloat)proposedPosition
     if (object != _splitView) {
         return;
     }
+
+    CGFloat available = -1.0;
+    CGFloat width = [_splitView bounds].size.width;
+    CGFloat divider = [_splitView dividerThickness];
+    if (width > divider) {
+        available = width - divider;
+    }
+    BOOL canCompareWidth = (_lastObservedSplitAvailableWidth >= 0.0 && available >= 0.0);
+    BOOL widthChanged = (canCompareWidth &&
+                         fabs(available - _lastObservedSplitAvailableWidth) > 0.5);
+
     [self layoutSourceEditorContainer];
-    [self persistSplitViewRatio];
+    // Preserve the user-selected split ratio when the window width changes.
+    // Width-driven min-size clamping should not overwrite the stored ratio.
+    if (!_isApplyingSplitViewRatio && canCompareWidth && !widthChanged) {
+        [self persistSplitViewRatio];
+    }
+    if (available >= 0.0) {
+        _lastObservedSplitAvailableWidth = available;
+    }
     [self requestInteractiveRenderForLayoutWidthIfNeeded];
     [_splitView setNeedsDisplay:YES];
 }
@@ -3756,7 +4151,14 @@ constrainSplitPosition:(CGFloat)proposedPosition
     NSSize inset = [_textView textContainerInset];
     NSTextContainer *container = [_textView textContainer];
     CGFloat padding = container != nil ? [container lineFragmentPadding] : 0.0;
-    CGFloat width = bounds.size.width - (inset.width * 2.0) - (padding * 2.0);
+    CGFloat fullWidth = bounds.size.width - (inset.width * 2.0) - (padding * 2.0);
+    CGFloat width = fullWidth - (OMDPreviewCanvasHorizontalMargin * 2.0);
+    if (width < 360.0) {
+        width = fullWidth;
+    }
+    if (width > OMDPreviewMaximumLayoutWidth) {
+        width = OMDPreviewMaximumLayoutWidth;
+    }
     if (width < 0.0) {
         width = 0.0;
     }
@@ -3765,7 +4167,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
 
 - (void)updatePreviewDocumentGeometry
 {
-    if (_textView == nil || _previewScrollView == nil) {
+    if (_textView == nil || _previewScrollView == nil || _previewCanvasView == nil) {
         return;
     }
 
@@ -3779,7 +4181,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
     NSRect clipBounds = [clipView bounds];
     NSSize inset = [_textView textContainerInset];
     CGFloat padding = [container lineFragmentPadding];
-    CGFloat layoutWidth = clipBounds.size.width - (inset.width * 2.0) - (padding * 2.0);
+    CGFloat layoutWidth = [self currentPreviewLayoutWidth];
     if (layoutWidth < 1.0) {
         layoutWidth = 1.0;
     }
@@ -3789,7 +4191,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
     NSRect usedRect = [layoutManager usedRectForTextContainer:container];
 
     CGFloat contentWidth = ceil(usedRect.size.width + (inset.width * 2.0) + (padding * 2.0) + 2.0);
-    CGFloat targetWidth = clipBounds.size.width;
+    CGFloat targetWidth = ceil(layoutWidth + (inset.width * 2.0) + (padding * 2.0) + 2.0);
     if (contentWidth > targetWidth) {
         targetWidth = contentWidth;
     }
@@ -3805,11 +4207,42 @@ constrainSplitPosition:(CGFloat)proposedPosition
     if (targetHeight < 1.0) {
         targetHeight = 1.0;
     }
+    if (targetHeight < clipBounds.size.height) {
+        targetHeight = clipBounds.size.height;
+    }
 
+    CGFloat canvasWidth = clipBounds.size.width;
+    if (targetWidth > canvasWidth) {
+        canvasWidth = targetWidth;
+    }
+    if (canvasWidth < 1.0) {
+        canvasWidth = 1.0;
+    }
+
+    CGFloat canvasHeight = clipBounds.size.height;
+    if (targetHeight > canvasHeight) {
+        canvasHeight = targetHeight;
+    }
+    if (canvasHeight < 1.0) {
+        canvasHeight = 1.0;
+    }
+
+    NSRect canvasFrame = [_previewCanvasView frame];
+    if (fabs(canvasFrame.size.width - canvasWidth) > 0.5 ||
+        fabs(canvasFrame.size.height - canvasHeight) > 0.5) {
+        [_previewCanvasView setFrameSize:NSMakeSize(canvasWidth, canvasHeight)];
+    }
+
+    CGFloat textX = 0.0;
+    if (canvasWidth > targetWidth) {
+        textX = floor((canvasWidth - targetWidth) * 0.5);
+    }
     NSRect frame = [_textView frame];
-    if (fabs(frame.size.width - targetWidth) > 0.5 ||
-        fabs(frame.size.height - targetHeight) > 0.5) {
-        [_textView setFrameSize:NSMakeSize(targetWidth, targetHeight)];
+    NSRect targetFrame = NSIntegralRect(NSMakeRect(textX, 0.0, targetWidth, targetHeight));
+    if (fabs(frame.origin.x - targetFrame.origin.x) > 0.5 ||
+        fabs(frame.size.width - targetFrame.size.width) > 0.5 ||
+        fabs(frame.size.height - targetFrame.size.height) > 0.5) {
+        [_textView setFrame:targetFrame];
     }
 }
 
@@ -4261,9 +4694,6 @@ constrainSplitPosition:(CGFloat)proposedPosition
         }
     }
 
-    if (previousMode == OMDViewerModeSplit && mode != OMDViewerModeSplit) {
-        [self persistSplitViewRatio];
-    }
     _viewerMode = mode;
     if (persistPreference) {
         [[NSUserDefaults standardUserDefaults] setInteger:_viewerMode forKey:@"ObjcMarkdownViewerMode"];
@@ -4398,6 +4828,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
 - (void)applyCurrentDocumentReadOnlyState
 {
     if (_sourceTextView == nil) {
+        [self updateToolbarActionControlsState];
         return;
     }
 
@@ -4405,6 +4836,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
     [_sourceTextView setEditable:editable];
     [_sourceTextView setSelectable:YES];
     [self updateFormattingBarContextState];
+    [self updateToolbarActionControlsState];
 }
 
 - (void)updateTabStrip
@@ -4418,6 +4850,10 @@ constrainSplitPosition:(CGFloat)proposedPosition
         [view removeFromSuperview];
     }
     [existingSubviews release];
+
+    if ([_tabStripView isHidden] || [self currentTabStripHeight] <= 0.0) {
+        return;
+    }
 
     NSRect bounds = [_tabStripView bounds];
     if ([_documentTabs count] == 0) {
@@ -5044,8 +5480,28 @@ constrainSplitPosition:(CGFloat)proposedPosition
 
     NSRect bounds = [_sidebarContainer bounds];
     CGFloat width = NSWidth(bounds);
+    CGFloat wideControlWidth = width - 20.0;
+    if (wideControlWidth < 1.0) {
+        wideControlWidth = 1.0;
+    }
+    CGFloat userComboWidth = width - 66.0;
+    if (userComboWidth < 1.0) {
+        userComboWidth = 1.0;
+    }
+    CGFloat pathWidth = width - 76.0;
+    if (pathWidth < 1.0) {
+        pathWidth = 1.0;
+    }
+    CGFloat scrollHeight = NSHeight(bounds) - 160.0;
+    if (scrollHeight < 80.0) {
+        scrollHeight = 80.0;
+    }
+    CGFloat scrollWidth = width - 16.0;
+    if (scrollWidth < 1.0) {
+        scrollWidth = 1.0;
+    }
 
-    _explorerSourceModeControl = [[NSSegmentedControl alloc] initWithFrame:NSMakeRect(10, NSHeight(bounds) - 34, width - 20, 24)];
+    _explorerSourceModeControl = [[NSSegmentedControl alloc] initWithFrame:NSMakeRect(10, NSHeight(bounds) - 34, wideControlWidth, 24)];
     [_explorerSourceModeControl setSegmentCount:2];
     [_explorerSourceModeControl setLabel:@"Local" forSegment:0];
     [_explorerSourceModeControl setLabel:@"GitHub" forSegment:1];
@@ -5055,7 +5511,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
     [_explorerSourceModeControl setAutoresizingMask:(NSViewWidthSizable | NSViewMinYMargin)];
     [_sidebarContainer addSubview:_explorerSourceModeControl];
 
-    _explorerLocalRootLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(10, NSHeight(bounds) - 60, width - 20, 16)];
+    _explorerLocalRootLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(10, NSHeight(bounds) - 60, wideControlWidth, 16)];
     [_explorerLocalRootLabel setBezeled:NO];
     [_explorerLocalRootLabel setEditable:NO];
     [_explorerLocalRootLabel setSelectable:NO];
@@ -5074,7 +5530,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
     [_explorerGitHubUserLabel setAutoresizingMask:NSViewMinYMargin];
     [_sidebarContainer addSubview:_explorerGitHubUserLabel];
 
-    _explorerGitHubUserComboBox = [[NSComboBox alloc] initWithFrame:NSMakeRect(56, NSHeight(bounds) - 64, width - 66, 22)];
+    _explorerGitHubUserComboBox = [[NSComboBox alloc] initWithFrame:NSMakeRect(56, NSHeight(bounds) - 64, userComboWidth, 22)];
     [_explorerGitHubUserComboBox setUsesDataSource:NO];
     [_explorerGitHubUserComboBox setCompletes:YES];
     [_explorerGitHubUserComboBox setTarget:self];
@@ -5083,7 +5539,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
     [_explorerGitHubUserComboBox setAutoresizingMask:(NSViewWidthSizable | NSViewMinYMargin)];
     [_sidebarContainer addSubview:_explorerGitHubUserComboBox];
 
-    _explorerGitHubRepoComboBox = [[NSComboBox alloc] initWithFrame:NSMakeRect(10, NSHeight(bounds) - 90, width - 20, 22)];
+    _explorerGitHubRepoComboBox = [[NSComboBox alloc] initWithFrame:NSMakeRect(10, NSHeight(bounds) - 90, wideControlWidth, 22)];
     [_explorerGitHubRepoComboBox setUsesDataSource:NO];
     [_explorerGitHubRepoComboBox setCompletes:YES];
     [_explorerGitHubRepoComboBox setTarget:self];
@@ -5092,7 +5548,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
     [_explorerGitHubRepoComboBox setAutoresizingMask:(NSViewWidthSizable | NSViewMinYMargin)];
     [_sidebarContainer addSubview:_explorerGitHubRepoComboBox];
 
-    _explorerGitHubIncludeForkArchivedButton = [[NSButton alloc] initWithFrame:NSMakeRect(10, NSHeight(bounds) - 116, width - 20, 20)];
+    _explorerGitHubIncludeForkArchivedButton = [[NSButton alloc] initWithFrame:NSMakeRect(10, NSHeight(bounds) - 116, wideControlWidth, 20)];
     [_explorerGitHubIncludeForkArchivedButton setButtonType:NSSwitchButton];
     [_explorerGitHubIncludeForkArchivedButton setTitle:@"Include forked + archived repos"];
     [_explorerGitHubIncludeForkArchivedButton setFont:[NSFont systemFontOfSize:11.0]];
@@ -5101,7 +5557,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
     [_explorerGitHubIncludeForkArchivedButton setAutoresizingMask:(NSViewWidthSizable | NSViewMinYMargin)];
     [_sidebarContainer addSubview:_explorerGitHubIncludeForkArchivedButton];
 
-    _explorerShowHiddenFilesButton = [[NSButton alloc] initWithFrame:NSMakeRect(10, NSHeight(bounds) - 84, width - 20, 20)];
+    _explorerShowHiddenFilesButton = [[NSButton alloc] initWithFrame:NSMakeRect(10, NSHeight(bounds) - 84, wideControlWidth, 20)];
     [_explorerShowHiddenFilesButton setButtonType:NSSwitchButton];
     [_explorerShowHiddenFilesButton setTitle:@"Show hidden files"];
     [_explorerShowHiddenFilesButton setFont:[NSFont systemFontOfSize:11.0]];
@@ -5119,7 +5575,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
     [_explorerNavigateUpButton setAutoresizingMask:NSViewMinYMargin];
     [_sidebarContainer addSubview:_explorerNavigateUpButton];
 
-    _explorerPathLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(66, NSHeight(bounds) - 140, width - 76, 18)];
+    _explorerPathLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(66, NSHeight(bounds) - 140, pathWidth, 18)];
     [_explorerPathLabel setBezeled:NO];
     [_explorerPathLabel setEditable:NO];
     [_explorerPathLabel setSelectable:NO];
@@ -5128,7 +5584,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
     [_explorerPathLabel setAutoresizingMask:(NSViewWidthSizable | NSViewMinYMargin)];
     [_sidebarContainer addSubview:_explorerPathLabel];
 
-    _explorerScrollView = [[NSScrollView alloc] initWithFrame:NSMakeRect(8, 10, width - 16, NSHeight(bounds) - 160)];
+    _explorerScrollView = [[NSScrollView alloc] initWithFrame:NSMakeRect(8, 10, scrollWidth, scrollHeight)];
     [_explorerScrollView setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable)];
     [_explorerScrollView setHasVerticalScroller:YES];
     [_explorerScrollView setHasHorizontalScroller:NO];
@@ -5193,13 +5649,29 @@ constrainSplitPosition:(CGFloat)proposedPosition
     NSRect bounds = [_sidebarContainer bounds];
     CGFloat width = NSWidth(bounds);
     CGFloat height = NSHeight(bounds);
-    [_explorerSourceModeControl setFrame:NSMakeRect(10, height - 34, width - 20, 24)];
-    [_explorerLocalRootLabel setFrame:NSMakeRect(10, height - 60, width - 20, 16)];
+    CGFloat wideControlWidth = width - 20.0;
+    if (wideControlWidth < 1.0) {
+        wideControlWidth = 1.0;
+    }
+    CGFloat userComboWidth = width - 66.0;
+    if (userComboWidth < 1.0) {
+        userComboWidth = 1.0;
+    }
+    CGFloat pathWidth = width - 76.0;
+    if (pathWidth < 1.0) {
+        pathWidth = 1.0;
+    }
+    CGFloat scrollWidth = width - 16.0;
+    if (scrollWidth < 1.0) {
+        scrollWidth = 1.0;
+    }
+    [_explorerSourceModeControl setFrame:NSMakeRect(10, height - 34, wideControlWidth, 24)];
+    [_explorerLocalRootLabel setFrame:NSMakeRect(10, height - 60, wideControlWidth, 16)];
     [_explorerGitHubUserLabel setFrame:NSMakeRect(10, height - 60, 44, 20)];
-    [_explorerGitHubUserComboBox setFrame:NSMakeRect(56, height - 64, width - 66, 22)];
-    [_explorerGitHubRepoComboBox setFrame:NSMakeRect(10, height - 90, width - 20, 22)];
-    [_explorerGitHubIncludeForkArchivedButton setFrame:NSMakeRect(10, height - 116, width - 20, 20)];
-    [_explorerShowHiddenFilesButton setFrame:NSMakeRect(10, height - 84, width - 20, 20)];
+    [_explorerGitHubUserComboBox setFrame:NSMakeRect(56, height - 64, userComboWidth, 22)];
+    [_explorerGitHubRepoComboBox setFrame:NSMakeRect(10, height - 90, wideControlWidth, 22)];
+    [_explorerGitHubIncludeForkArchivedButton setFrame:NSMakeRect(10, height - 116, wideControlWidth, 20)];
+    [_explorerShowHiddenFilesButton setFrame:NSMakeRect(10, height - 84, wideControlWidth, 20)];
 
     CGFloat navigateUpY = (githubMode ? height - 144 : height - 118);
     CGFloat pathY = (githubMode ? height - 140 : height - 114);
@@ -5208,8 +5680,8 @@ constrainSplitPosition:(CGFloat)proposedPosition
         scrollHeight = 80;
     }
     [_explorerNavigateUpButton setFrame:NSMakeRect(10, navigateUpY, 52, 22)];
-    [_explorerPathLabel setFrame:NSMakeRect(66, pathY, width - 76, 18)];
-    [_explorerScrollView setFrame:NSMakeRect(8, 10, width - 16, scrollHeight)];
+    [_explorerPathLabel setFrame:NSMakeRect(66, pathY, pathWidth, 18)];
+    [_explorerScrollView setFrame:NSMakeRect(8, 10, scrollWidth, scrollHeight)];
     NSTableColumn *nameColumn = [_explorerTableView tableColumnWithIdentifier:@"ExplorerName"];
     if (nameColumn != nil) {
         [nameColumn setWidth:NSWidth([_explorerScrollView bounds]) - 2.0];
@@ -6336,14 +6808,17 @@ constrainSplitPosition:(CGFloat)proposedPosition
             return;
         }
 
-        [self openDocumentWithMarkdown:(importedMarkdown != nil ? importedMarkdown : @"")
-                            sourcePath:path
-                          displayTitle:[path lastPathComponent]
-                              readOnly:NO
-                            renderMode:OMDDocumentRenderModeMarkdown
-                        syntaxLanguage:nil
-                              inNewTab:inNewTab
-                   requireDirtyConfirm:!inNewTab];
+        BOOL opened = [self openDocumentWithMarkdown:(importedMarkdown != nil ? importedMarkdown : @"")
+                                          sourcePath:path
+                                        displayTitle:[path lastPathComponent]
+                                            readOnly:NO
+                                          renderMode:OMDDocumentRenderModeMarkdown
+                                      syntaxLanguage:nil
+                                            inNewTab:inNewTab
+                                 requireDirtyConfirm:!inNewTab];
+        if (opened) {
+            [self noteRecentDocumentAtPathIfAvailable:path];
+        }
         return;
     }
 
@@ -6365,14 +6840,17 @@ constrainSplitPosition:(CGFloat)proposedPosition
                                 ? OMDVerbatimSyntaxTokenForExtension(extension)
                                 : nil);
 
-    [self openDocumentWithMarkdown:markdown
-                        sourcePath:path
-                      displayTitle:[path lastPathComponent]
-                          readOnly:NO
-                        renderMode:renderMode
-                    syntaxLanguage:syntaxLanguage
-                          inNewTab:inNewTab
-               requireDirtyConfirm:!inNewTab];
+    BOOL opened = [self openDocumentWithMarkdown:markdown
+                                      sourcePath:path
+                                    displayTitle:[path lastPathComponent]
+                                        readOnly:NO
+                                      renderMode:renderMode
+                                  syntaxLanguage:syntaxLanguage
+                                        inNewTab:inNewTab
+                             requireDirtyConfirm:!inNewTab];
+    if (opened) {
+        [self noteRecentDocumentAtPathIfAvailable:path];
+    }
 }
 
 - (void)openGitHubFileEntry:(NSDictionary *)entry inNewTab:(BOOL)inNewTab
@@ -6622,6 +7100,7 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
 
 - (void)updatePreviewStatusIndicator
 {
+    [self updateToolbarActionControlsState];
     if (_previewStatusLabel == nil) {
         return;
     }
@@ -7254,7 +7733,9 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
     if (position > (available - minWidth)) {
         position = available - minWidth;
     }
+    _isApplyingSplitViewRatio = YES;
     [_splitView setPosition:position ofDividerAtIndex:0];
+    _isApplyingSplitViewRatio = NO;
 }
 
 - (void)persistSplitViewRatio
@@ -7865,7 +8346,7 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
 - (void)showPreferences:(id)sender
 {
     if (_preferencesPanel == nil) {
-        NSRect frame = NSMakeRect(160, 140, 460, 560);
+        NSRect frame = NSMakeRect(160, 140, 460, 500);
         _preferencesPanel = [[NSPanel alloc] initWithContentRect:frame
                                                         styleMask:(NSTitledWindowMask | NSClosableWindowMask)
                                                           backing:NSBackingStoreBuffered
@@ -9739,14 +10220,18 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
                                 ? OMDVerbatimSyntaxTokenForExtension(extension)
                                 : nil);
 
-    return [self openDocumentWithMarkdown:markdown
-                                sourcePath:resolvedPath
-                              displayTitle:[resolvedPath lastPathComponent]
-                                  readOnly:NO
-                                renderMode:renderMode
-                            syntaxLanguage:syntaxLanguage
-                                  inNewTab:NO
-                       requireDirtyConfirm:YES];
+    BOOL opened = [self openDocumentWithMarkdown:markdown
+                                       sourcePath:resolvedPath
+                                     displayTitle:[resolvedPath lastPathComponent]
+                                         readOnly:NO
+                                       renderMode:renderMode
+                                   syntaxLanguage:syntaxLanguage
+                                         inNewTab:NO
+                              requireDirtyConfirm:YES];
+    if (opened) {
+        [self noteRecentDocumentAtPathIfAvailable:resolvedPath];
+    }
+    return opened;
 }
 
 - (BOOL)openDocumentAtPathInNewWindow:(NSString *)path
@@ -9803,7 +10288,6 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
 
 - (void)windowWillClose:(NSNotification *)notification
 {
-    [self persistSplitViewRatio];
     [self cancelPendingInteractiveRender];
     [self cancelPendingMathArtifactRender];
     [self cancelPendingLivePreviewRender];

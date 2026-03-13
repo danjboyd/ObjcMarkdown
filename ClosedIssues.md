@@ -513,3 +513,62 @@
   - Identified a likely root cause on MSYS2: Sombre built against a different `gnustep-base` DLL version than the app (`1_31` vs `1_30`).
   - Rebuilt and installed Sombre with the same toolchain so `Sombre.dll` links to `gnustep-base-1_30.dll`, restoring launch without the `NSConstantString ... forwardInvocation: ... hash` exception.
   - Verified UAT on Windows with the Sombre preference and successful relaunch.
+
+## 43) GNOME dock identity + additional window launch ergonomics
+
+- **Status**: Closed
+- **Closed On**: 2026-03-02
+- **Area**: Linux desktop integration / Multi-window UX
+- **Description**: Running app showed a generic `GNUstep` dock icon/label in GNOME and lacked an obvious dock-level way to open additional windows.
+- **Resolution**:
+  - Added Linux desktop entry metadata to improve dock matching:
+    - `StartupWMClass=GNUstep`
+    - `X-GNOME-WMClass=MarkdownViewer`
+    - `StartupNotify=true`
+  - Added dock action support:
+    - `Actions=NewWindow;` plus a `[Desktop Action NewWindow]` section in `Resources/MarkdownViewer.desktop.in`.
+    - Desktop action executes launcher with `--new-window`.
+  - Updated launcher scripts to accept and consume `--new-window`:
+    - `scripts/omd-viewer.sh`
+    - `scripts/omd-viewer-msys2.sh`
+  - Added in-app multi-window command:
+    - `File -> New Window` (`Cmd/Ctrl+N`) in `OMDAppDelegate`.
+  - Set application icon image on startup from bundled `markdown_icon.png` so runtime icon presentation is explicit.
+
+## 44) Split-view divider drift during window resize
+
+- **Status**: Closed
+- **Closed On**: 2026-03-02
+- **Area**: Viewer / Split layout / Resize behavior
+- **Description**: In Split mode, shrinking window width pushed the divider left and restoring width did not return the divider to the prior relative split.
+- **Resolution**:
+  - Stopped persisting split ratio during width-change resize events; ratio now persists only for divider-position changes at stable width.
+  - Added internal guard state to distinguish programmatic divider updates from user-driven divider moves.
+  - Kept stored split ratio stable across constrained window sizes so width restoration returns to expected relative divider position.
+  - Removed mode-exit and window-close ratio persistence calls that could overwrite preferred ratio while the window is constrained.
+
+## 45) Adwaita toolbar actions missing on GNUstep
+
+- **Status**: Closed
+- **Closed On**: 2026-03-12
+- **Area**: Viewer / Toolbar / Theme compatibility
+- **Description**: Under the Adwaita GNUstep theme, the viewer toolbar action icons were not drawing and the left side of the toolbar collapsed into empty space.
+- **Resolution**:
+  - Replaced the stock per-item toolbar buttons with a fixed custom segmented action strip so GNUstep renders the toolbar actions reliably.
+  - Prepared toolbar images at a consistent small size before inserting them into the toolbar controls.
+  - Verified the Adwaita toolbar now shows the Explorer, Open, Import, Save, Export, Print, and Preferences actions in the window chrome.
+
+## 46) GNOME launcher failure in development checkout
+
+- **Status**: Closed
+- **Closed On**: 2026-03-12
+- **Area**: Linux desktop integration / Launcher
+- **Description**: Launching the app from GNOME could fail in a development checkout because local desktop entries and wrapper scripts were inconsistent.
+- **Resolution**:
+  - Restored executable permissions on the launcher wrapper scripts:
+    - `scripts/omd-viewer.sh`
+    - `scripts/omd-viewer-msys2.sh`
+    - `scripts/install-desktop.sh`
+  - Normalized `scripts/install-desktop.sh` back to LF line endings so desktop-entry reinstall works on Linux.
+  - Updated the desktop entry template to invoke the wrapper through `bash`, making the launcher resilient even if the exec bit is lost again.
+  - Updated `scripts/install-desktop.sh` to remove stale local desktop entries from this checkout and keep only the canonical `markdownviewer.desktop` launcher.

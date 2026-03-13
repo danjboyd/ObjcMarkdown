@@ -5,6 +5,10 @@
 
 @interface OMDTextView : NSTextView
 
+@property (nonatomic, retain) NSColor *documentBackgroundColor;
+@property (nonatomic, retain) NSColor *documentBorderColor;
+@property (nonatomic, assign) CGFloat documentCornerRadius;
+@property (nonatomic, assign) CGFloat documentBorderWidth;
 @property (nonatomic, retain) NSArray *codeBlockRanges;
 @property (nonatomic, retain) NSColor *codeBlockBackgroundColor;
 @property (nonatomic, retain) NSColor *codeBlockBorderColor;

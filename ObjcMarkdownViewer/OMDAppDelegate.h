@@ -21,6 +21,7 @@
     NSView *_documentContainer;
     NSSplitView *_splitView;
     NSScrollView *_previewScrollView;
+    NSView *_previewCanvasView;
     NSScrollView *_sourceScrollView;
     NSView *_sourceEditorContainer;
     OMDFormattingBarView *_formattingBarView;
@@ -38,6 +39,7 @@
     NSMutableArray *_documentTabs;
     NSInteger _selectedDocumentTabIndex;
     OMDGitHubClient *_gitHubClient;
+    NSMenu *_fileOpenRecentMenu;
     NSMenuItem *_viewShowExplorerMenuItem;
     NSSegmentedControl *_explorerSourceModeControl;
     NSTextField *_explorerLocalRootLabel;
@@ -63,6 +65,9 @@
     BOOL _explorerIsLoading;
     BOOL _explorerSidebarVisible;
     CGFloat _explorerSidebarLastVisibleWidth;
+    NSView *_toolbarPrimaryActionsContainer;
+    NSSegmentedControl *_toolbarFileActionsControl;
+    NSSegmentedControl *_toolbarUtilityActionsControl;
     NSSlider *_zoomSlider;
     NSTextField *_zoomLabel;
     NSButton *_zoomResetButton;
@@ -108,11 +113,13 @@
     NSSecureTextField *_preferencesExplorerGitHubTokenField;
     NSInteger _viewerMode;
     CGFloat _splitRatio;
+    CGFloat _lastObservedSplitAvailableWidth;
     BOOL _isProgrammaticSourceUpdate;
     BOOL _isProgrammaticSourceHighlightUpdate;
     BOOL _isProgrammaticSelectionSync;
     BOOL _isProgrammaticPreviewUpdate;
     BOOL _isProgrammaticScrollSync;
+    BOOL _isApplyingSplitViewRatio;
     BOOL _previewStatusUpdatingVisible;
     BOOL _previewStatusShowsUpdated;
     BOOL _previewIsUpdating;

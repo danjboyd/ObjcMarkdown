@@ -4,6 +4,12 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 GNUSTEP_SH="${GNUSTEP_SH:-/clang64/share/GNUstep/Makefiles/GNUstep.sh}"
 
+# Desktop action helper: allow explicit "new window" launches without
+# passing an unknown option through to the app.
+if [[ "${1:-}" == "--new-window" ]]; then
+  shift
+fi
+
 if [[ ! -f "$GNUSTEP_SH" ]]; then
   echo "GNUstep.sh not found at: $GNUSTEP_SH" >&2
   echo "Set GNUSTEP_SH to your MSYS2 GNUstep.sh path and retry." >&2
