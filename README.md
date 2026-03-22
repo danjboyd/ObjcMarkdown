@@ -25,6 +25,40 @@ Current viewer capabilities include:
 - local file explorer and GitHub browsing helpers
 - optional import/export flows through external tools such as `pandoc` when available
 
+## Markdown Support
+
+The renderer is centered on CommonMark, with a few pragmatic viewer/editor additions on top.
+
+Currently supported in the preview path:
+
+- CommonMark headings, paragraphs, emphasis, strong emphasis, inline code, and fenced or indented code blocks
+- blockquotes, ordered lists, unordered lists, and thematic breaks
+- links, relative links with base-URL resolution, and image attachments with fallback text when decoding fails
+- inline and block HTML as safe fallback text by default, with an explicit ignore policy available in code
+- optional math styling for inline and display math
+- GitHub-style pipe tables in preview, including horizontal overflow for wide tables
+- optional renderer syntax highlighting for code blocks when the required tooling is available
+
+Editor-side conveniences include:
+
+- formatting-bar commands for headings, inline formatting, links, images, lists, code blocks, tables, and rules
+- structured newline handling for lists, task lists, ordered lists, and blockquotes
+- split-view source/preview synchronization
+
+## Document Import And Export
+
+Native/document-first behavior:
+
+- open and edit Markdown files directly
+- export the rendered document to PDF from the viewer
+
+Pandoc-backed conversions, when `pandoc` is installed:
+
+- import: `RTF`, `DOCX`, `ODT`, `HTML`, `HTM`
+- export: `RTF`, `DOCX`, `ODT`, `HTML`, `HTM`
+
+If `pandoc` is unavailable, those non-Markdown import/export formats are disabled, but PDF export from the viewer remains available.
+
 ## Screenshots
 
 ### Read mode
