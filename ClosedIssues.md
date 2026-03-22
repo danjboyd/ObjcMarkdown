@@ -722,3 +722,81 @@
   - Added a new `Scroll Speed` slider to the Appearance preferences section.
   - Persisted the setting in app defaults and applied it live to the source, preview, and explorer scroll views via GNUstep's native `verticalLineScroll` / `horizontalLineScroll` APIs.
   - Increased the app's shipped default above GNUstep's stock `10` point line step so scrolling feels less glacial out of the box while still keeping the GNUstep-native mechanism.
+
+## 60) Read-mode preview could leave overlapping ghost copies during window resize
+
+- **Status**: Closed
+- **Closed On**: 2026-03-22
+- **Area**: Viewer / Preview layout / Resize redraw
+- **Description**: Resizing the window in preview-visible modes could sometimes leave an old copy of the rendered page behind the newly laid-out preview, making it look like two versions of the document were overlapping.
+- **Resolution**:
+  - Replaced the plain preview canvas container with an opaque fill view so old preview pixels are actively cleared instead of relying on a transparent document-view background.
+  - Marked the union of the old and new preview-page frames dirty whenever the preview page is resized or re-centered, forcing GNUstep to repaint the area that previously held the stale copy.
+  - Rebuilt the app and reran the full GNUstep test bundle after the preview-canvas redraw fix.
+
+## 61) GitHub explorer list could overlap the sidebar header controls
+
+- **Status**: Closed
+- **Closed On**: 2026-03-22
+- **Area**: Viewer / Explorer sidebar / GitHub mode layout
+- **Description**: In GitHub explorer mode, the file list scroll view could be laid out slightly too high, which let it paint over the bottom edge of the `Up` button and repository path label and made the top of the list/header area look clipped.
+- **Resolution**:
+  - Replaced the fixed list-height math with a layout derived from the actual `Up` button and path-label frames, so the scroll view always starts below the visible header controls.
+  - Removed the forced 80-point minimum list height in this path so a shorter window shrinks the list instead of reintroducing overlap.
+  - Rebuilt the app and reran the full GNUstep test bundle after the explorer-sidebar layout fix.
+
+## 62) Short preview documents could collapse to a short card instead of using a full-height reading surface
+
+- **Status**: Closed
+- **Closed On**: 2026-03-22
+- **Area**: Viewer / Preview layout / Read mode resizing
+- **Description**: In read mode, short documents could open or resize into a short white card instead of filling the visible reading surface because the preview geometry could be measured against stale clip bounds and the preview text view could shrink itself back down to content height.
+- **Resolution**:
+  - Forced the preview scroll view to refresh its clip geometry before width and height measurements so initial opens, mode switches, and read-pane resizes use the current viewport instead of stale pre-tile bounds.
+  - Flipped the preview canvas view so the reading surface is top-aligned inside the scroll view.
+  - Disabled automatic horizontal and vertical resizing on the preview text view so the preview layout code, not GNUstep text view autosizing, owns the visible document surface size.
+  - Rebuilt the app and reran the full GNUstep test bundle after the read-mode preview alignment fix.
+
+## 63) Disabled toolbar actions could still look active in the segmented icon group
+
+- **Status**: Closed
+- **Closed On**: 2026-03-22
+- **Area**: Viewer / Toolbar / Disabled-state affordance
+- **Description**: In the primary segmented toolbar controls, disabled actions such as `Save` could still render with the same dark icon tint as enabled actions, which made them look clickable even when the control logic had already disabled them.
+- **Resolution**:
+  - Added an explicit toolbar-image tinting helper so segmented control icons can be redrawn with a muted disabled color instead of relying on GNUstep to dim pre-tinted images.
+  - Applied that disabled tint to `Save`, `Export PDF`, and `Print` whenever those actions are unavailable.
+  - Rebuilt the app and reran the full GNUstep test bundle after the toolbar disabled-state fix.
+
+## 64) Read -> Split -> Read could restore the wrong document position
+
+- **Status**: Closed
+- **Closed On**: 2026-03-22
+- **Area**: Viewer / Mode switching / Scroll-position preservation
+- **Description**: Switching from Read to Split and back to Read could jump the document to an unrelated position, often near the bottom, because mode transitions were restoring from selection-based anchors instead of the visible preview/source viewport.
+- **Resolution**:
+  - Changed transitions out of Read mode to capture the visible preview viewport anchor instead of the preview selection location.
+  - Changed Split -> Read transitions to capture the visible source viewport anchor, and used explicit viewport-anchored scrolling when restoring source/preview positions during the mode change.
+  - Rebuilt the app and reran the full GNUstep test bundle after the mode-transition scroll preservation fix.
+
+## 65) Explorer parent-navigation button could render like a clipped dot
+
+- **Status**: Closed
+- **Closed On**: 2026-03-22
+- **Area**: Viewer / Explorer sidebar / Header controls
+- **Description**: The small header button used to move to the parent folder or repository path could render unclearly under GNUstep, sometimes looking like a clipped `.` instead of a readable label.
+- **Resolution**:
+  - Replaced the text label with a compact icon-only parent-navigation button so the control no longer depends on theme-specific button text rendering.
+  - Tinted and disabled the button when the explorer is already at its root path, so its visual state matches whether navigation is possible.
+  - Rebuilt the app and reran the full GNUstep test bundle after the explorer parent-button fix.
+
+## 66) GNUstep startup still emitted residual negative-width warnings from the hidden tab strip
+
+- **Status**: Closed
+- **Closed On**: 2026-03-22
+- **Area**: Viewer / Window chrome / Initial layout
+- **Description**: Launching the viewer under GNUstep could still emit a couple of `NSView setFrame: given negative width` warnings during startup because the hidden zero-height tab strip was left with an autoresizing mask that GNUstep could drive into invalid geometry during the earliest workspace layout passes.
+- **Resolution**:
+  - Traced the remaining warnings to the app-owned `TabStripView` rather than GNUstep window decorations.
+  - Switched the tab strip to fully manual layout and collapse it to `NSZeroRect` whenever the strip is not visible, instead of leaving a hidden zero-height autoresizing view in the hierarchy.
+  - Rebuilt the app, verified a clean startup launch with no remaining negative-width warnings, and reran the full GNUstep test bundle.

@@ -37,6 +37,7 @@ static const NSTimeInterval OMDLinkedScrollDriverHoldInterval = 0.14;
 static const NSTimeInterval OMDSourceSyntaxHighlightDebounceInterval = 0.08;
 static const NSTimeInterval OMDSourceSyntaxHighlightLargeDocDebounceInterval = 0.16;
 static const NSTimeInterval OMDRecoveryAutosaveDebounceInterval = 1.25;
+static const NSTimeInterval OMDExternalFileMonitorInterval = 1.50;
 static const NSTimeInterval OMDCopyFeedbackDisplayInterval = 0.95;
 static const NSUInteger OMDSourceSyntaxIncrementalThreshold = 120000;
 static const NSUInteger OMDSourceSyntaxIncrementalContextChars = 12000;
@@ -111,6 +112,9 @@ static NSString * const OMDTabGitHubRepoKey = @"githubRepo";
 static NSString * const OMDTabGitHubPathKey = @"githubPath";
 static NSString * const OMDTabRenderModeKey = @"renderMode";
 static NSString * const OMDTabSyntaxLanguageKey = @"syntaxLanguage";
+static NSString * const OMDTabLoadedDiskFingerprintKey = @"loadedDiskFingerprint";
+static NSString * const OMDTabObservedDiskFingerprintKey = @"observedDiskFingerprint";
+static NSString * const OMDTabSuppressedDiskFingerprintKey = @"suppressedDiskFingerprint";
 
 typedef NS_ENUM(NSInteger, OMDSplitSyncMode) {
     OMDSplitSyncModeUnlinked = 0,
@@ -1130,16 +1134,20 @@ static NSImage *OMDToolbarImageNamed(NSString *resourceName)
     return OMDToolbarPreparedImage(OMDImageNamed(resourceName));
 }
 
-static NSImage *OMDToolbarThemedImageNamed(NSString *resourceName)
+static NSImage *OMDToolbarTintedImage(NSImage *image, NSColor *tint)
 {
-    NSImage *image = OMDToolbarImageNamed(resourceName);
     if (image == nil) {
         return nil;
     }
 
-    NSColor *tint = OMDResolvedControlTextColor();
     if (tint == nil) {
-        return image;
+        NSImage *prepared = OMDToolbarPreparedImage(image);
+        return (prepared != nil ? prepared : image);
+    }
+
+    NSImage *prepared = OMDToolbarPreparedImage(image);
+    if (prepared != nil) {
+        image = prepared;
     }
 
     NSSize size = [image size];
@@ -1159,6 +1167,11 @@ static NSImage *OMDToolbarThemedImageNamed(NSString *resourceName)
     [tinted unlockFocus];
     [tinted setSize:size];
     return tinted;
+}
+
+static NSImage *OMDToolbarThemedImageNamed(NSString *resourceName)
+{
+    return OMDToolbarTintedImage(OMDImageNamed(resourceName), OMDResolvedControlTextColor());
 }
 
 static NSImage *OMDCodeBlockCopyImage(void)
@@ -1202,12 +1215,67 @@ static NSImage *OMDCodeBlockCopiedCheckImage(void)
     return cached;
 }
 
+static NSImage *OMDExplorerNavigateParentBaseImage(void)
+{
+    static NSImage *cached = nil;
+    if (cached != nil) {
+        return cached;
+    }
+
+    NSImage *image = [[[NSImage alloc] initWithSize:NSMakeSize(16.0, 16.0)] autorelease];
+    [image lockFocus];
+    [[NSColor blackColor] setStroke];
+    NSBezierPath *arrow = [NSBezierPath bezierPath];
+    [arrow setLineWidth:2.0];
+    [arrow setLineCapStyle:NSRoundLineCapStyle];
+    [arrow setLineJoinStyle:NSRoundLineJoinStyle];
+    [arrow moveToPoint:NSMakePoint(12.5, 12.0)];
+    [arrow lineToPoint:NSMakePoint(5.2, 4.7)];
+    [arrow moveToPoint:NSMakePoint(5.2, 4.7)];
+    [arrow lineToPoint:NSMakePoint(5.2, 9.1)];
+    [arrow moveToPoint:NSMakePoint(5.2, 4.7)];
+    [arrow lineToPoint:NSMakePoint(9.6, 4.7)];
+    [arrow stroke];
+    [image unlockFocus];
+    [image setSize:NSMakeSize(16.0, 16.0)];
+    cached = [image retain];
+    return cached;
+}
+
 static NSString *OMDTrimmedString(NSString *value)
 {
     if (value == nil) {
         return @"";
     }
     return [value stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+}
+
+static NSString *OMDDiskFingerprintForFileAttributes(NSDictionary *attributes)
+{
+    if (attributes == nil) {
+        return nil;
+    }
+
+    NSDate *modificationDate = [attributes objectForKey:NSFileModificationDate];
+    NSNumber *sizeValue = [attributes objectForKey:NSFileSize];
+    NSNumber *inodeValue = [attributes objectForKey:NSFileSystemFileNumber];
+    if (modificationDate == nil && sizeValue == nil && inodeValue == nil) {
+        return nil;
+    }
+
+    NSTimeInterval modifiedAt = (modificationDate != nil
+                                 ? [modificationDate timeIntervalSinceReferenceDate]
+                                 : 0.0);
+    unsigned long long size = [sizeValue respondsToSelector:@selector(unsignedLongLongValue)]
+                              ? [sizeValue unsignedLongLongValue]
+                              : 0ULL;
+    unsigned long long inode = [inodeValue respondsToSelector:@selector(unsignedLongLongValue)]
+                               ? [inodeValue unsignedLongLongValue]
+                               : 0ULL;
+    return [NSString stringWithFormat:@"%.6f:%llu:%llu",
+                                      modifiedAt,
+                                      size,
+                                      inode];
 }
 
 static BOOL OMDGitErrorLooksLikeLockConflict(NSString *reason)
@@ -1657,6 +1725,18 @@ static NSString *OMDDefaultCacheDirectory(void)
 
 @end
 
+@interface OMDPreviewCanvasView : OMDFlippedFillView
+@end
+
+@implementation OMDPreviewCanvasView
+
+- (BOOL)isFlipped
+{
+    return YES;
+}
+
+@end
+
 @interface OMDRoundedCardView : OMDFlippedFillView
 {
     NSColor *_borderColor;
@@ -1753,6 +1833,26 @@ static OMDRoundedCardView *OMDCreatePreferencesCard(NSRect frame, OMDLayoutMetri
 - (BOOL)importDocumentAtPath:(NSString *)path;
 - (BOOL)isImportableDocumentPath:(NSString *)path;
 - (void)presentConverterError:(NSError *)error fallbackTitle:(NSString *)title;
+- (NSString *)resolvedAbsolutePathForLocalPath:(NSString *)path;
+- (NSString *)diskFingerprintForPath:(NSString *)path;
+- (BOOL)isCurrentDocumentReloadableFromDisk;
+- (BOOL)currentDocumentHasNewerDiskVersion;
+- (void)setCurrentDiskFingerprintStateLoaded:(NSString *)loaded
+                                    observed:(NSString *)observed
+                                  suppressed:(NSString *)suppressed;
+- (void)refreshCurrentDocumentDiskStateAllowPrompt:(BOOL)allowPrompt;
+- (void)startExternalFileMonitor;
+- (void)stopExternalFileMonitor;
+- (void)externalFileMonitorTimerFired:(NSTimer *)timer;
+- (BOOL)reloadCurrentDocumentFromDiskPreservingViewport;
+- (BOOL)loadDocumentContentsAtPath:(NSString *)path
+                        actionName:(NSString *)actionName
+                          markdown:(NSString **)markdownOut
+                      displayTitle:(NSString **)displayTitleOut
+                        renderMode:(OMDDocumentRenderMode *)renderModeOut
+                    syntaxLanguage:(NSString **)syntaxLanguageOut
+                       fingerprint:(NSString **)fingerprintOut;
+- (void)reloadDocumentFromDisk:(id)sender;
 - (void)setCurrentMarkdown:(NSString *)markdown sourcePath:(NSString *)sourcePath;
 - (void)setCurrentDocumentText:(NSString *)text
                     sourcePath:(NSString *)sourcePath
@@ -1842,7 +1942,11 @@ static OMDRoundedCardView *OMDCreatePreferencesCard(NSRect frame, OMDLayoutMetri
                                        displayTitle:(NSString *)displayTitle
                                            readOnly:(BOOL)readOnly
                                          renderMode:(OMDDocumentRenderMode)renderMode
-                                     syntaxLanguage:(NSString *)syntaxLanguage;
+                                     syntaxLanguage:(NSString *)syntaxLanguage
+                                    diskFingerprint:(NSString *)diskFingerprint;
+- (void)installDocumentTabRecord:(NSMutableDictionary *)tab
+                         inNewTab:(BOOL)inNewTab
+                    resetViewport:(BOOL)resetViewport;
 - (void)applyDocumentTabRecord:(NSDictionary *)tabRecord;
 - (BOOL)openDocumentWithMarkdown:(NSString *)markdown
                       sourcePath:(NSString *)sourcePath
@@ -1860,6 +1964,7 @@ static OMDRoundedCardView *OMDCreatePreferencesCard(NSRect frame, OMDLayoutMetri
 - (void)applyCurrentDocumentReadOnlyState;
 - (void)toolbarActionControlChanged:(id)sender;
 - (void)updateToolbarActionControlsState;
+- (BOOL)canSaveCurrentDocument;
 - (void)preferencesExplorerLocalRootChanged:(id)sender;
 - (void)preferencesExplorerMaxFileSizeChanged:(id)sender;
 - (void)preferencesExplorerListFontSizeChanged:(id)sender;
@@ -1869,6 +1974,8 @@ static OMDRoundedCardView *OMDCreatePreferencesCard(NSRect frame, OMDLayoutMetri
 - (BOOL)saveDocumentFromVimCommand;
 - (void)performCloseFromVimCommandForcingDiscard:(BOOL)force;
 - (BOOL)confirmDiscardingUnsavedChangesForAction:(NSString *)actionName;
+- (BOOL)confirmReloadingFromDiskDiscardingCurrentChanges;
+- (BOOL)confirmOverwritingNewerDiskVersionAtPath:(NSString *)path;
 - (NSString *)defaultSaveMarkdownFileName;
 - (NSString *)defaultExportFileNameWithExtension:(NSString *)extension;
 - (NSString *)defaultExportPDFFileName;
@@ -1882,6 +1989,7 @@ static OMDRoundedCardView *OMDCreatePreferencesCard(NSRect frame, OMDLayoutMetri
 - (void)requestInteractiveRenderForLayoutWidthIfNeeded;
 - (void)updateAdaptiveZoomDebounceWithRenderDurationMs:(NSTimeInterval)durationMs
                                      sampledAsZoomRender:(BOOL)isZoomRender;
+- (NSRect)currentPreviewClipBounds;
 - (CGFloat)currentPreviewLayoutWidth;
 - (void)clearPreviewPresentation;
 - (void)updatePreviewDocumentGeometry;
@@ -2141,12 +2249,16 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [self cancelPendingPreviewStatusAutoHide];
     [self cancelPendingSourceSyntaxHighlighting];
     [self cancelPendingRecoveryAutosave];
+    [self stopExternalFileMonitor];
     [self hideCopyFeedback];
     [_sourceVimCommandLine release];
     [_currentDocumentSyntaxLanguage release];
     [_currentDisplayTitle release];
     [_currentMarkdown release];
     [_currentPath release];
+    [_currentLoadedDiskFingerprint release];
+    [_currentObservedDiskFingerprint release];
+    [_currentSuppressedDiskFingerprint release];
     [_documentTabs release];
     [_gitHubClient release];
     if (_fileOpenRecentMenu != nil) {
@@ -2245,6 +2357,12 @@ static NSMutableArray *OMDSecondaryWindows(void)
     if (!_openedFileOnLaunch && !openedFromArgs) {
         [self restoreRecoveryIfAvailable];
     }
+}
+
+- (void)applicationDidBecomeActive:(NSNotification *)notification
+{
+    (void)notification;
+    [self refreshCurrentDocumentDiskStateAllowPrompt:YES];
 }
 
 - (void)applicationWillFinishLaunching:(NSNotification *)notification
@@ -2356,6 +2474,11 @@ static NSMutableArray *OMDSecondaryWindows(void)
                                                                 action:@selector(saveDocumentAsMarkdown:)
                                                          keyEquivalent:@"S"];
     [saveAsItem setTarget:self];
+
+    NSMenuItem *reloadItem = (NSMenuItem *)[fileMenu addItemWithTitle:@"Reload from Disk"
+                                                               action:@selector(reloadDocumentFromDisk:)
+                                                        keyEquivalent:@""];
+    [reloadItem setTarget:self];
 
     NSMenuItem *exportMenuItem = (NSMenuItem *)[fileMenu addItemWithTitle:@"Export"
                                                                     action:NULL
@@ -2631,15 +2754,18 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [_previewScrollView setDrawsBackground:YES];
     [_previewScrollView setBackgroundColor:OMDResolvedChromeBackgroundColor()];
 
-    _previewCanvasView = [[NSView alloc] initWithFrame:[[_previewScrollView contentView] bounds]];
+    _previewCanvasView = [[OMDPreviewCanvasView alloc] initWithFrame:[[_previewScrollView contentView] bounds]];
     [_previewCanvasView setAutoresizesSubviews:NO];
+    if ([_previewCanvasView isKindOfClass:[OMDFlippedFillView class]]) {
+        [(OMDFlippedFillView *)_previewCanvasView setFillColor:OMDResolvedChromeBackgroundColor()];
+    }
 
     _textView = [[OMDTextView alloc] initWithFrame:[[_previewScrollView contentView] bounds]];
     [_textView setAutoresizingMask:0];
     [_textView setMinSize:NSMakeSize(0.0, 0.0)];
     [_textView setMaxSize:NSMakeSize(FLT_MAX, FLT_MAX)];
-    [_textView setHorizontallyResizable:YES];
-    [_textView setVerticallyResizable:YES];
+    [_textView setHorizontallyResizable:NO];
+    [_textView setVerticallyResizable:NO];
     [_textView setEditable:NO];
     [_textView setSelectable:YES];
     [_textView setRichText:YES];
@@ -2728,6 +2854,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [_window makeKeyAndOrderFront:nil];
     [self normalizeWindowFrameIfNeeded];
     [_window makeKeyAndOrderFront:nil];
+    [self applyExplorerSidebarVisibility];
 
     _renderer = [[OMMarkdownRenderer alloc] init];
     OMMarkdownParsingOptions *options = [OMMarkdownParsingOptions defaultOptions];
@@ -2770,28 +2897,51 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [self updateTabStrip];
     [self reloadExplorerEntries];
     [self applyLayoutDensityPreference];
+    [self startExternalFileMonitor];
 }
 
 - (void)setupWorkspaceChrome
 {
     OMDLayoutMetrics metrics = OMDLayoutMetricsForMode([self effectiveLayoutDensityMode]);
     NSRect contentBounds = [[_window contentView] bounds];
+    CGFloat contentWidth = NSWidth(contentBounds);
+    CGFloat contentHeight = NSHeight(contentBounds);
+    if (contentWidth < 0.0) {
+        contentWidth = 0.0;
+    }
+    if (contentHeight < 0.0) {
+        contentHeight = 0.0;
+    }
+    CGFloat initialSidebarWidth = metrics.sidebarDefaultWidth;
+    if (initialSidebarWidth > contentWidth) {
+        initialSidebarWidth = contentWidth;
+    }
+    if (initialSidebarWidth < 0.0) {
+        initialSidebarWidth = 0.0;
+    }
+    CGFloat initialMainWidth = contentWidth - initialSidebarWidth;
+    if (initialMainWidth < 0.0) {
+        initialMainWidth = 0.0;
+    }
 
-    _workspaceSplitView = [[NSSplitView alloc] initWithFrame:contentBounds];
+    _workspaceSplitView = [[NSSplitView alloc] initWithFrame:NSMakeRect(NSMinX(contentBounds),
+                                                                        NSMinY(contentBounds),
+                                                                        contentWidth,
+                                                                        contentHeight)];
     [_workspaceSplitView setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable)];
     [_workspaceSplitView setVertical:YES];
     [_workspaceSplitView setDelegate:self];
 
     _sidebarContainer = [[NSView alloc] initWithFrame:NSMakeRect(0.0,
                                                                  0.0,
-                                                                 metrics.sidebarDefaultWidth,
-                                                                 NSHeight(contentBounds))];
+                                                                 initialSidebarWidth,
+                                                                 contentHeight)];
     [_sidebarContainer setAutoresizingMask:NSViewHeightSizable];
 
-    _workspaceMainContainer = [[NSView alloc] initWithFrame:NSMakeRect(metrics.sidebarDefaultWidth,
-                                                                        0.0,
-                                                                        NSWidth(contentBounds) - metrics.sidebarDefaultWidth,
-                                                                        NSHeight(contentBounds))];
+    _workspaceMainContainer = [[NSView alloc] initWithFrame:NSMakeRect(initialSidebarWidth,
+                                                                       0.0,
+                                                                       initialMainWidth,
+                                                                       contentHeight)];
     [_workspaceMainContainer setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable)];
 
     [_workspaceSplitView addSubview:_sidebarContainer];
@@ -2799,7 +2949,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [[_window contentView] addSubview:_workspaceSplitView];
 
     _tabStripView = [[NSView alloc] initWithFrame:NSZeroRect];
-    [_tabStripView setAutoresizingMask:(NSViewWidthSizable | NSViewMinYMargin)];
+    [_tabStripView setAutoresizingMask:0];
     [_workspaceMainContainer addSubview:_tabStripView];
 
     _documentContainer = [[NSView alloc] initWithFrame:NSZeroRect];
@@ -2818,11 +2968,13 @@ static NSMutableArray *OMDSecondaryWindows(void)
     _explorerSidebarLastVisibleWidth = metrics.sidebarDefaultWidth;
 
     [self layoutWorkspaceChrome];
-    [_workspaceSplitView adjustSubviews];
 
     CGFloat totalWidth = NSWidth([_workspaceSplitView bounds]);
     CGFloat divider = [_workspaceSplitView dividerThickness];
     CGFloat available = totalWidth - divider;
+    if (available > 1.0) {
+        [_workspaceSplitView adjustSubviews];
+    }
     CGFloat sidebarWidth = metrics.sidebarDefaultWidth;
     if (available > 0.0) {
         CGFloat minMainWidth = (metrics.scale > 1.05 ? 460.0 : 420.0);
@@ -2859,13 +3011,17 @@ static NSMutableArray *OMDSecondaryWindows(void)
     if (tabHeight > NSHeight(bounds)) {
         tabHeight = NSHeight(bounds);
     }
-    [_tabStripView setHidden:(tabHeight <= 0.0)];
-
-    NSRect tabFrame = NSMakeRect(NSMinX(bounds),
-                                 NSMaxY(bounds) - tabHeight,
-                                 NSWidth(bounds),
-                                 tabHeight);
-    [_tabStripView setFrame:NSIntegralRect(tabFrame)];
+    BOOL tabStripVisible = (tabHeight > 0.0);
+    [_tabStripView setHidden:!tabStripVisible];
+    if (tabStripVisible) {
+        NSRect tabFrame = NSMakeRect(NSMinX(bounds),
+                                     NSMaxY(bounds) - tabHeight,
+                                     NSWidth(bounds),
+                                     tabHeight);
+        [_tabStripView setFrame:NSIntegralRect(tabFrame)];
+    } else {
+        [_tabStripView setFrame:NSZeroRect];
+    }
 
     NSRect documentFrame = NSMakeRect(NSMinX(bounds),
                                       NSMinY(bounds),
@@ -2925,22 +3081,24 @@ static NSMutableArray *OMDSecondaryWindows(void)
         CGFloat totalWidth = NSWidth([_workspaceSplitView bounds]);
         CGFloat divider = [_workspaceSplitView dividerThickness];
         CGFloat available = totalWidth - divider;
+        if (available <= 1.0) {
+            [self layoutWorkspaceChrome];
+            return;
+        }
         CGFloat target = _explorerSidebarLastVisibleWidth;
         if (target < 170.0) {
             target = metrics.sidebarDefaultWidth;
         }
-        if (available > 0.0) {
-            CGFloat minMain = (metrics.scale > 1.05 ? 400.0 : 360.0);
-            CGFloat maxSidebar = available - minMain;
-            if (maxSidebar < 170.0) {
-                maxSidebar = available * 0.40;
-            }
-            if (target > maxSidebar) {
-                target = maxSidebar;
-            }
-            if (target < 120.0) {
-                target = MIN(220.0, available * 0.40);
-            }
+        CGFloat minMain = (metrics.scale > 1.05 ? 400.0 : 360.0);
+        CGFloat maxSidebar = available - minMain;
+        if (maxSidebar < 170.0) {
+            maxSidebar = available * 0.40;
+        }
+        if (target > maxSidebar) {
+            target = maxSidebar;
+        }
+        if (target < 120.0) {
+            target = MIN(220.0, available * 0.40);
         }
         if (target < 1.0) {
             target = metrics.sidebarDefaultWidth;
@@ -3035,7 +3193,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
   willBeInsertedIntoToolbar:(BOOL)flag
 {
     if ([identifier isEqualToString:@"PrimaryActions"]) {
-        CGFloat fileActionsWidth = OMDToolbarActionSegmentWidth * 4.0;
+        CGFloat fileActionsWidth = OMDToolbarActionSegmentWidth * 3.0;
         CGFloat utilityActionsWidth = OMDToolbarActionSegmentWidth * 3.0;
         CGFloat containerWidth = fileActionsWidth + OMDToolbarActionGroupSpacing + utilityActionsWidth;
         if (_toolbarPrimaryActionsContainer == nil) {
@@ -3043,7 +3201,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
             _toolbarPrimaryActionsContainer = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, containerWidth, OMDToolbarItemHeight)];
 
             _toolbarFileActionsControl = [[NSSegmentedControl alloc] initWithFrame:NSMakeRect(0, controlY, fileActionsWidth, OMDToolbarControlHeight)];
-            [_toolbarFileActionsControl setSegmentCount:4];
+            [_toolbarFileActionsControl setSegmentCount:3];
             [_toolbarFileActionsControl setSegmentStyle:NSSegmentStyleRounded];
             [[_toolbarFileActionsControl cell] setTrackingMode:NSSegmentSwitchTrackingMomentary];
             [_toolbarFileActionsControl setTarget:self];
@@ -3051,16 +3209,13 @@ static NSMutableArray *OMDSecondaryWindows(void)
             [_toolbarFileActionsControl setTag:1];
             [_toolbarFileActionsControl setImage:(OMDToolbarThemedImageNamed(@"toolbar-explorer-toggle.png") ?: [NSImage imageNamed:@"NSMenuOnStateTemplate"]) forSegment:0];
             [_toolbarFileActionsControl setImage:(OMDToolbarThemedImageNamed(@"toolbar-open.png") ?: OMDToolbarImageNamed(@"open-icon.png")) forSegment:1];
-            [_toolbarFileActionsControl setImage:(OMDToolbarThemedImageNamed(@"toolbar-import.png") ?: [NSImage imageNamed:@"NSOpen"]) forSegment:2];
-            [_toolbarFileActionsControl setImage:(OMDToolbarThemedImageNamed(@"toolbar-saveas.png") ?: [NSImage imageNamed:@"NSSave"]) forSegment:3];
+            [_toolbarFileActionsControl setImage:(OMDToolbarThemedImageNamed(@"toolbar-saveas.png") ?: [NSImage imageNamed:@"NSSave"]) forSegment:2];
             [[_toolbarFileActionsControl cell] setToolTip:@"Show or hide the file explorer" forSegment:0];
             [[_toolbarFileActionsControl cell] setToolTip:@"Open a Markdown file" forSegment:1];
-            [[_toolbarFileActionsControl cell] setToolTip:@"Import RTF, DOCX, or ODT" forSegment:2];
-            [[_toolbarFileActionsControl cell] setToolTip:@"Save current markdown changes" forSegment:3];
+            [[_toolbarFileActionsControl cell] setToolTip:@"Save current markdown changes" forSegment:2];
             [_toolbarFileActionsControl setWidth:OMDToolbarActionSegmentWidth forSegment:0];
             [_toolbarFileActionsControl setWidth:OMDToolbarActionSegmentWidth forSegment:1];
             [_toolbarFileActionsControl setWidth:OMDToolbarActionSegmentWidth forSegment:2];
-            [_toolbarFileActionsControl setWidth:OMDToolbarActionSegmentWidth forSegment:3];
             [_toolbarPrimaryActionsContainer addSubview:_toolbarFileActionsControl];
 
             _toolbarUtilityActionsControl = [[NSSegmentedControl alloc] initWithFrame:NSMakeRect(fileActionsWidth + OMDToolbarActionGroupSpacing,
@@ -3125,21 +3280,6 @@ static NSMutableArray *OMDSecondaryWindows(void)
         if (image == nil) {
             image = OMDToolbarImageNamed(@"open-icon.png");
         }
-        if (image == nil) {
-            image = [NSImage imageNamed:@"NSOpen"];
-        }
-        OMDSetToolbarItemImage(item, image);
-        return item;
-    }
-
-    if ([identifier isEqualToString:@"ImportDocument"]) {
-        NSToolbarItem *item = [[[NSToolbarItem alloc] initWithItemIdentifier:@"ImportDocument"] autorelease];
-        [item setLabel:@"Import"];
-        [item setPaletteLabel:@"Import"];
-        [item setToolTip:@"Import RTF, DOCX, or ODT"];
-        [item setTarget:self];
-        [item setAction:@selector(importDocument:)];
-        NSImage *image = OMDToolbarThemedImageNamed(@"toolbar-import.png");
         if (image == nil) {
             image = [NSImage imageNamed:@"NSOpen"];
         }
@@ -3359,9 +3499,6 @@ static NSMutableArray *OMDSecondaryWindows(void)
                 [self openDocument:control];
                 break;
             case 2:
-                [self importDocument:control];
-                break;
-            case 3:
                 [self saveDocument:control];
                 break;
             default:
@@ -3387,20 +3524,43 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [self updateToolbarActionControlsState];
 }
 
+- (BOOL)canSaveCurrentDocument
+{
+    return ([self hasLoadedDocument] && _sourceIsDirty);
+}
+
 - (void)updateToolbarActionControlsState
 {
     BOOL hasDocument = [self hasLoadedDocument];
+    BOOL canSaveDocument = [self canSaveCurrentDocument];
+    NSColor *activeIconTint = OMDResolvedControlTextColor();
+    NSColor *disabledIconTint = OMDResolvedMutedTextColor();
     if (_toolbarFileActionsControl != nil) {
+        NSImage *saveBaseImage = (OMDImageNamed(@"toolbar-saveas.png") ?: [NSImage imageNamed:@"NSSave"]);
+        [_toolbarFileActionsControl setImage:OMDToolbarTintedImage(saveBaseImage,
+                                                                   (canSaveDocument ? activeIconTint : disabledIconTint))
+                                  forSegment:2];
         [_toolbarFileActionsControl setEnabled:YES forSegment:0];
         [_toolbarFileActionsControl setEnabled:YES forSegment:1];
-        [_toolbarFileActionsControl setEnabled:YES forSegment:2];
-        [_toolbarFileActionsControl setEnabled:hasDocument forSegment:3];
+        [_toolbarFileActionsControl setEnabled:canSaveDocument forSegment:2];
         [[_toolbarFileActionsControl cell] setToolTip:(_explorerSidebarVisible
                                                         ? @"Hide the file explorer"
                                                         : @"Show the file explorer")
                                            forSegment:0];
+        [[_toolbarFileActionsControl cell] setToolTip:(canSaveDocument
+                                                       ? @"Save current markdown changes"
+                                                       : @"No unsaved changes to save")
+                                           forSegment:2];
     }
     if (_toolbarUtilityActionsControl != nil) {
+        NSImage *exportBaseImage = (OMDImageNamed(@"toolbar-export.png") ?: [NSImage imageNamed:@"NSSave"]);
+        NSImage *printBaseImage = (OMDImageNamed(@"toolbar-print.png") ?: [NSImage imageNamed:@"NSPrint"]);
+        [_toolbarUtilityActionsControl setImage:OMDToolbarTintedImage(exportBaseImage,
+                                                                      (hasDocument ? activeIconTint : disabledIconTint))
+                                     forSegment:0];
+        [_toolbarUtilityActionsControl setImage:OMDToolbarTintedImage(printBaseImage,
+                                                                      (hasDocument ? activeIconTint : disabledIconTint))
+                                     forSegment:1];
         [_toolbarUtilityActionsControl setEnabled:hasDocument forSegment:0];
         [_toolbarUtilityActionsControl setEnabled:hasDocument forSegment:1];
         [_toolbarUtilityActionsControl setEnabled:YES forSegment:2];
@@ -3541,6 +3701,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
     }
 
     if (action == @selector(saveDocument:) ||
+        action == @selector(reloadDocumentFromDisk:) ||
         action == @selector(saveDocumentAsMarkdown:) ||
         action == @selector(printDocument:) ||
         action == @selector(exportDocumentAsPDF:) ||
@@ -3548,6 +3709,13 @@ static NSMutableArray *OMDSecondaryWindows(void)
         action == @selector(exportDocumentAsDOCX:) ||
         action == @selector(exportDocumentAsODT:) ||
         action == @selector(exportDocumentAsHTML:)) {
+        if (action == @selector(saveDocument:)) {
+            return [self canSaveCurrentDocument];
+        }
+        if (action == @selector(reloadDocumentFromDisk:)) {
+            [self refreshCurrentDocumentDiskStateAllowPrompt:NO];
+            return [self currentDocumentHasNewerDiskVersion];
+        }
         return [self hasLoadedDocument];
     }
     return YES;
@@ -3565,6 +3733,9 @@ static NSMutableArray *OMDSecondaryWindows(void)
     if ([identifier isEqualToString:@"SaveDocument"] ||
         [identifier isEqualToString:@"PrintDocument"] ||
         [identifier isEqualToString:@"ExportDocument"]) {
+        if ([identifier isEqualToString:@"SaveDocument"]) {
+            return [self canSaveCurrentDocument];
+        }
         return [self hasLoadedDocument];
     }
     return YES;
@@ -3840,6 +4011,207 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [alert runModal];
 }
 
+- (NSString *)resolvedAbsolutePathForLocalPath:(NSString *)path
+{
+    NSString *trimmed = OMDTrimmedString(path);
+    if ([trimmed length] == 0) {
+        return nil;
+    }
+
+    NSString *resolvedPath = [trimmed stringByExpandingTildeInPath];
+    if (![resolvedPath isAbsolutePath]) {
+        NSString *cwd = [[NSFileManager defaultManager] currentDirectoryPath];
+        resolvedPath = [cwd stringByAppendingPathComponent:resolvedPath];
+    }
+    return [resolvedPath stringByStandardizingPath];
+}
+
+- (NSString *)diskFingerprintForPath:(NSString *)path
+{
+    NSString *resolvedPath = [self resolvedAbsolutePathForLocalPath:path];
+    if ([resolvedPath length] == 0) {
+        return nil;
+    }
+
+    NSDictionary *attributes = [[NSFileManager defaultManager] attributesOfItemAtPath:resolvedPath error:NULL];
+    return OMDDiskFingerprintForFileAttributes(attributes);
+}
+
+- (BOOL)isCurrentDocumentReloadableFromDisk
+{
+    if (![self hasLoadedDocument]) {
+        return NO;
+    }
+    if ([OMDTrimmedString(_currentPath) length] == 0) {
+        return NO;
+    }
+    if (_selectedDocumentTabIndex >= 0 && _selectedDocumentTabIndex < (NSInteger)[_documentTabs count]) {
+        NSDictionary *tab = [_documentTabs objectAtIndex:_selectedDocumentTabIndex];
+        if ([[tab objectForKey:OMDTabIsGitHubKey] boolValue]) {
+            return NO;
+        }
+    }
+    return YES;
+}
+
+- (BOOL)currentDocumentHasNewerDiskVersion
+{
+    if (![self isCurrentDocumentReloadableFromDisk]) {
+        return NO;
+    }
+    if ([_currentLoadedDiskFingerprint length] == 0 || [_currentObservedDiskFingerprint length] == 0) {
+        return NO;
+    }
+    return ![_currentLoadedDiskFingerprint isEqualToString:_currentObservedDiskFingerprint];
+}
+
+- (void)setCurrentDiskFingerprintStateLoaded:(NSString *)loaded
+                                    observed:(NSString *)observed
+                                  suppressed:(NSString *)suppressed
+{
+    NSString *normalizedLoaded = ([loaded length] > 0 ? loaded : nil);
+    NSString *normalizedObserved = ([observed length] > 0 ? observed : nil);
+    NSString *normalizedSuppressed = ([suppressed length] > 0 ? suppressed : nil);
+
+    if (_currentLoadedDiskFingerprint != normalizedLoaded &&
+        ![_currentLoadedDiskFingerprint isEqualToString:normalizedLoaded]) {
+        [_currentLoadedDiskFingerprint release];
+        _currentLoadedDiskFingerprint = [normalizedLoaded copy];
+    }
+    if (_currentObservedDiskFingerprint != normalizedObserved &&
+        ![_currentObservedDiskFingerprint isEqualToString:normalizedObserved]) {
+        [_currentObservedDiskFingerprint release];
+        _currentObservedDiskFingerprint = [normalizedObserved copy];
+    }
+    if (_currentSuppressedDiskFingerprint != normalizedSuppressed &&
+        ![_currentSuppressedDiskFingerprint isEqualToString:normalizedSuppressed]) {
+        [_currentSuppressedDiskFingerprint release];
+        _currentSuppressedDiskFingerprint = [normalizedSuppressed copy];
+    }
+}
+
+- (void)startExternalFileMonitor
+{
+    if (_externalFileMonitorTimer != nil) {
+        return;
+    }
+
+    _externalFileMonitorTimer = [[NSTimer scheduledTimerWithTimeInterval:OMDExternalFileMonitorInterval
+                                                                  target:self
+                                                                selector:@selector(externalFileMonitorTimerFired:)
+                                                                userInfo:nil
+                                                                 repeats:YES] retain];
+}
+
+- (void)stopExternalFileMonitor
+{
+    if (_externalFileMonitorTimer != nil) {
+        [_externalFileMonitorTimer invalidate];
+        [_externalFileMonitorTimer release];
+        _externalFileMonitorTimer = nil;
+    }
+}
+
+- (void)externalFileMonitorTimerFired:(NSTimer *)timer
+{
+    if (timer != _externalFileMonitorTimer) {
+        return;
+    }
+    [self refreshCurrentDocumentDiskStateAllowPrompt:YES];
+}
+
+- (BOOL)loadDocumentContentsAtPath:(NSString *)path
+                        actionName:(NSString *)actionName
+                          markdown:(NSString **)markdownOut
+                      displayTitle:(NSString **)displayTitleOut
+                        renderMode:(OMDDocumentRenderMode *)renderModeOut
+                    syntaxLanguage:(NSString **)syntaxLanguageOut
+                       fingerprint:(NSString **)fingerprintOut
+{
+    NSString *resolvedPath = [self resolvedAbsolutePathForLocalPath:path];
+    if ([resolvedPath length] == 0) {
+        return NO;
+    }
+
+    NSFileManager *fileManager = [NSFileManager defaultManager];
+    NSDictionary *attributes = [fileManager attributesOfItemAtPath:resolvedPath error:NULL];
+    if (attributes == nil) {
+        NSAlert *alert = [[[NSAlert alloc] init] autorelease];
+        [alert setMessageText:[NSString stringWithFormat:@"%@ failed", actionName]];
+        [alert setInformativeText:@"The file is no longer available on disk."];
+        [alert runModal];
+        return NO;
+    }
+
+    NSNumber *sizeValue = [attributes objectForKey:NSFileSize];
+    if ([sizeValue respondsToSelector:@selector(unsignedLongLongValue)]) {
+        if (![self ensureOpenFileSizeWithinLimit:[sizeValue unsignedLongLongValue]
+                                      descriptor:[resolvedPath lastPathComponent]]) {
+            return NO;
+        }
+    }
+
+    NSString *extension = [[resolvedPath pathExtension] lowercaseString];
+    BOOL importable = [OMDDocumentConverter isSupportedExtension:extension];
+    NSString *markdown = nil;
+    OMDDocumentRenderMode renderMode = OMDDocumentRenderModeMarkdown;
+    NSString *syntaxLanguage = nil;
+
+    if (importable) {
+        if (![self ensureConverterAvailableForActionName:actionName]) {
+            return NO;
+        }
+
+        NSError *conversionError = nil;
+        BOOL converted = [[self documentConverter] importFileAtPath:resolvedPath
+                                                           markdown:&markdown
+                                                              error:&conversionError];
+        if (!converted) {
+            [self presentConverterError:conversionError
+                          fallbackTitle:[NSString stringWithFormat:@"%@ failed", actionName]];
+            return NO;
+        }
+    } else {
+        NSError *readError = nil;
+        markdown = [self decodedTextForFileAtPath:resolvedPath error:&readError];
+        if (markdown == nil) {
+            NSAlert *alert = [[[NSAlert alloc] init] autorelease];
+            NSString *messageText = [actionName isEqualToString:@"Open"]
+                                    ? @"Unsupported file type"
+                                    : [NSString stringWithFormat:@"%@ failed", actionName];
+            [alert setMessageText:messageText];
+            [alert setInformativeText:(readError != nil ? [readError localizedDescription]
+                                                        : @"This file cannot be opened as text.")];
+            [alert runModal];
+            return NO;
+        }
+
+        renderMode = [self isMarkdownTextPath:resolvedPath]
+                     ? OMDDocumentRenderModeMarkdown
+                     : OMDDocumentRenderModeVerbatim;
+        if (renderMode == OMDDocumentRenderModeVerbatim) {
+            syntaxLanguage = OMDVerbatimSyntaxTokenForExtension(extension);
+        }
+    }
+
+    if (markdownOut != NULL) {
+        *markdownOut = markdown;
+    }
+    if (displayTitleOut != NULL) {
+        *displayTitleOut = [resolvedPath lastPathComponent];
+    }
+    if (renderModeOut != NULL) {
+        *renderModeOut = renderMode;
+    }
+    if (syntaxLanguageOut != NULL) {
+        *syntaxLanguageOut = syntaxLanguage;
+    }
+    if (fingerprintOut != NULL) {
+        *fingerprintOut = OMDDiskFingerprintForFileAttributes(attributes);
+    }
+    return YES;
+}
+
 - (void)setCurrentDocumentText:(NSString *)text
                     sourcePath:(NSString *)sourcePath
                     renderMode:(OMDDocumentRenderMode)renderMode
@@ -3863,6 +4235,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
         [_currentDisplayTitle release];
         _currentDisplayTitle = nil;
     }
+    [self setCurrentDiskFingerprintStateLoaded:nil observed:nil suppressed:nil];
     _currentDocumentReadOnly = NO;
     _sourceIsDirty = NO;
     _sourceRevision = 0;
@@ -3899,6 +4272,137 @@ static NSMutableArray *OMDSecondaryWindows(void)
                       sourcePath:sourcePath
                       renderMode:OMDDocumentRenderModeMarkdown
                   syntaxLanguage:nil];
+}
+
+- (void)refreshCurrentDocumentDiskStateAllowPrompt:(BOOL)allowPrompt
+{
+    if (![self isCurrentDocumentReloadableFromDisk]) {
+        [self setCurrentDiskFingerprintStateLoaded:nil observed:nil suppressed:nil];
+        [self captureCurrentStateIntoSelectedTab];
+        return;
+    }
+
+    NSString *observedFingerprint = [self diskFingerprintForPath:_currentPath];
+    NSString *loadedFingerprint = _currentLoadedDiskFingerprint;
+    NSString *suppressedFingerprint = _currentSuppressedDiskFingerprint;
+
+    if ([observedFingerprint length] == 0) {
+        [self setCurrentDiskFingerprintStateLoaded:loadedFingerprint
+                                          observed:nil
+                                        suppressed:suppressedFingerprint];
+        [self captureCurrentStateIntoSelectedTab];
+        return;
+    }
+
+    if ([loadedFingerprint length] == 0) {
+        loadedFingerprint = observedFingerprint;
+        suppressedFingerprint = nil;
+    } else if ([observedFingerprint isEqualToString:loadedFingerprint]) {
+        suppressedFingerprint = nil;
+    }
+
+    [self setCurrentDiskFingerprintStateLoaded:loadedFingerprint
+                                      observed:observedFingerprint
+                                    suppressed:suppressedFingerprint];
+    [self captureCurrentStateIntoSelectedTab];
+
+    if (!allowPrompt || _externalReloadPromptVisible) {
+        return;
+    }
+    if (_window == nil || ![_window isVisible] || ![_window isKeyWindow]) {
+        return;
+    }
+    if (NSApp != nil && ![NSApp isActive]) {
+        return;
+    }
+    if (![self currentDocumentHasNewerDiskVersion]) {
+        return;
+    }
+    if ([_currentObservedDiskFingerprint isEqualToString:_currentSuppressedDiskFingerprint]) {
+        return;
+    }
+
+    NSString *documentName = (_currentPath != nil ? [_currentPath lastPathComponent] : @"Untitled");
+    NSAlert *alert = [[[NSAlert alloc] init] autorelease];
+    [alert setMessageText:@"Reload from disk?"];
+    if (_sourceIsDirty) {
+        [alert setInformativeText:[NSString stringWithFormat:@"\"%@\" changed on disk. Reloading discards your unsaved changes in this window. Keep stops prompts until the file changes again.",
+                                                             documentName]];
+    } else {
+        [alert setInformativeText:[NSString stringWithFormat:@"\"%@\" changed on disk. Keep stops prompts until the file changes again.",
+                                                             documentName]];
+    }
+    [alert addButtonWithTitle:@"Reload"];
+    [alert addButtonWithTitle:@"Keep"];
+
+    _externalReloadPromptVisible = YES;
+    NSInteger buttonIndex = OMDAlertButtonIndexForResponse([alert runModal]);
+    _externalReloadPromptVisible = NO;
+
+    if (buttonIndex == 0) {
+        if (![self reloadCurrentDocumentFromDiskPreservingViewport]) {
+            [self setCurrentDiskFingerprintStateLoaded:_currentLoadedDiskFingerprint
+                                              observed:_currentObservedDiskFingerprint
+                                            suppressed:_currentObservedDiskFingerprint];
+            [self captureCurrentStateIntoSelectedTab];
+        }
+    } else {
+        [self setCurrentDiskFingerprintStateLoaded:_currentLoadedDiskFingerprint
+                                          observed:_currentObservedDiskFingerprint
+                                        suppressed:_currentObservedDiskFingerprint];
+        [self captureCurrentStateIntoSelectedTab];
+    }
+}
+
+- (BOOL)reloadCurrentDocumentFromDiskPreservingViewport
+{
+    if (![self isCurrentDocumentReloadableFromDisk]) {
+        return NO;
+    }
+
+    NSString *path = [[_currentPath copy] autorelease];
+    NSString *markdown = nil;
+    NSString *displayTitle = nil;
+    NSString *syntaxLanguage = nil;
+    NSString *fingerprint = nil;
+    OMDDocumentRenderMode renderMode = OMDDocumentRenderModeMarkdown;
+    if (![self loadDocumentContentsAtPath:path
+                               actionName:@"Reload from Disk"
+                                 markdown:&markdown
+                             displayTitle:&displayTitle
+                               renderMode:&renderMode
+                           syntaxLanguage:&syntaxLanguage
+                              fingerprint:&fingerprint]) {
+        return NO;
+    }
+
+    NSMutableDictionary *tab = [self newDocumentTabWithMarkdown:(markdown != nil ? markdown : @"")
+                                                     sourcePath:path
+                                                   displayTitle:displayTitle
+                                                       readOnly:_currentDocumentReadOnly
+                                                     renderMode:renderMode
+                                                 syntaxLanguage:syntaxLanguage
+                                                diskFingerprint:fingerprint];
+    [self installDocumentTabRecord:tab inNewTab:NO resetViewport:NO];
+    [self clearRecoverySnapshot];
+    return YES;
+}
+
+- (void)reloadDocumentFromDisk:(id)sender
+{
+    (void)sender;
+    if (![self ensureDocumentLoadedForActionName:@"Reload from Disk"]) {
+        return;
+    }
+
+    [self refreshCurrentDocumentDiskStateAllowPrompt:NO];
+    if (![self currentDocumentHasNewerDiskVersion]) {
+        return;
+    }
+    if (![self confirmReloadingFromDiskDiscardingCurrentChanges]) {
+        return;
+    }
+    [self reloadCurrentDocumentFromDiskPreservingViewport];
 }
 
 - (NSString *)markdownForCurrentPreview
@@ -4229,8 +4733,21 @@ static NSMutableArray *OMDSecondaryWindows(void)
         return NO;
     }
 
+    NSString *resolvedPath = [self resolvedAbsolutePathForLocalPath:path];
+    if ([resolvedPath length] == 0) {
+        return NO;
+    }
+    NSString *currentResolvedPath = [self resolvedAbsolutePathForLocalPath:_currentPath];
+    if ([currentResolvedPath length] > 0 &&
+        [resolvedPath isEqualToString:currentResolvedPath]) {
+        [self refreshCurrentDocumentDiskStateAllowPrompt:NO];
+        if (![self confirmOverwritingNewerDiskVersionAtPath:resolvedPath]) {
+            return NO;
+        }
+    }
+
     NSError *error = nil;
-    BOOL success = [_currentMarkdown writeToFile:path
+    BOOL success = [_currentMarkdown writeToFile:resolvedPath
                                       atomically:YES
                                         encoding:NSUTF8StringEncoding
                                            error:&error];
@@ -4243,9 +4760,13 @@ static NSMutableArray *OMDSecondaryWindows(void)
     }
 
     [self setCurrentDocumentText:_currentMarkdown
-                      sourcePath:path
+                      sourcePath:resolvedPath
                       renderMode:(OMDDocumentRenderMode)_currentDocumentRenderMode
                   syntaxLanguage:_currentDocumentSyntaxLanguage];
+    NSString *savedFingerprint = [self diskFingerprintForPath:resolvedPath];
+    [self setCurrentDiskFingerprintStateLoaded:savedFingerprint
+                                      observed:savedFingerprint
+                                    suppressed:nil];
     [self captureCurrentStateIntoSelectedTab];
     [self updateTabStrip];
     [self clearRecoverySnapshot];
@@ -4373,6 +4894,46 @@ static NSMutableArray *OMDSecondaryWindows(void)
         return YES;
     }
     return NO;
+}
+
+- (BOOL)confirmReloadingFromDiskDiscardingCurrentChanges
+{
+    if (!_sourceIsDirty) {
+        return YES;
+    }
+
+    NSString *documentName = (_currentPath != nil ? [_currentPath lastPathComponent] : @"Untitled");
+    NSAlert *alert = [[[NSAlert alloc] init] autorelease];
+    [alert setMessageText:[NSString stringWithFormat:@"Reload \"%@\" from disk?", documentName]];
+    [alert setInformativeText:@"Reloading the newer version will discard your unsaved changes in this window."];
+    [alert addButtonWithTitle:@"Reload"];
+    [alert addButtonWithTitle:@"Cancel"];
+
+    NSInteger buttonIndex = OMDAlertButtonIndexForResponse([alert runModal]);
+    return (buttonIndex == 0);
+}
+
+- (BOOL)confirmOverwritingNewerDiskVersionAtPath:(NSString *)path
+{
+    NSString *resolvedPath = [self resolvedAbsolutePathForLocalPath:path];
+    NSString *currentResolvedPath = [self resolvedAbsolutePathForLocalPath:_currentPath];
+    if ([resolvedPath length] == 0 || ![resolvedPath isEqualToString:currentResolvedPath]) {
+        return YES;
+    }
+
+    if (![self currentDocumentHasNewerDiskVersion]) {
+        return YES;
+    }
+
+    NSString *documentName = [resolvedPath lastPathComponent];
+    NSAlert *alert = [[[NSAlert alloc] init] autorelease];
+    [alert setMessageText:[NSString stringWithFormat:@"Overwrite newer on-disk changes to \"%@\"?", documentName]];
+    [alert setInformativeText:@"A newer version of this file exists on disk. Saving now will overwrite those outside changes with the version in this window."];
+    [alert addButtonWithTitle:@"Overwrite"];
+    [alert addButtonWithTitle:@"Cancel"];
+
+    NSInteger buttonIndex = OMDAlertButtonIndexForResponse([alert runModal]);
+    return (buttonIndex == 0);
 }
 
 - (NSPrintInfo *)configuredPrintInfo
@@ -4762,13 +5323,21 @@ static NSMutableArray *OMDSecondaryWindows(void)
 
     [_previewScrollView setDrawsBackground:YES];
     [_previewScrollView setBackgroundColor:OMDResolvedChromeBackgroundColor()];
+    if ([_previewCanvasView isKindOfClass:[OMDFlippedFillView class]]) {
+        [(OMDFlippedFillView *)_previewCanvasView setFillColor:OMDResolvedChromeBackgroundColor()];
+    }
 
-    NSClipView *clipView = [_previewScrollView contentView];
-    NSRect clipBounds = [clipView bounds];
+    NSRect clipBounds = [self currentPreviewClipBounds];
     CGFloat width = clipBounds.size.width > 1.0 ? clipBounds.size.width : 1.0;
     CGFloat height = clipBounds.size.height > 1.0 ? clipBounds.size.height : 1.0;
+    NSRect previousTextFrame = [_textView frame];
     [_previewCanvasView setFrameSize:NSMakeSize(width, height)];
-    [_textView setFrame:NSIntegralRect(NSMakeRect(0.0, 0.0, width, height))];
+    NSRect targetFrame = NSIntegralRect(NSMakeRect(0.0, 0.0, width, height));
+    [_textView setFrame:targetFrame];
+    NSRect dirtyRect = NSUnionRect(previousTextFrame, targetFrame);
+    dirtyRect = NSInsetRect(dirtyRect, -2.0, -2.0);
+    [_previewCanvasView setNeedsDisplayInRect:dirtyRect];
+    [_textView setNeedsDisplay:YES];
     [self scrollScrollViewToDocumentTop:_previewScrollView];
 }
 
@@ -4820,6 +5389,14 @@ static NSMutableArray *OMDSecondaryWindows(void)
         return;
     }
     [self requestInteractiveRenderForLayoutWidthIfNeeded];
+}
+
+- (void)windowDidBecomeKey:(NSNotification *)notification
+{
+    if ([notification object] != _window) {
+        return;
+    }
+    [self refreshCurrentDocumentDiskStateAllowPrompt:YES];
 }
 
 - (CGFloat)splitView:(NSSplitView *)splitView
@@ -4957,7 +5534,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
 
     NSRect bounds = NSZeroRect;
     if (_previewScrollView != nil) {
-        bounds = [[_previewScrollView contentView] bounds];
+        bounds = [self currentPreviewClipBounds];
     } else {
         bounds = [_textView bounds];
     }
@@ -4978,6 +5555,35 @@ constrainSplitPosition:(CGFloat)proposedPosition
     return width;
 }
 
+- (NSRect)currentPreviewClipBounds
+{
+    if (_previewScrollView == nil) {
+        return NSZeroRect;
+    }
+
+    if ([_previewScrollView respondsToSelector:@selector(tile)]) {
+        [_previewScrollView tile];
+    }
+
+    NSClipView *clipView = [_previewScrollView contentView];
+    NSRect clipBounds = (clipView != nil ? [clipView bounds] : NSZeroRect);
+    NSRect clipFrame = (clipView != nil ? [clipView frame] : NSZeroRect);
+    NSSize contentSize = [_previewScrollView contentSize];
+    if (clipFrame.size.width > clipBounds.size.width) {
+        clipBounds.size.width = clipFrame.size.width;
+    }
+    if (clipFrame.size.height > clipBounds.size.height) {
+        clipBounds.size.height = clipFrame.size.height;
+    }
+    if (contentSize.width > clipBounds.size.width) {
+        clipBounds.size.width = contentSize.width;
+    }
+    if (contentSize.height > clipBounds.size.height) {
+        clipBounds.size.height = contentSize.height;
+    }
+    return clipBounds;
+}
+
 - (void)updatePreviewDocumentGeometry
 {
     if (_textView == nil || _previewScrollView == nil || _previewCanvasView == nil) {
@@ -4991,7 +5597,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
     }
 
     NSClipView *clipView = [_previewScrollView contentView];
-    NSRect clipBounds = [clipView bounds];
+    NSRect clipBounds = [self currentPreviewClipBounds];
     NSSize inset = [_textView textContainerInset];
     CGFloat padding = [container lineFragmentPadding];
     CGFloat layoutWidth = [self currentPreviewLayoutWidth];
@@ -5041,8 +5647,9 @@ constrainSplitPosition:(CGFloat)proposedPosition
     }
 
     NSRect canvasFrame = [_previewCanvasView frame];
-    if (fabs(canvasFrame.size.width - canvasWidth) > 0.5 ||
-        fabs(canvasFrame.size.height - canvasHeight) > 0.5) {
+    BOOL canvasFrameChanged = (fabs(canvasFrame.size.width - canvasWidth) > 0.5 ||
+                               fabs(canvasFrame.size.height - canvasHeight) > 0.5);
+    if (canvasFrameChanged) {
         [_previewCanvasView setFrameSize:NSMakeSize(canvasWidth, canvasHeight)];
     }
 
@@ -5058,10 +5665,26 @@ constrainSplitPosition:(CGFloat)proposedPosition
     }
     NSRect frame = [_textView frame];
     NSRect targetFrame = NSIntegralRect(NSMakeRect(textX, 0.0, targetWidth, targetHeight));
-    if (fabs(frame.origin.x - targetFrame.origin.x) > 0.5 ||
-        fabs(frame.size.width - targetFrame.size.width) > 0.5 ||
-        fabs(frame.size.height - targetFrame.size.height) > 0.5) {
+    BOOL textFrameChanged = (fabs(frame.origin.x - targetFrame.origin.x) > 0.5 ||
+                             fabs(frame.origin.y - targetFrame.origin.y) > 0.5 ||
+                             fabs(frame.size.width - targetFrame.size.width) > 0.5 ||
+                             fabs(frame.size.height - targetFrame.size.height) > 0.5);
+    if (textFrameChanged) {
         [_textView setFrame:targetFrame];
+    }
+    if (canvasFrameChanged || textFrameChanged) {
+        if ([_previewCanvasView isKindOfClass:[OMDFlippedFillView class]]) {
+            [(OMDFlippedFillView *)_previewCanvasView setFillColor:OMDResolvedChromeBackgroundColor()];
+        }
+        if (canvasFrameChanged) {
+            [_previewCanvasView setNeedsDisplay:YES];
+        }
+        if (textFrameChanged) {
+            NSRect dirtyRect = NSUnionRect(frame, targetFrame);
+            dirtyRect = NSInsetRect(dirtyRect, -2.0, -2.0);
+            [_previewCanvasView setNeedsDisplayInRect:dirtyRect];
+        }
+        [_textView setNeedsDisplay:YES];
     }
 
     if (_viewerMode == OMDViewerModeSplit && targetWidth <= clipBounds.size.width + 0.5) {
@@ -5700,6 +6323,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
     mode = OMDViewerModeFromInteger(mode);
     NSString *sourceAnchorText = nil;
     NSUInteger sourceAnchorLocation = NSNotFound;
+    BOOL preserveViewportAnchor = NO;
 
     if (_sourceTextView != nil) {
         sourceAnchorText = [_sourceTextView string];
@@ -5708,21 +6332,26 @@ constrainSplitPosition:(CGFloat)proposedPosition
         sourceAnchorText = _currentMarkdown;
     }
 
-    if (previousMode == OMDViewerModeEdit || previousMode == OMDViewerModeSplit) {
-        if (_sourceTextView != nil) {
-            sourceAnchorLocation = [_sourceTextView selectedRange].location;
-        }
-    } else if (previousMode == OMDViewerModeRead && _textView != nil && sourceAnchorText != nil) {
+    if (previousMode == OMDViewerModeRead && _textView != nil && sourceAnchorText != nil) {
         NSString *previewText = [[_textView textStorage] string];
-        NSRange previewRange = [_textView selectedRange];
-        NSUInteger previewLocation = previewRange.location;
-        BOOL atPreviewEnd = [previewText length] > 0 && previewLocation >= [previewText length];
+        NSUInteger previewLocation = [self visibleCharacterIndexForTextView:_textView
+                                                               inScrollView:_previewScrollView
+                                                             verticalAnchor:OMDLinkedScrollViewportAnchor];
         sourceAnchorLocation = OMDMapTargetLocationWithBlockAnchors(sourceAnchorText,
                                                                     previewText,
                                                                     previewLocation,
                                                                     [_renderer blockAnchors]);
-        if (atPreviewEnd) {
-            sourceAnchorLocation = [sourceAnchorText length];
+        preserveViewportAnchor = YES;
+    } else if (previousMode == OMDViewerModeSplit && mode == OMDViewerModeRead) {
+        if (_sourceTextView != nil) {
+            sourceAnchorLocation = [self visibleCharacterIndexForTextView:_sourceTextView
+                                                             inScrollView:_sourceScrollView
+                                                           verticalAnchor:OMDLinkedScrollViewportAnchor];
+            preserveViewportAnchor = YES;
+        }
+    } else if (previousMode == OMDViewerModeEdit || previousMode == OMDViewerModeSplit) {
+        if (_sourceTextView != nil) {
+            sourceAnchorLocation = [_sourceTextView selectedRange].location;
         }
     }
 
@@ -5749,8 +6378,13 @@ constrainSplitPosition:(CGFloat)proposedPosition
                 }
                 _isProgrammaticSelectionSync = YES;
                 [_sourceTextView setSelectedRange:NSMakeRange(sourceAnchorLocation, 0)];
-                [_sourceTextView scrollRangeToVisible:NSMakeRange(sourceAnchorLocation, 0)];
                 _isProgrammaticSelectionSync = NO;
+                if (preserveViewportAnchor) {
+                    [self scrollSourceToCharacterIndex:sourceAnchorLocation
+                                        verticalAnchor:OMDLinkedScrollViewportAnchor];
+                } else {
+                    [_sourceTextView scrollRangeToVisible:NSMakeRange(sourceAnchorLocation, 0)];
+                }
             }
             [_window makeFirstResponder:_sourceTextView];
         }
@@ -5763,8 +6397,13 @@ constrainSplitPosition:(CGFloat)proposedPosition
             }
             _isProgrammaticSelectionSync = YES;
             [_sourceTextView setSelectedRange:NSMakeRange(sourceAnchorLocation, 0)];
-            [_sourceTextView scrollRangeToVisible:NSMakeRange(sourceAnchorLocation, 0)];
             _isProgrammaticSelectionSync = NO;
+            if (preserveViewportAnchor) {
+                [self scrollSourceToCharacterIndex:sourceAnchorLocation
+                                    verticalAnchor:OMDLinkedScrollViewportAnchor];
+            } else {
+                [_sourceTextView scrollRangeToVisible:NSMakeRange(sourceAnchorLocation, 0)];
+            }
         }
 
         [self renderCurrentMarkdown];
@@ -5779,12 +6418,17 @@ constrainSplitPosition:(CGFloat)proposedPosition
                                                                               sourceAnchorLocation,
                                                                               previewText,
                                                                               [_renderer blockAnchors]);
-            if ([sourceText length] > 0 &&
-                sourceAnchorLocation >= [sourceText length] &&
-                [previewText length] > 0) {
-                previewLocation = [previewText length] - 1;
+            if (preserveViewportAnchor) {
+                [self scrollPreviewToCharacterIndex:previewLocation
+                                     verticalAnchor:OMDLinkedScrollViewportAnchor];
+            } else {
+                if ([sourceText length] > 0 &&
+                    sourceAnchorLocation >= [sourceText length] &&
+                    [previewText length] > 0) {
+                    previewLocation = [previewText length] - 1;
+                }
+                [self scrollPreviewToCharacterIndex:previewLocation];
             }
-            [self scrollPreviewToCharacterIndex:previewLocation];
         }
     } else if (![self isPreviewVisible]) {
         [self setPreviewUpdating:NO];
@@ -5813,6 +6457,9 @@ constrainSplitPosition:(CGFloat)proposedPosition
         [_sourceEditorContainer setHidden:YES];
         [_documentContainer addSubview:_previewScrollView];
         [_previewScrollView setFrame:bounds];
+        [self updatePreviewDocumentGeometry];
+        [self updateCodeBlockButtons];
+        [self requestInteractiveRenderForLayoutWidthIfNeeded];
         [self layoutSourceEditorContainer];
         [self updateFormattingBarContextState];
         [_previewScrollView setNeedsDisplay:YES];
@@ -6088,6 +6735,21 @@ constrainSplitPosition:(CGFloat)proposedPosition
     } else {
         [tab removeObjectForKey:OMDTabSyntaxLanguageKey];
     }
+    if (_currentLoadedDiskFingerprint != nil && [_currentLoadedDiskFingerprint length] > 0) {
+        [tab setObject:_currentLoadedDiskFingerprint forKey:OMDTabLoadedDiskFingerprintKey];
+    } else {
+        [tab removeObjectForKey:OMDTabLoadedDiskFingerprintKey];
+    }
+    if (_currentObservedDiskFingerprint != nil && [_currentObservedDiskFingerprint length] > 0) {
+        [tab setObject:_currentObservedDiskFingerprint forKey:OMDTabObservedDiskFingerprintKey];
+    } else {
+        [tab removeObjectForKey:OMDTabObservedDiskFingerprintKey];
+    }
+    if (_currentSuppressedDiskFingerprint != nil && [_currentSuppressedDiskFingerprint length] > 0) {
+        [tab setObject:_currentSuppressedDiskFingerprint forKey:OMDTabSuppressedDiskFingerprintKey];
+    } else {
+        [tab removeObjectForKey:OMDTabSuppressedDiskFingerprintKey];
+    }
 }
 
 - (NSMutableDictionary *)newDocumentTabWithMarkdown:(NSString *)markdown
@@ -6096,6 +6758,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
                                            readOnly:(BOOL)readOnly
                                          renderMode:(OMDDocumentRenderMode)renderMode
                                      syntaxLanguage:(NSString *)syntaxLanguage
+                                    diskFingerprint:(NSString *)diskFingerprint
 {
     NSMutableDictionary *tab = [NSMutableDictionary dictionary];
     [tab setObject:(markdown != nil ? markdown : @"") forKey:OMDTabMarkdownKey];
@@ -6112,7 +6775,34 @@ constrainSplitPosition:(CGFloat)proposedPosition
     if ([normalizedSyntax length] > 0) {
         [tab setObject:normalizedSyntax forKey:OMDTabSyntaxLanguageKey];
     }
+    if ([diskFingerprint length] > 0) {
+        [tab setObject:diskFingerprint forKey:OMDTabLoadedDiskFingerprintKey];
+        [tab setObject:diskFingerprint forKey:OMDTabObservedDiskFingerprintKey];
+    }
     return tab;
+}
+
+- (void)installDocumentTabRecord:(NSMutableDictionary *)tab
+                         inNewTab:(BOOL)inNewTab
+                    resetViewport:(BOOL)resetViewport
+{
+    if (tab == nil) {
+        return;
+    }
+
+    if (inNewTab || _selectedDocumentTabIndex < 0 || _selectedDocumentTabIndex >= (NSInteger)[_documentTabs count]) {
+        [self captureCurrentStateIntoSelectedTab];
+        [_documentTabs addObject:tab];
+        _selectedDocumentTabIndex = (NSInteger)[_documentTabs count] - 1;
+    } else {
+        [_documentTabs replaceObjectAtIndex:_selectedDocumentTabIndex withObject:tab];
+    }
+
+    [self applyDocumentTabRecord:tab];
+    if (resetViewport) {
+        [self resetCurrentDocumentViewportToStart];
+    }
+    [self updateTabStrip];
 }
 
 - (void)applyDocumentTabRecord:(NSDictionary *)tabRecord
@@ -6146,6 +6836,9 @@ constrainSplitPosition:(CGFloat)proposedPosition
         }
     }
     _currentDocumentReadOnly = readOnly;
+    [self setCurrentDiskFingerprintStateLoaded:[tabRecord objectForKey:OMDTabLoadedDiskFingerprintKey]
+                                      observed:[tabRecord objectForKey:OMDTabObservedDiskFingerprintKey]
+                                    suppressed:[tabRecord objectForKey:OMDTabSuppressedDiskFingerprintKey]];
     [self applyCurrentDocumentReadOnlyState];
     [self updatePreviewStatusIndicator];
     [self updateWindowTitle];
@@ -6165,6 +6858,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
     NSDictionary *tab = [_documentTabs objectAtIndex:index];
     [self applyDocumentTabRecord:tab];
     [self updateTabStrip];
+    [self refreshCurrentDocumentDiskStateAllowPrompt:YES];
 }
 
 - (NSInteger)documentTabIndexForLocalPath:(NSString *)sourcePath
@@ -6245,8 +6939,10 @@ constrainSplitPosition:(CGFloat)proposedPosition
              requireDirtyConfirm:(BOOL)requireDirtyConfirm
 {
     NSString *normalizedSourcePath = OMDTrimmedString(sourcePath);
+    NSString *initialDiskFingerprint = nil;
     if ([normalizedSourcePath length] > 0) {
         normalizedSourcePath = [normalizedSourcePath stringByStandardizingPath];
+        initialDiskFingerprint = [self diskFingerprintForPath:normalizedSourcePath];
         NSInteger existingIndex = [self documentTabIndexForLocalPath:normalizedSourcePath];
         if (existingIndex >= 0) {
             [self selectDocumentTabAtIndex:existingIndex];
@@ -6265,19 +6961,10 @@ constrainSplitPosition:(CGFloat)proposedPosition
                                                     displayTitle:displayTitle
                                                         readOnly:readOnly
                                                       renderMode:renderMode
-                                                  syntaxLanguage:syntaxLanguage];
+                                                  syntaxLanguage:syntaxLanguage
+                                                 diskFingerprint:initialDiskFingerprint];
 
-    if (inNewTab || _selectedDocumentTabIndex < 0 || _selectedDocumentTabIndex >= (NSInteger)[_documentTabs count]) {
-        [self captureCurrentStateIntoSelectedTab];
-        [_documentTabs addObject:tab];
-        _selectedDocumentTabIndex = (NSInteger)[_documentTabs count] - 1;
-    } else {
-        [_documentTabs replaceObjectAtIndex:_selectedDocumentTabIndex withObject:tab];
-    }
-
-    [self applyDocumentTabRecord:tab];
-    [self resetCurrentDocumentViewportToStart];
-    [self updateTabStrip];
+    [self installDocumentTabRecord:tab inNewTab:inNewTab resetViewport:YES];
     return YES;
 }
 
@@ -6603,7 +7290,9 @@ constrainSplitPosition:(CGFloat)proposedPosition
     if (userComboWidth < 1.0) {
         userComboWidth = 1.0;
     }
-    CGFloat pathWidth = width - (metrics.explorerSidePadding * 2.0) - 56.0;
+    CGFloat navigateButtonWidth = 32.0;
+    CGFloat navigateButtonGap = 6.0;
+    CGFloat pathWidth = width - (metrics.explorerSidePadding * 2.0) - navigateButtonWidth - navigateButtonGap;
     if (pathWidth < 1.0) {
         pathWidth = 1.0;
     }
@@ -6701,16 +7390,20 @@ constrainSplitPosition:(CGFloat)proposedPosition
 
     _explorerNavigateUpButton = [[NSButton alloc] initWithFrame:NSMakeRect(metrics.explorerSidePadding,
                                                                            NSHeight(bounds) - 144,
-                                                                           56,
+                                                                           navigateButtonWidth,
                                                                            metrics.explorerControlHeight)];
-    [_explorerNavigateUpButton setTitle:@"Up"];
+    [_explorerNavigateUpButton setTitle:@""];
     [_explorerNavigateUpButton setBezelStyle:NSRoundedBezelStyle];
+    [_explorerNavigateUpButton setImage:OMDToolbarTintedImage(OMDExplorerNavigateParentBaseImage(),
+                                                              OMDResolvedControlTextColor())];
+    [_explorerNavigateUpButton setImagePosition:NSImageOnly];
+    [_explorerNavigateUpButton setToolTip:@"Go to the parent folder or repository path"];
     [_explorerNavigateUpButton setTarget:self];
     [_explorerNavigateUpButton setAction:@selector(explorerNavigateUp:)];
     [_explorerNavigateUpButton setAutoresizingMask:NSViewMinYMargin];
     [_sidebarContainer addSubview:_explorerNavigateUpButton];
 
-    _explorerPathLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(metrics.explorerSidePadding + 60.0,
+    _explorerPathLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(metrics.explorerSidePadding + navigateButtonWidth + navigateButtonGap,
                                                                        NSHeight(bounds) - 140,
                                                                        pathWidth,
                                                                        18)];
@@ -6778,7 +7471,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
         [_explorerGitHubUserComboBox setStringValue:(_explorerGitHubUser != nil ? _explorerGitHubUser : @"")];
     }
     if (_explorerGitHubRepoComboBox != nil) {
-        [_explorerGitHubRepoComboBox setStringValue:(_explorerGitHubRepo != nil ? _explorerGitHubRepo : @"")];
+    [_explorerGitHubRepoComboBox setStringValue:(_explorerGitHubRepo != nil ? _explorerGitHubRepo : @"")];
     }
 
     [_explorerLocalRootLabel setHidden:githubMode];
@@ -6788,6 +7481,18 @@ constrainSplitPosition:(CGFloat)proposedPosition
     [_explorerGitHubRepoComboBox setHidden:!githubMode];
     [_explorerGitHubIncludeForkArchivedButton setHidden:!githubMode];
     [_explorerShowHiddenFilesButton setState:([self isExplorerShowHiddenFilesEnabled] ? NSOnState : NSOffState)];
+    BOOL canNavigateUp = NO;
+    if (githubMode) {
+        canNavigateUp = (_explorerGitHubCurrentPath != nil && [_explorerGitHubCurrentPath length] > 0);
+    } else {
+        canNavigateUp = (_explorerLocalCurrentPath != nil &&
+                         _explorerLocalRootPath != nil &&
+                         ![_explorerLocalCurrentPath isEqualToString:_explorerLocalRootPath]);
+    }
+    [_explorerNavigateUpButton setImage:OMDToolbarTintedImage(OMDExplorerNavigateParentBaseImage(),
+                                                              (canNavigateUp ? OMDResolvedControlTextColor()
+                                                                             : OMDResolvedMutedTextColor()))];
+    [_explorerNavigateUpButton setEnabled:canNavigateUp];
 
     NSRect bounds = [_sidebarContainer bounds];
     CGFloat width = NSWidth(bounds);
@@ -6800,7 +7505,9 @@ constrainSplitPosition:(CGFloat)proposedPosition
     if (userComboWidth < 1.0) {
         userComboWidth = 1.0;
     }
-    CGFloat pathWidth = width - (metrics.explorerSidePadding * 2.0) - 56.0;
+    CGFloat navigateButtonWidth = 32.0;
+    CGFloat navigateButtonGap = 6.0;
+    CGFloat pathWidth = width - (metrics.explorerSidePadding * 2.0) - navigateButtonWidth - navigateButtonGap;
     if (pathWidth < 1.0) {
         pathWidth = 1.0;
     }
@@ -6841,19 +7548,24 @@ constrainSplitPosition:(CGFloat)proposedPosition
                            ? (height - metrics.explorerTopPadding - metrics.explorerControlHeight - 122.0)
                            : (height - metrics.explorerTopPadding - metrics.explorerControlHeight - 94.0));
     CGFloat pathY = navigateUpY + 4.0;
-    CGFloat scrollHeight = (githubMode
-                            ? (height - (metrics.explorerTopPadding + 144.0))
-                            : (height - (metrics.explorerTopPadding + 110.0)));
-    if (scrollHeight < 80) {
-        scrollHeight = 80;
-    }
+    CGFloat scrollBottomInset = 10.0;
+    CGFloat scrollGap = 8.0;
     [_explorerNavigateUpButton setFrame:NSMakeRect(metrics.explorerSidePadding,
                                                    navigateUpY,
-                                                   56,
+                                                   navigateButtonWidth,
                                                    metrics.explorerControlHeight)];
-    [_explorerPathLabel setFrame:NSMakeRect(metrics.explorerSidePadding + 60.0, pathY, pathWidth, 18)];
+    [_explorerPathLabel setFrame:NSMakeRect(metrics.explorerSidePadding + navigateButtonWidth + navigateButtonGap,
+                                            pathY,
+                                            pathWidth,
+                                            18)];
+    CGFloat scrollTop = MIN(NSMinY([_explorerNavigateUpButton frame]),
+                            NSMinY([_explorerPathLabel frame])) - scrollGap;
+    CGFloat scrollHeight = scrollTop - scrollBottomInset;
+    if (scrollHeight < 1.0) {
+        scrollHeight = 1.0;
+    }
     [_explorerScrollView setFrame:NSMakeRect(MAX(0.0, metrics.explorerSidePadding - 2.0),
-                                             10,
+                                             scrollBottomInset,
                                              scrollWidth,
                                              scrollHeight)];
     NSTableColumn *nameColumn = [_explorerTableView tableColumnWithIdentifier:@"ExplorerName"];
@@ -11123,6 +11835,8 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
         return;
     }
 
+    [self updateToolbarActionControlsState];
+
     NSString *baseTitle = nil;
     if (_currentDisplayTitle != nil && [_currentDisplayTitle length] > 0) {
         baseTitle = _currentDisplayTitle;
@@ -12226,51 +12940,28 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
 
 - (BOOL)openDocumentAtPath:(NSString *)path
 {
-    if (path == nil || [path length] == 0) {
+    NSString *resolvedPath = [self resolvedAbsolutePathForLocalPath:path];
+    if ([resolvedPath length] == 0) {
         return NO;
     }
 
-    NSString *resolvedPath = [path stringByExpandingTildeInPath];
-    if (![resolvedPath isAbsolutePath]) {
-        NSString *cwd = [[NSFileManager defaultManager] currentDirectoryPath];
-        resolvedPath = [cwd stringByAppendingPathComponent:resolvedPath];
-    }
-
-    NSDictionary *attributes = [[NSFileManager defaultManager] attributesOfItemAtPath:resolvedPath error:NULL];
-    NSNumber *sizeValue = [attributes objectForKey:NSFileSize];
-    if ([sizeValue respondsToSelector:@selector(unsignedLongLongValue)]) {
-        if (![self ensureOpenFileSizeWithinLimit:[sizeValue unsignedLongLongValue]
-                                      descriptor:[resolvedPath lastPathComponent]]) {
-            return NO;
-        }
-    }
-
-    if ([self isImportableDocumentPath:resolvedPath]) {
-        return [self importDocumentAtPath:resolvedPath];
-    }
-
-    NSError *error = nil;
-    NSString *markdown = [self decodedTextForFileAtPath:resolvedPath error:&error];
-    if (markdown == nil) {
-        NSAlert *alert = [[[NSAlert alloc] init] autorelease];
-        [alert setMessageText:@"Unsupported file type"];
-        [alert setInformativeText:(error != nil ? [error localizedDescription]
-                                                : @"This file cannot be opened as text.")];
-        [alert runModal];
+    NSString *markdown = nil;
+    NSString *displayTitle = nil;
+    NSString *syntaxLanguage = nil;
+    OMDDocumentRenderMode renderMode = OMDDocumentRenderModeMarkdown;
+    if (![self loadDocumentContentsAtPath:resolvedPath
+                               actionName:@"Open"
+                                 markdown:&markdown
+                             displayTitle:&displayTitle
+                               renderMode:&renderMode
+                           syntaxLanguage:&syntaxLanguage
+                              fingerprint:NULL]) {
         return NO;
     }
-
-    NSString *extension = [[resolvedPath pathExtension] lowercaseString];
-    OMDDocumentRenderMode renderMode = [self isMarkdownTextPath:resolvedPath]
-                                       ? OMDDocumentRenderModeMarkdown
-                                       : OMDDocumentRenderModeVerbatim;
-    NSString *syntaxLanguage = (renderMode == OMDDocumentRenderModeVerbatim
-                                ? OMDVerbatimSyntaxTokenForExtension(extension)
-                                : nil);
 
     BOOL opened = [self openDocumentWithMarkdown:markdown
                                        sourcePath:resolvedPath
-                                     displayTitle:[resolvedPath lastPathComponent]
+                                     displayTitle:displayTitle
                                          readOnly:NO
                                        renderMode:renderMode
                                    syntaxLanguage:syntaxLanguage
@@ -12336,6 +13027,8 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
 
 - (void)windowWillClose:(NSNotification *)notification
 {
+    (void)notification;
+    [self stopExternalFileMonitor];
     [self cancelPendingInteractiveRender];
     [self cancelPendingMathArtifactRender];
     [self cancelPendingLivePreviewRender];
@@ -12344,6 +13037,7 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
     [self cancelPendingRecoveryAutosave];
     [self clearRecoverySnapshot];
     [self setPreviewUpdating:NO];
+    _externalReloadPromptVisible = NO;
     [self unregisterAsSecondaryWindow];
 }
 

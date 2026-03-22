@@ -33,6 +33,9 @@
     NSString *_currentMarkdown;
     NSString *_currentPath;
     NSString *_currentDisplayTitle;
+    NSString *_currentLoadedDiskFingerprint;
+    NSString *_currentObservedDiskFingerprint;
+    NSString *_currentSuppressedDiskFingerprint;
     NSInteger _currentDocumentRenderMode;
     NSString *_currentDocumentSyntaxLanguage;
     BOOL _currentDocumentReadOnly;
@@ -81,6 +84,7 @@
     NSTimer *_linkedScrollDriverResetTimer;
     NSTimer *_sourceSyntaxHighlightTimer;
     NSTimer *_recoveryAutosaveTimer;
+    NSTimer *_externalFileMonitorTimer;
     NSTimer *_copyFeedbackTimer;
     NSMutableArray *_codeBlockButtons;
     NSButton *_copyFeedbackButton;
@@ -141,6 +145,7 @@
     CGFloat _lastRenderedLayoutWidth;
     NSInteger _activeLinkedScrollDriver;
     NSString *_sourceVimCommandLine;
+    BOOL _externalReloadPromptVisible;
 }
 
 @end

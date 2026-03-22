@@ -1,65 +1,37 @@
 # ObjcMarkdown
 
-`ObjcMarkdown` is an Objective-C CommonMark renderer for GNUstep/macOS-style APIs, plus a small GNUstep desktop app named `MarkdownViewer` for reading, editing, and previewing Markdown.
+`ObjcMarkdown` includes `MarkdownViewer`, a GNUstep desktop Markdown app for reading, editing, previewing, importing, and exporting documents. The repository also includes the reusable Objective-C CommonMark renderer that powers the app for projects that want Markdown rendered to `NSAttributedString`.
 
-## Status
+## MarkdownViewer Highlights
 
-This repository is currently a `0.1` source-first preview.
-
-- Primary supported environment: GNUstep on Linux with a clang/libobjc2/libdispatch toolchain.
-- Windows support exists, but it is still experimental. See [WINDOWS_BUILD.md](WINDOWS_BUILD.md).
-- macOS compatibility is still a project goal, but there is not yet a maintained macOS setup guide in this repo.
-
-## What Is Here
-
-- `ObjcMarkdown/`: library code that converts CommonMark Markdown into `NSAttributedString`
-- `ObjcMarkdownViewer/`: `MarkdownViewer`, a minimal GNUstep Markdown viewer/editor
-- `Resources/`: bundled themes, icons, and sample documents
-
-Current viewer capabilities include:
+`MarkdownViewer` is the main end-user app in this repo. Current capabilities include:
 
 - `Read`, `Edit`, and `Split` modes
 - linked source/preview scrolling in split view
-- syntax highlighting and an optional formatting bar
-- theme-aware UI with GNUstep theme and layout-mode preferences
-- local file explorer and GitHub browsing helpers
-- optional import/export flows through external tools such as `pandoc` when available
+- a syntax-highlighted source editor with line numbers, an optional formatting bar, and optional Vim key bindings
+- rendered preview with GitHub-style tables, math styling, and copy buttons for code blocks
+- theme, layout, source-editor, and explorer preferences
+- local file explorer and GitHub repository browsing
 
-## Markdown Support
+## Import And Export
 
-The renderer is centered on CommonMark, with a few pragmatic viewer/editor additions on top.
-
-Currently supported in the preview path:
-
-- CommonMark headings, paragraphs, emphasis, strong emphasis, inline code, and fenced or indented code blocks
-- blockquotes, ordered lists, unordered lists, and thematic breaks
-- links, relative links with base-URL resolution, and image attachments with fallback text when decoding fails
-- inline and block HTML as safe fallback text by default, with an explicit ignore policy available in code
-- optional math styling for inline and display math
-- GitHub-style pipe tables in preview, including horizontal overflow for wide tables
-- optional renderer syntax highlighting for code blocks when the required tooling is available
-
-Editor-side conveniences include:
-
-- formatting-bar commands for headings, inline formatting, links, images, lists, code blocks, tables, and rules
-- structured newline handling for lists, task lists, ordered lists, and blockquotes
-- split-view source/preview synchronization
-
-## Document Import And Export
+`MarkdownViewer` is not limited to `.md` files. It opens Markdown directly, can print or export the rendered document as PDF, and, when `pandoc` is installed, can turn Word and other rich-text documents into editable Markdown.
 
 Native/document-first behavior:
 
 - open and edit Markdown files directly
-- export the rendered document to PDF from the viewer
+- print or export the rendered document to PDF from the viewer
 
 Pandoc-backed conversions, when `pandoc` is installed:
 
-- import: `RTF`, `DOCX`, `ODT`, `HTML`, `HTM`
-- export: `RTF`, `DOCX`, `ODT`, `HTML`, `HTM`
+- import: `DOCX`, `RTF`, `ODT`, `HTML`, `HTM`
+- export: `DOCX`, `RTF`, `ODT`, `HTML`, `HTM`
 
-If `pandoc` is unavailable, those non-Markdown import/export formats are disabled, but PDF export from the viewer remains available.
+If `pandoc` is unavailable, those non-Markdown import/export formats are disabled, but native Markdown editing plus print/PDF export remain available.
 
 ## Screenshots
+
+A few views from the current app:
 
 ### Read mode
 
@@ -76,6 +48,46 @@ If `pandoc` is unavailable, those non-Markdown import/export formats are disable
 ### Edit mode
 
 ![MarkdownViewer edit mode](docs/screenshots/edit-mode.png)
+
+## Use The Library In Your App
+
+`MarkdownViewer` is built on the same renderer library shipped in `ObjcMarkdown/`, so app developers can embed that rendering path directly.
+
+If you just want Markdown rendered into an `NSTextView`, the small path is one renderer object and one method call:
+
+```objc
+#import "OMMarkdownRenderer.h"
+
+OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+NSAttributedString *rendered = [renderer attributedStringFromMarkdown:
+    @"# Hello\n\nThis is **Markdown** rendered into an `NSAttributedString`."];
+
+[[textView textStorage] setAttributedString:rendered];
+```
+
+`-init` uses the default GitHub-like theme and default parsing options, so the common embed case stays small. If you need more control, use `OMTheme` and `OMMarkdownParsingOptions` to load a TOML theme, set a base URL for relative links, change HTML handling, tune image behavior, or adjust syntax-highlighting and math-rendering behavior.
+
+## Renderer Capabilities
+
+The shared renderer is centered on CommonMark, with a few pragmatic additions on top. These capabilities power `MarkdownViewer` preview and are also what you get when embedding the library directly.
+
+Currently supported in the renderer:
+
+- CommonMark headings, paragraphs, emphasis, strong emphasis, inline code, and fenced or indented code blocks
+- blockquotes, ordered lists, unordered lists, and thematic breaks
+- links, relative links with base-URL resolution, and image attachments with fallback text when decoding fails
+- inline and block HTML as safe fallback text by default, with an explicit ignore policy available in code
+- optional math styling for inline and display math
+- GitHub-style pipe tables, including horizontal overflow for wide tables
+- optional renderer syntax highlighting for code blocks when the required tooling is available
+
+## Status
+
+This repository is currently a `0.1` source-first preview.
+
+- Primary supported environment: GNUstep on Linux with a clang/libobjc2/libdispatch toolchain.
+- Windows support exists, but it is still experimental. See [WINDOWS_BUILD.md](WINDOWS_BUILD.md).
+- macOS compatibility is still a project goal, but there is not yet a maintained macOS setup guide in this repo.
 
 ## Toolchain Requirements
 
