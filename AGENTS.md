@@ -34,6 +34,9 @@ Workflow:
 ## Process
 - Before asking the user to run the app, the agent should build and get tests green.
 - Track bugs in `OpenIssues.md`. When resolved, move them to `ClosedIssues.md`.
+- Use git commit author `Daniel Boyd <danieljboyd@icloud.com>` for all commits in this repo.
+- Use the GitHub account `danjboyd` for commits, pushes, PRs, releases, and other GitHub-authenticated operations for this repo.
+- If `gh auth status` shows a different active account, switch with `gh auth switch -u danjboyd` before doing GitHub-authenticated work.
 
 ## Build (macOS)
 TBD: add separate build instructions when macOS target is set up.

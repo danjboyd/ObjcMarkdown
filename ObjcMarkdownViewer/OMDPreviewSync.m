@@ -25,9 +25,17 @@ static NSString * const OMDAnchorSourceEndLineKey = @"sourceEndLine";
 static NSString * const OMDAnchorTargetStartKey = @"targetStart";
 static NSString * const OMDAnchorTargetLengthKey = @"targetLength";
 static NSString * const OMDAnchorBlockIDKey = @"blockID";
+enum {
+    OMDLineInfoCacheSlotCount = 4
+};
 
 static NSString *OMDCachedSourceDescriptorText = nil;
 static NSArray *OMDCachedSourceDescriptors = nil;
+static NSString *OMDCachedLineInfoTexts[OMDLineInfoCacheSlotCount];
+static NSArray *OMDCachedLineInfos[OMDLineInfoCacheSlotCount];
+static BOOL OMDCachedLineInfoMarkdownFlags[OMDLineInfoCacheSlotCount];
+static NSUInteger OMDCachedLineInfoAges[OMDLineInfoCacheSlotCount];
+static NSUInteger OMDCachedLineInfoAgeCounter = 1;
 
 static NSString *OMDTrimLeadingWhitespace(NSString *line)
 {
@@ -313,7 +321,50 @@ static OMDAnchorLineFamily OMDRenderedLineFamilyForLine(NSString *line)
     return OMDAnchorLineFamilyText;
 }
 
-static NSArray *OMDLineInfosForText(NSString *text, BOOL markdownSource)
+static NSUInteger OMDLineInfoCacheSlotForText(NSString *text, BOOL markdownSource)
+{
+    if (text == nil) {
+        return NSNotFound;
+    }
+
+    NSUInteger slot = 0;
+    for (; slot < OMDLineInfoCacheSlotCount; slot++) {
+        NSString *cachedText = OMDCachedLineInfoTexts[slot];
+        if (cachedText == nil) {
+            continue;
+        }
+        if (OMDCachedLineInfoMarkdownFlags[slot] != markdownSource) {
+            continue;
+        }
+        if (cachedText == text || [cachedText isEqualToString:text]) {
+            OMDCachedLineInfoAges[slot] = OMDCachedLineInfoAgeCounter++;
+            return slot;
+        }
+    }
+
+    return NSNotFound;
+}
+
+static NSUInteger OMDLineInfoCacheReplacementSlot(void)
+{
+    NSUInteger slot = 0;
+    NSUInteger replacement = 0;
+    NSUInteger bestAge = NSUIntegerMax;
+
+    for (; slot < OMDLineInfoCacheSlotCount; slot++) {
+        if (OMDCachedLineInfoTexts[slot] == nil || OMDCachedLineInfos[slot] == nil) {
+            return slot;
+        }
+        if (OMDCachedLineInfoAges[slot] < bestAge) {
+            bestAge = OMDCachedLineInfoAges[slot];
+            replacement = slot;
+        }
+    }
+
+    return replacement;
+}
+
+static NSArray *OMDCreateLineInfosForText(NSString *text, BOOL markdownSource)
 {
     NSMutableArray *infos = [NSMutableArray array];
     NSUInteger totalLength = [text length];
@@ -371,6 +422,28 @@ static NSArray *OMDLineInfosForText(NSString *text, BOOL markdownSource)
     return infos;
 }
 
+static NSArray *OMDLineInfosForText(NSString *text, BOOL markdownSource)
+{
+    NSUInteger slot = OMDLineInfoCacheSlotForText(text, markdownSource);
+    if (slot != NSNotFound) {
+        return OMDCachedLineInfos[slot] != nil ? OMDCachedLineInfos[slot] : [NSArray array];
+    }
+
+    NSArray *infos = OMDCreateLineInfosForText(text, markdownSource);
+    if (text == nil) {
+        return infos;
+    }
+
+    slot = OMDLineInfoCacheReplacementSlot();
+    [OMDCachedLineInfoTexts[slot] release];
+    OMDCachedLineInfoTexts[slot] = [text copy];
+    [OMDCachedLineInfos[slot] release];
+    OMDCachedLineInfos[slot] = [infos copy];
+    OMDCachedLineInfoMarkdownFlags[slot] = markdownSource;
+    OMDCachedLineInfoAges[slot] = OMDCachedLineInfoAgeCounter++;
+    return OMDCachedLineInfos[slot] != nil ? OMDCachedLineInfos[slot] : infos;
+}
+
 static NSUInteger OMDLineInfoStart(NSDictionary *lineInfo)
 {
     NSNumber *number = [lineInfo objectForKey:OMDLineStartKey];
@@ -408,17 +481,27 @@ static NSUInteger OMDLineIndexForLocation(NSArray *lineInfos, NSUInteger locatio
         return NSNotFound;
     }
 
-    NSUInteger i = 0;
-    for (; i < count; i++) {
-        NSDictionary *lineInfo = [lineInfos objectAtIndex:i];
+    NSUInteger low = 0;
+    NSUInteger high = count;
+    while (low < high) {
+        NSUInteger mid = low + ((high - low) / 2);
+        NSDictionary *lineInfo = [lineInfos objectAtIndex:mid];
         NSUInteger start = OMDLineInfoStart(lineInfo);
         NSUInteger length = OMDLineInfoLength(lineInfo);
         NSUInteger end = start + length;
-        if (location <= end) {
-            return i;
+        if (location < start) {
+            high = mid;
+        } else if (location > end) {
+            low = mid + 1;
+        } else {
+            return mid;
         }
     }
-    return count - 1;
+
+    if (low >= count) {
+        return count - 1;
+    }
+    return low;
 }
 
 static BOOL OMDLineFamiliesCompatible(OMDAnchorLineFamily left, OMDAnchorLineFamily right)
@@ -1381,13 +1464,18 @@ NSUInteger OMDMapSourceLocationWithBlockAnchors(NSString *sourceText,
                                                 NSString *targetText,
                                                 NSArray *blockAnchors)
 {
-    NSUInteger expected = OMDMapLocationBetweenTexts(sourceText, sourceLocation, targetText);
+    NSUInteger sourceLength = [sourceText length];
     NSUInteger targetLength = [targetText length];
+    NSUInteger expected = OMDMapLocationBetweenLengths(sourceLocation, sourceLength, targetLength);
+    BOOL resolvedFallback = NO;
     if (targetLength == 0) {
         return 0;
     }
-    if (sourceText == nil || targetText == nil || [blockAnchors count] == 0) {
+    if (sourceText == nil || targetText == nil) {
         return expected;
+    }
+    if ([blockAnchors count] == 0) {
+        return OMDMapLocationBetweenTexts(sourceText, sourceLocation, targetText);
     }
 
     NSArray *sourceInfos = OMDLineInfosForText(sourceText, NO);
@@ -1425,6 +1513,10 @@ NSUInteger OMDMapSourceLocationWithBlockAnchors(NSString *sourceText,
         anchor = OMDBestAnchorForSourceLine(blockAnchors, sourceLine);
     }
     if (anchor == nil) {
+        if (!resolvedFallback) {
+            expected = OMDMapLocationBetweenTexts(sourceText, sourceLocation, targetText);
+            resolvedFallback = YES;
+        }
         return expected;
     }
 
@@ -1434,6 +1526,10 @@ NSUInteger OMDMapSourceLocationWithBlockAnchors(NSString *sourceText,
     NSUInteger targetAnchorLength = 0;
     if (!OMDExtractAnchor(anchor, &sourceStartLine, &sourceEndLine, &targetStart, &targetAnchorLength) ||
         targetAnchorLength == 0) {
+        if (!resolvedFallback) {
+            expected = OMDMapLocationBetweenTexts(sourceText, sourceLocation, targetText);
+            resolvedFallback = YES;
+        }
         return expected;
     }
 
@@ -1488,17 +1584,21 @@ NSUInteger OMDMapTargetLocationWithBlockAnchors(NSString *sourceText,
                                                 NSUInteger targetLocation,
                                                 NSArray *blockAnchors)
 {
-    NSUInteger expected = OMDMapLocationBetweenTexts(targetText, targetLocation, sourceText);
     NSUInteger sourceLength = [sourceText length];
     NSUInteger targetLength = [targetText length];
+    NSUInteger expected = OMDMapLocationBetweenLengths(targetLocation, targetLength, sourceLength);
+    BOOL resolvedFallback = NO;
     if (sourceLength == 0) {
         return 0;
     }
     if (targetLength == 0) {
         return expected;
     }
-    if (sourceText == nil || targetText == nil || [blockAnchors count] == 0) {
+    if (sourceText == nil || targetText == nil) {
         return expected;
+    }
+    if ([blockAnchors count] == 0) {
+        return OMDMapLocationBetweenTexts(targetText, targetLocation, sourceText);
     }
 
     NSUInteger lookupLocation = targetLocation;
@@ -1508,6 +1608,10 @@ NSUInteger OMDMapTargetLocationWithBlockAnchors(NSString *sourceText,
 
     NSDictionary *anchor = OMDBestAnchorForTargetLocation(blockAnchors, lookupLocation);
     if (anchor == nil) {
+        if (!resolvedFallback) {
+            expected = OMDMapLocationBetweenTexts(targetText, targetLocation, sourceText);
+            resolvedFallback = YES;
+        }
         return expected;
     }
 
@@ -1517,6 +1621,10 @@ NSUInteger OMDMapTargetLocationWithBlockAnchors(NSString *sourceText,
     NSUInteger targetAnchorLength = 0;
     if (!OMDExtractAnchor(anchor, &sourceStartLine, &sourceEndLine, &targetStart, &targetAnchorLength) ||
         targetAnchorLength == 0) {
+        if (!resolvedFallback) {
+            expected = OMDMapLocationBetweenTexts(targetText, targetLocation, sourceText);
+            resolvedFallback = YES;
+        }
         return expected;
     }
 

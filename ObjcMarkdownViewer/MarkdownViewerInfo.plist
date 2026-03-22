@@ -1,4 +1,15 @@
 {
+  ApplicationName = MarkdownViewer;
+  ApplicationVersion = "0.1";
+  ApplicationRelease = "0.1";
+  Authors = ("Daniel Boyd");
+  Copyright = "Copyright (C) 2026 Daniel Boyd";
+  CFBundleShortVersionString = "0.1";
+  CFBundleVersion = "0.1";
+  NSExecutable = MarkdownViewer;
+  NSHumanReadableCopyright = "Copyright (C) 2026 Daniel Boyd";
+  NSPrincipalClass = NSApplication;
+  ApplicationIcon = "markdown_icon.png";
   NSMIMETypes = (
     "text/markdown",
     "text/x-markdown",

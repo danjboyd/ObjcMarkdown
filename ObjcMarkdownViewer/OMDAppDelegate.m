@@ -33,6 +33,7 @@ static const NSTimeInterval OMDMathArtifactRefreshDebounceInterval = 0.10;
 static const NSTimeInterval OMDLivePreviewDebounceInterval = 0.12;
 static const NSTimeInterval OMDPreviewStatusUpdatingDelayInterval = 0.30;
 static const NSTimeInterval OMDPreviewStatusUpdatedDisplayInterval = 0.90;
+static const NSTimeInterval OMDLinkedScrollDriverHoldInterval = 0.14;
 static const NSTimeInterval OMDSourceSyntaxHighlightDebounceInterval = 0.08;
 static const NSTimeInterval OMDSourceSyntaxHighlightLargeDocDebounceInterval = 0.16;
 static const NSTimeInterval OMDRecoveryAutosaveDebounceInterval = 1.25;
@@ -56,16 +57,22 @@ static const CGFloat OMDExplorerListDefaultFontSize = 14.0;
 static const CGFloat OMDExplorerListMinFontSize = 10.0;
 static const CGFloat OMDExplorerListMaxFontSize = 20.0;
 static const CGFloat OMDExplorerListMinimumRowHeight = 20.0;
-static const CGFloat OMDToolbarControlHeight = 22.0;
+static const CGFloat OMDToolbarControlHeight = 28.0;
 static const CGFloat OMDToolbarLabelHeight = 20.0;
-static const CGFloat OMDToolbarItemHeight = 26.0;
-static const CGFloat OMDToolbarIconSize = 20.0;
-static const CGFloat OMDToolbarActionSegmentWidth = 32.0;
+static const CGFloat OMDToolbarItemHeight = 32.0;
+static const CGFloat OMDToolbarIconSize = 22.0;
+static const CGFloat OMDToolbarIconInset = 2.0;
+static const CGFloat OMDToolbarActionSegmentWidth = 46.0;
 static const CGFloat OMDToolbarActionGroupSpacing = 8.0;
 static const CGFloat OMDPreviewCanvasHorizontalMargin = 32.0;
 static const CGFloat OMDPreviewMaximumLayoutWidth = 920.0;
 static const CGFloat OMDPreviewPageCornerRadius = 10.0;
 static const CGFloat OMDPreviewPageBorderWidth = 1.0;
+static const CGFloat OMDLinkedScrollViewportAnchor = 0.30;
+static const CGFloat OMDLinkedScrollDeadband = 8.0;
+static const CGFloat OMDScrollSpeedMinimum = 10.0;
+static const CGFloat OMDScrollSpeedMaximum = 40.0;
+static const CGFloat OMDScrollSpeedDefault = 20.0;
 static const NSTimeInterval OMDGitLockRetryDelaySeconds = 0.20;
 static const NSTimeInterval OMDGitStaleLockMinimumAgeSeconds = 2.0;
 static NSString * const OMDTextFileErrorDomain = @"OMDTextFileErrorDomain";
@@ -82,6 +89,8 @@ static NSString * const OMDSourceVimKeyBindingsDefaultsKey = @"ObjcMarkdownSourc
 static NSString * const OMDRendererSyntaxHighlightingDefaultsKey = @"ObjcMarkdownRendererSyntaxHighlightingEnabled";
 static NSString * const OMDShowFormattingBarDefaultsKey = @"ObjcMarkdownShowFormattingBar";
 static NSString * const OMDThemeDefaultsKey = @"GSTheme";
+static NSString * const OMDLayoutDensityDefaultsKey = @"ObjcMarkdownLayoutDensityMode";
+static NSString * const OMDScrollSpeedDefaultsKey = @"ObjcMarkdownScrollSpeed";
 static NSString * const OMDExplorerLocalRootPathDefaultsKey = @"ObjcMarkdownExplorerLocalRootPath";
 static NSString * const OMDExplorerMaxFileSizeMBDefaultsKey = @"ObjcMarkdownExplorerMaxFileSizeMB";
 static NSString * const OMDExplorerListFontSizeDefaultsKey = @"ObjcMarkdownExplorerListFontSize";
@@ -114,6 +123,19 @@ typedef NS_ENUM(NSInteger, OMDExplorerSourceMode) {
     OMDExplorerSourceModeGitHub = 1
 };
 
+typedef NS_ENUM(NSInteger, OMDLayoutDensityMode) {
+    OMDLayoutDensityModeCompact = 0,
+    OMDLayoutDensityModeBalanced = 1,
+    OMDLayoutDensityModeAdwaita = 2
+};
+
+typedef NS_ENUM(NSInteger, OMDPreferencesSection) {
+    OMDPreferencesSectionAppearance = 0,
+    OMDPreferencesSectionExplorer = 1,
+    OMDPreferencesSectionPreview = 2,
+    OMDPreferencesSectionEditor = 3
+};
+
 typedef NS_ENUM(NSInteger, OMDDocumentRenderMode) {
     OMDDocumentRenderModeMarkdown = 0,
     OMDDocumentRenderModeVerbatim = 1
@@ -135,6 +157,54 @@ typedef NS_ENUM(NSInteger, OMDFormattingCommandTag) {
     OMDFormattingCommandTagHorizontalRule = 1016
 };
 
+typedef NS_ENUM(NSInteger, OMDLinkedScrollDriver) {
+    OMDLinkedScrollDriverNone = 0,
+    OMDLinkedScrollDriverSource = 1,
+    OMDLinkedScrollDriverPreview = 2
+};
+
+typedef struct {
+    CGFloat scale;
+    CGFloat sidebarDefaultWidth;
+    CGFloat previewCanvasMargin;
+    CGFloat previewTextInsetX;
+    CGFloat previewTextInsetY;
+    CGFloat sourceTextInsetX;
+    CGFloat sourceTextInsetY;
+    CGFloat tabStripHeight;
+    CGFloat explorerTopPadding;
+    CGFloat explorerSidePadding;
+    CGFloat explorerControlHeight;
+    CGFloat explorerMinorControlHeight;
+    CGFloat explorerRowPadding;
+    CGFloat formattingBarHeight;
+    CGFloat formattingBarInsetX;
+    CGFloat formattingBarControlHeight;
+    CGFloat formattingBarPopupWidth;
+    CGFloat formattingBarButtonWidth;
+    CGFloat formattingBarButtonWideWidth;
+    CGFloat formattingBarControlSpacing;
+    CGFloat formattingBarGroupSpacing;
+    CGFloat formattingBarFontSize;
+    CGFloat preferencesWindowWidth;
+    CGFloat preferencesWindowMinHeight;
+    CGFloat preferencesOuterPadding;
+    CGFloat preferencesColumnGap;
+    CGFloat preferencesCardCornerRadius;
+    CGFloat preferencesCardPadding;
+    CGFloat preferencesRowGap;
+    CGFloat preferencesNoteHeight;
+    CGFloat preferencesLabelWidth;
+    CGFloat preferencesControlHeight;
+    CGFloat preferencesSmallFieldWidth;
+    CGFloat preferencesSmallButtonWidth;
+    CGFloat preferencesAppearanceCardHeight;
+    CGFloat preferencesExplorerCardHeight;
+    CGFloat preferencesPreviewCardHeight;
+    CGFloat preferencesRenderingCardHeight;
+    CGFloat preferencesEditingCardHeight;
+} OMDLayoutMetrics;
+
 #ifndef NSAlertFirstButtonReturn
 #define NSAlertFirstButtonReturn NSAlertDefaultReturn
 #endif
@@ -147,6 +217,28 @@ typedef NS_ENUM(NSInteger, OMDFormattingCommandTag) {
 #ifndef NSModalResponseCancel
 #define NSModalResponseCancel (-1000)
 #endif
+
+static id OMDInfoValueForKey(NSString *key)
+{
+    if (key == nil || [key length] == 0) {
+        return nil;
+    }
+
+    NSBundle *bundle = [NSBundle mainBundle];
+    id value = [bundle objectForInfoDictionaryKey:key];
+    if (value != nil) {
+        return value;
+    }
+
+    NSDictionary *info = [bundle infoDictionary];
+    return [info objectForKey:key];
+}
+
+static NSString *OMDInfoStringForKey(NSString *key)
+{
+    id value = OMDInfoValueForKey(key);
+    return [value isKindOfClass:[NSString class]] ? (NSString *)value : nil;
+}
 
 static NSTimeInterval OMDNow(void)
 {
@@ -472,6 +564,460 @@ static NSColor *OMDResolvedSubtleSeparatorColor(void)
     return color;
 }
 
+static BOOL OMDColorRGBAComponents(NSColor *color,
+                                   CGFloat *red,
+                                   CGFloat *green,
+                                   CGFloat *blue,
+                                   CGFloat *alpha)
+{
+    if (color == nil) {
+        return NO;
+    }
+    @try {
+        NSColor *rgbColor = [color colorUsingColorSpaceName:NSCalibratedRGBColorSpace];
+        if (rgbColor == nil) {
+            return NO;
+        }
+        if (red != NULL) {
+            *red = [rgbColor redComponent];
+        }
+        if (green != NULL) {
+            *green = [rgbColor greenComponent];
+        }
+        if (blue != NULL) {
+            *blue = [rgbColor blueComponent];
+        }
+        if (alpha != NULL) {
+            *alpha = [rgbColor alphaComponent];
+        }
+        return YES;
+    } @catch (NSException *exception) {
+        (void)exception;
+        return NO;
+    }
+}
+
+static BOOL OMDColorIsDark(NSColor *color)
+{
+    CGFloat red = 0.0;
+    CGFloat green = 0.0;
+    CGFloat blue = 0.0;
+    if (!OMDColorRGBAComponents(color, &red, &green, &blue, NULL)) {
+        return NO;
+    }
+    return ((0.2126 * red) + (0.7152 * green) + (0.0722 * blue)) < 0.55;
+}
+
+static NSColor *OMDColorByBlending(NSColor *baseColor, NSColor *mixColor, CGFloat fraction)
+{
+    CGFloat baseRed = 0.0;
+    CGFloat baseGreen = 0.0;
+    CGFloat baseBlue = 0.0;
+    CGFloat baseAlpha = 1.0;
+    CGFloat mixRed = 0.0;
+    CGFloat mixGreen = 0.0;
+    CGFloat mixBlue = 0.0;
+    CGFloat mixAlpha = 1.0;
+
+    if (fraction < 0.0) {
+        fraction = 0.0;
+    } else if (fraction > 1.0) {
+        fraction = 1.0;
+    }
+
+    if (!OMDColorRGBAComponents(baseColor, &baseRed, &baseGreen, &baseBlue, &baseAlpha) ||
+        !OMDColorRGBAComponents(mixColor, &mixRed, &mixGreen, &mixBlue, &mixAlpha)) {
+        return baseColor;
+    }
+
+    return [NSColor colorWithCalibratedRed:(baseRed + ((mixRed - baseRed) * fraction))
+                                     green:(baseGreen + ((mixGreen - baseGreen) * fraction))
+                                      blue:(baseBlue + ((mixBlue - baseBlue) * fraction))
+                                     alpha:(baseAlpha + ((mixAlpha - baseAlpha) * fraction))];
+}
+
+static NSColor *OMDResolvedControlBackgroundColor(void)
+{
+    GSTheme *theme = [GSTheme theme];
+    NSColor *color = nil;
+    if (theme != nil) {
+        color = [theme colorNamed:@"controlBackgroundColor" state:GSThemeNormalState];
+        if (color == nil) {
+            color = [theme colorNamed:@"textBackgroundColor" state:GSThemeNormalState];
+        }
+        if (color == nil) {
+            color = [theme colorNamed:@"scrollViewBackgroundColor" state:GSThemeNormalState];
+        }
+    }
+    if (color == nil) {
+        color = [NSColor controlBackgroundColor];
+    }
+    if (color == nil) {
+        color = OMDResolvedChromeBackgroundColor();
+    }
+    if (color == nil) {
+        color = [NSColor colorWithCalibratedWhite:0.97 alpha:1.0];
+    }
+    return color;
+}
+
+static NSColor *OMDResolvedPanelBackdropColor(void)
+{
+    NSColor *chrome = OMDResolvedChromeBackgroundColor();
+    if (chrome == nil) {
+        chrome = [NSColor colorWithCalibratedWhite:0.95 alpha:1.0];
+    }
+    if (OMDColorIsDark(chrome)) {
+        return OMDColorByBlending(chrome, [NSColor blackColor], 0.10);
+    }
+    return OMDColorByBlending(chrome, [NSColor colorWithCalibratedWhite:0.92 alpha:1.0], 0.30);
+}
+
+static NSColor *OMDResolvedPanelCardFillColor(void)
+{
+    NSColor *card = OMDResolvedControlBackgroundColor();
+    if (card == nil) {
+        card = OMDResolvedChromeBackgroundColor();
+    }
+    if (card == nil) {
+        card = [NSColor whiteColor];
+    }
+    return card;
+}
+
+static NSColor *OMDResolvedPanelCardBorderColor(void)
+{
+    NSColor *separator = OMDResolvedSubtleSeparatorColor();
+    if (separator == nil) {
+        separator = [NSColor colorWithCalibratedWhite:0.80 alpha:1.0];
+    }
+    if ([separator respondsToSelector:@selector(colorWithAlphaComponent:)]) {
+        return [separator colorWithAlphaComponent:0.70];
+    }
+    return separator;
+}
+
+static NSColor *OMDResolvedMutedTextColor(void)
+{
+    NSColor *color = [NSColor disabledControlTextColor];
+    if (color == nil) {
+        color = OMDColorByBlending(OMDResolvedControlTextColor(),
+                                   OMDResolvedPanelCardFillColor(),
+                                   0.35);
+    }
+    if (color == nil) {
+        color = [NSColor colorWithCalibratedWhite:0.45 alpha:1.0];
+    }
+    return color;
+}
+
+static OMDLayoutDensityMode OMDClampedLayoutDensityMode(NSInteger rawValue)
+{
+    if (rawValue == OMDLayoutDensityModeCompact) {
+        return OMDLayoutDensityModeCompact;
+    }
+    if (rawValue == OMDLayoutDensityModeAdwaita) {
+        return OMDLayoutDensityModeAdwaita;
+    }
+    return OMDLayoutDensityModeBalanced;
+}
+
+static CGFloat OMDClampedScrollSpeed(CGFloat value)
+{
+    if (value < OMDScrollSpeedMinimum) {
+        return OMDScrollSpeedMinimum;
+    }
+    if (value > OMDScrollSpeedMaximum) {
+        return OMDScrollSpeedMaximum;
+    }
+    return value;
+}
+
+static OMDPreferencesSection OMDClampedPreferencesSection(NSInteger rawValue)
+{
+    if (rawValue == OMDPreferencesSectionExplorer) {
+        return OMDPreferencesSectionExplorer;
+    }
+    if (rawValue == OMDPreferencesSectionPreview) {
+        return OMDPreferencesSectionPreview;
+    }
+    if (rawValue == OMDPreferencesSectionEditor) {
+        return OMDPreferencesSectionEditor;
+    }
+    return OMDPreferencesSectionAppearance;
+}
+
+static BOOL OMDDefaultFormattingBarEnabledForMode(OMDLayoutDensityMode mode)
+{
+    return mode != OMDLayoutDensityModeAdwaita;
+}
+
+static OMDLayoutMetrics OMDLayoutMetricsForMode(OMDLayoutDensityMode mode)
+{
+    OMDLayoutMetrics metrics;
+    metrics.scale = 1.0;
+    metrics.sidebarDefaultWidth = OMDExplorerSidebarDefaultWidth;
+    metrics.previewCanvasMargin = OMDPreviewCanvasHorizontalMargin;
+    metrics.previewTextInsetX = 20.0;
+    metrics.previewTextInsetY = 16.0;
+    metrics.sourceTextInsetX = 20.0;
+    metrics.sourceTextInsetY = 16.0;
+    metrics.tabStripHeight = OMDTabStripHeight;
+    metrics.explorerTopPadding = 14.0;
+    metrics.explorerSidePadding = 10.0;
+    metrics.explorerControlHeight = 24.0;
+    metrics.explorerMinorControlHeight = 20.0;
+    metrics.explorerRowPadding = 8.0;
+    metrics.formattingBarHeight = OMDFormattingBarHeight;
+    metrics.formattingBarInsetX = OMDFormattingBarInsetX;
+    metrics.formattingBarControlHeight = OMDFormattingBarControlHeight;
+    metrics.formattingBarPopupWidth = OMDFormattingBarPopupWidth + 4.0;
+    metrics.formattingBarButtonWidth = OMDFormattingBarButtonWidth + 2.0;
+    metrics.formattingBarButtonWideWidth = OMDFormattingBarButtonWideWidth + 2.0;
+    metrics.formattingBarControlSpacing = OMDFormattingBarControlSpacing + 1.0;
+    metrics.formattingBarGroupSpacing = OMDFormattingBarGroupSpacing + 2.0;
+    metrics.formattingBarFontSize = 11.0;
+    metrics.preferencesWindowWidth = 820.0;
+    metrics.preferencesWindowMinHeight = 380.0;
+    metrics.preferencesOuterPadding = 20.0;
+    metrics.preferencesColumnGap = 16.0;
+    metrics.preferencesCardCornerRadius = 12.0;
+    metrics.preferencesCardPadding = 18.0;
+    metrics.preferencesRowGap = 12.0;
+    metrics.preferencesNoteHeight = 30.0;
+    metrics.preferencesLabelWidth = 120.0;
+    metrics.preferencesControlHeight = 28.0;
+    metrics.preferencesSmallFieldWidth = 56.0;
+    metrics.preferencesSmallButtonWidth = 80.0;
+    metrics.preferencesAppearanceCardHeight = 236.0;
+    metrics.preferencesExplorerCardHeight = 258.0;
+    metrics.preferencesPreviewCardHeight = 132.0;
+    metrics.preferencesRenderingCardHeight = 236.0;
+    metrics.preferencesEditingCardHeight = 366.0;
+
+    if (mode == OMDLayoutDensityModeCompact) {
+        metrics.scale = 0.92;
+        metrics.sidebarDefaultWidth = 286.0;
+        metrics.previewCanvasMargin = 28.0;
+        metrics.previewTextInsetX = 18.0;
+        metrics.previewTextInsetY = 14.0;
+        metrics.sourceTextInsetX = 18.0;
+        metrics.sourceTextInsetY = 14.0;
+        metrics.tabStripHeight = 28.0;
+        metrics.explorerTopPadding = 12.0;
+        metrics.explorerControlHeight = 22.0;
+        metrics.formattingBarHeight = 30.0;
+        metrics.formattingBarPopupWidth = 84.0;
+        metrics.formattingBarButtonWidth = 22.0;
+        metrics.formattingBarButtonWideWidth = 24.0;
+        metrics.formattingBarControlSpacing = 2.0;
+        metrics.formattingBarGroupSpacing = 6.0;
+        metrics.preferencesWindowWidth = 780.0;
+        metrics.preferencesWindowMinHeight = 360.0;
+        metrics.preferencesOuterPadding = 18.0;
+        metrics.preferencesColumnGap = 14.0;
+        metrics.preferencesCardPadding = 16.0;
+        metrics.preferencesRowGap = 10.0;
+        metrics.preferencesNoteHeight = 28.0;
+        metrics.preferencesLabelWidth = 112.0;
+        metrics.preferencesControlHeight = 26.0;
+        metrics.preferencesSmallFieldWidth = 52.0;
+        metrics.preferencesSmallButtonWidth = 74.0;
+        metrics.preferencesAppearanceCardHeight = 220.0;
+        metrics.preferencesExplorerCardHeight = 244.0;
+        metrics.preferencesPreviewCardHeight = 124.0;
+        metrics.preferencesRenderingCardHeight = 224.0;
+        metrics.preferencesEditingCardHeight = 346.0;
+    } else if (mode == OMDLayoutDensityModeAdwaita) {
+        metrics.scale = 1.14;
+        metrics.sidebarDefaultWidth = 324.0;
+        metrics.previewCanvasMargin = 40.0;
+        metrics.previewTextInsetX = 24.0;
+        metrics.previewTextInsetY = 20.0;
+        metrics.sourceTextInsetX = 24.0;
+        metrics.sourceTextInsetY = 18.0;
+        metrics.tabStripHeight = 34.0;
+        metrics.explorerTopPadding = 20.0;
+        metrics.explorerSidePadding = 14.0;
+        metrics.explorerControlHeight = 26.0;
+        metrics.explorerMinorControlHeight = 22.0;
+        metrics.explorerRowPadding = 10.0;
+        metrics.formattingBarHeight = 38.0;
+        metrics.formattingBarInsetX = 12.0;
+        metrics.formattingBarControlHeight = 26.0;
+        metrics.formattingBarPopupWidth = 102.0;
+        metrics.formattingBarButtonWidth = 28.0;
+        metrics.formattingBarButtonWideWidth = 34.0;
+        metrics.formattingBarControlSpacing = 4.0;
+        metrics.formattingBarGroupSpacing = 12.0;
+        metrics.formattingBarFontSize = 12.0;
+        metrics.preferencesWindowWidth = 860.0;
+        metrics.preferencesWindowMinHeight = 420.0;
+        metrics.preferencesOuterPadding = 24.0;
+        metrics.preferencesColumnGap = 20.0;
+        metrics.preferencesCardCornerRadius = 14.0;
+        metrics.preferencesCardPadding = 22.0;
+        metrics.preferencesRowGap = 14.0;
+        metrics.preferencesNoteHeight = 34.0;
+        metrics.preferencesLabelWidth = 128.0;
+        metrics.preferencesControlHeight = 32.0;
+        metrics.preferencesSmallFieldWidth = 64.0;
+        metrics.preferencesSmallButtonWidth = 96.0;
+        metrics.preferencesAppearanceCardHeight = 270.0;
+        metrics.preferencesExplorerCardHeight = 300.0;
+        metrics.preferencesPreviewCardHeight = 156.0;
+        metrics.preferencesRenderingCardHeight = 272.0;
+        metrics.preferencesEditingCardHeight = 424.0;
+    }
+
+    return metrics;
+}
+
+static CGFloat OMDPreferencesPreviewSectionHeightForMetrics(OMDLayoutMetrics metrics)
+{
+    return metrics.preferencesRenderingCardHeight +
+           metrics.preferencesControlHeight +
+           metrics.preferencesRowGap +
+           metrics.preferencesNoteHeight +
+           8.0;
+}
+
+static CGFloat OMDPreferencesSectionContentHeight(OMDPreferencesSection section, OMDLayoutMetrics metrics)
+{
+    switch (section) {
+        case OMDPreferencesSectionExplorer:
+            return metrics.preferencesExplorerCardHeight;
+        case OMDPreferencesSectionPreview:
+            return OMDPreferencesPreviewSectionHeightForMetrics(metrics);
+        case OMDPreferencesSectionEditor:
+            return metrics.preferencesEditingCardHeight;
+        case OMDPreferencesSectionAppearance:
+        default:
+            return metrics.preferencesAppearanceCardHeight;
+    }
+}
+
+static CGFloat OMDPreferencesPanelWidthForMetrics(OMDLayoutMetrics metrics)
+{
+    CGFloat width = metrics.preferencesWindowWidth;
+    if (width < 720.0) {
+        width = 720.0;
+    }
+    return ceil(width);
+}
+
+static CGFloat OMDPreferencesPanelHeightForSection(OMDPreferencesSection section, OMDLayoutMetrics metrics)
+{
+    CGFloat tabChromeHeight = (metrics.scale > 1.05 ? 76.0 : 68.0);
+    CGFloat height = metrics.preferencesOuterPadding +
+                     tabChromeHeight +
+                     OMDPreferencesSectionContentHeight(section, metrics) +
+                     metrics.preferencesOuterPadding;
+    if (height < metrics.preferencesWindowMinHeight) {
+        height = metrics.preferencesWindowMinHeight;
+    }
+    return ceil(height);
+}
+
+static NSFont *OMDPreferencesSectionTitleFont(OMDLayoutMetrics metrics)
+{
+    return [NSFont boldSystemFontOfSize:(metrics.scale > 1.05 ? 15.0 : 14.0)];
+}
+
+static NSFont *OMDPreferencesSectionSubtitleFont(OMDLayoutMetrics metrics)
+{
+    return [NSFont systemFontOfSize:(metrics.scale > 1.05 ? 14.0 : 12.0)];
+}
+
+static NSFont *OMDPreferencesLabelFont(OMDLayoutMetrics metrics)
+{
+    return [NSFont systemFontOfSize:(metrics.scale > 1.05 ? 13.0 : 12.0)];
+}
+
+static NSFont *OMDPreferencesNoteFont(OMDLayoutMetrics metrics)
+{
+    return [NSFont systemFontOfSize:(metrics.scale > 1.05 ? 12.0 : 11.5)];
+}
+
+static NSFont *OMDPreferencesSectionControlFont(OMDLayoutMetrics metrics)
+{
+    return [NSFont boldSystemFontOfSize:(metrics.scale > 1.05 ? 13.0 : 12.0)];
+}
+
+static NSTextField *OMDStaticTextField(NSRect frame,
+                                       NSString *stringValue,
+                                       NSFont *font,
+                                       NSColor *textColor,
+                                       NSTextAlignment alignment,
+                                       BOOL wraps)
+{
+    NSTextField *field = [[[NSTextField alloc] initWithFrame:frame] autorelease];
+    [field setBezeled:NO];
+    [field setEditable:NO];
+    [field setSelectable:NO];
+    [field setDrawsBackground:NO];
+    [field setAlignment:alignment];
+    [field setStringValue:(stringValue != nil ? stringValue : @"")];
+    if (font != nil) {
+        [field setFont:font];
+    }
+    if (textColor != nil) {
+        [field setTextColor:textColor];
+    }
+    if (wraps) {
+        id cell = [field cell];
+        if ([cell respondsToSelector:@selector(setWraps:)]) {
+            [cell setWraps:YES];
+        }
+        if ([cell respondsToSelector:@selector(setScrollable:)]) {
+            [cell setScrollable:NO];
+        }
+        if ([cell respondsToSelector:@selector(setLineBreakMode:)]) {
+            [cell setLineBreakMode:NSLineBreakByWordWrapping];
+        }
+    }
+    return field;
+}
+
+static CGFloat OMDControlWidthForTitle(NSString *title,
+                                       NSFont *font,
+                                       CGFloat minWidth,
+                                       CGFloat horizontalPadding)
+{
+    if (minWidth < 1.0) {
+        minWidth = 1.0;
+    }
+    if (horizontalPadding < 0.0) {
+        horizontalPadding = 0.0;
+    }
+    if (title == nil || [title length] == 0) {
+        return ceil(minWidth);
+    }
+    if (font == nil) {
+        font = [NSFont systemFontOfSize:11.0];
+    }
+    NSDictionary *attributes = [NSDictionary dictionaryWithObjectsAndKeys:
+                                font, NSFontAttributeName,
+                                nil];
+    CGFloat width = ceil([title sizeWithAttributes:attributes].width + (horizontalPadding * 2.0));
+    if (width < minWidth) {
+        width = minWidth;
+    }
+    return width;
+}
+
+static void OMDClearSegmentedControlSelection(NSSegmentedControl *control)
+{
+    if (control == nil) {
+        return;
+    }
+    NSInteger segmentCount = [control segmentCount];
+    NSInteger segmentIndex = 0;
+    for (; segmentIndex < segmentCount; segmentIndex++) {
+        [control setSelected:NO forSegment:segmentIndex];
+    }
+}
+
 static NSImage *OMDImageNamed(NSString *resourceName)
 {
     if (resourceName == nil || [resourceName length] == 0) {
@@ -508,14 +1054,62 @@ static NSImage *OMDToolbarPreparedImage(NSImage *image)
     }
 
     NSSize targetSize = NSMakeSize(OMDToolbarIconSize, OMDToolbarIconSize);
+    NSSize imageSize = [image size];
+    NSRect sourceRect = NSMakeRect(0.0, 0.0, imageSize.width, imageSize.height);
+    NSData *tiffData = [image TIFFRepresentation];
+    if (tiffData != nil) {
+        NSBitmapImageRep *bitmap = [[[NSBitmapImageRep alloc] initWithData:tiffData] autorelease];
+        NSInteger width = [bitmap pixelsWide];
+        NSInteger height = [bitmap pixelsHigh];
+        if (width > 0 && height > 0) {
+            NSInteger minX = width;
+            NSInteger minY = height;
+            NSInteger maxX = -1;
+            NSInteger maxY = -1;
+            NSInteger x = 0;
+            NSInteger y = 0;
+            for (y = 0; y < height; y++) {
+                for (x = 0; x < width; x++) {
+                    NSColor *pixel = [bitmap colorAtX:x y:y];
+                    if (pixel != nil && [pixel alphaComponent] > 0.01) {
+                        if (x < minX) {
+                            minX = x;
+                        }
+                        if (y < minY) {
+                            minY = y;
+                        }
+                        if (x > maxX) {
+                            maxX = x;
+                        }
+                        if (y > maxY) {
+                            maxY = y;
+                        }
+                    }
+                }
+            }
+            if (maxX >= minX && maxY >= minY && imageSize.width > 0.0 && imageSize.height > 0.0) {
+                CGFloat scaleX = imageSize.width / (CGFloat)width;
+                CGFloat scaleY = imageSize.height / (CGFloat)height;
+                sourceRect = NSMakeRect(minX * scaleX,
+                                        minY * scaleY,
+                                        (maxX - minX + 1) * scaleX,
+                                        (maxY - minY + 1) * scaleY);
+            }
+        }
+    }
+
     NSImage *prepared = [[[NSImage alloc] initWithSize:targetSize] autorelease];
     if (prepared == nil) {
         return image;
     }
 
     NSRect rect = NSMakeRect(0.0, 0.0, targetSize.width, targetSize.height);
+    NSRect drawRect = NSInsetRect(rect, OMDToolbarIconInset, OMDToolbarIconInset);
+    if (drawRect.size.width <= 0.0 || drawRect.size.height <= 0.0) {
+        drawRect = rect;
+    }
     [prepared lockFocus];
-    [image drawInRect:rect fromRect:NSZeroRect operation:NSCompositeCopy fraction:1.0];
+    [image drawInRect:drawRect fromRect:sourceRect operation:NSCompositeCopy fraction:1.0];
     [prepared unlockFocus];
     [prepared setSize:targetSize];
     return prepared;
@@ -606,29 +1200,6 @@ static NSImage *OMDCodeBlockCopiedCheckImage(void)
     [image setSize:NSMakeSize(16.0, 16.0)];
     cached = [image retain];
     return cached;
-}
-
-static NSButton *OMDFormattingButton(NSString *title,
-                                     NSString *toolTip,
-                                     NSInteger tag,
-                                     CGFloat x,
-                                     CGFloat y,
-                                     CGFloat width,
-                                     CGFloat height,
-                                     id target)
-{
-    NSButton *button = [[[NSButton alloc] initWithFrame:NSMakeRect(x, y, width, height)] autorelease];
-    [button setTitle:(title != nil ? title : @"")];
-    [button setToolTip:toolTip];
-    [button setTag:tag];
-    [button setTarget:target];
-    [button setAction:@selector(formattingCommandPressed:)];
-    [button setBezelStyle:NSSmallSquareBezelStyle];
-    [button setButtonType:NSMomentaryPushInButton];
-    [button setFont:[NSFont systemFontOfSize:11.0]];
-    [button setImagePosition:NSNoImage];
-    [button setAutoresizingMask:NSViewMinYMargin];
-    return button;
 }
 
 static NSString *OMDTrimmedString(NSString *value)
@@ -1030,6 +1601,140 @@ static NSString *OMDDefaultCacheDirectory(void)
 
 @end
 
+@interface OMDFlippedFillView : NSView
+{
+    NSColor *_fillColor;
+}
+@property (nonatomic, retain) NSColor *fillColor;
+@end
+
+@implementation OMDFlippedFillView
+
+@synthesize fillColor = _fillColor;
+
+- (id)initWithFrame:(NSRect)frameRect
+{
+    self = [super initWithFrame:frameRect];
+    if (self != nil) {
+        _fillColor = [OMDResolvedPanelBackdropColor() retain];
+    }
+    return self;
+}
+
+- (void)dealloc
+{
+    [_fillColor release];
+    [super dealloc];
+}
+
+- (BOOL)isFlipped
+{
+    return YES;
+}
+
+- (BOOL)isOpaque
+{
+    return YES;
+}
+
+- (void)setFillColor:(NSColor *)fillColor
+{
+    if (_fillColor == fillColor) {
+        return;
+    }
+    [_fillColor release];
+    _fillColor = [fillColor retain];
+    [self setNeedsDisplay:YES];
+}
+
+- (void)drawRect:(NSRect)dirtyRect
+{
+    (void)dirtyRect;
+    NSColor *fill = (_fillColor != nil ? _fillColor : [NSColor clearColor]);
+    [fill setFill];
+    NSRectFill([self bounds]);
+}
+
+@end
+
+@interface OMDRoundedCardView : OMDFlippedFillView
+{
+    NSColor *_borderColor;
+    CGFloat _cornerRadius;
+}
+@property (nonatomic, retain) NSColor *borderColor;
+@property (nonatomic, assign) CGFloat cornerRadius;
+@end
+
+@implementation OMDRoundedCardView
+
+@synthesize borderColor = _borderColor;
+@synthesize cornerRadius = _cornerRadius;
+
+- (id)initWithFrame:(NSRect)frameRect
+{
+    self = [super initWithFrame:frameRect];
+    if (self != nil) {
+        [self setFillColor:OMDResolvedPanelCardFillColor()];
+        _borderColor = [OMDResolvedPanelCardBorderColor() retain];
+        _cornerRadius = 12.0;
+    }
+    return self;
+}
+
+- (void)dealloc
+{
+    [_borderColor release];
+    [super dealloc];
+}
+
+- (void)setBorderColor:(NSColor *)borderColor
+{
+    if (_borderColor == borderColor) {
+        return;
+    }
+    [_borderColor release];
+    _borderColor = [borderColor retain];
+    [self setNeedsDisplay:YES];
+}
+
+- (void)setCornerRadius:(CGFloat)cornerRadius
+{
+    if (_cornerRadius == cornerRadius) {
+        return;
+    }
+    _cornerRadius = cornerRadius;
+    [self setNeedsDisplay:YES];
+}
+
+- (void)drawRect:(NSRect)dirtyRect
+{
+    (void)dirtyRect;
+    NSRect bounds = NSInsetRect([self bounds], 0.5, 0.5);
+    NSBezierPath *path = [NSBezierPath bezierPathWithRoundedRect:bounds
+                                                         xRadius:_cornerRadius
+                                                         yRadius:_cornerRadius];
+    NSColor *fill = ([self fillColor] != nil ? [self fillColor] : [NSColor clearColor]);
+    [fill setFill];
+    [path fill];
+    if (_borderColor != nil) {
+        [_borderColor setStroke];
+        [path setLineWidth:1.0];
+        [path stroke];
+    }
+}
+
+@end
+
+static OMDRoundedCardView *OMDCreatePreferencesCard(NSRect frame, OMDLayoutMetrics metrics)
+{
+    OMDRoundedCardView *card = [[[OMDRoundedCardView alloc] initWithFrame:frame] autorelease];
+    [card setCornerRadius:metrics.preferencesCardCornerRadius];
+    [card setFillColor:OMDResolvedPanelCardFillColor()];
+    [card setBorderColor:OMDResolvedPanelCardBorderColor()];
+    return card;
+}
+
 @interface OMDAppDelegate () <GSVVimBindingControllerDelegate>
 - (void)importDocument:(id)sender;
 - (void)newWindow:(id)sender;
@@ -1147,6 +1852,11 @@ static NSString *OMDDefaultCacheDirectory(void)
                   syntaxLanguage:(NSString *)syntaxLanguage
                         inNewTab:(BOOL)inNewTab
              requireDirtyConfirm:(BOOL)requireDirtyConfirm;
+- (void)scrollScrollViewToDocumentTop:(NSScrollView *)scrollView;
+- (void)resetCurrentDocumentViewportToStart;
+- (CGFloat)scrollSpeedPreference;
+- (void)setScrollSpeedPreference:(CGFloat)scrollSpeed;
+- (void)applyScrollSpeedPreference;
 - (void)applyCurrentDocumentReadOnlyState;
 - (void)toolbarActionControlChanged:(id)sender;
 - (void)updateToolbarActionControlsState;
@@ -1173,6 +1883,7 @@ static NSString *OMDDefaultCacheDirectory(void)
 - (void)updateAdaptiveZoomDebounceWithRenderDurationMs:(NSTimeInterval)durationMs
                                      sampledAsZoomRender:(BOOL)isZoomRender;
 - (CGFloat)currentPreviewLayoutWidth;
+- (void)clearPreviewPresentation;
 - (void)updatePreviewDocumentGeometry;
 - (void)scheduleInteractiveRenderAfterDelay:(NSTimeInterval)delay;
 - (void)interactiveRenderTimerFired:(NSTimer *)timer;
@@ -1201,11 +1912,16 @@ static NSString *OMDDefaultCacheDirectory(void)
 - (void)applyViewerModeLayout;
 - (void)layoutDocumentViews;
 - (void)setupFormattingBar;
+- (void)rebuildFormattingBar;
+- (CGFloat)layoutFormattingBarControlsForWidth:(CGFloat)containerWidth
+                                  applyFrames:(BOOL)applyFrames;
 - (void)layoutSourceEditorContainer;
 - (void)normalizeWindowFrameIfNeeded;
 - (void)updateFormattingBarContextState;
-- (void)formattingHeadingChanged:(id)sender;
+- (void)formattingHeadingControlChanged:(id)sender;
+- (void)formattingCommandGroupChanged:(id)sender;
 - (void)formattingCommandPressed:(id)sender;
+- (void)performFormattingCommandWithTag:(NSInteger)tag;
 - (void)toggleBoldFormatting:(id)sender;
 - (void)toggleItalicFormatting:(id)sender;
 - (NSTextView *)activeEditingTextView;
@@ -1224,8 +1940,17 @@ static NSString *OMDDefaultCacheDirectory(void)
 - (void)synchronizeSourceEditorWithCurrentMarkdown;
 - (void)setPreviewUpdating:(BOOL)updating;
 - (void)scrollViewContentBoundsDidChange:(NSNotification *)notification;
-- (NSUInteger)topVisibleCharacterIndexForTextView:(NSTextView *)textView
-                                      inScrollView:(NSScrollView *)scrollView;
+- (NSUInteger)visibleCharacterIndexForTextView:(NSTextView *)textView
+                                  inScrollView:(NSScrollView *)scrollView
+                                verticalAnchor:(CGFloat)verticalAnchor;
+- (BOOL)targetScrollPoint:(NSPoint *)pointOut
+              forTextView:(NSTextView *)textView
+             inScrollView:(NSScrollView *)scrollView
+           characterIndex:(NSUInteger)characterIndex
+           verticalAnchor:(CGFloat)verticalAnchor;
+- (void)linkedScrollDriverResetTimerFired:(NSTimer *)timer;
+- (void)refreshLinkedScrollDriver:(OMDLinkedScrollDriver)driver;
+- (void)cancelPendingLinkedScrollDriverReset;
 - (void)syncPreviewToSourceScrollPosition;
 - (void)syncSourceToPreviewScrollPosition;
 - (void)syncPreviewToSourceInteractionAnchor;
@@ -1258,11 +1983,26 @@ static NSString *OMDDefaultCacheDirectory(void)
 - (void)decreaseSourceEditorFontSize:(id)sender;
 - (void)resetSourceEditorFontSize:(id)sender;
 - (void)chooseSourceEditorFont:(id)sender;
+- (void)showAboutPanel:(id)sender;
 - (void)showPreferences:(id)sender;
+- (void)releasePreferencesPanelControls;
+- (void)rebuildPreferencesPanelContent;
+- (void)normalizePreferencesPanelFrameForSize:(NSSize)size;
 - (void)syncPreferencesPanelFromSettings;
+- (void)buildPreferencesAppearanceSectionInView:(NSView *)view metrics:(OMDLayoutMetrics)metrics;
+- (void)buildPreferencesExplorerSectionInView:(NSView *)view metrics:(OMDLayoutMetrics)metrics;
+- (void)buildPreferencesPreviewSectionInView:(NSView *)view metrics:(OMDLayoutMetrics)metrics;
+- (void)buildPreferencesEditorSectionInView:(NSView *)view metrics:(OMDLayoutMetrics)metrics;
+- (NSView *)preferencesItemContainerForSection:(OMDPreferencesSection)section
+                                   contentRect:(NSRect)contentRect
+                                       metrics:(OMDLayoutMetrics)metrics;
+- (void)preferencesSectionChanged:(id)sender;
 - (void)preferencesMathPolicyChanged:(id)sender;
 - (void)preferencesSplitSyncModeChanged:(id)sender;
+- (void)preferencesLayoutModeChanged:(id)sender;
+- (void)preferencesScrollSpeedChanged:(id)sender;
 - (void)preferencesAllowRemoteImagesChanged:(id)sender;
+- (void)preferencesFormattingBarChanged:(id)sender;
 - (void)preferencesWordSelectionShimChanged:(id)sender;
 - (void)preferencesSourceVimKeyBindingsChanged:(id)sender;
 - (void)preferencesSyntaxHighlightingChanged:(id)sender;
@@ -1300,6 +2040,10 @@ static NSString *OMDDefaultCacheDirectory(void)
 - (BOOL)isRendererSyntaxHighlightingEnabled;
 - (void)setRendererSyntaxHighlightingPreferenceEnabled:(BOOL)enabled;
 - (void)toggleRendererSyntaxHighlighting:(id)sender;
+- (NSString *)currentGNUstepThemeName;
+- (OMDLayoutDensityMode)effectiveLayoutDensityMode;
+- (void)setLayoutDensityPreference:(OMDLayoutDensityMode)mode;
+- (void)applyLayoutDensityPreference;
 - (void)requestSourceSyntaxHighlightingRefresh;
 - (void)scheduleSourceSyntaxHighlightingAfterDelay:(NSTimeInterval)delay;
 - (void)sourceSyntaxHighlightTimerFired:(NSTimer *)timer;
@@ -1441,10 +2185,15 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [_previewStatusLabel release];
     [_modeControl release];
     [_modeContainer release];
+    [_linkedScrollDriverResetTimer invalidate];
+    [_linkedScrollDriverResetTimer release];
+    [_preferencesSectionControl release];
     [_preferencesMathPolicyPopup release];
     [_preferencesSplitSyncModePopup release];
     [_preferencesThemePopup release];
+    [_preferencesLayoutModePopup release];
     [_preferencesAllowRemoteImagesButton release];
+    [_preferencesFormattingBarButton release];
     [_preferencesWordSelectionShimButton release];
     [_preferencesSourceVimKeyBindingsButton release];
     [_preferencesSyntaxHighlightingButton release];
@@ -1457,7 +2206,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [_preferencesExplorerMaxFileSizeField release];
     [_preferencesExplorerListFontSizeField release];
     [_preferencesExplorerGitHubTokenField release];
-    [_formatHeadingPopup release];
+    [_formatHeadingControl release];
     [_formatCommandButtons release];
     [_formattingBarView release];
     [_sourceEditorContainer release];
@@ -1547,9 +2296,9 @@ static NSMutableArray *OMDSecondaryWindows(void)
 
     NSString *aboutTitle = [NSString stringWithFormat:@"About %@", appName];
     NSMenuItem *aboutItem = [[[NSMenuItem alloc] initWithTitle:aboutTitle
-                                                         action:@selector(orderFrontStandardAboutPanel:)
+                                                         action:@selector(showAboutPanel:)
                                                   keyEquivalent:@""] autorelease];
-    [aboutItem setTarget:NSApp];
+    [aboutItem setTarget:self];
     [appMenu addItem:aboutItem];
 
     NSMenuItem *preferencesItem = (NSMenuItem *)[appMenu addItemWithTitle:@"Preferences..."
@@ -1820,6 +2569,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
 
 - (void)setupWindow
 {
+    OMDLayoutMetrics metrics = OMDLayoutMetricsForMode([self effectiveLayoutDensityMode]);
     NSRect frame = NSMakeRect(100, 100, 900, 700);
     _window = [[OMDMainWindow alloc]
         initWithContentRect:frame
@@ -1894,7 +2644,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [_textView setSelectable:YES];
     [_textView setRichText:YES];
     [_textView setDrawsBackground:NO];
-    [_textView setTextContainerInset:NSMakeSize(20.0, 16.0)];
+    [_textView setTextContainerInset:NSMakeSize(metrics.previewTextInsetX, metrics.previewTextInsetY)];
     if ([_textView isKindOfClass:[OMDTextView class]]) {
         OMDTextView *previewTextView = (OMDTextView *)_textView;
         [previewTextView setDocumentBackgroundColor:[NSColor whiteColor]];
@@ -1920,6 +2670,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
 
     [_previewCanvasView addSubview:_textView];
     [_previewScrollView setDocumentView:_previewCanvasView];
+    [self clearPreviewPresentation];
     [[_previewScrollView contentView] setPostsBoundsChangedNotifications:YES];
     [[NSNotificationCenter defaultCenter] addObserver:self
                                              selector:@selector(scrollViewContentBoundsDidChange:)
@@ -1944,7 +2695,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [_sourceTextView setAllowsUndo:YES];
     [_sourceTextView setUsesRuler:NO];
     [_sourceTextView setRulerVisible:NO];
-    [_sourceTextView setTextContainerInset:NSMakeSize(20.0, 16.0)];
+    [_sourceTextView setTextContainerInset:NSMakeSize(metrics.sourceTextInsetX, metrics.sourceTextInsetY)];
     [[_sourceTextView textContainer] setLineFragmentPadding:0.0];
     [_sourceTextView setDelegate:self];
     [self applySourceEditorFontFromDefaults];
@@ -1957,17 +2708,15 @@ static NSMutableArray *OMDSecondaryWindows(void)
                                              selector:@selector(scrollViewContentBoundsDidChange:)
                                                  name:NSViewBoundsDidChangeNotification
                                                object:[_sourceScrollView contentView]];
+    [self applyScrollSpeedPreference];
     _sourceLineNumberRuler = [[OMDLineNumberRulerView alloc] initWithScrollView:_sourceScrollView
                                                                         textView:_sourceTextView];
     [_sourceScrollView setVerticalRulerView:_sourceLineNumberRuler];
     [_sourceEditorContainer addSubview:_sourceScrollView];
 
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
-    id showFormattingBarValue = [defaults objectForKey:OMDShowFormattingBarDefaultsKey];
-    _showFormattingBar = YES;
-    if ([showFormattingBarValue respondsToSelector:@selector(boolValue)]) {
-        _showFormattingBar = [showFormattingBarValue boolValue];
-    }
+    (void)defaults;
+    _showFormattingBar = [self isFormattingBarEnabledPreference];
     [self setupFormattingBar];
     [self layoutSourceEditorContainer];
 
@@ -2020,10 +2769,12 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [self setViewerMode:_viewerMode persistPreference:NO];
     [self updateTabStrip];
     [self reloadExplorerEntries];
+    [self applyLayoutDensityPreference];
 }
 
 - (void)setupWorkspaceChrome
 {
+    OMDLayoutMetrics metrics = OMDLayoutMetricsForMode([self effectiveLayoutDensityMode]);
     NSRect contentBounds = [[_window contentView] bounds];
 
     _workspaceSplitView = [[NSSplitView alloc] initWithFrame:contentBounds];
@@ -2033,13 +2784,13 @@ static NSMutableArray *OMDSecondaryWindows(void)
 
     _sidebarContainer = [[NSView alloc] initWithFrame:NSMakeRect(0.0,
                                                                  0.0,
-                                                                 OMDExplorerSidebarDefaultWidth,
+                                                                 metrics.sidebarDefaultWidth,
                                                                  NSHeight(contentBounds))];
     [_sidebarContainer setAutoresizingMask:NSViewHeightSizable];
 
-    _workspaceMainContainer = [[NSView alloc] initWithFrame:NSMakeRect(OMDExplorerSidebarDefaultWidth,
+    _workspaceMainContainer = [[NSView alloc] initWithFrame:NSMakeRect(metrics.sidebarDefaultWidth,
                                                                         0.0,
-                                                                        NSWidth(contentBounds) - OMDExplorerSidebarDefaultWidth,
+                                                                        NSWidth(contentBounds) - metrics.sidebarDefaultWidth,
                                                                         NSHeight(contentBounds))];
     [_workspaceMainContainer setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable)];
 
@@ -2064,7 +2815,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
     _explorerRequestToken = 0;
     _explorerIsLoading = NO;
     _explorerSidebarVisible = [self isExplorerSidebarVisiblePreference];
-    _explorerSidebarLastVisibleWidth = OMDExplorerSidebarDefaultWidth;
+    _explorerSidebarLastVisibleWidth = metrics.sidebarDefaultWidth;
 
     [self layoutWorkspaceChrome];
     [_workspaceSplitView adjustSubviews];
@@ -2072,9 +2823,9 @@ static NSMutableArray *OMDSecondaryWindows(void)
     CGFloat totalWidth = NSWidth([_workspaceSplitView bounds]);
     CGFloat divider = [_workspaceSplitView dividerThickness];
     CGFloat available = totalWidth - divider;
-    CGFloat sidebarWidth = OMDExplorerSidebarDefaultWidth;
+    CGFloat sidebarWidth = metrics.sidebarDefaultWidth;
     if (available > 0.0) {
-        CGFloat minMainWidth = 420.0;
+        CGFloat minMainWidth = (metrics.scale > 1.05 ? 460.0 : 420.0);
         CGFloat maxSidebar = available - minMainWidth;
         if (maxSidebar < 220.0) {
             maxSidebar = available * 0.35;
@@ -2130,13 +2881,14 @@ static NSMutableArray *OMDSecondaryWindows(void)
 
 - (CGFloat)currentTabStripHeight
 {
+    OMDLayoutMetrics metrics = OMDLayoutMetricsForMode([self effectiveLayoutDensityMode]);
     if (_documentTabs == nil) {
         return 0.0;
     }
     if ([_documentTabs count] <= 1) {
         return 0.0;
     }
-    return OMDTabStripHeight;
+    return metrics.tabStripHeight;
 }
 
 - (BOOL)isExplorerSidebarVisiblePreference
@@ -2156,6 +2908,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
 
 - (void)applyExplorerSidebarVisibility
 {
+    OMDLayoutMetrics metrics = OMDLayoutMetricsForMode([self effectiveLayoutDensityMode]);
     if (_workspaceSplitView == nil || _sidebarContainer == nil) {
         return;
     }
@@ -2174,10 +2927,10 @@ static NSMutableArray *OMDSecondaryWindows(void)
         CGFloat available = totalWidth - divider;
         CGFloat target = _explorerSidebarLastVisibleWidth;
         if (target < 170.0) {
-            target = OMDExplorerSidebarDefaultWidth;
+            target = metrics.sidebarDefaultWidth;
         }
         if (available > 0.0) {
-            CGFloat minMain = 360.0;
+            CGFloat minMain = (metrics.scale > 1.05 ? 400.0 : 360.0);
             CGFloat maxSidebar = available - minMain;
             if (maxSidebar < 170.0) {
                 maxSidebar = available * 0.40;
@@ -2190,7 +2943,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
             }
         }
         if (target < 1.0) {
-            target = OMDExplorerSidebarDefaultWidth;
+            target = metrics.sidebarDefaultWidth;
         }
         [_workspaceSplitView setPosition:target ofDividerAtIndex:0];
     } else {
@@ -2322,7 +3075,9 @@ static NSMutableArray *OMDSecondaryWindows(void)
             [_toolbarUtilityActionsControl setTag:2];
             [_toolbarUtilityActionsControl setImage:(OMDToolbarThemedImageNamed(@"toolbar-export.png") ?: [NSImage imageNamed:@"NSSave"]) forSegment:0];
             [_toolbarUtilityActionsControl setImage:(OMDToolbarThemedImageNamed(@"toolbar-print.png") ?: [NSImage imageNamed:@"NSPrint"]) forSegment:1];
-            [_toolbarUtilityActionsControl setImage:([NSImage imageNamed:@"NSPreferencesGeneral"] ?: [NSImage imageNamed:@"preferences"]) forSegment:2];
+            [_toolbarUtilityActionsControl setImage:(OMDToolbarThemedImageNamed(@"toolbar-preferences.png")
+                                                    ?: [NSImage imageNamed:@"NSPreferencesGeneral"]
+                                                    ?: [NSImage imageNamed:@"preferences"]) forSegment:2];
             [[_toolbarUtilityActionsControl cell] setToolTip:@"Export the current document as PDF" forSegment:0];
             [[_toolbarUtilityActionsControl cell] setToolTip:@"Print the current document" forSegment:1];
             [[_toolbarUtilityActionsControl cell] setToolTip:@"Open Preferences" forSegment:2];
@@ -2417,7 +3172,10 @@ static NSMutableArray *OMDSecondaryWindows(void)
         [item setToolTip:@"Open Preferences"];
         [item setTarget:self];
         [item setAction:@selector(showPreferences:)];
-        NSImage *image = [NSImage imageNamed:@"NSPreferencesGeneral"];
+        NSImage *image = OMDToolbarThemedImageNamed(@"toolbar-preferences.png");
+        if (image == nil) {
+            image = [NSImage imageNamed:@"NSPreferencesGeneral"];
+        }
         if (image == nil) {
             image = [NSImage imageNamed:@"preferences"];
         }
@@ -2514,7 +3272,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
         if (_zoomContainer == nil) {
             CGFloat labelY = floor((OMDToolbarItemHeight - OMDToolbarLabelHeight) * 0.5);
             CGFloat controlY = floor((OMDToolbarItemHeight - OMDToolbarControlHeight) * 0.5);
-            _zoomContainer = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 280, OMDToolbarItemHeight)];
+            _zoomContainer = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 300, OMDToolbarItemHeight)];
 
             _zoomLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(0, labelY, 55, OMDToolbarLabelHeight)];
             [_zoomLabel setBezeled:NO];
@@ -2524,18 +3282,20 @@ static NSMutableArray *OMDSecondaryWindows(void)
             [_zoomLabel setAlignment:NSRightTextAlignment];
             [_zoomLabel setFont:[NSFont boldSystemFontOfSize:11.0]];
 
-            _zoomSlider = [[NSSlider alloc] initWithFrame:NSMakeRect(60, controlY, 160, OMDToolbarControlHeight)];
+            _zoomSlider = [[NSSlider alloc] initWithFrame:NSMakeRect(60, controlY, 130, OMDToolbarControlHeight)];
             [_zoomSlider setMinValue:50];
             [_zoomSlider setMaxValue:200];
             [_zoomSlider setDoubleValue:_zoomScale * 100.0];
             [_zoomSlider setTarget:self];
             [_zoomSlider setAction:@selector(zoomSliderChanged:)];
 
-            _zoomResetButton = [[NSButton alloc] initWithFrame:NSMakeRect(225, controlY, 55, OMDToolbarControlHeight)];
-            [_zoomResetButton setTitle:@"Reset"];
+            _zoomResetButton = [[NSButton alloc] initWithFrame:NSMakeRect(205, controlY, 90, OMDToolbarControlHeight)];
+            [_zoomResetButton setTitle:@"100%"];
             [_zoomResetButton setBezelStyle:NSRoundedBezelStyle];
+            [_zoomResetButton setFont:[NSFont systemFontOfSize:11.0]];
             [_zoomResetButton setTarget:self];
             [_zoomResetButton setAction:@selector(zoomReset:)];
+            [_zoomResetButton setToolTip:@"Reset zoom to 100%"];
 
             [_zoomContainer addSubview:_zoomLabel];
             [_zoomContainer addSubview:_zoomSlider];
@@ -2545,8 +3305,8 @@ static NSMutableArray *OMDSecondaryWindows(void)
 
         NSToolbarItem *item = [[[NSToolbarItem alloc] initWithItemIdentifier:@"ZoomControls"] autorelease];
         [item setView:_zoomContainer];
-        [item setMinSize:NSMakeSize(280, OMDToolbarItemHeight)];
-        [item setMaxSize:NSMakeSize(280, OMDToolbarItemHeight)];
+        [item setMinSize:NSMakeSize(300, OMDToolbarItemHeight)];
+        [item setMaxSize:NSMakeSize(300, OMDToolbarItemHeight)];
         return item;
     }
 
@@ -3123,6 +3883,11 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [self applyCurrentDocumentReadOnlyState];
     [self updatePreviewStatusIndicator];
     [self updateWindowTitle];
+    if (_currentMarkdown == nil) {
+        [self clearPreviewPresentation];
+        [self setPreviewUpdating:NO];
+        return;
+    }
     if ([self isPreviewVisible]) {
         [self renderCurrentMarkdown];
     }
@@ -3878,6 +4643,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
 {
     NSString *previewMarkdown = [self markdownForCurrentPreview];
     if (previewMarkdown == nil) {
+        [self clearPreviewPresentation];
         [self setPreviewUpdating:NO];
         return;
     }
@@ -3963,6 +4729,49 @@ static NSMutableArray *OMDSecondaryWindows(void)
     }
 }
 
+- (void)clearPreviewPresentation
+{
+    if (_textView == nil || _previewScrollView == nil || _previewCanvasView == nil) {
+        return;
+    }
+
+    [self hideCopyFeedback];
+    if (_codeBlockButtons != nil) {
+        for (NSButton *button in _codeBlockButtons) {
+            [button removeFromSuperview];
+        }
+        [_codeBlockButtons removeAllObjects];
+    }
+
+    _isProgrammaticPreviewUpdate = YES;
+    NSAttributedString *empty = [[[NSAttributedString alloc] initWithString:@""] autorelease];
+    [[_textView textStorage] setAttributedString:empty];
+    _isProgrammaticPreviewUpdate = NO;
+
+    if ([_textView isKindOfClass:[OMDTextView class]]) {
+        OMDTextView *previewTextView = (OMDTextView *)_textView;
+        [previewTextView setDocumentBackgroundColor:nil];
+        [previewTextView setDocumentBorderColor:nil];
+        [previewTextView setCodeBlockRanges:nil];
+        [previewTextView setCodeBlockBackgroundColor:nil];
+        [previewTextView setCodeBlockBorderColor:nil];
+        [previewTextView setBlockquoteRanges:nil];
+        [previewTextView setBlockquoteLineColor:nil];
+        [previewTextView setNeedsDisplay:YES];
+    }
+
+    [_previewScrollView setDrawsBackground:YES];
+    [_previewScrollView setBackgroundColor:OMDResolvedChromeBackgroundColor()];
+
+    NSClipView *clipView = [_previewScrollView contentView];
+    NSRect clipBounds = [clipView bounds];
+    CGFloat width = clipBounds.size.width > 1.0 ? clipBounds.size.width : 1.0;
+    CGFloat height = clipBounds.size.height > 1.0 ? clipBounds.size.height : 1.0;
+    [_previewCanvasView setFrameSize:NSMakeSize(width, height)];
+    [_textView setFrame:NSIntegralRect(NSMakeRect(0.0, 0.0, width, height))];
+    [self scrollScrollViewToDocumentTop:_previewScrollView];
+}
+
 - (void)updateAdaptiveZoomDebounceWithRenderDurationMs:(NSTimeInterval)durationMs
                                      sampledAsZoomRender:(BOOL)isZoomRender
 {
@@ -4017,6 +4826,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
 constrainSplitPosition:(CGFloat)proposedPosition
          ofSubviewAt:(NSInteger)dividerIndex
 {
+    OMDLayoutMetrics metrics = OMDLayoutMetricsForMode([self effectiveLayoutDensityMode]);
     if (splitView == _workspaceSplitView) {
         if (!_explorerSidebarVisible) {
             return 0.0;
@@ -4025,7 +4835,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
         CGFloat divider = [_workspaceSplitView dividerThickness];
         CGFloat available = width - divider;
         CGFloat minSidebar = 170.0;
-        CGFloat minMain = 360.0;
+        CGFloat minMain = (metrics.scale > 1.05 ? 400.0 : 360.0);
         CGFloat minPosition = minSidebar;
         CGFloat maxPosition = available - minMain;
         if (maxPosition < minPosition) {
@@ -4102,6 +4912,8 @@ constrainSplitPosition:(CGFloat)proposedPosition
     if (available >= 0.0) {
         _lastObservedSplitAvailableWidth = available;
     }
+    [self updatePreviewDocumentGeometry];
+    [self updateCodeBlockButtons];
     [self requestInteractiveRenderForLayoutWidthIfNeeded];
     [_splitView setNeedsDisplay:YES];
 }
@@ -4138,6 +4950,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
 
 - (CGFloat)currentPreviewLayoutWidth
 {
+    OMDLayoutMetrics metrics = OMDLayoutMetricsForMode([self effectiveLayoutDensityMode]);
     if (_textView == nil) {
         return 0.0;
     }
@@ -4152,7 +4965,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
     NSTextContainer *container = [_textView textContainer];
     CGFloat padding = container != nil ? [container lineFragmentPadding] : 0.0;
     CGFloat fullWidth = bounds.size.width - (inset.width * 2.0) - (padding * 2.0);
-    CGFloat width = fullWidth - (OMDPreviewCanvasHorizontalMargin * 2.0);
+    CGFloat width = fullWidth - (metrics.previewCanvasMargin * 2.0);
     if (width < 360.0) {
         width = fullWidth;
     }
@@ -4235,7 +5048,13 @@ constrainSplitPosition:(CGFloat)proposedPosition
 
     CGFloat textX = 0.0;
     if (canvasWidth > targetWidth) {
-        textX = floor((canvasWidth - targetWidth) * 0.5);
+        CGFloat slackWidth = canvasWidth - targetWidth;
+        if (_viewerMode == OMDViewerModeSplit) {
+            CGFloat leadingGutter = floor(MIN(slackWidth, 6.0));
+            textX = leadingGutter;
+        } else {
+            textX = floor(slackWidth * 0.5);
+        }
     }
     NSRect frame = [_textView frame];
     NSRect targetFrame = NSIntegralRect(NSMakeRect(textX, 0.0, targetWidth, targetHeight));
@@ -4243,6 +5062,15 @@ constrainSplitPosition:(CGFloat)proposedPosition
         fabs(frame.size.width - targetFrame.size.width) > 0.5 ||
         fabs(frame.size.height - targetFrame.size.height) > 0.5) {
         [_textView setFrame:targetFrame];
+    }
+
+    if (_viewerMode == OMDViewerModeSplit && targetWidth <= clipBounds.size.width + 0.5) {
+        NSPoint clipOrigin = [clipView bounds].origin;
+        if (clipOrigin.x > 0.5) {
+            clipOrigin.x = 0.0;
+            [clipView scrollToPoint:clipOrigin];
+            [_previewScrollView reflectScrolledClipView:clipView];
+        }
     }
 }
 
@@ -4420,7 +5248,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
     if ([value respondsToSelector:@selector(boolValue)]) {
         return [value boolValue];
     }
-    return YES;
+    return OMDDefaultFormattingBarEnabledForMode([self effectiveLayoutDensityMode]);
 }
 
 - (void)setFormattingBarEnabledPreference:(BOOL)enabled
@@ -4448,6 +5276,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
 
 - (void)setupFormattingBar
 {
+    OMDLayoutMetrics metrics = OMDLayoutMetricsForMode([self effectiveLayoutDensityMode]);
     if (_sourceEditorContainer == nil) {
         return;
     }
@@ -4458,139 +5287,333 @@ constrainSplitPosition:(CGFloat)proposedPosition
     _formattingBarView = [[OMDFormattingBarView alloc] initWithFrame:NSMakeRect(0.0,
                                                                                  0.0,
                                                                                  NSWidth([_sourceEditorContainer bounds]),
-                                                                                 OMDFormattingBarHeight)];
+                                                                                 metrics.formattingBarHeight)];
     [_formattingBarView setAutoresizingMask:(NSViewWidthSizable | NSViewMinYMargin)];
-    [_formattingBarView setFillColor:[NSColor colorWithCalibratedRed:0.95 green:0.96 blue:0.97 alpha:1.0]];
-    [_formattingBarView setBorderColor:[NSColor colorWithCalibratedRed:0.82 green:0.85 blue:0.89 alpha:1.0]];
+    [_formattingBarView setFillColor:OMDResolvedControlBackgroundColor()];
+    [_formattingBarView setBorderColor:OMDResolvedSubtleSeparatorColor()];
     [_sourceEditorContainer addSubview:_formattingBarView];
 
     _formatCommandButtons = [[NSMutableDictionary alloc] init];
 
-    CGFloat controlY = floor((OMDFormattingBarHeight - OMDFormattingBarControlHeight) / 2.0);
-    CGFloat x = OMDFormattingBarInsetX;
+    CGFloat x = metrics.formattingBarInsetX;
+    NSFont *buttonFont = [NSFont systemFontOfSize:(metrics.scale > 1.05 ? 11.5 : metrics.formattingBarFontSize)];
+    CGFloat compactPadding = (metrics.scale > 1.05 ? 8.0 : 7.0);
+    CGFloat narrowPadding = (metrics.scale > 1.05 ? 7.0 : 6.0);
 
-    _formatHeadingPopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(x,
-                                                                           controlY,
-                                                                           OMDFormattingBarPopupWidth,
-                                                                           OMDFormattingBarControlHeight)
-                                                     pullsDown:NO];
-    [_formatHeadingPopup addItemsWithTitles:[NSArray arrayWithObjects:@"Paragraph",
-                                                                       @"Heading 1",
-                                                                       @"Heading 2",
-                                                                       @"Heading 3",
-                                                                       @"Heading 4",
-                                                                       @"Heading 5",
-                                                                       @"Heading 6",
-                                                                       nil]];
-    [_formatHeadingPopup setToolTip:@"Heading level"];
-    [_formatHeadingPopup setTarget:self];
-    [_formatHeadingPopup setAction:@selector(formattingHeadingChanged:)];
-    [_formatHeadingPopup setFont:[NSFont systemFontOfSize:11.0]];
-    [_formatHeadingPopup setAutoresizingMask:NSViewMinYMargin];
-    if ([[_formatHeadingPopup cell] respondsToSelector:@selector(setControlSize:)]) {
-        [[_formatHeadingPopup cell] setControlSize:NSSmallControlSize];
+    CGFloat headingPWidth = OMDControlWidthForTitle(@"P", buttonFont, 30.0, narrowPadding);
+    CGFloat headingLevelWidth = OMDControlWidthForTitle(@"H6", buttonFont, 36.0, narrowPadding);
+    CGFloat headingWidth = headingPWidth + (headingLevelWidth * 6.0);
+    _formatHeadingControl = [[NSSegmentedControl alloc] initWithFrame:NSMakeRect(x,
+                                                                                 0.0,
+                                                                                 headingWidth,
+                                                                                 metrics.formattingBarControlHeight)];
+    [_formatHeadingControl setSegmentCount:7];
+    [_formatHeadingControl setSegmentStyle:NSSegmentStyleRounded];
+    [[_formatHeadingControl cell] setTrackingMode:NSSegmentSwitchTrackingSelectOne];
+    [_formatHeadingControl setLabel:@"P" forSegment:0];
+    [_formatHeadingControl setLabel:@"H1" forSegment:1];
+    [_formatHeadingControl setLabel:@"H2" forSegment:2];
+    [_formatHeadingControl setLabel:@"H3" forSegment:3];
+    [_formatHeadingControl setLabel:@"H4" forSegment:4];
+    [_formatHeadingControl setLabel:@"H5" forSegment:5];
+    [_formatHeadingControl setLabel:@"H6" forSegment:6];
+    [_formatHeadingControl setWidth:headingPWidth forSegment:0];
+    [_formatHeadingControl setWidth:headingLevelWidth forSegment:1];
+    [_formatHeadingControl setWidth:headingLevelWidth forSegment:2];
+    [_formatHeadingControl setWidth:headingLevelWidth forSegment:3];
+    [_formatHeadingControl setWidth:headingLevelWidth forSegment:4];
+    [_formatHeadingControl setWidth:headingLevelWidth forSegment:5];
+    [_formatHeadingControl setWidth:headingLevelWidth forSegment:6];
+    [[_formatHeadingControl cell] setToolTip:@"Paragraph" forSegment:0];
+    [[_formatHeadingControl cell] setToolTip:@"Heading 1" forSegment:1];
+    [[_formatHeadingControl cell] setToolTip:@"Heading 2" forSegment:2];
+    [[_formatHeadingControl cell] setToolTip:@"Heading 3" forSegment:3];
+    [[_formatHeadingControl cell] setToolTip:@"Heading 4" forSegment:4];
+    [[_formatHeadingControl cell] setToolTip:@"Heading 5" forSegment:5];
+    [[_formatHeadingControl cell] setToolTip:@"Heading 6" forSegment:6];
+    if ([_formatHeadingControl respondsToSelector:@selector(setFont:)]) {
+        [_formatHeadingControl setFont:buttonFont];
     }
-    [_formattingBarView addSubview:_formatHeadingPopup];
+    [_formatHeadingControl setTarget:self];
+    [_formatHeadingControl setAction:@selector(formattingHeadingControlChanged:)];
+    [_formatHeadingControl setAutoresizingMask:NSViewMinYMargin];
+    [_formattingBarView addSubview:_formatHeadingControl];
 
-    x += OMDFormattingBarPopupWidth + OMDFormattingBarGroupSpacing;
+    x += headingWidth + metrics.formattingBarGroupSpacing;
 
-    NSButton *button = nil;
-
-    button = OMDFormattingButton(@"B", @"Bold (Ctrl/Cmd+B)", OMDFormattingCommandTagBold,
-                                 x, controlY, OMDFormattingBarButtonWidth, OMDFormattingBarControlHeight, self);
-    [button setFont:[NSFont boldSystemFontOfSize:11.0]];
-    [_formattingBarView addSubview:button];
-    [_formatCommandButtons setObject:button forKey:[NSNumber numberWithInteger:OMDFormattingCommandTagBold]];
-    x += OMDFormattingBarButtonWidth + OMDFormattingBarControlSpacing;
-
-    button = OMDFormattingButton(@"I", @"Italic (Ctrl/Cmd+I)", OMDFormattingCommandTagItalic,
-                                 x, controlY, OMDFormattingBarButtonWidth, OMDFormattingBarControlHeight, self);
-    NSFont *italicFont = [NSFont fontWithName:@"Helvetica-Oblique" size:11.0];
-    if (italicFont == nil) {
-        italicFont = [NSFont systemFontOfSize:11.0];
+    CGFloat boldWidth = OMDControlWidthForTitle(@"B", buttonFont, 32.0, narrowPadding);
+    CGFloat italicWidth = OMDControlWidthForTitle(@"I", buttonFont, 32.0, narrowPadding);
+    CGFloat strikeWidth = OMDControlWidthForTitle(@"S", buttonFont, 32.0, narrowPadding);
+    CGFloat inlineCodeWidth = OMDControlWidthForTitle(@"Code", buttonFont, 50.0, compactPadding);
+    CGFloat inlineWidth = boldWidth + italicWidth + strikeWidth + inlineCodeWidth;
+    NSSegmentedControl *inlineControl = [[[NSSegmentedControl alloc] initWithFrame:NSMakeRect(x,
+                                                                                               0.0,
+                                                                                               inlineWidth,
+                                                                                               metrics.formattingBarControlHeight)] autorelease];
+    [inlineControl setSegmentCount:4];
+    [inlineControl setSegmentStyle:NSSegmentStyleRounded];
+    [[inlineControl cell] setTrackingMode:NSSegmentSwitchTrackingMomentary];
+    [inlineControl setLabel:@"B" forSegment:0];
+    [inlineControl setLabel:@"I" forSegment:1];
+    [inlineControl setLabel:@"S" forSegment:2];
+    [inlineControl setLabel:@"Code" forSegment:3];
+    [inlineControl setWidth:boldWidth forSegment:0];
+    [inlineControl setWidth:italicWidth forSegment:1];
+    [inlineControl setWidth:strikeWidth forSegment:2];
+    [inlineControl setWidth:inlineCodeWidth forSegment:3];
+    [[inlineControl cell] setToolTip:@"Bold (Ctrl/Cmd+B)" forSegment:0];
+    [[inlineControl cell] setToolTip:@"Italic (Ctrl/Cmd+I)" forSegment:1];
+    [[inlineControl cell] setToolTip:@"Strikethrough" forSegment:2];
+    [[inlineControl cell] setToolTip:@"Inline code" forSegment:3];
+    if ([inlineControl respondsToSelector:@selector(setFont:)]) {
+        [inlineControl setFont:buttonFont];
     }
-    [button setFont:italicFont];
-    [_formattingBarView addSubview:button];
-    [_formatCommandButtons setObject:button forKey:[NSNumber numberWithInteger:OMDFormattingCommandTagItalic]];
-    x += OMDFormattingBarButtonWidth + OMDFormattingBarControlSpacing;
+    [inlineControl setTag:1];
+    [inlineControl setTarget:self];
+    [inlineControl setAction:@selector(formattingCommandGroupChanged:)];
+    [inlineControl setAutoresizingMask:NSViewMinYMargin];
+    [_formattingBarView addSubview:inlineControl];
+    [_formatCommandButtons setObject:inlineControl forKey:@"inline"];
 
-    button = OMDFormattingButton(@"S", @"Strikethrough", OMDFormattingCommandTagStrike,
-                                 x, controlY, OMDFormattingBarButtonWidth, OMDFormattingBarControlHeight, self);
-    [_formattingBarView addSubview:button];
-    [_formatCommandButtons setObject:button forKey:[NSNumber numberWithInteger:OMDFormattingCommandTagStrike]];
-    x += OMDFormattingBarButtonWidth + OMDFormattingBarControlSpacing;
+    x += NSWidth([inlineControl frame]) + metrics.formattingBarGroupSpacing;
 
-    button = OMDFormattingButton(@"`", @"Inline code", OMDFormattingCommandTagInlineCode,
-                                 x, controlY, OMDFormattingBarButtonWidth, OMDFormattingBarControlHeight, self);
-    [_formattingBarView addSubview:button];
-    [_formatCommandButtons setObject:button forKey:[NSNumber numberWithInteger:OMDFormattingCommandTagInlineCode]];
-    x += OMDFormattingBarButtonWidth + OMDFormattingBarControlSpacing;
+    NSSegmentedControl *mediaControl = [[[NSSegmentedControl alloc] initWithFrame:NSMakeRect(x,
+                                                                                              0.0,
+                                                                                              0.0,
+                                                                                              metrics.formattingBarControlHeight)] autorelease];
+    [mediaControl setSegmentCount:2];
+    [mediaControl setSegmentStyle:NSSegmentStyleRounded];
+    [[mediaControl cell] setTrackingMode:NSSegmentSwitchTrackingMomentary];
+    [mediaControl setLabel:@"Link" forSegment:0];
+    [mediaControl setLabel:@"Image" forSegment:1];
+    CGFloat linkWidth = OMDControlWidthForTitle(@"Link", buttonFont, 46.0, compactPadding);
+    CGFloat imageWidth = OMDControlWidthForTitle(@"Image", buttonFont, 54.0, compactPadding);
+    [mediaControl setFrame:NSMakeRect(x, 0.0, linkWidth + imageWidth, metrics.formattingBarControlHeight)];
+    [mediaControl setWidth:linkWidth forSegment:0];
+    [mediaControl setWidth:imageWidth forSegment:1];
+    [[mediaControl cell] setToolTip:@"Insert link" forSegment:0];
+    [[mediaControl cell] setToolTip:@"Insert image" forSegment:1];
+    if ([mediaControl respondsToSelector:@selector(setFont:)]) {
+        [mediaControl setFont:buttonFont];
+    }
+    [mediaControl setTag:2];
+    [mediaControl setTarget:self];
+    [mediaControl setAction:@selector(formattingCommandGroupChanged:)];
+    [mediaControl setAutoresizingMask:NSViewMinYMargin];
+    [_formattingBarView addSubview:mediaControl];
+    [_formatCommandButtons setObject:mediaControl forKey:@"media"];
 
-    button = OMDFormattingButton(@"Ln", @"Insert link", OMDFormattingCommandTagLink,
-                                 x, controlY, OMDFormattingBarButtonWidth, OMDFormattingBarControlHeight, self);
-    [_formattingBarView addSubview:button];
-    [_formatCommandButtons setObject:button forKey:[NSNumber numberWithInteger:OMDFormattingCommandTagLink]];
-    x += OMDFormattingBarButtonWidth + OMDFormattingBarControlSpacing;
+    x += NSWidth([mediaControl frame]) + metrics.formattingBarGroupSpacing;
 
-    button = OMDFormattingButton(@"Im", @"Insert image", OMDFormattingCommandTagImage,
-                                 x, controlY, OMDFormattingBarButtonWidth, OMDFormattingBarControlHeight, self);
-    [_formattingBarView addSubview:button];
-    [_formatCommandButtons setObject:button forKey:[NSNumber numberWithInteger:OMDFormattingCommandTagImage]];
-    x += OMDFormattingBarButtonWidth + OMDFormattingBarGroupSpacing;
+    NSSegmentedControl *listControl = [[[NSSegmentedControl alloc] initWithFrame:NSMakeRect(x,
+                                                                                             0.0,
+                                                                                             0.0,
+                                                                                             metrics.formattingBarControlHeight)] autorelease];
+    [listControl setSegmentCount:4];
+    [listControl setSegmentStyle:NSSegmentStyleRounded];
+    [[listControl cell] setTrackingMode:NSSegmentSwitchTrackingMomentary];
+    [listControl setLabel:@"-" forSegment:0];
+    [listControl setLabel:@"1." forSegment:1];
+    [listControl setLabel:@"[]" forSegment:2];
+    [listControl setLabel:@">" forSegment:3];
+    CGFloat bulletWidth = OMDControlWidthForTitle(@"-", buttonFont, 32.0, narrowPadding);
+    CGFloat numberWidth = OMDControlWidthForTitle(@"1.", buttonFont, 36.0, narrowPadding);
+    CGFloat taskWidth = OMDControlWidthForTitle(@"[]", buttonFont, 40.0, narrowPadding);
+    CGFloat quoteWidth = OMDControlWidthForTitle(@">", buttonFont, 32.0, narrowPadding);
+    [listControl setFrame:NSMakeRect(x,
+                                     0.0,
+                                     bulletWidth + numberWidth + taskWidth + quoteWidth,
+                                     metrics.formattingBarControlHeight)];
+    [listControl setWidth:bulletWidth forSegment:0];
+    [listControl setWidth:numberWidth forSegment:1];
+    [listControl setWidth:taskWidth forSegment:2];
+    [listControl setWidth:quoteWidth forSegment:3];
+    [[listControl cell] setToolTip:@"Toggle bullet list" forSegment:0];
+    [[listControl cell] setToolTip:@"Toggle numbered list" forSegment:1];
+    [[listControl cell] setToolTip:@"Toggle task list" forSegment:2];
+    [[listControl cell] setToolTip:@"Toggle block quote" forSegment:3];
+    if ([listControl respondsToSelector:@selector(setFont:)]) {
+        [listControl setFont:buttonFont];
+    }
+    [listControl setTag:3];
+    [listControl setTarget:self];
+    [listControl setAction:@selector(formattingCommandGroupChanged:)];
+    [listControl setAutoresizingMask:NSViewMinYMargin];
+    [_formattingBarView addSubview:listControl];
+    [_formatCommandButtons setObject:listControl forKey:@"lists"];
 
-    button = OMDFormattingButton(@"-", @"Toggle bullet list", OMDFormattingCommandTagListBullet,
-                                 x, controlY, OMDFormattingBarButtonWidth, OMDFormattingBarControlHeight, self);
-    [_formattingBarView addSubview:button];
-    [_formatCommandButtons setObject:button forKey:[NSNumber numberWithInteger:OMDFormattingCommandTagListBullet]];
-    x += OMDFormattingBarButtonWidth + OMDFormattingBarControlSpacing;
+    x += NSWidth([listControl frame]) + metrics.formattingBarGroupSpacing;
 
-    button = OMDFormattingButton(@"1.", @"Toggle numbered list", OMDFormattingCommandTagListNumber,
-                                 x, controlY, OMDFormattingBarButtonWidth, OMDFormattingBarControlHeight, self);
-    [_formattingBarView addSubview:button];
-    [_formatCommandButtons setObject:button forKey:[NSNumber numberWithInteger:OMDFormattingCommandTagListNumber]];
-    x += OMDFormattingBarButtonWidth + OMDFormattingBarControlSpacing;
-
-    button = OMDFormattingButton(@"[]", @"Toggle task list", OMDFormattingCommandTagListTask,
-                                 x, controlY, OMDFormattingBarButtonWidth, OMDFormattingBarControlHeight, self);
-    [_formattingBarView addSubview:button];
-    [_formatCommandButtons setObject:button forKey:[NSNumber numberWithInteger:OMDFormattingCommandTagListTask]];
-    x += OMDFormattingBarButtonWidth + OMDFormattingBarControlSpacing;
-
-    button = OMDFormattingButton(@">", @"Toggle block quote", OMDFormattingCommandTagBlockQuote,
-                                 x, controlY, OMDFormattingBarButtonWidth, OMDFormattingBarControlHeight, self);
-    [_formattingBarView addSubview:button];
-    [_formatCommandButtons setObject:button forKey:[NSNumber numberWithInteger:OMDFormattingCommandTagBlockQuote]];
-    x += OMDFormattingBarButtonWidth + OMDFormattingBarGroupSpacing;
-
-    button = OMDFormattingButton(@"{}", @"Insert fenced code block", OMDFormattingCommandTagCodeFence,
-                                 x, controlY, OMDFormattingBarButtonWideWidth, OMDFormattingBarControlHeight, self);
-    [_formattingBarView addSubview:button];
-    [_formatCommandButtons setObject:button forKey:[NSNumber numberWithInteger:OMDFormattingCommandTagCodeFence]];
-    x += OMDFormattingBarButtonWideWidth + OMDFormattingBarControlSpacing;
-
-    button = OMDFormattingButton(@"T", @"Insert table", OMDFormattingCommandTagTable,
-                                 x, controlY, OMDFormattingBarButtonWideWidth, OMDFormattingBarControlHeight, self);
-    [_formattingBarView addSubview:button];
-    [_formatCommandButtons setObject:button forKey:[NSNumber numberWithInteger:OMDFormattingCommandTagTable]];
-    x += OMDFormattingBarButtonWideWidth + OMDFormattingBarControlSpacing;
-
-    button = OMDFormattingButton(@"HR", @"Insert horizontal rule", OMDFormattingCommandTagHorizontalRule,
-                                 x, controlY, OMDFormattingBarButtonWideWidth, OMDFormattingBarControlHeight, self);
-    [_formattingBarView addSubview:button];
-    [_formatCommandButtons setObject:button forKey:[NSNumber numberWithInteger:OMDFormattingCommandTagHorizontalRule]];
+    NSSegmentedControl *insertControl = [[[NSSegmentedControl alloc] initWithFrame:NSMakeRect(x,
+                                                                                               0.0,
+                                                                                               0.0,
+                                                                                               metrics.formattingBarControlHeight)] autorelease];
+    [insertControl setSegmentCount:3];
+    [insertControl setSegmentStyle:NSSegmentStyleRounded];
+    [[insertControl cell] setTrackingMode:NSSegmentSwitchTrackingMomentary];
+    [insertControl setLabel:@"{}" forSegment:0];
+    [insertControl setLabel:@"Tbl" forSegment:1];
+    [insertControl setLabel:@"HR" forSegment:2];
+    CGFloat codeBlockWidth = OMDControlWidthForTitle(@"{}", buttonFont, 40.0, narrowPadding);
+    CGFloat tableWidth = OMDControlWidthForTitle(@"Tbl", buttonFont, 42.0, compactPadding);
+    CGFloat ruleWidth = OMDControlWidthForTitle(@"HR", buttonFont, 40.0, narrowPadding);
+    [insertControl setFrame:NSMakeRect(x,
+                                       0.0,
+                                       codeBlockWidth + tableWidth + ruleWidth,
+                                       metrics.formattingBarControlHeight)];
+    [insertControl setWidth:codeBlockWidth forSegment:0];
+    [insertControl setWidth:tableWidth forSegment:1];
+    [insertControl setWidth:ruleWidth forSegment:2];
+    [[insertControl cell] setToolTip:@"Insert fenced code block" forSegment:0];
+    [[insertControl cell] setToolTip:@"Insert table" forSegment:1];
+    [[insertControl cell] setToolTip:@"Insert horizontal rule" forSegment:2];
+    if ([insertControl respondsToSelector:@selector(setFont:)]) {
+        [insertControl setFont:buttonFont];
+    }
+    [insertControl setTag:4];
+    [insertControl setTarget:self];
+    [insertControl setAction:@selector(formattingCommandGroupChanged:)];
+    [insertControl setAutoresizingMask:NSViewMinYMargin];
+    [_formattingBarView addSubview:insertControl];
+    [_formatCommandButtons setObject:insertControl forKey:@"insert"];
 
     [self updateFormattingBarContextState];
 }
 
+- (CGFloat)layoutFormattingBarControlsForWidth:(CGFloat)containerWidth
+                                  applyFrames:(BOOL)applyFrames
+{
+    OMDLayoutMetrics metrics = OMDLayoutMetricsForMode([self effectiveLayoutDensityMode]);
+    CGFloat controlHeight = metrics.formattingBarControlHeight;
+    CGFloat insetX = metrics.formattingBarInsetX;
+    CGFloat rowInsetY = (metrics.scale > 1.05 ? 6.0 : 5.0);
+    CGFloat rowGap = (metrics.scale > 1.05 ? 6.0 : 4.0);
+    CGFloat availableWidth = containerWidth - (insetX * 2.0);
+
+    NSSegmentedControl *inlineControl = [_formatCommandButtons objectForKey:@"inline"];
+    NSSegmentedControl *mediaControl = [_formatCommandButtons objectForKey:@"media"];
+    NSSegmentedControl *listControl = [_formatCommandButtons objectForKey:@"lists"];
+    NSSegmentedControl *insertControl = [_formatCommandButtons objectForKey:@"insert"];
+
+    CGFloat headingWidth = (_formatHeadingControl != nil ? NSWidth([_formatHeadingControl frame]) : 0.0);
+    CGFloat inlineWidth = (inlineControl != nil ? NSWidth([inlineControl frame]) : 0.0);
+    CGFloat mediaWidth = (mediaControl != nil ? NSWidth([mediaControl frame]) : 0.0);
+    CGFloat listWidth = (listControl != nil ? NSWidth([listControl frame]) : 0.0);
+    CGFloat insertWidth = (insertControl != nil ? NSWidth([insertControl frame]) : 0.0);
+
+    CGFloat oneRowWidth = headingWidth +
+                          inlineWidth +
+                          mediaWidth +
+                          listWidth +
+                          insertWidth +
+                          (metrics.formattingBarGroupSpacing * 4.0);
+    BOOL usesTwoRows = oneRowWidth > availableWidth;
+
+    CGFloat barHeight = rowInsetY + controlHeight + rowInsetY;
+    if (usesTwoRows) {
+        barHeight = rowInsetY + controlHeight + rowGap + controlHeight + rowInsetY;
+    }
+    if (!applyFrames) {
+        return ceil(barHeight);
+    }
+
+    if (usesTwoRows) {
+        CGFloat topRowY = barHeight - rowInsetY - controlHeight;
+        CGFloat bottomRowY = rowInsetY;
+
+        CGFloat topX = insetX;
+        if (_formatHeadingControl != nil) {
+            [_formatHeadingControl setFrame:NSMakeRect(topX,
+                                                       topRowY,
+                                                       headingWidth,
+                                                       controlHeight)];
+            topX += headingWidth + metrics.formattingBarGroupSpacing;
+        }
+        if (inlineControl != nil) {
+            [inlineControl setFrame:NSMakeRect(topX,
+                                               topRowY,
+                                               inlineWidth,
+                                               controlHeight)];
+        }
+
+        CGFloat bottomX = insetX;
+        if (mediaControl != nil) {
+            [mediaControl setFrame:NSMakeRect(bottomX,
+                                              bottomRowY,
+                                              mediaWidth,
+                                              controlHeight)];
+            bottomX += mediaWidth + metrics.formattingBarGroupSpacing;
+        }
+        if (listControl != nil) {
+            [listControl setFrame:NSMakeRect(bottomX,
+                                             bottomRowY,
+                                             listWidth,
+                                             controlHeight)];
+            bottomX += listWidth + metrics.formattingBarGroupSpacing;
+        }
+        if (insertControl != nil) {
+            [insertControl setFrame:NSMakeRect(bottomX,
+                                               bottomRowY,
+                                               insertWidth,
+                                               controlHeight)];
+        }
+    } else {
+        CGFloat controlY = floor((barHeight - controlHeight) / 2.0);
+        CGFloat currentX = insetX;
+        NSArray *orderedControls = [NSArray arrayWithObjects:
+                                    _formatHeadingControl,
+                                    inlineControl,
+                                    mediaControl,
+                                    listControl,
+                                    insertControl,
+                                    nil];
+        NSEnumerator *enumerator = [orderedControls objectEnumerator];
+        NSSegmentedControl *control = nil;
+        while ((control = [enumerator nextObject]) != nil) {
+            CGFloat controlWidth = NSWidth([control frame]);
+            [control setFrame:NSMakeRect(currentX,
+                                         controlY,
+                                         controlWidth,
+                                         controlHeight)];
+            currentX += controlWidth + metrics.formattingBarGroupSpacing;
+        }
+    }
+
+    return ceil(barHeight);
+}
+
+- (void)rebuildFormattingBar
+{
+    [_formatHeadingControl release];
+    _formatHeadingControl = nil;
+    [_formatCommandButtons release];
+    _formatCommandButtons = nil;
+    if (_formattingBarView != nil) {
+        [_formattingBarView removeFromSuperview];
+        [_formattingBarView release];
+        _formattingBarView = nil;
+    }
+    [self setupFormattingBar];
+}
+
 - (void)layoutSourceEditorContainer
 {
+    OMDLayoutMetrics metrics = OMDLayoutMetricsForMode([self effectiveLayoutDensityMode]);
     if (_sourceEditorContainer == nil || _sourceScrollView == nil) {
         return;
     }
 
     NSRect bounds = [_sourceEditorContainer bounds];
     BOOL showBar = [self isFormattingBarVisibleInCurrentMode];
-    CGFloat barHeight = showBar ? OMDFormattingBarHeight : 0.0;
+    CGFloat barHeight = 0.0;
+    if (showBar) {
+        if (_formattingBarView != nil) {
+            barHeight = [self layoutFormattingBarControlsForWidth:NSWidth(bounds)
+                                                      applyFrames:YES];
+        } else {
+            barHeight = metrics.formattingBarHeight;
+        }
+    }
 
     if (_formattingBarView != nil) {
         [_formattingBarView setHidden:!showBar];
@@ -4618,16 +5641,25 @@ constrainSplitPosition:(CGFloat)proposedPosition
     BOOL enabled = [self isFormattingBarVisibleInCurrentMode] &&
                    _sourceTextView != nil &&
                    !_currentDocumentReadOnly;
-    if (_formatHeadingPopup != nil) {
-        [_formatHeadingPopup setEnabled:enabled];
+    if (_formatHeadingControl != nil) {
+        [_formatHeadingControl setEnabled:enabled];
+        if (!enabled) {
+            OMDClearSegmentedControlSelection(_formatHeadingControl);
+        }
     }
     NSEnumerator *enumerator = [_formatCommandButtons objectEnumerator];
-    NSButton *button = nil;
-    while ((button = [enumerator nextObject]) != nil) {
-        [button setEnabled:enabled];
+    id control = nil;
+    while ((control = [enumerator nextObject]) != nil) {
+        if ([control respondsToSelector:@selector(setEnabled:)]) {
+            [control setEnabled:enabled];
+        }
+        if (!enabled &&
+            [control respondsToSelector:@selector(setSelectedSegment:)]) {
+            OMDClearSegmentedControlSelection(control);
+        }
     }
 
-    if (!enabled || _formatHeadingPopup == nil || _sourceTextView == nil) {
+    if (!enabled || _formatHeadingControl == nil || _sourceTextView == nil) {
         return;
     }
 
@@ -4659,7 +5691,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
     if (level > 6) {
         level = 6;
     }
-    [_formatHeadingPopup selectItemAtIndex:level];
+    [_formatHeadingControl setSelectedSegment:level];
 }
 
 - (void)setViewerMode:(OMDViewerMode)mode persistPreference:(BOOL)persistPreference
@@ -4997,13 +6029,6 @@ constrainSplitPosition:(CGFloat)proposedPosition
     if ([_documentTabs count] == 0) {
         _selectedDocumentTabIndex = -1;
         [self setCurrentMarkdown:nil sourcePath:nil];
-        if (_textView != nil) {
-            _isProgrammaticPreviewUpdate = YES;
-            NSAttributedString *empty = [[[NSAttributedString alloc] initWithString:@""] autorelease];
-            [[_textView textStorage] setAttributedString:empty];
-            _isProgrammaticPreviewUpdate = NO;
-            [self updateCodeBlockButtons];
-        }
         [self clearRecoverySnapshot];
         [self updateTabStrip];
         [self updateWindowTitle];
@@ -5251,8 +6276,65 @@ constrainSplitPosition:(CGFloat)proposedPosition
     }
 
     [self applyDocumentTabRecord:tab];
+    [self resetCurrentDocumentViewportToStart];
     [self updateTabStrip];
     return YES;
+}
+
+- (void)resetCurrentDocumentViewportToStart
+{
+    [self cancelPendingLinkedScrollDriverReset];
+    _activeLinkedScrollDriver = OMDLinkedScrollDriverNone;
+
+    if (_sourceTextView != nil) {
+        _isProgrammaticSelectionSync = YES;
+        [_sourceTextView setSelectedRange:NSMakeRange(0, 0)];
+        _isProgrammaticSelectionSync = NO;
+    }
+
+    _isProgrammaticScrollSync = YES;
+
+    if (_sourceScrollView != nil && _viewerMode != OMDViewerModeRead) {
+        [self scrollScrollViewToDocumentTop:_sourceScrollView];
+    }
+
+    if (_previewScrollView != nil && [self isPreviewVisible]) {
+        [self scrollScrollViewToDocumentTop:_previewScrollView];
+    }
+
+    _isProgrammaticScrollSync = NO;
+    [self updateFormattingBarContextState];
+}
+
+- (void)scrollScrollViewToDocumentTop:(NSScrollView *)scrollView
+{
+    if (scrollView == nil) {
+        return;
+    }
+
+    NSClipView *clipView = [scrollView contentView];
+    if (clipView == nil) {
+        return;
+    }
+
+    NSView *documentView = [scrollView documentView];
+    NSRect clipBounds = [clipView bounds];
+    NSRect documentFrame = documentView != nil ? [documentView frame] : NSZeroRect;
+    CGFloat maxY = documentFrame.size.height - clipBounds.size.height;
+    if (maxY < 0.0) {
+        maxY = 0.0;
+    }
+
+    BOOL isFlipped = documentView != nil ? [documentView isFlipped] : YES;
+    NSPoint targetOrigin = NSMakePoint(0.0, (isFlipped ? 0.0 : maxY));
+    NSPoint currentOrigin = [clipView bounds].origin;
+    if (fabs(currentOrigin.x - targetOrigin.x) <= 0.5 &&
+        fabs(currentOrigin.y - targetOrigin.y) <= 0.5) {
+        return;
+    }
+
+    [clipView scrollToPoint:targetOrigin];
+    [scrollView reflectScrolledClipView:clipView];
 }
 
 - (NSString *)explorerLocalRootPathPreference
@@ -5362,6 +6444,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
 
 - (void)applyExplorerListFontPreference
 {
+    OMDLayoutMetrics metrics = OMDLayoutMetricsForMode([self effectiveLayoutDensityMode]);
     if (_explorerTableView == nil) {
         return;
     }
@@ -5371,7 +6454,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
     if (font == nil) {
         font = [NSFont systemFontOfSize:OMDExplorerListDefaultFontSize];
     }
-    CGFloat rowHeight = ceil(fontSize + 8.0);
+    CGFloat rowHeight = ceil(fontSize + metrics.explorerRowPadding);
     if (rowHeight < OMDExplorerListMinimumRowHeight) {
         rowHeight = OMDExplorerListMinimumRowHeight;
     }
@@ -5383,6 +6466,37 @@ constrainSplitPosition:(CGFloat)proposedPosition
         [dataCell setFont:font];
     }
     [_explorerTableView reloadData];
+}
+
+- (CGFloat)scrollSpeedPreference
+{
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    id value = [defaults objectForKey:OMDScrollSpeedDefaultsKey];
+    CGFloat scrollSpeed = OMDScrollSpeedDefault;
+    if ([value respondsToSelector:@selector(doubleValue)]) {
+        scrollSpeed = (CGFloat)[value doubleValue];
+    }
+    return OMDClampedScrollSpeed(scrollSpeed);
+}
+
+- (void)setScrollSpeedPreference:(CGFloat)scrollSpeed
+{
+    scrollSpeed = OMDClampedScrollSpeed(scrollSpeed);
+    [[NSUserDefaults standardUserDefaults] setDouble:scrollSpeed forKey:OMDScrollSpeedDefaultsKey];
+    [self applyScrollSpeedPreference];
+}
+
+- (void)applyScrollSpeedPreference
+{
+    CGFloat scrollSpeed = [self scrollSpeedPreference];
+    NSArray *scrollViews = [NSArray arrayWithObjects:_sourceScrollView, _previewScrollView, _explorerScrollView, nil];
+    for (NSScrollView *scrollView in scrollViews) {
+        if (scrollView == nil) {
+            continue;
+        }
+        [scrollView setVerticalLineScroll:scrollSpeed];
+        [scrollView setHorizontalLineScroll:scrollSpeed];
+    }
 }
 
 - (BOOL)isExplorerIncludeForkArchivedEnabled
@@ -5474,34 +6588,40 @@ constrainSplitPosition:(CGFloat)proposedPosition
 
 - (void)setupExplorerSidebar
 {
+    OMDLayoutMetrics metrics = OMDLayoutMetricsForMode([self effectiveLayoutDensityMode]);
     if (_sidebarContainer == nil) {
         return;
     }
 
     NSRect bounds = [_sidebarContainer bounds];
     CGFloat width = NSWidth(bounds);
-    CGFloat wideControlWidth = width - 20.0;
+    CGFloat wideControlWidth = width - (metrics.explorerSidePadding * 2.0);
     if (wideControlWidth < 1.0) {
         wideControlWidth = 1.0;
     }
-    CGFloat userComboWidth = width - 66.0;
+    CGFloat userComboWidth = width - (metrics.explorerSidePadding * 2.0) - 46.0;
     if (userComboWidth < 1.0) {
         userComboWidth = 1.0;
     }
-    CGFloat pathWidth = width - 76.0;
+    CGFloat pathWidth = width - (metrics.explorerSidePadding * 2.0) - 56.0;
     if (pathWidth < 1.0) {
         pathWidth = 1.0;
     }
-    CGFloat scrollHeight = NSHeight(bounds) - 160.0;
+    CGFloat scrollHeight = NSHeight(bounds) - 168.0;
     if (scrollHeight < 80.0) {
         scrollHeight = 80.0;
     }
-    CGFloat scrollWidth = width - 16.0;
+    CGFloat scrollWidth = width - (metrics.explorerSidePadding * 2.0) + 4.0;
     if (scrollWidth < 1.0) {
         scrollWidth = 1.0;
     }
+    NSFont *labelFont = [NSFont systemFontOfSize:(metrics.scale > 1.05 ? 12.0 : 11.0)];
+    NSFont *pathFont = [NSFont systemFontOfSize:(metrics.scale > 1.05 ? 11.0 : 10.5)];
 
-    _explorerSourceModeControl = [[NSSegmentedControl alloc] initWithFrame:NSMakeRect(10, NSHeight(bounds) - 34, wideControlWidth, 24)];
+    _explorerSourceModeControl = [[NSSegmentedControl alloc] initWithFrame:NSMakeRect(metrics.explorerSidePadding,
+                                                                                      NSHeight(bounds) - 34,
+                                                                                      wideControlWidth,
+                                                                                      metrics.explorerControlHeight)];
     [_explorerSourceModeControl setSegmentCount:2];
     [_explorerSourceModeControl setLabel:@"Local" forSegment:0];
     [_explorerSourceModeControl setLabel:@"GitHub" forSegment:1];
@@ -5511,26 +6631,29 @@ constrainSplitPosition:(CGFloat)proposedPosition
     [_explorerSourceModeControl setAutoresizingMask:(NSViewWidthSizable | NSViewMinYMargin)];
     [_sidebarContainer addSubview:_explorerSourceModeControl];
 
-    _explorerLocalRootLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(10, NSHeight(bounds) - 60, wideControlWidth, 16)];
+    _explorerLocalRootLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(metrics.explorerSidePadding, NSHeight(bounds) - 60, wideControlWidth, 16)];
     [_explorerLocalRootLabel setBezeled:NO];
     [_explorerLocalRootLabel setEditable:NO];
     [_explorerLocalRootLabel setSelectable:NO];
     [_explorerLocalRootLabel setDrawsBackground:NO];
-    [_explorerLocalRootLabel setFont:[NSFont systemFontOfSize:11.0]];
+    [_explorerLocalRootLabel setFont:labelFont];
     [_explorerLocalRootLabel setAutoresizingMask:(NSViewWidthSizable | NSViewMinYMargin)];
     [_sidebarContainer addSubview:_explorerLocalRootLabel];
 
-    _explorerGitHubUserLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(10, NSHeight(bounds) - 60, 44, 20)];
+    _explorerGitHubUserLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(metrics.explorerSidePadding, NSHeight(bounds) - 60, 44, 20)];
     [_explorerGitHubUserLabel setBezeled:NO];
     [_explorerGitHubUserLabel setEditable:NO];
     [_explorerGitHubUserLabel setSelectable:NO];
     [_explorerGitHubUserLabel setDrawsBackground:NO];
     [_explorerGitHubUserLabel setStringValue:@"User:"];
-    [_explorerGitHubUserLabel setFont:[NSFont systemFontOfSize:11.0]];
+    [_explorerGitHubUserLabel setFont:labelFont];
     [_explorerGitHubUserLabel setAutoresizingMask:NSViewMinYMargin];
     [_sidebarContainer addSubview:_explorerGitHubUserLabel];
 
-    _explorerGitHubUserComboBox = [[NSComboBox alloc] initWithFrame:NSMakeRect(56, NSHeight(bounds) - 64, userComboWidth, 22)];
+    _explorerGitHubUserComboBox = [[NSComboBox alloc] initWithFrame:NSMakeRect(metrics.explorerSidePadding + 46.0,
+                                                                                NSHeight(bounds) - 64,
+                                                                                userComboWidth,
+                                                                                metrics.explorerControlHeight)];
     [_explorerGitHubUserComboBox setUsesDataSource:NO];
     [_explorerGitHubUserComboBox setCompletes:YES];
     [_explorerGitHubUserComboBox setTarget:self];
@@ -5539,7 +6662,10 @@ constrainSplitPosition:(CGFloat)proposedPosition
     [_explorerGitHubUserComboBox setAutoresizingMask:(NSViewWidthSizable | NSViewMinYMargin)];
     [_sidebarContainer addSubview:_explorerGitHubUserComboBox];
 
-    _explorerGitHubRepoComboBox = [[NSComboBox alloc] initWithFrame:NSMakeRect(10, NSHeight(bounds) - 90, wideControlWidth, 22)];
+    _explorerGitHubRepoComboBox = [[NSComboBox alloc] initWithFrame:NSMakeRect(metrics.explorerSidePadding,
+                                                                                NSHeight(bounds) - 90,
+                                                                                wideControlWidth,
+                                                                                metrics.explorerControlHeight)];
     [_explorerGitHubRepoComboBox setUsesDataSource:NO];
     [_explorerGitHubRepoComboBox setCompletes:YES];
     [_explorerGitHubRepoComboBox setTarget:self];
@@ -5548,26 +6674,35 @@ constrainSplitPosition:(CGFloat)proposedPosition
     [_explorerGitHubRepoComboBox setAutoresizingMask:(NSViewWidthSizable | NSViewMinYMargin)];
     [_sidebarContainer addSubview:_explorerGitHubRepoComboBox];
 
-    _explorerGitHubIncludeForkArchivedButton = [[NSButton alloc] initWithFrame:NSMakeRect(10, NSHeight(bounds) - 116, wideControlWidth, 20)];
+    _explorerGitHubIncludeForkArchivedButton = [[NSButton alloc] initWithFrame:NSMakeRect(metrics.explorerSidePadding,
+                                                                                           NSHeight(bounds) - 116,
+                                                                                           wideControlWidth,
+                                                                                           metrics.explorerMinorControlHeight)];
     [_explorerGitHubIncludeForkArchivedButton setButtonType:NSSwitchButton];
     [_explorerGitHubIncludeForkArchivedButton setTitle:@"Include forked + archived repos"];
-    [_explorerGitHubIncludeForkArchivedButton setFont:[NSFont systemFontOfSize:11.0]];
+    [_explorerGitHubIncludeForkArchivedButton setFont:labelFont];
     [_explorerGitHubIncludeForkArchivedButton setTarget:self];
     [_explorerGitHubIncludeForkArchivedButton setAction:@selector(explorerGitHubIncludeForkArchivedChanged:)];
     [_explorerGitHubIncludeForkArchivedButton setAutoresizingMask:(NSViewWidthSizable | NSViewMinYMargin)];
     [_sidebarContainer addSubview:_explorerGitHubIncludeForkArchivedButton];
 
-    _explorerShowHiddenFilesButton = [[NSButton alloc] initWithFrame:NSMakeRect(10, NSHeight(bounds) - 84, wideControlWidth, 20)];
+    _explorerShowHiddenFilesButton = [[NSButton alloc] initWithFrame:NSMakeRect(metrics.explorerSidePadding,
+                                                                                NSHeight(bounds) - 84,
+                                                                                wideControlWidth,
+                                                                                metrics.explorerMinorControlHeight)];
     [_explorerShowHiddenFilesButton setButtonType:NSSwitchButton];
     [_explorerShowHiddenFilesButton setTitle:@"Show hidden files"];
-    [_explorerShowHiddenFilesButton setFont:[NSFont systemFontOfSize:11.0]];
+    [_explorerShowHiddenFilesButton setFont:labelFont];
     [_explorerShowHiddenFilesButton setState:([self isExplorerShowHiddenFilesEnabled] ? NSOnState : NSOffState)];
     [_explorerShowHiddenFilesButton setTarget:self];
     [_explorerShowHiddenFilesButton setAction:@selector(explorerShowHiddenFilesChanged:)];
     [_explorerShowHiddenFilesButton setAutoresizingMask:(NSViewWidthSizable | NSViewMinYMargin)];
     [_sidebarContainer addSubview:_explorerShowHiddenFilesButton];
 
-    _explorerNavigateUpButton = [[NSButton alloc] initWithFrame:NSMakeRect(10, NSHeight(bounds) - 144, 52, 22)];
+    _explorerNavigateUpButton = [[NSButton alloc] initWithFrame:NSMakeRect(metrics.explorerSidePadding,
+                                                                           NSHeight(bounds) - 144,
+                                                                           56,
+                                                                           metrics.explorerControlHeight)];
     [_explorerNavigateUpButton setTitle:@"Up"];
     [_explorerNavigateUpButton setBezelStyle:NSRoundedBezelStyle];
     [_explorerNavigateUpButton setTarget:self];
@@ -5575,16 +6710,22 @@ constrainSplitPosition:(CGFloat)proposedPosition
     [_explorerNavigateUpButton setAutoresizingMask:NSViewMinYMargin];
     [_sidebarContainer addSubview:_explorerNavigateUpButton];
 
-    _explorerPathLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(66, NSHeight(bounds) - 140, pathWidth, 18)];
+    _explorerPathLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(metrics.explorerSidePadding + 60.0,
+                                                                       NSHeight(bounds) - 140,
+                                                                       pathWidth,
+                                                                       18)];
     [_explorerPathLabel setBezeled:NO];
     [_explorerPathLabel setEditable:NO];
     [_explorerPathLabel setSelectable:NO];
     [_explorerPathLabel setDrawsBackground:NO];
-    [_explorerPathLabel setFont:[NSFont systemFontOfSize:10.5]];
+    [_explorerPathLabel setFont:pathFont];
     [_explorerPathLabel setAutoresizingMask:(NSViewWidthSizable | NSViewMinYMargin)];
     [_sidebarContainer addSubview:_explorerPathLabel];
 
-    _explorerScrollView = [[NSScrollView alloc] initWithFrame:NSMakeRect(8, 10, scrollWidth, scrollHeight)];
+    _explorerScrollView = [[NSScrollView alloc] initWithFrame:NSMakeRect(MAX(0.0, metrics.explorerSidePadding - 2.0),
+                                                                         10,
+                                                                         scrollWidth,
+                                                                         scrollHeight)];
     [_explorerScrollView setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable)];
     [_explorerScrollView setHasVerticalScroller:YES];
     [_explorerScrollView setHasHorizontalScroller:NO];
@@ -5605,6 +6746,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
     [column setWidth:NSWidth([_explorerScrollView bounds]) - 2.0];
     [_explorerTableView addTableColumn:column];
     [_explorerScrollView setDocumentView:_explorerTableView];
+    [self applyScrollSpeedPreference];
     [_sidebarContainer addSubview:_explorerScrollView];
     [self applyExplorerListFontPreference];
 
@@ -5629,6 +6771,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
 
 - (void)updateExplorerControlsVisibility
 {
+    OMDLayoutMetrics metrics = OMDLayoutMetricsForMode([self effectiveLayoutDensityMode]);
     BOOL githubMode = (_explorerSourceMode == OMDExplorerSourceModeGitHub);
     [_explorerSourceModeControl setSelectedSegment:_explorerSourceMode];
     if (_explorerGitHubUserComboBox != nil) {
@@ -5649,39 +6792,70 @@ constrainSplitPosition:(CGFloat)proposedPosition
     NSRect bounds = [_sidebarContainer bounds];
     CGFloat width = NSWidth(bounds);
     CGFloat height = NSHeight(bounds);
-    CGFloat wideControlWidth = width - 20.0;
+    CGFloat wideControlWidth = width - (metrics.explorerSidePadding * 2.0);
     if (wideControlWidth < 1.0) {
         wideControlWidth = 1.0;
     }
-    CGFloat userComboWidth = width - 66.0;
+    CGFloat userComboWidth = width - (metrics.explorerSidePadding * 2.0) - 46.0;
     if (userComboWidth < 1.0) {
         userComboWidth = 1.0;
     }
-    CGFloat pathWidth = width - 76.0;
+    CGFloat pathWidth = width - (metrics.explorerSidePadding * 2.0) - 56.0;
     if (pathWidth < 1.0) {
         pathWidth = 1.0;
     }
-    CGFloat scrollWidth = width - 16.0;
+    CGFloat scrollWidth = width - (metrics.explorerSidePadding * 2.0) + 4.0;
     if (scrollWidth < 1.0) {
         scrollWidth = 1.0;
     }
-    [_explorerSourceModeControl setFrame:NSMakeRect(10, height - 34, wideControlWidth, 24)];
-    [_explorerLocalRootLabel setFrame:NSMakeRect(10, height - 60, wideControlWidth, 16)];
-    [_explorerGitHubUserLabel setFrame:NSMakeRect(10, height - 60, 44, 20)];
-    [_explorerGitHubUserComboBox setFrame:NSMakeRect(56, height - 64, userComboWidth, 22)];
-    [_explorerGitHubRepoComboBox setFrame:NSMakeRect(10, height - 90, wideControlWidth, 22)];
-    [_explorerGitHubIncludeForkArchivedButton setFrame:NSMakeRect(10, height - 116, wideControlWidth, 20)];
-    [_explorerShowHiddenFilesButton setFrame:NSMakeRect(10, height - 84, wideControlWidth, 20)];
+    [_explorerSourceModeControl setFrame:NSMakeRect(metrics.explorerSidePadding,
+                                                    height - metrics.explorerTopPadding - metrics.explorerControlHeight,
+                                                    wideControlWidth,
+                                                    metrics.explorerControlHeight)];
+    [_explorerLocalRootLabel setFrame:NSMakeRect(metrics.explorerSidePadding,
+                                                 height - metrics.explorerTopPadding - metrics.explorerControlHeight - 26.0,
+                                                 wideControlWidth,
+                                                 16)];
+    [_explorerGitHubUserLabel setFrame:NSMakeRect(metrics.explorerSidePadding,
+                                                  height - metrics.explorerTopPadding - metrics.explorerControlHeight - 28.0,
+                                                  44,
+                                                  20)];
+    [_explorerGitHubUserComboBox setFrame:NSMakeRect(metrics.explorerSidePadding + 46.0,
+                                                     height - metrics.explorerTopPadding - metrics.explorerControlHeight - 32.0,
+                                                     userComboWidth,
+                                                     metrics.explorerControlHeight)];
+    [_explorerGitHubRepoComboBox setFrame:NSMakeRect(metrics.explorerSidePadding,
+                                                     height - metrics.explorerTopPadding - metrics.explorerControlHeight - 64.0,
+                                                     wideControlWidth,
+                                                     metrics.explorerControlHeight)];
+    [_explorerGitHubIncludeForkArchivedButton setFrame:NSMakeRect(metrics.explorerSidePadding,
+                                                                  height - metrics.explorerTopPadding - metrics.explorerControlHeight - 94.0,
+                                                                  wideControlWidth,
+                                                                  metrics.explorerMinorControlHeight)];
+    [_explorerShowHiddenFilesButton setFrame:NSMakeRect(metrics.explorerSidePadding,
+                                                        height - metrics.explorerTopPadding - metrics.explorerControlHeight - 58.0,
+                                                        wideControlWidth,
+                                                        metrics.explorerMinorControlHeight)];
 
-    CGFloat navigateUpY = (githubMode ? height - 144 : height - 118);
-    CGFloat pathY = (githubMode ? height - 140 : height - 114);
-    CGFloat scrollHeight = (githubMode ? (height - 160) : (height - 126));
+    CGFloat navigateUpY = (githubMode
+                           ? (height - metrics.explorerTopPadding - metrics.explorerControlHeight - 122.0)
+                           : (height - metrics.explorerTopPadding - metrics.explorerControlHeight - 94.0));
+    CGFloat pathY = navigateUpY + 4.0;
+    CGFloat scrollHeight = (githubMode
+                            ? (height - (metrics.explorerTopPadding + 144.0))
+                            : (height - (metrics.explorerTopPadding + 110.0)));
     if (scrollHeight < 80) {
         scrollHeight = 80;
     }
-    [_explorerNavigateUpButton setFrame:NSMakeRect(10, navigateUpY, 52, 22)];
-    [_explorerPathLabel setFrame:NSMakeRect(66, pathY, pathWidth, 18)];
-    [_explorerScrollView setFrame:NSMakeRect(8, 10, scrollWidth, scrollHeight)];
+    [_explorerNavigateUpButton setFrame:NSMakeRect(metrics.explorerSidePadding,
+                                                   navigateUpY,
+                                                   56,
+                                                   metrics.explorerControlHeight)];
+    [_explorerPathLabel setFrame:NSMakeRect(metrics.explorerSidePadding + 60.0, pathY, pathWidth, 18)];
+    [_explorerScrollView setFrame:NSMakeRect(MAX(0.0, metrics.explorerSidePadding - 2.0),
+                                             10,
+                                             scrollWidth,
+                                             scrollHeight)];
     NSTableColumn *nameColumn = [_explorerTableView tableColumnWithIdentifier:@"ExplorerName"];
     if (nameColumn != nil) {
         [nameColumn setWidth:NSWidth([_explorerScrollView bounds]) - 2.0];
@@ -7367,15 +8541,31 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
     }
 
     id object = [notification object];
+    OMDLinkedScrollDriver driver = OMDLinkedScrollDriverNone;
     if (_sourceScrollView != nil && object == [_sourceScrollView contentView]) {
-        [self syncPreviewToSourceScrollPosition];
+        driver = OMDLinkedScrollDriverSource;
     } else if (_previewScrollView != nil && object == [_previewScrollView contentView]) {
+        driver = OMDLinkedScrollDriverPreview;
+    } else {
+        return;
+    }
+
+    if (_activeLinkedScrollDriver != OMDLinkedScrollDriverNone &&
+        _activeLinkedScrollDriver != driver) {
+        return;
+    }
+
+    [self refreshLinkedScrollDriver:driver];
+    if (driver == OMDLinkedScrollDriverSource) {
+        [self syncPreviewToSourceScrollPosition];
+    } else if (driver == OMDLinkedScrollDriverPreview) {
         [self syncSourceToPreviewScrollPosition];
     }
 }
 
-- (NSUInteger)topVisibleCharacterIndexForTextView:(NSTextView *)textView
-                                      inScrollView:(NSScrollView *)scrollView
+- (NSUInteger)visibleCharacterIndexForTextView:(NSTextView *)textView
+                                  inScrollView:(NSScrollView *)scrollView
+                                verticalAnchor:(CGFloat)verticalAnchor
 {
     if (textView == nil || scrollView == nil) {
         return 0;
@@ -7397,10 +8587,28 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
         return 0;
     }
 
-    NSClipView *clipView = [scrollView contentView];
-    NSRect visibleRect = [clipView bounds];
+    NSRect visibleRect = [textView visibleRect];
+    if (NSIsEmptyRect(visibleRect)) {
+        visibleRect = [textView bounds];
+    }
+    if (verticalAnchor < 0.0) {
+        verticalAnchor = 0.0;
+    } else if (verticalAnchor > 1.0) {
+        verticalAnchor = 1.0;
+    }
     NSPoint textOrigin = [textView textContainerOrigin];
-    NSPoint probe = NSMakePoint(4.0, visibleRect.origin.y - textOrigin.y + 1.0);
+    CGFloat verticalOffset = floor(NSHeight(visibleRect) * verticalAnchor);
+    if (verticalOffset < 1.0) {
+        verticalOffset = 1.0;
+    }
+    CGFloat probeY = [textView isFlipped]
+        ? (NSMinY(visibleRect) + verticalOffset)
+        : (NSMaxY(visibleRect) - verticalOffset);
+    NSPoint probe = NSMakePoint(NSMinX(visibleRect) + 4.0 - textOrigin.x,
+                                probeY - textOrigin.y);
+    if (probe.x < 0.0) {
+        probe.x = 0.0;
+    }
     if (probe.y < 0.0) {
         probe.y = 0.0;
     }
@@ -7417,6 +8625,118 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
         return length - 1;
     }
     return characterIndex;
+}
+
+- (BOOL)targetScrollPoint:(NSPoint *)pointOut
+              forTextView:(NSTextView *)textView
+             inScrollView:(NSScrollView *)scrollView
+           characterIndex:(NSUInteger)characterIndex
+           verticalAnchor:(CGFloat)verticalAnchor
+{
+    if (pointOut == NULL || textView == nil || scrollView == nil) {
+        return NO;
+    }
+
+    NSString *text = [[textView textStorage] string];
+    NSUInteger textLength = [text length];
+    if (textLength == 0) {
+        return NO;
+    }
+    if (characterIndex >= textLength) {
+        characterIndex = textLength - 1;
+    }
+
+    NSLayoutManager *layoutManager = [textView layoutManager];
+    NSTextContainer *textContainer = [textView textContainer];
+    if (layoutManager == nil || textContainer == nil) {
+        return NO;
+    }
+
+    [layoutManager ensureLayoutForTextContainer:textContainer];
+    NSRange glyphRange = [layoutManager glyphRangeForCharacterRange:NSMakeRange(characterIndex, 1)
+                                                actualCharacterRange:NULL];
+    if (glyphRange.length == 0) {
+        return NO;
+    }
+
+    NSRect glyphRect = [layoutManager boundingRectForGlyphRange:glyphRange
+                                                 inTextContainer:textContainer];
+    NSPoint textOrigin = [textView textContainerOrigin];
+    NSRect glyphViewRect = NSOffsetRect(glyphRect, textOrigin.x, textOrigin.y);
+
+    NSClipView *clipView = [scrollView contentView];
+    NSRect visibleRect = [textView visibleRect];
+    if (NSIsEmptyRect(visibleRect)) {
+        visibleRect = [textView bounds];
+    }
+    if (verticalAnchor < 0.0) {
+        verticalAnchor = 0.0;
+    } else if (verticalAnchor > 1.0) {
+        verticalAnchor = 1.0;
+    }
+
+    CGFloat availableHeight = visibleRect.size.height - glyphViewRect.size.height;
+    if (availableHeight < 0.0) {
+        availableHeight = 0.0;
+    }
+
+    CGFloat targetViewY = 0.0;
+    if ([textView isFlipped]) {
+        targetViewY = NSMinY(glyphViewRect) - floor(availableHeight * verticalAnchor);
+    } else {
+        targetViewY = NSMaxY(glyphViewRect) - visibleRect.size.height + floor(availableHeight * verticalAnchor);
+    }
+
+    NSView *documentView = [scrollView documentView];
+    if (documentView == nil) {
+        documentView = textView;
+    }
+    NSPoint documentPoint = [documentView convertPoint:NSMakePoint(0.0, targetViewY)
+                                              fromView:textView];
+    CGFloat targetY = documentPoint.y;
+    if (targetY < 0.0) {
+        targetY = 0.0;
+    }
+
+    CGFloat maxY = [documentView bounds].size.height - NSHeight([clipView bounds]);
+    if (maxY < 0.0) {
+        maxY = 0.0;
+    }
+    if (targetY > maxY) {
+        targetY = maxY;
+    }
+
+    *pointOut = NSMakePoint(NSMinX([clipView bounds]), targetY);
+    return YES;
+}
+
+- (void)cancelPendingLinkedScrollDriverReset
+{
+    if (_linkedScrollDriverResetTimer != nil) {
+        [_linkedScrollDriverResetTimer invalidate];
+        [_linkedScrollDriverResetTimer release];
+        _linkedScrollDriverResetTimer = nil;
+    }
+}
+
+- (void)refreshLinkedScrollDriver:(OMDLinkedScrollDriver)driver
+{
+    _activeLinkedScrollDriver = driver;
+    [self cancelPendingLinkedScrollDriverReset];
+    _linkedScrollDriverResetTimer = [[NSTimer scheduledTimerWithTimeInterval:OMDLinkedScrollDriverHoldInterval
+                                                                      target:self
+                                                                    selector:@selector(linkedScrollDriverResetTimerFired:)
+                                                                    userInfo:nil
+                                                                     repeats:NO] retain];
+}
+
+- (void)linkedScrollDriverResetTimerFired:(NSTimer *)timer
+{
+    if (timer != _linkedScrollDriverResetTimer) {
+        return;
+    }
+    [self cancelPendingLinkedScrollDriverReset];
+    _activeLinkedScrollDriver = OMDLinkedScrollDriverNone;
 }
 
 - (void)syncPreviewToSourceInteractionAnchor
@@ -7446,14 +8766,15 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
         return;
     }
 
-    NSUInteger sourceLocation = [self topVisibleCharacterIndexForTextView:_sourceTextView
-                                                              inScrollView:_sourceScrollView];
+    NSUInteger sourceLocation = [self visibleCharacterIndexForTextView:_sourceTextView
+                                                          inScrollView:_sourceScrollView
+                                                        verticalAnchor:OMDLinkedScrollViewportAnchor];
     NSUInteger previewLocation = OMDMapSourceLocationWithBlockAnchors(sourceText,
                                                                       sourceLocation,
                                                                       previewText,
                                                                       [_renderer blockAnchors]);
     _isProgrammaticScrollSync = YES;
-    [self scrollPreviewToCharacterIndex:previewLocation verticalAnchor:0.0];
+    [self scrollPreviewToCharacterIndex:previewLocation verticalAnchor:OMDLinkedScrollViewportAnchor];
     _isProgrammaticScrollSync = NO;
 }
 
@@ -7472,14 +8793,15 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
         return;
     }
 
-    NSUInteger previewLocation = [self topVisibleCharacterIndexForTextView:_textView
-                                                               inScrollView:_previewScrollView];
+    NSUInteger previewLocation = [self visibleCharacterIndexForTextView:_textView
+                                                           inScrollView:_previewScrollView
+                                                         verticalAnchor:OMDLinkedScrollViewportAnchor];
     NSUInteger sourceLocation = OMDMapTargetLocationWithBlockAnchors(sourceText,
                                                                      previewText,
                                                                      previewLocation,
                                                                      [_renderer blockAnchors]);
     _isProgrammaticScrollSync = YES;
-    [self scrollSourceToCharacterIndex:sourceLocation verticalAnchor:0.0];
+    [self scrollSourceToCharacterIndex:sourceLocation verticalAnchor:OMDLinkedScrollViewportAnchor];
     _isProgrammaticScrollSync = NO;
 }
 
@@ -7493,56 +8815,22 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
     if (_textView == nil || _previewScrollView == nil) {
         return;
     }
-
-    NSString *previewText = [[_textView textStorage] string];
-    NSUInteger previewLength = [previewText length];
-    if (previewLength == 0) {
-        return;
-    }
-
-    if (characterIndex >= previewLength) {
-        characterIndex = previewLength - 1;
-    }
-
-    NSLayoutManager *layoutManager = [_textView layoutManager];
-    NSTextContainer *textContainer = [_textView textContainer];
-    if (layoutManager == nil || textContainer == nil) {
-        return;
-    }
-
-    [layoutManager ensureLayoutForTextContainer:textContainer];
-
-    NSRange glyphRange = [layoutManager glyphRangeForCharacterRange:NSMakeRange(characterIndex, 1)
-                                                actualCharacterRange:NULL];
-    if (glyphRange.length == 0) {
-        return;
-    }
-
-    NSRect glyphRect = [layoutManager boundingRectForGlyphRange:glyphRange
-                                                 inTextContainer:textContainer];
-    NSPoint textOrigin = [_textView textContainerOrigin];
-
     NSClipView *clipView = [_previewScrollView contentView];
-    NSRect visibleRect = [clipView bounds];
-    if (verticalAnchor < 0.0) {
-        verticalAnchor = 0.0;
-    } else if (verticalAnchor > 1.0) {
-        verticalAnchor = 1.0;
-    }
-    CGFloat targetY = glyphRect.origin.y + textOrigin.y - floor((visibleRect.size.height - glyphRect.size.height) * verticalAnchor);
-    if (targetY < 0.0) {
-        targetY = 0.0;
+    NSPoint targetPoint = NSZeroPoint;
+    if (![self targetScrollPoint:&targetPoint
+                     forTextView:_textView
+                    inScrollView:_previewScrollView
+                  characterIndex:characterIndex
+                  verticalAnchor:verticalAnchor]) {
+        return;
     }
 
-    CGFloat maxY = [_textView bounds].size.height - visibleRect.size.height;
-    if (maxY < 0.0) {
-        maxY = 0.0;
-    }
-    if (targetY > maxY) {
-        targetY = maxY;
+    CGFloat currentY = NSMinY([clipView bounds]);
+    if (fabs(currentY - targetPoint.y) < OMDLinkedScrollDeadband) {
+        return;
     }
 
-    [clipView scrollToPoint:NSMakePoint(visibleRect.origin.x, targetY)];
+    [clipView scrollToPoint:targetPoint];
     [_previewScrollView reflectScrolledClipView:clipView];
 }
 
@@ -7551,55 +8839,22 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
     if (_sourceTextView == nil || _sourceScrollView == nil) {
         return;
     }
-
-    NSString *sourceText = [[_sourceTextView textStorage] string];
-    NSUInteger sourceLength = [sourceText length];
-    if (sourceLength == 0) {
-        return;
-    }
-
-    if (characterIndex >= sourceLength) {
-        characterIndex = sourceLength - 1;
-    }
-
-    NSLayoutManager *layoutManager = [_sourceTextView layoutManager];
-    NSTextContainer *textContainer = [_sourceTextView textContainer];
-    if (layoutManager == nil || textContainer == nil) {
-        return;
-    }
-
-    [layoutManager ensureLayoutForTextContainer:textContainer];
-    NSRange glyphRange = [layoutManager glyphRangeForCharacterRange:NSMakeRange(characterIndex, 1)
-                                                actualCharacterRange:NULL];
-    if (glyphRange.length == 0) {
-        return;
-    }
-
-    NSRect glyphRect = [layoutManager boundingRectForGlyphRange:glyphRange
-                                                 inTextContainer:textContainer];
-    NSPoint textOrigin = [_sourceTextView textContainerOrigin];
-
     NSClipView *clipView = [_sourceScrollView contentView];
-    NSRect visibleRect = [clipView bounds];
-    if (verticalAnchor < 0.0) {
-        verticalAnchor = 0.0;
-    } else if (verticalAnchor > 1.0) {
-        verticalAnchor = 1.0;
-    }
-    CGFloat targetY = glyphRect.origin.y + textOrigin.y - floor((visibleRect.size.height - glyphRect.size.height) * verticalAnchor);
-    if (targetY < 0.0) {
-        targetY = 0.0;
+    NSPoint targetPoint = NSZeroPoint;
+    if (![self targetScrollPoint:&targetPoint
+                     forTextView:_sourceTextView
+                    inScrollView:_sourceScrollView
+                  characterIndex:characterIndex
+                  verticalAnchor:verticalAnchor]) {
+        return;
     }
 
-    CGFloat maxY = [_sourceTextView bounds].size.height - visibleRect.size.height;
-    if (maxY < 0.0) {
-        maxY = 0.0;
-    }
-    if (targetY > maxY) {
-        targetY = maxY;
+    CGFloat currentY = NSMinY([clipView bounds]);
+    if (fabs(currentY - targetPoint.y) < OMDLinkedScrollDeadband) {
+        return;
     }
 
-    [clipView scrollToPoint:NSMakePoint(visibleRect.origin.x, targetY)];
+    [clipView scrollToPoint:targetPoint];
     [_sourceScrollView reflectScrolledClipView:clipView];
 }
 
@@ -8343,10 +9598,829 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
     [typing release];
 }
 
-- (void)showPreferences:(id)sender
+- (NSString *)currentGNUstepThemeName
+{
+    GSTheme *theme = [GSTheme theme];
+    NSString *name = nil;
+    if (theme != nil && [theme respondsToSelector:@selector(name)]) {
+        name = [theme name];
+    }
+    if (name == nil || [name length] == 0) {
+        name = [self themePreference];
+    }
+    return name;
+}
+
+- (OMDLayoutDensityMode)effectiveLayoutDensityMode
+{
+    id value = [[NSUserDefaults standardUserDefaults] objectForKey:OMDLayoutDensityDefaultsKey];
+    if ([value respondsToSelector:@selector(integerValue)]) {
+        return OMDClampedLayoutDensityMode([value integerValue]);
+    }
+
+    NSString *themeName = [[self currentGNUstepThemeName] lowercaseString];
+    if (themeName != nil && [themeName rangeOfString:@"adwaita"].location != NSNotFound) {
+        return OMDLayoutDensityModeAdwaita;
+    }
+    return OMDLayoutDensityModeBalanced;
+}
+
+- (void)setLayoutDensityPreference:(OMDLayoutDensityMode)mode
+{
+    OMDLayoutDensityMode clampedMode = OMDClampedLayoutDensityMode(mode);
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    BOOL hasFormattingBarOverride = ([defaults objectForKey:OMDShowFormattingBarDefaultsKey] != nil);
+    [defaults setInteger:(NSInteger)clampedMode
+                                               forKey:OMDLayoutDensityDefaultsKey];
+    if (!hasFormattingBarOverride) {
+        _showFormattingBar = OMDDefaultFormattingBarEnabledForMode(clampedMode);
+    }
+    [self applyLayoutDensityPreference];
+}
+
+- (void)applyLayoutDensityPreference
+{
+    OMDLayoutMetrics metrics = OMDLayoutMetricsForMode([self effectiveLayoutDensityMode]);
+
+    if (_textView != nil) {
+        [_textView setTextContainerInset:NSMakeSize(metrics.previewTextInsetX, metrics.previewTextInsetY)];
+    }
+    if (_sourceTextView != nil) {
+        [_sourceTextView setTextContainerInset:NSMakeSize(metrics.sourceTextInsetX, metrics.sourceTextInsetY)];
+    }
+
+    if (_sourceEditorContainer != nil) {
+        [self rebuildFormattingBar];
+        [self layoutSourceEditorContainer];
+    }
+
+    if (_sidebarContainer != nil) {
+        NSFont *labelFont = [NSFont systemFontOfSize:(metrics.scale > 1.05 ? 12.0 : 11.0)];
+        NSFont *pathFont = [NSFont systemFontOfSize:(metrics.scale > 1.05 ? 11.0 : 10.5)];
+        if (_explorerLocalRootLabel != nil) {
+            [_explorerLocalRootLabel setFont:labelFont];
+        }
+        if (_explorerGitHubUserLabel != nil) {
+            [_explorerGitHubUserLabel setFont:labelFont];
+        }
+        if (_explorerGitHubIncludeForkArchivedButton != nil) {
+            [_explorerGitHubIncludeForkArchivedButton setFont:labelFont];
+        }
+        if (_explorerShowHiddenFilesButton != nil) {
+            [_explorerShowHiddenFilesButton setFont:labelFont];
+        }
+        if (_explorerPathLabel != nil) {
+            [_explorerPathLabel setFont:pathFont];
+        }
+        [self applyExplorerListFontPreference];
+        [self updateExplorerControlsVisibility];
+    }
+
+    [self layoutWorkspaceChrome];
+    [self updatePreviewStatusIndicator];
+
+    if (_currentMarkdown != nil && [self isPreviewVisible]) {
+        _lastRenderedLayoutWidth = -1.0;
+        [self renderCurrentMarkdown];
+    }
+
+    if (_preferencesPanel != nil && [_preferencesPanel isVisible]) {
+        [self rebuildPreferencesPanelContent];
+        [self syncPreferencesPanelFromSettings];
+    }
+}
+
+- (void)releasePreferencesPanelControls
+{
+    [_preferencesSectionControl release];
+    _preferencesSectionControl = nil;
+    [_preferencesMathPolicyPopup release];
+    _preferencesMathPolicyPopup = nil;
+    [_preferencesSplitSyncModePopup release];
+    _preferencesSplitSyncModePopup = nil;
+    [_preferencesThemePopup release];
+    _preferencesThemePopup = nil;
+    [_preferencesLayoutModePopup release];
+    _preferencesLayoutModePopup = nil;
+    [_preferencesScrollSpeedSlider release];
+    _preferencesScrollSpeedSlider = nil;
+    [_preferencesAllowRemoteImagesButton release];
+    _preferencesAllowRemoteImagesButton = nil;
+    [_preferencesFormattingBarButton release];
+    _preferencesFormattingBarButton = nil;
+    [_preferencesWordSelectionShimButton release];
+    _preferencesWordSelectionShimButton = nil;
+    [_preferencesSourceVimKeyBindingsButton release];
+    _preferencesSourceVimKeyBindingsButton = nil;
+    [_preferencesSyntaxHighlightingButton release];
+    _preferencesSyntaxHighlightingButton = nil;
+    [_preferencesSourceHighContrastButton release];
+    _preferencesSourceHighContrastButton = nil;
+    [_preferencesSourceAccentColorWell release];
+    _preferencesSourceAccentColorWell = nil;
+    [_preferencesSourceAccentResetButton release];
+    _preferencesSourceAccentResetButton = nil;
+    [_preferencesRendererSyntaxHighlightingButton release];
+    _preferencesRendererSyntaxHighlightingButton = nil;
+    [_preferencesRendererSyntaxHighlightingNoteLabel release];
+    _preferencesRendererSyntaxHighlightingNoteLabel = nil;
+    [_preferencesExplorerLocalRootField release];
+    _preferencesExplorerLocalRootField = nil;
+    [_preferencesExplorerMaxFileSizeField release];
+    _preferencesExplorerMaxFileSizeField = nil;
+    [_preferencesExplorerListFontSizeField release];
+    _preferencesExplorerListFontSizeField = nil;
+    [_preferencesExplorerGitHubTokenField release];
+    _preferencesExplorerGitHubTokenField = nil;
+}
+
+- (void)normalizePreferencesPanelFrameForSize:(NSSize)size
 {
     if (_preferencesPanel == nil) {
-        NSRect frame = NSMakeRect(160, 140, 460, 500);
+        return;
+    }
+
+    NSScreen *screen = [_window screen];
+    if (screen == nil) {
+        screen = [_preferencesPanel screen];
+    }
+    if (screen == nil) {
+        screen = [NSScreen mainScreen];
+    }
+    if (screen == nil) {
+        return;
+    }
+
+    NSRect visible = [screen visibleFrame];
+    NSRect maxFrame = NSInsetRect(visible, 40.0, 48.0);
+    if (maxFrame.size.width <= 0.0 || maxFrame.size.height <= 0.0) {
+        maxFrame = visible;
+    }
+
+    NSRect maxContentRect = [_preferencesPanel contentRectForFrameRect:maxFrame];
+    CGFloat minWidth = MIN(560.0, maxContentRect.size.width);
+    CGFloat minHeight = MIN(360.0, maxContentRect.size.height);
+    CGFloat width = size.width;
+    CGFloat height = size.height;
+    if (width > maxContentRect.size.width) {
+        width = maxContentRect.size.width;
+    }
+    if (height > maxContentRect.size.height) {
+        height = maxContentRect.size.height;
+    }
+    if (width < minWidth) {
+        width = minWidth;
+    }
+    if (height < minHeight) {
+        height = minHeight;
+    }
+
+    NSRect targetFrame = [_preferencesPanel frameRectForContentRect:NSMakeRect(0.0, 0.0, width, height)];
+    NSRect frame = [_preferencesPanel frame];
+    CGFloat x = frame.origin.x;
+    CGFloat y = frame.origin.y;
+    CGFloat top = NSMaxY(frame);
+    BOOL center = !NSIntersectsRect(frame, visible);
+    if (center) {
+        x = visible.origin.x + floor((visible.size.width - targetFrame.size.width) * 0.5);
+        y = visible.origin.y + floor((visible.size.height - targetFrame.size.height) * 0.5);
+    } else {
+        y = top - targetFrame.size.height;
+        if (x < visible.origin.x) {
+            x = visible.origin.x;
+        }
+        if ((x + targetFrame.size.width) > NSMaxX(visible)) {
+            x = NSMaxX(visible) - targetFrame.size.width;
+        }
+        if (y < visible.origin.y) {
+            y = visible.origin.y;
+        }
+        if ((y + targetFrame.size.height) > NSMaxY(visible)) {
+            y = NSMaxY(visible) - targetFrame.size.height;
+        }
+    }
+
+    [_preferencesPanel setFrame:NSIntegralRect(NSMakeRect(x,
+                                                          y,
+                                                          targetFrame.size.width,
+                                                          targetFrame.size.height))
+                        display:NO];
+}
+
+- (void)buildPreferencesAppearanceSectionInView:(NSView *)view metrics:(OMDLayoutMetrics)metrics
+{
+    OMDRoundedCardView *card = OMDCreatePreferencesCard(NSMakeRect(0.0,
+                                                                   0.0,
+                                                                   NSWidth([view bounds]),
+                                                                   metrics.preferencesAppearanceCardHeight),
+                                                        metrics);
+    [view addSubview:card];
+
+    CGFloat pad = metrics.preferencesCardPadding;
+    CGFloat sectionWidth = NSWidth([card bounds]) - (pad * 2.0);
+    CGFloat rowLabelWidth = MIN(metrics.preferencesLabelWidth + 20.0, floor(sectionWidth * 0.28));
+    CGFloat controlX = pad + rowLabelWidth + 12.0;
+    CGFloat controlWidth = sectionWidth - rowLabelWidth - 12.0;
+    CGFloat rowY = pad + 52.0;
+    NSColor *titleColor = OMDResolvedControlTextColor();
+    NSColor *noteColor = OMDResolvedMutedTextColor();
+
+    [card addSubview:OMDStaticTextField(NSMakeRect(pad, pad, sectionWidth, 20.0),
+                                        @"Appearance",
+                                        OMDPreferencesSectionTitleFont(metrics),
+                                        titleColor,
+                                        NSLeftTextAlignment,
+                                        NO)];
+    [card addSubview:OMDStaticTextField(NSMakeRect(pad, pad + 22.0, sectionWidth, 20.0),
+                                        @"Choose the active GNUstep theme and how roomy the interface should feel.",
+                                        OMDPreferencesSectionSubtitleFont(metrics),
+                                        noteColor,
+                                        NSLeftTextAlignment,
+                                        YES)];
+    [card addSubview:OMDStaticTextField(NSMakeRect(pad, rowY + 5.0, rowLabelWidth, 20.0),
+                                        @"GNUstep Theme",
+                                        OMDPreferencesLabelFont(metrics),
+                                        titleColor,
+                                        NSLeftTextAlignment,
+                                        NO)];
+    _preferencesThemePopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(controlX,
+                                                                             rowY,
+                                                                             controlWidth,
+                                                                             metrics.preferencesControlHeight)
+                                                         pullsDown:NO];
+    [_preferencesThemePopup setTarget:self];
+    [_preferencesThemePopup setAction:@selector(preferencesThemeChanged:)];
+    [_preferencesThemePopup setToolTip:@"Theme changes apply after relaunch."];
+    [card addSubview:_preferencesThemePopup];
+
+    rowY += metrics.preferencesControlHeight + metrics.preferencesRowGap;
+    [card addSubview:OMDStaticTextField(NSMakeRect(pad, rowY + 5.0, rowLabelWidth, 20.0),
+                                        @"Layout Mode",
+                                        OMDPreferencesLabelFont(metrics),
+                                        titleColor,
+                                        NSLeftTextAlignment,
+                                        NO)];
+    _preferencesLayoutModePopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(controlX,
+                                                                                  rowY,
+                                                                                  controlWidth,
+                                                                                  metrics.preferencesControlHeight)
+                                                              pullsDown:NO];
+    [_preferencesLayoutModePopup addItemWithTitle:@"Compact"];
+    [[_preferencesLayoutModePopup itemAtIndex:0] setTag:OMDLayoutDensityModeCompact];
+    [_preferencesLayoutModePopup addItemWithTitle:@"Balanced"];
+    [[_preferencesLayoutModePopup itemAtIndex:1] setTag:OMDLayoutDensityModeBalanced];
+    [_preferencesLayoutModePopup addItemWithTitle:@"Adwaita Style"];
+    [[_preferencesLayoutModePopup itemAtIndex:2] setTag:OMDLayoutDensityModeAdwaita];
+    [_preferencesLayoutModePopup setTarget:self];
+    [_preferencesLayoutModePopup setAction:@selector(preferencesLayoutModeChanged:)];
+    [_preferencesLayoutModePopup setToolTip:@"Switch between compact, balanced, and roomier Adwaita-style spacing."];
+    [card addSubview:_preferencesLayoutModePopup];
+
+    rowY += metrics.preferencesControlHeight + metrics.preferencesRowGap;
+    [card addSubview:OMDStaticTextField(NSMakeRect(pad, rowY + 5.0, rowLabelWidth, 20.0),
+                                        @"Scroll Speed",
+                                        OMDPreferencesLabelFont(metrics),
+                                        titleColor,
+                                        NSLeftTextAlignment,
+                                        NO)];
+    _preferencesScrollSpeedSlider = [[NSSlider alloc] initWithFrame:NSMakeRect(controlX,
+                                                                               rowY,
+                                                                               controlWidth,
+                                                                               metrics.preferencesControlHeight)];
+    [_preferencesScrollSpeedSlider setMinValue:OMDScrollSpeedMinimum];
+    [_preferencesScrollSpeedSlider setMaxValue:OMDScrollSpeedMaximum];
+    [_preferencesScrollSpeedSlider setContinuous:YES];
+    [_preferencesScrollSpeedSlider setTarget:self];
+    [_preferencesScrollSpeedSlider setAction:@selector(preferencesScrollSpeedChanged:)];
+    [_preferencesScrollSpeedSlider setToolTip:@"Adjust how far the app scrolls for each wheel or trackpad step."];
+    [card addSubview:_preferencesScrollSpeedSlider];
+
+    rowY += metrics.preferencesControlHeight + metrics.preferencesRowGap;
+    [card addSubview:OMDStaticTextField(NSMakeRect(pad,
+                                                   rowY,
+                                                   sectionWidth,
+                                                   metrics.preferencesNoteHeight),
+                                        @"GNUstep's default scroll speed is at the left. Theme changes apply on next launch; layout mode and scroll speed update immediately.",
+                                        OMDPreferencesNoteFont(metrics),
+                                        noteColor,
+                                        NSLeftTextAlignment,
+                                        YES)];
+}
+
+- (void)buildPreferencesExplorerSectionInView:(NSView *)view metrics:(OMDLayoutMetrics)metrics
+{
+    OMDRoundedCardView *card = OMDCreatePreferencesCard(NSMakeRect(0.0,
+                                                                   0.0,
+                                                                   NSWidth([view bounds]),
+                                                                   metrics.preferencesExplorerCardHeight),
+                                                        metrics);
+    [view addSubview:card];
+
+    CGFloat pad = metrics.preferencesCardPadding;
+    CGFloat sectionWidth = NSWidth([card bounds]) - (pad * 2.0);
+    CGFloat rowLabelWidth = MIN(metrics.preferencesLabelWidth + 20.0, floor(sectionWidth * 0.24));
+    CGFloat controlX = pad + rowLabelWidth + 12.0;
+    CGFloat controlWidth = sectionWidth - rowLabelWidth - 12.0;
+    CGFloat rowY = pad + 52.0;
+    NSColor *titleColor = OMDResolvedControlTextColor();
+    NSColor *noteColor = OMDResolvedMutedTextColor();
+
+    [card addSubview:OMDStaticTextField(NSMakeRect(pad, pad, sectionWidth, 20.0),
+                                        @"Explorer",
+                                        OMDPreferencesSectionTitleFont(metrics),
+                                        titleColor,
+                                        NSLeftTextAlignment,
+                                        NO)];
+    [card addSubview:OMDStaticTextField(NSMakeRect(pad, pad + 22.0, sectionWidth, 20.0),
+                                        @"Control the local browser root and GitHub integration defaults.",
+                                        OMDPreferencesSectionSubtitleFont(metrics),
+                                        noteColor,
+                                        NSLeftTextAlignment,
+                                        YES)];
+    [card addSubview:OMDStaticTextField(NSMakeRect(pad, rowY + 5.0, rowLabelWidth, 20.0),
+                                        @"Local Root",
+                                        OMDPreferencesLabelFont(metrics),
+                                        titleColor,
+                                        NSLeftTextAlignment,
+                                        NO)];
+
+    CGFloat browseWidth = metrics.preferencesSmallButtonWidth;
+    CGFloat rootFieldWidth = controlWidth - browseWidth - 8.0;
+    if (rootFieldWidth < 180.0) {
+        rootFieldWidth = controlWidth;
+        browseWidth = 0.0;
+    }
+    _preferencesExplorerLocalRootField = [[NSTextField alloc] initWithFrame:NSMakeRect(controlX,
+                                                                                        rowY,
+                                                                                        rootFieldWidth,
+                                                                                        metrics.preferencesControlHeight)];
+    [_preferencesExplorerLocalRootField setTarget:self];
+    [_preferencesExplorerLocalRootField setAction:@selector(preferencesExplorerLocalRootChanged:)];
+    [card addSubview:_preferencesExplorerLocalRootField];
+
+    if (browseWidth > 0.0) {
+        NSButton *browseButton = [[[NSButton alloc] initWithFrame:NSMakeRect(controlX + rootFieldWidth + 8.0,
+                                                                             rowY,
+                                                                             browseWidth,
+                                                                             metrics.preferencesControlHeight)] autorelease];
+        [browseButton setTitle:@"Browse..."];
+        [browseButton setBezelStyle:NSRoundedBezelStyle];
+        [browseButton setTarget:self];
+        [browseButton setAction:@selector(preferencesExplorerLocalRootChanged:)];
+        [card addSubview:browseButton];
+    }
+
+    rowY += metrics.preferencesControlHeight + metrics.preferencesRowGap;
+    [card addSubview:OMDStaticTextField(NSMakeRect(pad, rowY + 5.0, rowLabelWidth, 20.0),
+                                        @"Max File Size",
+                                        OMDPreferencesLabelFont(metrics),
+                                        titleColor,
+                                        NSLeftTextAlignment,
+                                        NO)];
+    _preferencesExplorerMaxFileSizeField = [[NSTextField alloc] initWithFrame:NSMakeRect(controlX,
+                                                                                          rowY,
+                                                                                          metrics.preferencesSmallFieldWidth,
+                                                                                          metrics.preferencesControlHeight)];
+    [_preferencesExplorerMaxFileSizeField setTarget:self];
+    [_preferencesExplorerMaxFileSizeField setAction:@selector(preferencesExplorerMaxFileSizeChanged:)];
+    [card addSubview:_preferencesExplorerMaxFileSizeField];
+    [card addSubview:OMDStaticTextField(NSMakeRect(controlX + metrics.preferencesSmallFieldWidth + 6.0,
+                                                   rowY + 5.0,
+                                                   28.0,
+                                                   20.0),
+                                        @"MB",
+                                        OMDPreferencesLabelFont(metrics),
+                                        noteColor,
+                                        NSLeftTextAlignment,
+                                        NO)];
+
+    rowY += metrics.preferencesControlHeight + metrics.preferencesRowGap;
+    [card addSubview:OMDStaticTextField(NSMakeRect(pad, rowY + 5.0, rowLabelWidth, 20.0),
+                                        @"List Font",
+                                        OMDPreferencesLabelFont(metrics),
+                                        titleColor,
+                                        NSLeftTextAlignment,
+                                        NO)];
+    _preferencesExplorerListFontSizeField = [[NSTextField alloc] initWithFrame:NSMakeRect(controlX,
+                                                                                           rowY,
+                                                                                           metrics.preferencesSmallFieldWidth,
+                                                                                           metrics.preferencesControlHeight)];
+    [_preferencesExplorerListFontSizeField setTarget:self];
+    [_preferencesExplorerListFontSizeField setAction:@selector(preferencesExplorerListFontSizeChanged:)];
+    [card addSubview:_preferencesExplorerListFontSizeField];
+    [card addSubview:OMDStaticTextField(NSMakeRect(controlX + metrics.preferencesSmallFieldWidth + 6.0,
+                                                   rowY + 5.0,
+                                                   28.0,
+                                                   20.0),
+                                        @"pt",
+                                        OMDPreferencesLabelFont(metrics),
+                                        noteColor,
+                                        NSLeftTextAlignment,
+                                        NO)];
+
+    rowY += metrics.preferencesControlHeight + metrics.preferencesRowGap;
+    [card addSubview:OMDStaticTextField(NSMakeRect(pad, rowY + 5.0, rowLabelWidth, 20.0),
+                                        @"GitHub Token",
+                                        OMDPreferencesLabelFont(metrics),
+                                        titleColor,
+                                        NSLeftTextAlignment,
+                                        NO)];
+    _preferencesExplorerGitHubTokenField = [[NSSecureTextField alloc] initWithFrame:NSMakeRect(controlX,
+                                                                                                rowY,
+                                                                                                controlWidth,
+                                                                                                metrics.preferencesControlHeight)];
+    [_preferencesExplorerGitHubTokenField setTarget:self];
+    [_preferencesExplorerGitHubTokenField setAction:@selector(preferencesExplorerGitHubTokenChanged:)];
+    [card addSubview:_preferencesExplorerGitHubTokenField];
+
+    rowY += metrics.preferencesControlHeight + 8.0;
+    [card addSubview:OMDStaticTextField(NSMakeRect(controlX,
+                                                   rowY,
+                                                   controlWidth,
+                                                   metrics.preferencesNoteHeight),
+                                        @"Optional. Raises GitHub API rate limits for repo browsing.",
+                                        OMDPreferencesNoteFont(metrics),
+                                        noteColor,
+                                        NSLeftTextAlignment,
+                                        YES)];
+}
+
+- (void)buildPreferencesPreviewSectionInView:(NSView *)view metrics:(OMDLayoutMetrics)metrics
+{
+    CGFloat cardHeight = OMDPreferencesPreviewSectionHeightForMetrics(metrics);
+    OMDRoundedCardView *card = OMDCreatePreferencesCard(NSMakeRect(0.0,
+                                                                   0.0,
+                                                                   NSWidth([view bounds]),
+                                                                   cardHeight),
+                                                        metrics);
+    [view addSubview:card];
+
+    CGFloat pad = metrics.preferencesCardPadding;
+    CGFloat sectionWidth = NSWidth([card bounds]) - (pad * 2.0);
+    CGFloat rowLabelWidth = MIN(metrics.preferencesLabelWidth + 24.0, floor(sectionWidth * 0.24));
+    CGFloat controlX = pad + rowLabelWidth + 12.0;
+    CGFloat controlWidth = sectionWidth - rowLabelWidth - 12.0;
+    CGFloat rowY = pad + 52.0;
+    NSColor *titleColor = OMDResolvedControlTextColor();
+    NSColor *noteColor = OMDResolvedMutedTextColor();
+
+    [card addSubview:OMDStaticTextField(NSMakeRect(pad, pad, sectionWidth, 20.0),
+                                        @"Preview",
+                                        OMDPreferencesSectionTitleFont(metrics),
+                                        titleColor,
+                                        NSLeftTextAlignment,
+                                        NO)];
+    [card addSubview:OMDStaticTextField(NSMakeRect(pad, pad + 22.0, sectionWidth, 20.0),
+                                        @"Tune preview sync, math rendering, remote media, and code-block highlighting together.",
+                                        OMDPreferencesSectionSubtitleFont(metrics),
+                                        noteColor,
+                                        NSLeftTextAlignment,
+                                        YES)];
+    [card addSubview:OMDStaticTextField(NSMakeRect(pad, rowY + 5.0, rowLabelWidth, 20.0),
+                                        @"Split Sync",
+                                        OMDPreferencesLabelFont(metrics),
+                                        titleColor,
+                                        NSLeftTextAlignment,
+                                        NO)];
+    _preferencesSplitSyncModePopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(controlX,
+                                                                                      rowY,
+                                                                                      controlWidth,
+                                                                                      metrics.preferencesControlHeight)
+                                                                 pullsDown:NO];
+    [_preferencesSplitSyncModePopup addItemWithTitle:@"Independent"];
+    [[_preferencesSplitSyncModePopup itemAtIndex:0] setTag:OMDSplitSyncModeUnlinked];
+    [_preferencesSplitSyncModePopup addItemWithTitle:@"Linked Scrolling"];
+    [[_preferencesSplitSyncModePopup itemAtIndex:1] setTag:OMDSplitSyncModeLinkedScrolling];
+    [_preferencesSplitSyncModePopup addItemWithTitle:@"Follow Caret"];
+    [[_preferencesSplitSyncModePopup itemAtIndex:2] setTag:OMDSplitSyncModeCaretSelectionFollow];
+    [_preferencesSplitSyncModePopup setTarget:self];
+    [_preferencesSplitSyncModePopup setAction:@selector(preferencesSplitSyncModeChanged:)];
+    [card addSubview:_preferencesSplitSyncModePopup];
+
+    rowY += metrics.preferencesControlHeight + 8.0;
+    [card addSubview:OMDStaticTextField(NSMakeRect(controlX,
+                                                   rowY,
+                                                   controlWidth,
+                                                   metrics.preferencesNoteHeight),
+                                        @"Linked Scrolling follows pane scroll; Follow Caret tracks cursor and selection moves.",
+                                        OMDPreferencesNoteFont(metrics),
+                                        noteColor,
+                                        NSLeftTextAlignment,
+                                        YES)];
+
+    rowY += metrics.preferencesNoteHeight + metrics.preferencesRowGap;
+    [card addSubview:OMDStaticTextField(NSMakeRect(pad, rowY + 5.0, rowLabelWidth, 20.0),
+                                        @"Math",
+                                        OMDPreferencesLabelFont(metrics),
+                                        titleColor,
+                                        NSLeftTextAlignment,
+                                        NO)];
+    _preferencesMathPolicyPopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(controlX,
+                                                                                   rowY,
+                                                                                   controlWidth,
+                                                                                   metrics.preferencesControlHeight)
+                                                              pullsDown:NO];
+    [_preferencesMathPolicyPopup addItemWithTitle:@"Styled Text (Safe)"];
+    [[_preferencesMathPolicyPopup itemAtIndex:0] setTag:OMMarkdownMathRenderingPolicyStyledText];
+    [_preferencesMathPolicyPopup addItemWithTitle:@"Disabled (Literal $...$)"];
+    [[_preferencesMathPolicyPopup itemAtIndex:1] setTag:OMMarkdownMathRenderingPolicyDisabled];
+    [_preferencesMathPolicyPopup addItemWithTitle:@"External Tools (LaTeX)"];
+    [[_preferencesMathPolicyPopup itemAtIndex:2] setTag:OMMarkdownMathRenderingPolicyExternalTools];
+    [_preferencesMathPolicyPopup setTarget:self];
+    [_preferencesMathPolicyPopup setAction:@selector(preferencesMathPolicyChanged:)];
+    [card addSubview:_preferencesMathPolicyPopup];
+
+    rowY += metrics.preferencesControlHeight + metrics.preferencesRowGap;
+    _preferencesAllowRemoteImagesButton = [[NSButton alloc] initWithFrame:NSMakeRect(pad,
+                                                                                     rowY,
+                                                                                     sectionWidth,
+                                                                                     22.0)];
+    [_preferencesAllowRemoteImagesButton setButtonType:NSSwitchButton];
+    [_preferencesAllowRemoteImagesButton setTitle:@"Allow Remote Images"];
+    [_preferencesAllowRemoteImagesButton setFont:OMDPreferencesLabelFont(metrics)];
+    [_preferencesAllowRemoteImagesButton setTarget:self];
+    [_preferencesAllowRemoteImagesButton setAction:@selector(preferencesAllowRemoteImagesChanged:)];
+    [card addSubview:_preferencesAllowRemoteImagesButton];
+
+    rowY += 28.0;
+    _preferencesRendererSyntaxHighlightingButton = [[NSButton alloc] initWithFrame:NSMakeRect(pad,
+                                                                                               rowY,
+                                                                                               sectionWidth,
+                                                                                               22.0)];
+    [_preferencesRendererSyntaxHighlightingButton setButtonType:NSSwitchButton];
+    [_preferencesRendererSyntaxHighlightingButton setTitle:@"Renderer Syntax Highlighting (Code Blocks)"];
+    [_preferencesRendererSyntaxHighlightingButton setFont:OMDPreferencesLabelFont(metrics)];
+    [_preferencesRendererSyntaxHighlightingButton setTarget:self];
+    [_preferencesRendererSyntaxHighlightingButton setAction:@selector(preferencesRendererSyntaxHighlightingChanged:)];
+    [card addSubview:_preferencesRendererSyntaxHighlightingButton];
+
+    rowY += 28.0;
+    _preferencesRendererSyntaxHighlightingNoteLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(pad + 22.0,
+                                                                                                      rowY,
+                                                                                                      sectionWidth - 22.0,
+                                                                                                      metrics.preferencesNoteHeight)];
+    [_preferencesRendererSyntaxHighlightingNoteLabel setBezeled:NO];
+    [_preferencesRendererSyntaxHighlightingNoteLabel setEditable:NO];
+    [_preferencesRendererSyntaxHighlightingNoteLabel setSelectable:NO];
+    [_preferencesRendererSyntaxHighlightingNoteLabel setDrawsBackground:NO];
+    [_preferencesRendererSyntaxHighlightingNoteLabel setFont:OMDPreferencesNoteFont(metrics)];
+    [_preferencesRendererSyntaxHighlightingNoteLabel setTextColor:noteColor];
+    if ([[_preferencesRendererSyntaxHighlightingNoteLabel cell] respondsToSelector:@selector(setWraps:)]) {
+        [[_preferencesRendererSyntaxHighlightingNoteLabel cell] setWraps:YES];
+    }
+    [card addSubview:_preferencesRendererSyntaxHighlightingNoteLabel];
+}
+
+- (void)buildPreferencesEditorSectionInView:(NSView *)view metrics:(OMDLayoutMetrics)metrics
+{
+    OMDRoundedCardView *card = OMDCreatePreferencesCard(NSMakeRect(0.0,
+                                                                   0.0,
+                                                                   NSWidth([view bounds]),
+                                                                   metrics.preferencesEditingCardHeight),
+                                                        metrics);
+    [view addSubview:card];
+
+    CGFloat pad = metrics.preferencesCardPadding;
+    CGFloat sectionWidth = NSWidth([card bounds]) - (pad * 2.0);
+    CGFloat rowY = pad + 52.0;
+    NSColor *titleColor = OMDResolvedControlTextColor();
+    NSColor *noteColor = OMDResolvedMutedTextColor();
+
+    [card addSubview:OMDStaticTextField(NSMakeRect(pad, pad, sectionWidth, 20.0),
+                                        @"Editor",
+                                        OMDPreferencesSectionTitleFont(metrics),
+                                        titleColor,
+                                        NSLeftTextAlignment,
+                                        NO)];
+    [card addSubview:OMDStaticTextField(NSMakeRect(pad, pad + 22.0, sectionWidth, 20.0),
+                                        @"Tweak source-editor behavior without crowding the main workspace.",
+                                        OMDPreferencesSectionSubtitleFont(metrics),
+                                        noteColor,
+                                        NSLeftTextAlignment,
+                                        YES)];
+    _preferencesFormattingBarButton = [[NSButton alloc] initWithFrame:NSMakeRect(pad, rowY, sectionWidth, 22.0)];
+    [_preferencesFormattingBarButton setButtonType:NSSwitchButton];
+    [_preferencesFormattingBarButton setTitle:@"Show Formatting Bar in Edit and Split"];
+    [_preferencesFormattingBarButton setFont:OMDPreferencesLabelFont(metrics)];
+    [_preferencesFormattingBarButton setTarget:self];
+    [_preferencesFormattingBarButton setAction:@selector(preferencesFormattingBarChanged:)];
+    [card addSubview:_preferencesFormattingBarButton];
+
+    rowY += 28.0;
+    _preferencesWordSelectionShimButton = [[NSButton alloc] initWithFrame:NSMakeRect(pad, rowY, sectionWidth, 22.0)];
+    [_preferencesWordSelectionShimButton setButtonType:NSSwitchButton];
+    [_preferencesWordSelectionShimButton setTitle:@"Ctrl/Cmd+Shift+Arrow Selects Words"];
+    [_preferencesWordSelectionShimButton setFont:OMDPreferencesLabelFont(metrics)];
+    [_preferencesWordSelectionShimButton setTarget:self];
+    [_preferencesWordSelectionShimButton setAction:@selector(preferencesWordSelectionShimChanged:)];
+    [card addSubview:_preferencesWordSelectionShimButton];
+
+    rowY += 28.0;
+    _preferencesSourceVimKeyBindingsButton = [[NSButton alloc] initWithFrame:NSMakeRect(pad, rowY, sectionWidth, 22.0)];
+    [_preferencesSourceVimKeyBindingsButton setButtonType:NSSwitchButton];
+    [_preferencesSourceVimKeyBindingsButton setTitle:@"Enable Vim Key Bindings"];
+    [_preferencesSourceVimKeyBindingsButton setFont:OMDPreferencesLabelFont(metrics)];
+    [_preferencesSourceVimKeyBindingsButton setTarget:self];
+    [_preferencesSourceVimKeyBindingsButton setAction:@selector(preferencesSourceVimKeyBindingsChanged:)];
+    [card addSubview:_preferencesSourceVimKeyBindingsButton];
+
+    rowY += 28.0;
+    _preferencesSyntaxHighlightingButton = [[NSButton alloc] initWithFrame:NSMakeRect(pad, rowY, sectionWidth, 22.0)];
+    [_preferencesSyntaxHighlightingButton setButtonType:NSSwitchButton];
+    [_preferencesSyntaxHighlightingButton setTitle:@"Source Syntax Highlighting"];
+    [_preferencesSyntaxHighlightingButton setFont:OMDPreferencesLabelFont(metrics)];
+    [_preferencesSyntaxHighlightingButton setTarget:self];
+    [_preferencesSyntaxHighlightingButton setAction:@selector(preferencesSyntaxHighlightingChanged:)];
+    [card addSubview:_preferencesSyntaxHighlightingButton];
+
+    rowY += 28.0;
+    _preferencesSourceHighContrastButton = [[NSButton alloc] initWithFrame:NSMakeRect(pad + 20.0,
+                                                                                      rowY,
+                                                                                      sectionWidth - 20.0,
+                                                                                      22.0)];
+    [_preferencesSourceHighContrastButton setButtonType:NSSwitchButton];
+    [_preferencesSourceHighContrastButton setTitle:@"High Contrast Source Highlighting"];
+    [_preferencesSourceHighContrastButton setFont:OMDPreferencesLabelFont(metrics)];
+    [_preferencesSourceHighContrastButton setTarget:self];
+    [_preferencesSourceHighContrastButton setAction:@selector(preferencesSourceHighContrastChanged:)];
+    [card addSubview:_preferencesSourceHighContrastButton];
+
+    rowY += 32.0;
+    CGFloat accentX = pad + 20.0;
+    CGFloat accentRowWidth = sectionWidth - 20.0;
+    [card addSubview:OMDStaticTextField(NSMakeRect(accentX, rowY + 4.0, accentRowWidth, 20.0),
+                                        @"Accent Color",
+                                        OMDPreferencesLabelFont(metrics),
+                                        titleColor,
+                                        NSLeftTextAlignment,
+                                        NO)];
+
+    rowY += 24.0;
+    CGFloat accentResetWidth = metrics.preferencesSmallButtonWidth;
+    CGFloat accentWellWidth = accentRowWidth - accentResetWidth - 8.0;
+    CGFloat accentResetX = accentX + accentRowWidth - accentResetWidth;
+    CGFloat accentWellX = accentX;
+    BOOL stackAccentReset = NO;
+    if (accentWellWidth < 160.0) {
+        accentWellWidth = accentRowWidth;
+        stackAccentReset = YES;
+    }
+
+    _preferencesSourceAccentColorWell = [[NSColorWell alloc] initWithFrame:NSMakeRect(accentWellX,
+                                                                                      rowY,
+                                                                                      accentWellWidth,
+                                                                                      metrics.preferencesControlHeight)];
+    [_preferencesSourceAccentColorWell setTarget:self];
+    [_preferencesSourceAccentColorWell setAction:@selector(preferencesSourceAccentColorChanged:)];
+    [card addSubview:_preferencesSourceAccentColorWell];
+
+    if (stackAccentReset) {
+        rowY += metrics.preferencesControlHeight + 8.0;
+        accentResetX = accentX + accentRowWidth - accentResetWidth;
+    }
+
+    _preferencesSourceAccentResetButton = [[NSButton alloc] initWithFrame:NSMakeRect(accentResetX,
+                                                                                     rowY,
+                                                                                     accentResetWidth,
+                                                                                     metrics.preferencesControlHeight)];
+    [_preferencesSourceAccentResetButton setTitle:@"Reset"];
+    [_preferencesSourceAccentResetButton setBezelStyle:NSRoundedBezelStyle];
+    [_preferencesSourceAccentResetButton setTarget:self];
+    [_preferencesSourceAccentResetButton setAction:@selector(preferencesSourceAccentReset:)];
+    [card addSubview:_preferencesSourceAccentResetButton];
+}
+
+- (NSView *)preferencesItemContainerForSection:(OMDPreferencesSection)section
+                                   contentRect:(NSRect)contentRect
+                                       metrics:(OMDLayoutMetrics)metrics
+{
+    OMDFlippedFillView *container = [[[OMDFlippedFillView alloc] initWithFrame:contentRect] autorelease];
+    [container setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable)];
+    [container setFillColor:OMDResolvedPanelBackdropColor()];
+
+    CGFloat contentHeight = OMDPreferencesSectionContentHeight(section, metrics);
+    CGFloat documentHeight = MAX(contentHeight, NSHeight(contentRect));
+    OMDFlippedFillView *documentView = [[[OMDFlippedFillView alloc] initWithFrame:NSMakeRect(0.0,
+                                                                                              0.0,
+                                                                                              NSWidth(contentRect),
+                                                                                              documentHeight)] autorelease];
+    [documentView setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable)];
+    [documentView setFillColor:OMDResolvedPanelBackdropColor()];
+
+    switch (section) {
+        case OMDPreferencesSectionExplorer:
+            [self buildPreferencesExplorerSectionInView:documentView metrics:metrics];
+            break;
+        case OMDPreferencesSectionPreview:
+            [self buildPreferencesPreviewSectionInView:documentView metrics:metrics];
+            break;
+        case OMDPreferencesSectionEditor:
+            [self buildPreferencesEditorSectionInView:documentView metrics:metrics];
+            break;
+        case OMDPreferencesSectionAppearance:
+        default:
+            [self buildPreferencesAppearanceSectionInView:documentView metrics:metrics];
+            break;
+    }
+
+    if (contentHeight > NSHeight(contentRect)) {
+        NSScrollView *scrollView = [[[NSScrollView alloc] initWithFrame:[container bounds]] autorelease];
+        [scrollView setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable)];
+        [scrollView setHasVerticalScroller:YES];
+        [scrollView setHasHorizontalScroller:NO];
+        [scrollView setAutohidesScrollers:YES];
+        [scrollView setBorderType:NSNoBorder];
+        [scrollView setDrawsBackground:NO];
+        [scrollView setDocumentView:documentView];
+        [container addSubview:scrollView];
+    } else {
+        [container addSubview:documentView];
+    }
+
+    return container;
+}
+
+- (void)rebuildPreferencesPanelContent
+{
+    if (_preferencesPanel == nil) {
+        return;
+    }
+
+    [self releasePreferencesPanelControls];
+
+    OMDLayoutMetrics metrics = OMDLayoutMetricsForMode([self effectiveLayoutDensityMode]);
+    OMDPreferencesSection selectedSection = OMDClampedPreferencesSection(_preferencesSelectedSection);
+    CGFloat outerPadding = metrics.preferencesOuterPadding;
+    CGFloat panelHeight = OMDPreferencesPanelHeightForSection(selectedSection, metrics);
+    [self normalizePreferencesPanelFrameForSize:NSMakeSize(OMDPreferencesPanelWidthForMetrics(metrics), panelHeight)];
+
+    NSRect panelBounds = [[_preferencesPanel contentView] bounds];
+    CGFloat contentWidth = NSWidth(panelBounds) - (outerPadding * 2.0);
+    if (contentWidth < 420.0) {
+        contentWidth = 420.0;
+    }
+
+    OMDFlippedFillView *rootView = [[[OMDFlippedFillView alloc] initWithFrame:panelBounds] autorelease];
+    [rootView setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable)];
+    [rootView setFillColor:OMDResolvedPanelBackdropColor()];
+
+    CGFloat sectionControlHeight = (metrics.scale > 1.05 ? 36.0 : 32.0);
+    CGFloat sectionControlY = outerPadding;
+    _preferencesSectionControl = [[NSSegmentedControl alloc] initWithFrame:NSMakeRect(outerPadding,
+                                                                                      sectionControlY,
+                                                                                      contentWidth,
+                                                                                      sectionControlHeight)];
+    [_preferencesSectionControl setAutoresizingMask:NSViewWidthSizable];
+    if ([_preferencesSectionControl respondsToSelector:@selector(setFont:)]) {
+        [_preferencesSectionControl setFont:OMDPreferencesSectionControlFont(metrics)];
+    }
+    [_preferencesSectionControl setSegmentCount:4];
+    [_preferencesSectionControl setLabel:@"Appearance" forSegment:0];
+    [_preferencesSectionControl setLabel:@"Explorer" forSegment:1];
+    [_preferencesSectionControl setLabel:@"Preview" forSegment:2];
+    [_preferencesSectionControl setLabel:@"Editor" forSegment:3];
+    if ([[_preferencesSectionControl cell] respondsToSelector:@selector(setTrackingMode:)]) {
+        [[_preferencesSectionControl cell] setTrackingMode:NSSegmentSwitchTrackingSelectOne];
+    }
+    NSInteger segmentIndex = 0;
+    for (; segmentIndex < 4; segmentIndex++) {
+        CGFloat segmentWidth = floor(contentWidth / 4.0);
+        if (segmentIndex == 3) {
+            segmentWidth = contentWidth - floor(contentWidth / 4.0) * 3.0;
+        }
+        [_preferencesSectionControl setWidth:segmentWidth forSegment:segmentIndex];
+    }
+    _preferencesSelectedSection = (NSInteger)selectedSection;
+    [_preferencesSectionControl setSelectedSegment:_preferencesSelectedSection];
+    [_preferencesSectionControl setTarget:self];
+    [_preferencesSectionControl setAction:@selector(preferencesSectionChanged:)];
+    [rootView addSubview:_preferencesSectionControl];
+
+    CGFloat contentY = sectionControlY + sectionControlHeight + 16.0;
+    NSRect contentRect = NSMakeRect(outerPadding,
+                                    contentY,
+                                    contentWidth,
+                                    NSHeight(panelBounds) - contentY - outerPadding);
+    if (contentRect.size.height < 160.0) {
+        contentRect.size.height = 160.0;
+    }
+    [rootView addSubview:[self preferencesItemContainerForSection:selectedSection
+                                                      contentRect:contentRect
+                                                          metrics:metrics]];
+
+    [_preferencesPanel setContentView:rootView];
+}
+
+- (void)showPreferences:(id)sender
+{
+    (void)sender;
+    if (_preferencesPanel == nil) {
+        OMDLayoutMetrics metrics = OMDLayoutMetricsForMode([self effectiveLayoutDensityMode]);
+        OMDPreferencesSection selectedSection = OMDClampedPreferencesSection(_preferencesSelectedSection);
+        NSRect frame = NSMakeRect(160,
+                                  140,
+                                  OMDPreferencesPanelWidthForMetrics(metrics),
+                                  OMDPreferencesPanelHeightForSection(selectedSection, metrics));
         _preferencesPanel = [[NSPanel alloc] initWithContentRect:frame
                                                         styleMask:(NSTitledWindowMask | NSClosableWindowMask)
                                                           backing:NSBackingStoreBuffered
@@ -8354,305 +10428,72 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
         [_preferencesPanel setTitle:@"Preferences"];
         [_preferencesPanel setFrameAutosaveName:@"ObjcMarkdownViewerPreferencesPanel"];
         [_preferencesPanel setReleasedWhenClosed:NO];
-
-        NSView *content = [_preferencesPanel contentView];
-
-        NSTextField *appearanceHeader = [[[NSTextField alloc] initWithFrame:NSMakeRect(20, 532, 420, 20)] autorelease];
-        [appearanceHeader setBezeled:NO];
-        [appearanceHeader setEditable:NO];
-        [appearanceHeader setSelectable:NO];
-        [appearanceHeader setDrawsBackground:NO];
-        [appearanceHeader setFont:[NSFont boldSystemFontOfSize:12.0]];
-        [appearanceHeader setStringValue:@"Appearance"];
-        [content addSubview:appearanceHeader];
-
-        NSBox *appearanceSeparator = [[[NSBox alloc] initWithFrame:NSMakeRect(20, 526, 420, 1)] autorelease];
-        [appearanceSeparator setBoxType:NSBoxSeparator];
-        [content addSubview:appearanceSeparator];
-
-        NSTextField *themeLabel = [[[NSTextField alloc] initWithFrame:NSMakeRect(20, 502, 170, 20)] autorelease];
-        [themeLabel setBezeled:NO];
-        [themeLabel setEditable:NO];
-        [themeLabel setSelectable:NO];
-        [themeLabel setDrawsBackground:NO];
-        [themeLabel setStringValue:@"GNUstep Theme:"];
-        [content addSubview:themeLabel];
-
-        _preferencesThemePopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(210, 498, 225, 26)
-                                                             pullsDown:NO];
-        [_preferencesThemePopup setTarget:self];
-        [_preferencesThemePopup setAction:@selector(preferencesThemeChanged:)];
-        [_preferencesThemePopup setToolTip:@"Theme changes apply on next launch."];
-        [content addSubview:_preferencesThemePopup];
-
-        NSTextField *explorerHeader = [[[NSTextField alloc] initWithFrame:NSMakeRect(20, 472, 420, 20)] autorelease];
-        [explorerHeader setBezeled:NO];
-        [explorerHeader setEditable:NO];
-        [explorerHeader setSelectable:NO];
-        [explorerHeader setDrawsBackground:NO];
-        [explorerHeader setFont:[NSFont boldSystemFontOfSize:12.0]];
-        [explorerHeader setStringValue:@"Explorer"];
-        [content addSubview:explorerHeader];
-
-        NSBox *explorerSeparator = [[[NSBox alloc] initWithFrame:NSMakeRect(20, 466, 420, 1)] autorelease];
-        [explorerSeparator setBoxType:NSBoxSeparator];
-        [content addSubview:explorerSeparator];
-
-        NSTextField *localRootLabel = [[[NSTextField alloc] initWithFrame:NSMakeRect(20, 442, 170, 20)] autorelease];
-        [localRootLabel setBezeled:NO];
-        [localRootLabel setEditable:NO];
-        [localRootLabel setSelectable:NO];
-        [localRootLabel setDrawsBackground:NO];
-        [localRootLabel setStringValue:@"Local Explorer Root:"];
-        [content addSubview:localRootLabel];
-
-        _preferencesExplorerLocalRootField = [[NSTextField alloc] initWithFrame:NSMakeRect(172, 438, 206, 24)];
-        [_preferencesExplorerLocalRootField setTarget:self];
-        [_preferencesExplorerLocalRootField setAction:@selector(preferencesExplorerLocalRootChanged:)];
-        [content addSubview:_preferencesExplorerLocalRootField];
-
-        NSButton *explorerRootSetButton = [[[NSButton alloc] initWithFrame:NSMakeRect(384, 438, 52, 24)] autorelease];
-        [explorerRootSetButton setTitle:@"Set"];
-        [explorerRootSetButton setBezelStyle:NSRoundedBezelStyle];
-        [explorerRootSetButton setTarget:self];
-        [explorerRootSetButton setAction:@selector(preferencesExplorerLocalRootChanged:)];
-        [content addSubview:explorerRootSetButton];
-
-        NSTextField *maxFileSizeLabel = [[[NSTextField alloc] initWithFrame:NSMakeRect(20, 414, 170, 20)] autorelease];
-        [maxFileSizeLabel setBezeled:NO];
-        [maxFileSizeLabel setEditable:NO];
-        [maxFileSizeLabel setSelectable:NO];
-        [maxFileSizeLabel setDrawsBackground:NO];
-        [maxFileSizeLabel setStringValue:@"Max Open File Size:"];
-        [content addSubview:maxFileSizeLabel];
-
-        _preferencesExplorerMaxFileSizeField = [[NSTextField alloc] initWithFrame:NSMakeRect(172, 410, 60, 24)];
-        [_preferencesExplorerMaxFileSizeField setTarget:self];
-        [_preferencesExplorerMaxFileSizeField setAction:@selector(preferencesExplorerMaxFileSizeChanged:)];
-        [content addSubview:_preferencesExplorerMaxFileSizeField];
-
-        NSTextField *maxFileSizeSuffix = [[[NSTextField alloc] initWithFrame:NSMakeRect(236, 414, 40, 20)] autorelease];
-        [maxFileSizeSuffix setBezeled:NO];
-        [maxFileSizeSuffix setEditable:NO];
-        [maxFileSizeSuffix setSelectable:NO];
-        [maxFileSizeSuffix setDrawsBackground:NO];
-        [maxFileSizeSuffix setStringValue:@"MB"];
-        [content addSubview:maxFileSizeSuffix];
-
-        NSTextField *listFontSizeLabel = [[[NSTextField alloc] initWithFrame:NSMakeRect(278, 414, 74, 20)] autorelease];
-        [listFontSizeLabel setBezeled:NO];
-        [listFontSizeLabel setEditable:NO];
-        [listFontSizeLabel setSelectable:NO];
-        [listFontSizeLabel setDrawsBackground:NO];
-        [listFontSizeLabel setStringValue:@"List Font:"];
-        [content addSubview:listFontSizeLabel];
-
-        _preferencesExplorerListFontSizeField = [[NSTextField alloc] initWithFrame:NSMakeRect(352, 410, 46, 24)];
-        [_preferencesExplorerListFontSizeField setTarget:self];
-        [_preferencesExplorerListFontSizeField setAction:@selector(preferencesExplorerListFontSizeChanged:)];
-        [content addSubview:_preferencesExplorerListFontSizeField];
-
-        NSTextField *listFontSizeSuffix = [[[NSTextField alloc] initWithFrame:NSMakeRect(402, 414, 24, 20)] autorelease];
-        [listFontSizeSuffix setBezeled:NO];
-        [listFontSizeSuffix setEditable:NO];
-        [listFontSizeSuffix setSelectable:NO];
-        [listFontSizeSuffix setDrawsBackground:NO];
-        [listFontSizeSuffix setStringValue:@"pt"];
-        [content addSubview:listFontSizeSuffix];
-
-        NSTextField *tokenLabel = [[[NSTextField alloc] initWithFrame:NSMakeRect(20, 386, 170, 20)] autorelease];
-        [tokenLabel setBezeled:NO];
-        [tokenLabel setEditable:NO];
-        [tokenLabel setSelectable:NO];
-        [tokenLabel setDrawsBackground:NO];
-        [tokenLabel setStringValue:@"GitHub API Token:"];
-        [content addSubview:tokenLabel];
-
-        _preferencesExplorerGitHubTokenField = [[NSSecureTextField alloc] initWithFrame:NSMakeRect(172, 382, 264, 24)];
-        [_preferencesExplorerGitHubTokenField setTarget:self];
-        [_preferencesExplorerGitHubTokenField setAction:@selector(preferencesExplorerGitHubTokenChanged:)];
-        [content addSubview:_preferencesExplorerGitHubTokenField];
-
-        NSTextField *tokenNote = [[[NSTextField alloc] initWithFrame:NSMakeRect(172, 348, 264, 14)] autorelease];
-        [tokenNote setBezeled:NO];
-        [tokenNote setEditable:NO];
-        [tokenNote setSelectable:NO];
-        [tokenNote setDrawsBackground:NO];
-        [tokenNote setFont:[NSFont systemFontOfSize:10.0]];
-        [tokenNote setTextColor:[NSColor disabledControlTextColor]];
-        [tokenNote setStringValue:@"Optional. Increases GitHub API rate limits."];
-        [content addSubview:tokenNote];
-
-        NSTextField *syncHeader = [[[NSTextField alloc] initWithFrame:NSMakeRect(20, 364, 420, 20)] autorelease];
-        [syncHeader setBezeled:NO];
-        [syncHeader setEditable:NO];
-        [syncHeader setSelectable:NO];
-        [syncHeader setDrawsBackground:NO];
-        [syncHeader setFont:[NSFont boldSystemFontOfSize:12.0]];
-        [syncHeader setStringValue:@"Preview Sync"];
-        [content addSubview:syncHeader];
-
-        NSBox *syncSeparator = [[[NSBox alloc] initWithFrame:NSMakeRect(20, 358, 420, 1)] autorelease];
-        [syncSeparator setBoxType:NSBoxSeparator];
-        [content addSubview:syncSeparator];
-
-        NSTextField *splitSyncLabel = [[[NSTextField alloc] initWithFrame:NSMakeRect(20, 324, 170, 20)] autorelease];
-        [splitSyncLabel setBezeled:NO];
-        [splitSyncLabel setEditable:NO];
-        [splitSyncLabel setSelectable:NO];
-        [splitSyncLabel setDrawsBackground:NO];
-        [splitSyncLabel setStringValue:@"Split Sync Mode:"];
-        [content addSubview:splitSyncLabel];
-
-        _preferencesSplitSyncModePopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(210, 320, 225, 26)
-                                                                     pullsDown:NO];
-        [_preferencesSplitSyncModePopup addItemWithTitle:@"Independent"];
-        [[_preferencesSplitSyncModePopup itemAtIndex:0] setTag:OMDSplitSyncModeUnlinked];
-        [_preferencesSplitSyncModePopup addItemWithTitle:@"Linked Scrolling"];
-        [[_preferencesSplitSyncModePopup itemAtIndex:1] setTag:OMDSplitSyncModeLinkedScrolling];
-        [_preferencesSplitSyncModePopup addItemWithTitle:@"Follow Caret"];
-        [[_preferencesSplitSyncModePopup itemAtIndex:2] setTag:OMDSplitSyncModeCaretSelectionFollow];
-        [_preferencesSplitSyncModePopup setTarget:self];
-        [_preferencesSplitSyncModePopup setAction:@selector(preferencesSplitSyncModeChanged:)];
-        [content addSubview:_preferencesSplitSyncModePopup];
-
-        NSTextField *syncHelp = [[[NSTextField alloc] initWithFrame:NSMakeRect(20, 300, 420, 16)] autorelease];
-        [syncHelp setBezeled:NO];
-        [syncHelp setEditable:NO];
-        [syncHelp setSelectable:NO];
-        [syncHelp setDrawsBackground:NO];
-        [syncHelp setFont:[NSFont systemFontOfSize:11.0]];
-        [syncHelp setTextColor:[NSColor disabledControlTextColor]];
-        [syncHelp setStringValue:@"Linked Scrolling follows pane scroll; Follow Caret tracks cursor/selection moves."];
-        [content addSubview:syncHelp];
-
-        NSTextField *renderHeader = [[[NSTextField alloc] initWithFrame:NSMakeRect(20, 278, 420, 20)] autorelease];
-        [renderHeader setBezeled:NO];
-        [renderHeader setEditable:NO];
-        [renderHeader setSelectable:NO];
-        [renderHeader setDrawsBackground:NO];
-        [renderHeader setFont:[NSFont boldSystemFontOfSize:12.0]];
-        [renderHeader setStringValue:@"Rendering"];
-        [content addSubview:renderHeader];
-
-        NSBox *renderSeparator = [[[NSBox alloc] initWithFrame:NSMakeRect(20, 272, 420, 1)] autorelease];
-        [renderSeparator setBoxType:NSBoxSeparator];
-        [content addSubview:renderSeparator];
-
-        NSTextField *mathLabel = [[[NSTextField alloc] initWithFrame:NSMakeRect(20, 246, 190, 20)] autorelease];
-        [mathLabel setBezeled:NO];
-        [mathLabel setEditable:NO];
-        [mathLabel setSelectable:NO];
-        [mathLabel setDrawsBackground:NO];
-        [mathLabel setStringValue:@"Math Rendering:"];
-        [content addSubview:mathLabel];
-
-        _preferencesMathPolicyPopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(210, 242, 225, 26)
-                                                                  pullsDown:NO];
-        [_preferencesMathPolicyPopup addItemWithTitle:@"Styled Text (Safe)"];
-        [[_preferencesMathPolicyPopup itemAtIndex:0] setTag:OMMarkdownMathRenderingPolicyStyledText];
-        [_preferencesMathPolicyPopup addItemWithTitle:@"Disabled (Literal $...$)"];
-        [[_preferencesMathPolicyPopup itemAtIndex:1] setTag:OMMarkdownMathRenderingPolicyDisabled];
-        [_preferencesMathPolicyPopup addItemWithTitle:@"External Tools (LaTeX)"];
-        [[_preferencesMathPolicyPopup itemAtIndex:2] setTag:OMMarkdownMathRenderingPolicyExternalTools];
-        [_preferencesMathPolicyPopup setTarget:self];
-        [_preferencesMathPolicyPopup setAction:@selector(preferencesMathPolicyChanged:)];
-        [content addSubview:_preferencesMathPolicyPopup];
-
-        _preferencesAllowRemoteImagesButton = [[NSButton alloc] initWithFrame:NSMakeRect(20, 214, 300, 22)];
-        [_preferencesAllowRemoteImagesButton setButtonType:NSSwitchButton];
-        [_preferencesAllowRemoteImagesButton setTitle:@"Allow Remote Images"];
-        [_preferencesAllowRemoteImagesButton setTarget:self];
-        [_preferencesAllowRemoteImagesButton setAction:@selector(preferencesAllowRemoteImagesChanged:)];
-        [content addSubview:_preferencesAllowRemoteImagesButton];
-
-        _preferencesRendererSyntaxHighlightingButton = [[NSButton alloc] initWithFrame:NSMakeRect(20, 186, 390, 22)];
-        [_preferencesRendererSyntaxHighlightingButton setButtonType:NSSwitchButton];
-        [_preferencesRendererSyntaxHighlightingButton setTitle:@"Renderer Syntax Highlighting (Code Blocks)"];
-        [_preferencesRendererSyntaxHighlightingButton setTarget:self];
-        [_preferencesRendererSyntaxHighlightingButton setAction:@selector(preferencesRendererSyntaxHighlightingChanged:)];
-        [content addSubview:_preferencesRendererSyntaxHighlightingButton];
-
-        _preferencesRendererSyntaxHighlightingNoteLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(40, 152, 395, 30)];
-        [_preferencesRendererSyntaxHighlightingNoteLabel setBezeled:NO];
-        [_preferencesRendererSyntaxHighlightingNoteLabel setEditable:NO];
-        [_preferencesRendererSyntaxHighlightingNoteLabel setSelectable:NO];
-        [_preferencesRendererSyntaxHighlightingNoteLabel setDrawsBackground:NO];
-        [_preferencesRendererSyntaxHighlightingNoteLabel setFont:[NSFont systemFontOfSize:11.0]];
-        [_preferencesRendererSyntaxHighlightingNoteLabel setStringValue:@"Tree-sitter is required for renderer syntax highlighting."];
-        [content addSubview:_preferencesRendererSyntaxHighlightingNoteLabel];
-
-        NSTextField *editingHeader = [[[NSTextField alloc] initWithFrame:NSMakeRect(20, 128, 420, 20)] autorelease];
-        [editingHeader setBezeled:NO];
-        [editingHeader setEditable:NO];
-        [editingHeader setSelectable:NO];
-        [editingHeader setDrawsBackground:NO];
-        [editingHeader setFont:[NSFont boldSystemFontOfSize:12.0]];
-        [editingHeader setStringValue:@"Editing"];
-        [content addSubview:editingHeader];
-
-        NSBox *editingSeparator = [[[NSBox alloc] initWithFrame:NSMakeRect(20, 122, 420, 1)] autorelease];
-        [editingSeparator setBoxType:NSBoxSeparator];
-        [content addSubview:editingSeparator];
-
-        _preferencesWordSelectionShimButton = [[NSButton alloc] initWithFrame:NSMakeRect(20, 96, 420, 22)];
-        [_preferencesWordSelectionShimButton setButtonType:NSSwitchButton];
-        [_preferencesWordSelectionShimButton setTitle:@"Ctrl/Cmd+Shift+Arrow Selects Words (Source Editor)"];
-        [_preferencesWordSelectionShimButton setTarget:self];
-        [_preferencesWordSelectionShimButton setAction:@selector(preferencesWordSelectionShimChanged:)];
-        [content addSubview:_preferencesWordSelectionShimButton];
-
-        _preferencesSourceVimKeyBindingsButton = [[NSButton alloc] initWithFrame:NSMakeRect(20, 74, 350, 22)];
-        [_preferencesSourceVimKeyBindingsButton setButtonType:NSSwitchButton];
-        [_preferencesSourceVimKeyBindingsButton setTitle:@"Enable Vim Key Bindings (Source Editor)"];
-        [_preferencesSourceVimKeyBindingsButton setTarget:self];
-        [_preferencesSourceVimKeyBindingsButton setAction:@selector(preferencesSourceVimKeyBindingsChanged:)];
-        [content addSubview:_preferencesSourceVimKeyBindingsButton];
-
-        _preferencesSyntaxHighlightingButton = [[NSButton alloc] initWithFrame:NSMakeRect(20, 52, 350, 22)];
-        [_preferencesSyntaxHighlightingButton setButtonType:NSSwitchButton];
-        [_preferencesSyntaxHighlightingButton setTitle:@"Source Syntax Highlighting"];
-        [_preferencesSyntaxHighlightingButton setTarget:self];
-        [_preferencesSyntaxHighlightingButton setAction:@selector(preferencesSyntaxHighlightingChanged:)];
-        [content addSubview:_preferencesSyntaxHighlightingButton];
-
-        _preferencesSourceHighContrastButton = [[NSButton alloc] initWithFrame:NSMakeRect(40, 30, 330, 22)];
-        [_preferencesSourceHighContrastButton setButtonType:NSSwitchButton];
-        [_preferencesSourceHighContrastButton setTitle:@"High Contrast Source Highlighting"];
-        [_preferencesSourceHighContrastButton setTarget:self];
-        [_preferencesSourceHighContrastButton setAction:@selector(preferencesSourceHighContrastChanged:)];
-        [content addSubview:_preferencesSourceHighContrastButton];
-
-        NSTextField *sourceAccentLabel = [[[NSTextField alloc] initWithFrame:NSMakeRect(40, 8, 140, 20)] autorelease];
-        [sourceAccentLabel setBezeled:NO];
-        [sourceAccentLabel setEditable:NO];
-        [sourceAccentLabel setSelectable:NO];
-        [sourceAccentLabel setDrawsBackground:NO];
-        [sourceAccentLabel setStringValue:@"Source Accent Color:"];
-        [content addSubview:sourceAccentLabel];
-
-        _preferencesSourceAccentColorWell = [[NSColorWell alloc] initWithFrame:NSMakeRect(186, 4, 64, 24)];
-        [_preferencesSourceAccentColorWell setTarget:self];
-        [_preferencesSourceAccentColorWell setAction:@selector(preferencesSourceAccentColorChanged:)];
-        [content addSubview:_preferencesSourceAccentColorWell];
-
-        _preferencesSourceAccentResetButton = [[NSButton alloc] initWithFrame:NSMakeRect(256, 4, 74, 24)];
-        [_preferencesSourceAccentResetButton setTitle:@"Reset"];
-        [_preferencesSourceAccentResetButton setBezelStyle:NSRoundedBezelStyle];
-        [_preferencesSourceAccentResetButton setTarget:self];
-        [_preferencesSourceAccentResetButton setAction:@selector(preferencesSourceAccentReset:)];
-        [content addSubview:_preferencesSourceAccentResetButton];
     }
 
+    [self rebuildPreferencesPanelContent];
     [self syncPreferencesPanelFromSettings];
     [_preferencesPanel makeKeyAndOrderFront:nil];
     [NSApp activateIgnoringOtherApps:YES];
+}
+
+- (void)showAboutPanel:(id)sender
+{
+    NSMutableDictionary *options = [NSMutableDictionary dictionary];
+    NSString *appName = OMDInfoStringForKey(@"ApplicationName");
+    if (appName == nil || [appName length] == 0) {
+        appName = [[NSProcessInfo processInfo] processName];
+    }
+    if (appName != nil && [appName length] > 0) {
+        [options setObject:appName forKey:@"ApplicationName"];
+    }
+
+    NSString *release = OMDInfoStringForKey(@"ApplicationRelease");
+    if (release == nil || [release length] == 0) {
+        release = OMDInfoStringForKey(@"ApplicationVersion");
+    }
+    if (release == nil || [release length] == 0) {
+        release = OMDInfoStringForKey(@"CFBundleShortVersionString");
+    }
+    if (release != nil && [release length] > 0) {
+        [options setObject:release forKey:@"ApplicationRelease"];
+    }
+
+    id authors = OMDInfoValueForKey(@"Authors");
+    if ([authors isKindOfClass:[NSArray class]] && [(NSArray *)authors count] > 0) {
+        [options setObject:authors forKey:@"Authors"];
+    } else if ([authors isKindOfClass:[NSString class]] && [(NSString *)authors length] > 0) {
+        [options setObject:[NSArray arrayWithObject:authors] forKey:@"Authors"];
+    }
+
+    NSString *copyright = OMDInfoStringForKey(@"Copyright");
+    if (copyright == nil || [copyright length] == 0) {
+        copyright = OMDInfoStringForKey(@"NSHumanReadableCopyright");
+    }
+    if (copyright != nil && [copyright length] > 0) {
+        [options setObject:copyright forKey:@"Copyright"];
+    }
+
+    NSImage *icon = [NSApp applicationIconImage];
+    if (icon != nil) {
+        [options setObject:icon forKey:@"ApplicationIcon"];
+    }
+
+    if ([options count] > 0 && [NSApp respondsToSelector:@selector(orderFrontStandardAboutPanelWithOptions:)]) {
+        [NSApp orderFrontStandardAboutPanelWithOptions:options];
+    } else {
+        [NSApp orderFrontStandardAboutPanel:sender];
+    }
 }
 
 - (void)syncPreferencesPanelFromSettings
 {
     if (_preferencesPanel == nil) {
         return;
+    }
+
+    if (_preferencesSectionControl != nil) {
+        _preferencesSelectedSection = (NSInteger)OMDClampedPreferencesSection(_preferencesSelectedSection);
+        [_preferencesSectionControl setSelectedSegment:_preferencesSelectedSection];
     }
 
     if (_preferencesThemePopup != nil) {
@@ -8686,6 +10527,24 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
         [_preferencesThemePopup selectItemAtIndex:themeIndex];
     }
 
+    if (_preferencesLayoutModePopup != nil) {
+        OMDLayoutDensityMode mode = [self effectiveLayoutDensityMode];
+        NSInteger selectedIndex = 0;
+        NSInteger itemCount = [_preferencesLayoutModePopup numberOfItems];
+        NSInteger index = 0;
+        for (; index < itemCount; index++) {
+            id<NSMenuItem> item = [_preferencesLayoutModePopup itemAtIndex:index];
+            if ([item tag] == (NSInteger)mode) {
+                selectedIndex = index;
+                break;
+            }
+        }
+        [_preferencesLayoutModePopup selectItemAtIndex:selectedIndex];
+    }
+    if (_preferencesScrollSpeedSlider != nil) {
+        [_preferencesScrollSpeedSlider setDoubleValue:[self scrollSpeedPreference]];
+    }
+
     if (_preferencesSplitSyncModePopup != nil) {
         OMDSplitSyncMode splitSyncMode = [self currentSplitSyncMode];
         NSInteger splitSelectedIndex = 0;
@@ -8702,23 +10561,34 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
     }
 
     OMMarkdownMathRenderingPolicy policy = [self currentMathRenderingPolicy];
-    NSInteger selectedIndex = 0;
-    NSInteger itemCount = [_preferencesMathPolicyPopup numberOfItems];
-    NSInteger index = 0;
-    for (; index < itemCount; index++) {
-        id<NSMenuItem> item = [_preferencesMathPolicyPopup itemAtIndex:index];
-        if ([item tag] == (NSInteger)policy) {
-            selectedIndex = index;
-            break;
+    if (_preferencesMathPolicyPopup != nil) {
+        NSInteger selectedIndex = 0;
+        NSInteger itemCount = [_preferencesMathPolicyPopup numberOfItems];
+        NSInteger index = 0;
+        for (; index < itemCount; index++) {
+            id<NSMenuItem> item = [_preferencesMathPolicyPopup itemAtIndex:index];
+            if ([item tag] == (NSInteger)policy) {
+                selectedIndex = index;
+                break;
+            }
         }
+        [_preferencesMathPolicyPopup selectItemAtIndex:selectedIndex];
     }
-    [_preferencesMathPolicyPopup selectItemAtIndex:selectedIndex];
-    [_preferencesAllowRemoteImagesButton setState:([self isAllowRemoteImagesEnabled] ? NSOnState : NSOffState)];
-    [_preferencesWordSelectionShimButton setState:([self isWordSelectionModifierShimEnabled] ? NSOnState : NSOffState)];
+    if (_preferencesAllowRemoteImagesButton != nil) {
+        [_preferencesAllowRemoteImagesButton setState:([self isAllowRemoteImagesEnabled] ? NSOnState : NSOffState)];
+    }
+    if (_preferencesFormattingBarButton != nil) {
+        [_preferencesFormattingBarButton setState:([self isFormattingBarEnabledPreference] ? NSOnState : NSOffState)];
+    }
+    if (_preferencesWordSelectionShimButton != nil) {
+        [_preferencesWordSelectionShimButton setState:([self isWordSelectionModifierShimEnabled] ? NSOnState : NSOffState)];
+    }
     if (_preferencesSourceVimKeyBindingsButton != nil) {
         [_preferencesSourceVimKeyBindingsButton setState:([self isSourceVimKeyBindingsEnabled] ? NSOnState : NSOffState)];
     }
-    [_preferencesSyntaxHighlightingButton setState:([self isSourceSyntaxHighlightingEnabled] ? NSOnState : NSOffState)];
+    if (_preferencesSyntaxHighlightingButton != nil) {
+        [_preferencesSyntaxHighlightingButton setState:([self isSourceSyntaxHighlightingEnabled] ? NSOnState : NSOffState)];
+    }
     BOOL sourceHighlightingEnabled = [self isSourceSyntaxHighlightingEnabled];
     if (_preferencesSourceHighContrastButton != nil) {
         [_preferencesSourceHighContrastButton setState:([self isSourceHighlightHighContrastEnabled] ? NSOnState : NSOffState)];
@@ -8780,6 +10650,38 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
     [self setSplitSyncModePreference:OMDSplitSyncModeFromInteger(tag)];
 }
 
+- (void)preferencesLayoutModeChanged:(id)sender
+{
+    (void)sender;
+    id<NSMenuItem> item = [_preferencesLayoutModePopup selectedItem];
+    NSInteger tag = item != nil ? [item tag] : (NSInteger)OMDLayoutDensityModeBalanced;
+    [self setLayoutDensityPreference:OMDClampedLayoutDensityMode(tag)];
+}
+
+- (void)preferencesScrollSpeedChanged:(id)sender
+{
+    (void)sender;
+    CGFloat scrollSpeed = (_preferencesScrollSpeedSlider != nil
+                           ? (CGFloat)[_preferencesScrollSpeedSlider doubleValue]
+                           : [self scrollSpeedPreference]);
+    [self setScrollSpeedPreference:scrollSpeed];
+}
+
+- (void)preferencesSectionChanged:(id)sender
+{
+    (void)sender;
+    NSInteger selectedSegment = (_preferencesSectionControl != nil
+                                 ? [_preferencesSectionControl selectedSegment]
+                                 : _preferencesSelectedSection);
+    OMDPreferencesSection selectedSection = OMDClampedPreferencesSection(selectedSegment);
+    if ((NSInteger)selectedSection == _preferencesSelectedSection) {
+        return;
+    }
+    _preferencesSelectedSection = (NSInteger)selectedSection;
+    [self rebuildPreferencesPanelContent];
+    [self syncPreferencesPanelFromSettings];
+}
+
 - (void)preferencesMathPolicyChanged:(id)sender
 {
     id<NSMenuItem> item = [_preferencesMathPolicyPopup selectedItem];
@@ -8798,6 +10700,12 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
 {
     BOOL enabled = [_preferencesWordSelectionShimButton state] == NSOnState;
     [self setWordSelectionModifierShimEnabled:enabled];
+}
+
+- (void)preferencesFormattingBarChanged:(id)sender
+{
+    BOOL enabled = [_preferencesFormattingBarButton state] == NSOnState;
+    [self setFormattingBarEnabledPreference:enabled];
 }
 
 - (void)preferencesSourceVimKeyBindingsChanged:(id)sender
@@ -8853,7 +10761,41 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
 
 - (void)preferencesExplorerLocalRootChanged:(id)sender
 {
-    (void)sender;
+    if (sender != nil && sender != _preferencesExplorerLocalRootField) {
+        NSOpenPanel *panel = [NSOpenPanel openPanel];
+        [panel setCanChooseDirectories:YES];
+        [panel setCanChooseFiles:NO];
+        [panel setAllowsMultipleSelection:NO];
+        if ([panel respondsToSelector:@selector(setCanCreateDirectories:)]) {
+            [panel setCanCreateDirectories:YES];
+        }
+        [panel setTitle:@"Choose Local Explorer Root"];
+        [panel setPrompt:@"Choose"];
+
+        NSString *startingPath = (_preferencesExplorerLocalRootField != nil
+                                  ? [_preferencesExplorerLocalRootField stringValue]
+                                  : nil);
+        startingPath = OMDTrimmedString(startingPath);
+        if ([startingPath length] == 0) {
+            startingPath = [self explorerLocalRootPathPreference];
+        }
+        if ([startingPath length] == 0) {
+            startingPath = NSHomeDirectory();
+        }
+        if ([startingPath length] > 0) {
+            [panel setDirectory:[startingPath stringByExpandingTildeInPath]];
+        }
+
+        NSInteger result = [panel runModal];
+        if (result != NSOKButton && result != NSFileHandlingPanelOKButton) {
+            return;
+        }
+        NSString *path = [panel filename];
+        if (path != nil && [path length] > 0 && _preferencesExplorerLocalRootField != nil) {
+            [_preferencesExplorerLocalRootField setStringValue:path];
+        }
+    }
+
     NSString *path = (_preferencesExplorerLocalRootField != nil
                       ? [_preferencesExplorerLocalRootField stringValue]
                       : @"");
@@ -8901,17 +10843,48 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
 
 - (NSString *)themePreference
 {
-    return [[NSUserDefaults standardUserDefaults] stringForKey:OMDThemeDefaultsKey];
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    NSDictionary *globalDomain = [defaults persistentDomainForName:NSGlobalDomain];
+    id value = [globalDomain objectForKey:OMDThemeDefaultsKey];
+    if ([value isKindOfClass:[NSString class]] && [(NSString *)value length] > 0) {
+        return (NSString *)value;
+    }
+
+    // Fall back to any older app-domain value so existing local settings
+    // still appear in the UI until they are rewritten into the global domain.
+    value = [defaults objectForKey:OMDThemeDefaultsKey];
+    if ([value isKindOfClass:[NSString class]] && [(NSString *)value length] > 0) {
+        return (NSString *)value;
+    }
+
+    return nil;
 }
 
 - (void)setThemePreference:(NSString *)themeName
 {
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    NSMutableDictionary *globalDomain = nil;
+    NSDictionary *existingGlobalDomain = [defaults persistentDomainForName:NSGlobalDomain];
+    if (existingGlobalDomain != nil) {
+        globalDomain = [[existingGlobalDomain mutableCopy] autorelease];
+    } else {
+        globalDomain = [NSMutableDictionary dictionary];
+    }
+
+    // Remove any app-local copy so GSTheme resolves consistently from the
+    // same global domain GNUstep's own preferences pane uses.
+    [defaults removeObjectForKey:OMDThemeDefaultsKey];
+
     if (themeName == nil || [themeName length] == 0) {
-        [defaults removeObjectForKey:OMDThemeDefaultsKey];
+        [globalDomain removeObjectForKey:OMDThemeDefaultsKey];
+        [defaults setPersistentDomain:globalDomain forName:NSGlobalDomain];
+        [defaults synchronize];
         return;
     }
-    [defaults setObject:themeName forKey:OMDThemeDefaultsKey];
+
+    [globalDomain setObject:themeName forKey:OMDThemeDefaultsKey];
+    [defaults setPersistentDomain:globalDomain forName:NSGlobalDomain];
+    [defaults synchronize];
 }
 
 - (NSArray *)availableThemeNames
@@ -8935,7 +10908,9 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
                 continue;
             }
             NSString *name = [entry stringByDeletingPathExtension];
-            if (name != nil && [name length] > 0) {
+            if (name != nil &&
+                [name length] > 0 &&
+                [name caseInsensitiveCompare:@"GNUstep"] != NSOrderedSame) {
                 [names addObject:name];
             }
         }
@@ -8951,7 +10926,7 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
         return;
     }
     [_preferencesThemePopup removeAllItems];
-    [_preferencesThemePopup addItemWithTitle:@"System Default"];
+    [_preferencesThemePopup addItemWithTitle:@"GNUstep"];
     [[_preferencesThemePopup itemAtIndex:0] setRepresentedObject:@""];
     NSArray *themes = [self availableThemeNames];
     for (NSString *name in themes) {
@@ -9825,9 +11800,9 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
     [self replaceSourceTextInRange:lineRange withString:replacement selectedRange:nextSelection];
 }
 
-- (void)formattingHeadingChanged:(id)sender
+- (void)formattingHeadingControlChanged:(id)sender
 {
-    if (sender != _formatHeadingPopup) {
+    if (sender != _formatHeadingControl) {
         return;
     }
     if (![self isFormattingBarVisibleInCurrentMode]) {
@@ -9836,20 +11811,15 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
     if (_currentDocumentReadOnly) {
         return;
     }
-    NSInteger index = [_formatHeadingPopup indexOfSelectedItem];
+    NSInteger index = [_formatHeadingControl selectedSegment];
+    if (index < 0) {
+        return;
+    }
     [self applyHeadingLevel:index];
 }
 
-- (void)formattingCommandPressed:(id)sender
+- (void)performFormattingCommandWithTag:(NSInteger)tag
 {
-    NSInteger tag = [sender tag];
-    if (_sourceTextView == nil || ![self isFormattingBarVisibleInCurrentMode]) {
-        return;
-    }
-    if (_currentDocumentReadOnly) {
-        return;
-    }
-
     switch (tag) {
         case OMDFormattingCommandTagBold:
             [self applyInlineWrapWithPrefix:@"**" suffix:@"**" placeholder:@"bold text"];
@@ -9887,6 +11857,84 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
         default:
             break;
     }
+}
+
+- (void)formattingCommandGroupChanged:(id)sender
+{
+    NSSegmentedControl *control = (NSSegmentedControl *)sender;
+    if (_sourceTextView == nil || ![self isFormattingBarVisibleInCurrentMode]) {
+        OMDClearSegmentedControlSelection(control);
+        return;
+    }
+    if (_currentDocumentReadOnly) {
+        OMDClearSegmentedControlSelection(control);
+        return;
+    }
+
+    NSInteger segment = [control selectedSegment];
+    if (segment < 0) {
+        return;
+    }
+    NSInteger tag = 0;
+    switch ([control tag]) {
+        case 1:
+            if (segment == 0) {
+                tag = OMDFormattingCommandTagBold;
+            } else if (segment == 1) {
+                tag = OMDFormattingCommandTagItalic;
+            } else if (segment == 2) {
+                tag = OMDFormattingCommandTagStrike;
+            } else if (segment == 3) {
+                tag = OMDFormattingCommandTagInlineCode;
+            }
+            break;
+        case 2:
+            if (segment == 0) {
+                tag = OMDFormattingCommandTagLink;
+            } else if (segment == 1) {
+                tag = OMDFormattingCommandTagImage;
+            }
+            break;
+        case 3:
+            if (segment == 0) {
+                tag = OMDFormattingCommandTagListBullet;
+            } else if (segment == 1) {
+                tag = OMDFormattingCommandTagListNumber;
+            } else if (segment == 2) {
+                tag = OMDFormattingCommandTagListTask;
+            } else if (segment == 3) {
+                tag = OMDFormattingCommandTagBlockQuote;
+            }
+            break;
+        case 4:
+            if (segment == 0) {
+                tag = OMDFormattingCommandTagCodeFence;
+            } else if (segment == 1) {
+                tag = OMDFormattingCommandTagTable;
+            } else if (segment == 2) {
+                tag = OMDFormattingCommandTagHorizontalRule;
+            }
+            break;
+        default:
+            break;
+    }
+    OMDClearSegmentedControlSelection(control);
+    if (tag == 0) {
+        return;
+    }
+    [self performFormattingCommandWithTag:tag];
+}
+
+- (void)formattingCommandPressed:(id)sender
+{
+    NSInteger tag = [sender tag];
+    if (_sourceTextView == nil || ![self isFormattingBarVisibleInCurrentMode]) {
+        return;
+    }
+    if (_currentDocumentReadOnly) {
+        return;
+    }
+    [self performFormattingCommandWithTag:tag];
 }
 
 - (void)toggleBoldFormatting:(id)sender

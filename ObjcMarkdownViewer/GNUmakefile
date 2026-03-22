@@ -17,7 +17,17 @@ MarkdownViewer_LDFLAGS += -Wl,-rpath,$(CURDIR)/../ObjcMarkdown/$(GNUSTEP_OBJ_DIR
 MarkdownViewer_LDFLAGS += -Wl,-rpath,$(CURDIR)/../third_party/libs-OpenSave/Source/$(GNUSTEP_OBJ_DIR)
 MarkdownViewer_LDFLAGS += -Wl,-rpath,$(CURDIR)/../third_party/TextViewVimKitBuild/$(GNUSTEP_OBJ_DIR)
 MarkdownViewer_LDFLAGS += -ldispatch
-MarkdownViewer_RESOURCE_FILES = ../Resources/theme-github.toml ../Resources/markdown_icon.png ../Resources/open-icon.png ../Resources/toolbar-open.png ../Resources/toolbar-import.png ../Resources/toolbar-saveas.png ../Resources/toolbar-export.png ../Resources/toolbar-print.png ../Resources/toolbar-explorer-toggle.png ../Resources/code-copy-icon.png
+MarkdownViewer_RESOURCE_FILES = ../Resources/theme-github.toml ../Resources/markdown_icon.png ../Resources/open-icon.png ../Resources/toolbar-open.png ../Resources/toolbar-import.png ../Resources/toolbar-saveas.png ../Resources/toolbar-export.png ../Resources/toolbar-print.png ../Resources/toolbar-explorer-toggle.png ../Resources/toolbar-preferences.png ../Resources/code-copy-icon.png
 MarkdownViewer_APPLICATION_ICON = markdown_icon.png
+MarkdownViewer_GSWAPP_INFO_PLIST = MarkdownViewerInfo.plist
 
 include $(GNUSTEP_MAKEFILES)/application.make
+
+after-all:: MarkdownViewerInfo.plist
+	@if [ -d MarkdownViewer.app/Resources ]; then \
+		cp MarkdownViewerInfo.plist MarkdownViewer.app/Resources/Info-gnustep.plist; \
+	elif [ -d MarkdownViewer.app/Contents/Resources ]; then \
+		cp MarkdownViewerInfo.plist MarkdownViewer.app/Contents/Resources/Info-gnustep.plist; \
+	else \
+		echo "Warning: could not locate bundle Resources directory to copy MarkdownViewerInfo.plist"; \
+	fi

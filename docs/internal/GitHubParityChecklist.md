@@ -5,7 +5,7 @@ This checklist tracks visual parity against GitHub rendering for `omd-code-block
 ## Comparison Baseline
 
 - Source fixture: `omd-code-block-padding-check.md`
-- GitHub reference: `https://github.com/danjboyd/ObjcMarkdown/blob/main/omd-code-block-padding-check.md`
+- GitHub reference: `https://github.com/danjboyd/ObjcMarkdown/blob/main/docs/internal/omd-code-block-padding-check.md`
 - Local app: `ObjcMarkdownViewer` in `Split` mode, preview zoom near 100-125%
 
 ## Design Targets

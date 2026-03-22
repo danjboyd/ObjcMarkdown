@@ -78,6 +78,7 @@
     NSTimer *_livePreviewRenderTimer;
     NSTimer *_previewStatusUpdatingDelayTimer;
     NSTimer *_previewStatusAutoHideTimer;
+    NSTimer *_linkedScrollDriverResetTimer;
     NSTimer *_sourceSyntaxHighlightTimer;
     NSTimer *_recoveryAutosaveTimer;
     NSTimer *_copyFeedbackTimer;
@@ -92,13 +93,17 @@
     NSTextField *_modeLabel;
     NSTextField *_previewStatusLabel;
     NSMenuItem *_viewShowFormattingBarMenuItem;
-    NSPopUpButton *_formatHeadingPopup;
+    NSSegmentedControl *_formatHeadingControl;
     NSMutableDictionary *_formatCommandButtons;
     NSPanel *_preferencesPanel;
+    NSSegmentedControl *_preferencesSectionControl;
     NSPopUpButton *_preferencesMathPolicyPopup;
     NSPopUpButton *_preferencesSplitSyncModePopup;
     NSPopUpButton *_preferencesThemePopup;
+    NSPopUpButton *_preferencesLayoutModePopup;
+    NSSlider *_preferencesScrollSpeedSlider;
     NSButton *_preferencesAllowRemoteImagesButton;
+    NSButton *_preferencesFormattingBarButton;
     NSButton *_preferencesWordSelectionShimButton;
     NSButton *_preferencesSourceVimKeyBindingsButton;
     NSButton *_preferencesSyntaxHighlightingButton;
@@ -111,6 +116,7 @@
     NSTextField *_preferencesExplorerMaxFileSizeField;
     NSTextField *_preferencesExplorerListFontSizeField;
     NSSecureTextField *_preferencesExplorerGitHubTokenField;
+    NSInteger _preferencesSelectedSection;
     NSInteger _viewerMode;
     CGFloat _splitRatio;
     CGFloat _lastObservedSplitAvailableWidth;
@@ -133,6 +139,7 @@
     NSUInteger _zoomFastRenderStreak;
     NSTimeInterval _lastZoomSliderEventTime;
     CGFloat _lastRenderedLayoutWidth;
+    NSInteger _activeLinkedScrollDriver;
     NSString *_sourceVimCommandLine;
 }
 

@@ -17,6 +17,7 @@ obj/
 
 # Local secrets / env overrides
 local.env
+.audit/
 
 # Windows packaging artifacts
 dist/

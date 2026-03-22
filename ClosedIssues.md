@@ -572,3 +572,153 @@
   - Normalized `scripts/install-desktop.sh` back to LF line endings so desktop-entry reinstall works on Linux.
   - Updated the desktop entry template to invoke the wrapper through `bash`, making the launcher resilient even if the exec bit is lost again.
   - Updated `scripts/install-desktop.sh` to remove stale local desktop entries from this checkout and keep only the canonical `markdownviewer.desktop` launcher.
+
+## 47) Preferences window too dense for Adwaita-style layout
+
+- **Status**: Closed
+- **Closed On**: 2026-03-21
+- **Area**: Viewer / Preferences / Theme compatibility
+- **Description**: The preferences window read as a long, dense scrolling form and did not fit the roomier Adwaita presentation the app now targets.
+- **Resolution**:
+  - Split preferences into native tab sections: `Appearance`, `Explorer`, `Preview`, and `Editor`.
+  - Added a persisted layout-density preference with `Compact`, `Balanced`, and `Adwaita Style` modes so spacing can be tuned independently of the GNUstep theme.
+  - Rebuilt the preferences panel around theme-aware card styling, roomier spacing, and section-specific copy.
+  - Switched the preferences window to a fixed-width, pane-specific-height model with window-size clamping and per-pane scrolling when content exceeds the available screen height.
+  - Restructured the editor accent-color controls to avoid cramped horizontal packing on narrower widths.
+
+## 48) Toolbar icons rendered undersized after Adwaita toolbar refactor
+
+- **Status**: Closed
+- **Closed On**: 2026-03-21
+- **Area**: Viewer / Toolbar / Theme compatibility
+- **Description**: After the Adwaita toolbar work, the toolbar glyphs read noticeably too small relative to the surrounding controls.
+- **Resolution**:
+  - Increased toolbar control, label, and icon metrics so the chrome better matches the roomier Adwaita presentation.
+  - Updated toolbar image preparation to trim transparent padding before scaling, restoring the apparent icon size without bloating the toolbar row.
+  - Verified the adjusted toolbar proportions remain acceptable in Adwaita, Sombre, and the default GNUstep theme.
+
+## 49) Split preview lagged divider changes and small-toolbar mode hid controls
+
+- **Status**: Closed
+- **Closed On**: 2026-03-21
+- **Area**: Viewer / Split layout / Toolbar
+- **Description**: The split preview page could remain detached from the divider during resize, and a follow-on toolbar compaction experiment caused the left-side custom controls to disappear under GNUstep.
+- **Resolution**:
+  - Restored regular GNUstep toolbar sizing so the custom action and mode controls render reliably.
+  - Updated split-view resize handling to recompute preview geometry immediately instead of waiting for the debounced rerender path.
+  - Left-anchored the preview page in Split mode with a small fixed gutter so the document no longer floats away from the divider.
+  - Revalidated the main window from direct X11 window captures after relaunching the app under the Adwaita theme.
+
+## 50) Formatting bar looked too dense for the Adwaita presentation
+
+- **Status**: Closed
+- **Closed On**: 2026-03-21
+- **Area**: Viewer / Editor chrome / Theme compatibility
+- **Description**: The source-editor formatting bar still read like a dense legacy glyph strip and made the Edit and Split modes look busier than the rest of the Adwaita-oriented window chrome.
+- **Resolution**:
+  - Changed the Adwaita-style default so the formatting bar stays hidden unless the user explicitly enables it.
+  - Added a matching formatting-bar toggle to the Preferences editor section so the control is available outside the View menu.
+  - Rebuilt the bar around grouped segmented controls so formatting actions stay visible without reading like a flat run of unrelated buttons.
+  - Added adaptive bar layout so wider editor panes keep a single grouped row while narrower Split-mode widths reflow into two grouped rows instead of clipping or collapsing.
+  - Revalidated both the calmer default state and the explicitly enabled formatting-bar state from fresh direct X11 window captures under the Adwaita theme.
+
+## 51) Split-mode linked scrolling moved the preview in the opposite direction
+
+- **Status**: Closed
+- **Closed On**: 2026-03-21
+- **Area**: Viewer / Split layout / Linked scrolling
+- **Description**: In Split mode with linked scrolling enabled, moving the editor pane could send the preview pane in the opposite vertical direction.
+- **Resolution**:
+  - Stopped mixing clip-view and text-view coordinates when probing the top visible character for linked scrolling.
+  - Updated split-sync scrolling to compute target positions in the text view's own coordinate system, then convert them back into the scrolled document view before applying the scroll.
+  - Revalidated the fix in an isolated Split-mode session by paging the source pane forward and confirming the preview advanced into the same later sections instead of reversing direction.
+
+## 52) Split-mode linked scrolling felt sticky and oscillatory
+
+- **Status**: Closed
+- **Closed On**: 2026-03-21
+- **Area**: Viewer / Split layout / Linked scrolling
+- **Description**: Even after the direction fix, linked scrolling in Split mode could wait too long before moving the follower pane and then over-correct in visible jumps.
+- **Resolution**:
+  - Switched live linked scrolling from the very top visible glyph to a viewport anchor lower in the pane so the follower tracks a more stable reading position.
+  - Added a short-lived scroll-driver lock so only the pane the user is actively moving leads during a live scroll burst.
+  - Added a small pixel deadband before applying follower scroll updates, reducing tiny corrective hops that made the preview appear to chatter.
+  - Rebuilt and reran the full test suite, then spot-checked the new Split-mode behavior in an isolated Adwaita session.
+
+## 53) Split-mode trackpad scrolling lagged badly on large documents
+
+- **Status**: Closed
+- **Closed On**: 2026-03-21
+- **Area**: Viewer / Split layout / Linked scrolling / Performance
+- **Description**: Large documents could scroll smoothly in Read and Edit modes, but Split mode became noticeably laggy on trackpad input because live linked scrolling was doing too much work on every small bounds-change event.
+- **Resolution**:
+  - Added a small line-info cache inside the preview-sync layer so repeated mapping probes stop reparsing the same source and preview text buffers during live scrolling.
+  - Changed the block-anchor mapping path to use the cheaper anchor-based route first and only fall back to the slower full-text matcher when anchors are unavailable or invalid.
+  - Replaced the line-location lookup walk with a binary search so repeated live sync probes scale better on larger documents.
+  - Rebuilt the app and reran the full test suite after the sync-layer optimization pass.
+
+## 54) Preferences toolbar icon did not match the bundled icon set
+
+- **Status**: Closed
+- **Closed On**: 2026-03-21
+- **Area**: Viewer / Toolbar / Visual consistency
+- **Description**: The preferences action was still using a stock GNUstep image, so it looked out of place beside the custom bundled toolbar icons.
+- **Resolution**:
+  - Generated a new dedicated preferences/settings symbol using the OpenAI image API with the existing toolbar assets as style references.
+  - Normalized the generated glyph into the same transparent pale monochrome treatment used by the rest of the toolbar icon set.
+  - Added the new `toolbar-preferences.png` asset to the app bundle and updated both toolbar code paths to prefer it over the stock GNUstep fallback image.
+
+## 55) Preferences theme menu omitted the built-in GNUstep theme
+
+- **Status**: Closed
+- **Closed On**: 2026-03-21
+- **Area**: Viewer / Preferences / Theme selection
+- **Description**: The theme popup only listed discovered `.theme` bundles plus a misleading `System Default` entry, so the built-in GNUstep theme was not shown explicitly even though GNUstep treats it as the canonical default theme.
+- **Resolution**:
+  - Updated the theme popup to label the built-in default as `GNUstep`, matching GNUstep's own preferences pane semantics.
+  - Kept the existing behavior where selecting `GNUstep` clears the `GSTheme` preference instead of writing a bundle name.
+  - Filtered any discovered `GNUstep.theme` bundle names out of the scanned theme list to avoid duplicate menu entries if such a bundle is present.
+
+## 56) Selecting GNUstep from the theme menu did not actually revert the theme
+
+- **Status**: Closed
+- **Closed On**: 2026-03-21
+- **Area**: Viewer / Preferences / Theme selection
+- **Description**: Choosing `GNUstep` in the app's theme popup only cleared the app-local `GSTheme` value, so an existing global `NSGlobalDomain` theme like `Adwaita` still won on the next launch and the UI did not revert to the built-in GNUstep theme.
+- **Resolution**:
+  - Changed theme preference reads to check `NSGlobalDomain` first, matching where GNUstep's own preferences pane persists `GSTheme`.
+  - Updated theme writes so named themes are stored in `NSGlobalDomain`.
+  - Updated the `GNUstep` path to clear both the app-local copy and the global `GSTheme` key, then synchronize defaults immediately.
+
+## 57) Empty Split preview could draw a stray page fragment with no document open
+
+- **Status**: Closed
+- **Closed On**: 2026-03-21
+- **Area**: Viewer / Split layout / Empty state
+- **Description**: When the viewer opened in Split mode with no current document, the preview pane could still draw a small leftover page fragment because the preview surface styling and overlay state were initialized before any render and never explicitly cleared for the no-document state.
+- **Resolution**:
+  - Added a shared preview-clear path that blanks the preview text storage, removes copy/code-block overlay subviews, clears document-surface styling, and resets the preview canvas to the visible clip bounds.
+  - Applied that clear path during preview setup, any render attempt with no preview markdown, and any document transition to `nil`.
+  - Removed the redundant last-tab-close preview cleanup that could accidentally repopulate stale overlay controls from the previous render state.
+
+## 58) Newly opened documents could inherit the previous document's bottom scroll position
+
+- **Status**: Closed
+- **Closed On**: 2026-03-21
+- **Area**: Viewer / Document opening / Initial viewport
+- **Description**: Opening a different document could leave the source and preview panes scrolled to the previous document's old viewport, which often meant the new file appeared at the bottom on open.
+- **Resolution**:
+  - Added a targeted post-open viewport reset so freshly opened documents start at the beginning instead of inheriting stale editor/preview scroll state.
+  - Reset the source selection to location `0` and scrolled the visible source/preview clip views back to the top as part of the document-open path.
+  - Kept existing-tab selection behavior unchanged by limiting the reset to the fresh open/replace flow rather than applying it to every tab switch.
+
+## 59) Scroll speed was effectively fixed at GNUstep's slow default
+
+- **Status**: Closed
+- **Closed On**: 2026-03-21
+- **Area**: Viewer / Preferences / Scrolling
+- **Description**: The app was inheriting GNUstep `NSScrollView`'s default line-scroll step, which made wheel and trackpad scrolling feel much slower than other desktop apps.
+- **Resolution**:
+  - Added a new `Scroll Speed` slider to the Appearance preferences section.
+  - Persisted the setting in app defaults and applied it live to the source, preview, and explorer scroll views via GNUstep's native `verticalLineScroll` / `horizontalLineScroll` APIs.
+  - Increased the app's shipped default above GNUstep's stock `10` point line step so scrolling feels less glacial out of the box while still keeping the GNUstep-native mechanism.
