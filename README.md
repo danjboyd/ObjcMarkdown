@@ -153,6 +153,10 @@ The current Linux CI entry point is:
 
 - [linux-gnustep-clang.yml](.github/workflows/linux-gnustep-clang.yml)
 
+Linux release packaging is handled separately so the build/test lane stays small:
+
+- [linux-appimage.yml](.github/workflows/linux-appimage.yml)
+
 Windows packaging and release publishing are handled by:
 
 - [windows-packaging.yml](.github/workflows/windows-packaging.yml)
@@ -161,6 +165,7 @@ Release flow:
 
 - Ensure the target commit has already passed the separate Linux CI workflow if you want a GNUstep/Linux gate before release tagging.
 - Push an annotated tag like `v0.1.0`.
+- GitHub Actions runs `linux-appimage` on the self-hosted GNUstep clang runner, stages the bundled GNUstep runtime plus the pinned Adwaita theme, builds an AppImage for that tag, and uploads the Linux artifact.
 - GitHub Actions runs `windows-packaging` on `windows-latest`, builds the Windows MSI and portable ZIP for that tag, and uploads the Windows artifacts.
 - Clean-machine validation is still done with the OCI Windows workflow in [docs/windows-oci-msi-validation.md](docs/windows-oci-msi-validation.md).
 
@@ -172,6 +177,8 @@ Release flow:
 - [WINDOWS_BUILD.md](WINDOWS_BUILD.md)
 - [docs/windows-oci-msi-validation.md](docs/windows-oci-msi-validation.md)
 - [docs/linux-clang-toolchain.md](docs/linux-clang-toolchain.md)
+- [docs/linux-appimage-packaging.md](docs/linux-appimage-packaging.md)
+- [docs/linux-debian-vm-validation.md](docs/linux-debian-vm-validation.md)
 
 Working notes, milestone handoffs, and validation checklists that were cluttering the repo root now live under [docs/internal](docs/internal/README.md).
 

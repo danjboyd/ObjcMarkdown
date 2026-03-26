@@ -23,3 +23,5 @@ local.env
 dist/
 tools/wix/
 tools/wix311-binaries.zip
+tools/linuxdeploy/
+squashfs-root/

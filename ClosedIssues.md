@@ -823,3 +823,27 @@
     - logs collected under `dist/oci-logs/ci-23612901170`,
     - disposable VM terminated after the run.
   - Hardened [oci-run-msi-validation.ps1](/C:/Users/Support/git/ObjcMarkdown/scripts/windows/oci-run-msi-validation.ps1) to manage temporary SSH-ingress narrowing/restoration and to tolerate native `ssh`/`scp` output while still returning a structured result object.
+
+## 68) External-tool display math could fall back to literal LaTeX for multi-line `cases` blocks
+
+- **Status**: Closed
+- **Closed On**: 2026-03-25
+- **Area**: Renderer / Math / External tools
+- **Description**: Multi-line display-math blocks were reconstructed from cmark text literals, which meant CommonMark escaping could collapse source `\\` row separators down to `\`. LaTeX environments such as `cases` then failed to compile, so those formulas fell back to styled literal text while simpler equations still rendered as attachments.
+- **Resolution**:
+  - Rebuilt multi-node display-math formulas from cmark source-position slices instead of only using normalized text literals, preserving raw TeX row separators from the markdown source.
+  - Added block-level recovery for `$$...$$` ranges directly from source lines so display math still renders when cmark reinterprets interior lines as setext headings or inline emphasis.
+  - Kept the existing literal-text fallback when source-position recovery is unavailable, so the renderer still degrades safely if source positions are missing.
+  - Added renderer regression coverage for external-tools display math covering `cases` blocks, bare `-` lines, and `q^*` content.
+  - Rebuilt the library, app, and test bundle after the math-rendering fix.
+
+## 69) PDF export ignored the active math-rendering mode and fell back to styled text
+
+- **Status**: Closed
+- **Closed On**: 2026-03-25
+- **Area**: Viewer / Export / PDF
+- **Description**: The print/PDF export path created a fresh markdown renderer with default parsing options. Since the default math policy is `StyledText`, exports could drop external-tool LaTeX attachments even when the live preview was configured to render formulas as images.
+- **Resolution**:
+  - Changed the print/export renderer to clone the active preview renderer's parsing options instead of starting from defaults.
+  - Preserved the user's current math-rendering policy and related parsing settings for print and PDF export.
+  - Rebuilt the app and reran the full GNUstep test bundle after the export fix.

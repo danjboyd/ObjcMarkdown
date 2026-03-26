@@ -136,7 +136,6 @@ static void OMDStartupTrace(NSString *message)
 
 static void OMDApplyWindowsMenuToWindow(NSWindow *window)
 {
-#if defined(_WIN32)
     if (window == nil) {
         return;
     }
@@ -145,13 +144,12 @@ static void OMDApplyWindowsMenuToWindow(NSWindow *window)
         NSMenu *mainMenu = [NSApp mainMenu];
         if (mainMenu != nil) {
             [window setMenu:mainMenu];
+#if defined(_WIN32)
             [[GSTheme theme] updateMenu:mainMenu forWindow:window];
             OMDStartupTrace(@"windows menu applied to window");
+#endif
         }
     }
-#else
-    (void)window;
-#endif
 }
 
 static void OMDRefreshWindowsMainMenu(void)
@@ -2693,6 +2691,9 @@ static NSMutableArray *OMDSecondaryWindows(void)
 {
     OMDStartupTrace(@"setupMainMenu: enter");
     NSMenu *menubar = [[[NSMenu alloc] initWithTitle:@"GSMainMenu"] autorelease];
+    // Install the menu immediately so GNUstep can seed Windows95-style menus
+    // before we inspect the initial item list.
+    [NSApp setMainMenu:menubar];
 
     NSString *appName = [[NSProcessInfo processInfo] processName];
     NSInterfaceStyle style = NSInterfaceStyleForKey(@"NSMenuInterfaceStyle", nil);
@@ -5419,7 +5420,15 @@ static NSMutableArray *OMDSecondaryWindows(void)
         layoutWidth = viewWidth;
     }
 
-    OMMarkdownRenderer *printRenderer = [[OMMarkdownRenderer alloc] init];
+    OMMarkdownParsingOptions *printOptions = nil;
+    if (_renderer != nil && [_renderer parsingOptions] != nil) {
+        printOptions = [[[_renderer parsingOptions] copy] autorelease];
+    } else {
+        printOptions = [OMMarkdownParsingOptions defaultOptions];
+    }
+
+    OMMarkdownRenderer *printRenderer = [[OMMarkdownRenderer alloc] initWithTheme:nil
+                                                                   parsingOptions:printOptions];
     [printRenderer setZoomScale:OMDPrintExportZoomScale];
     [printRenderer setLayoutWidth:layoutWidth];
     NSAttributedString *rendered = [printRenderer attributedStringFromMarkdown:previewMarkdown];

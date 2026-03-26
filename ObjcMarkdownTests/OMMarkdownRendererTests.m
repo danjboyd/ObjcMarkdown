@@ -6,6 +6,42 @@
 #import <dispatch/dispatch.h>
 #import "OMMarkdownRenderer.h"
 
+static NSString *OMDTestExecutablePathNamed(NSString *name)
+{
+    if (name == nil || [name length] == 0) {
+        return nil;
+    }
+
+    NSDictionary *environment = [[NSProcessInfo processInfo] environment];
+    NSString *pathValue = [environment objectForKey:@"PATH"];
+    if (pathValue != nil && [pathValue length] > 0) {
+        NSArray *searchPaths = [pathValue componentsSeparatedByString:@":"];
+        NSFileManager *fileManager = [NSFileManager defaultManager];
+        for (NSString *searchPath in searchPaths) {
+            if (searchPath == nil || [searchPath length] == 0) {
+                continue;
+            }
+            NSString *candidate = [searchPath stringByAppendingPathComponent:name];
+            if ([fileManager isExecutableFileAtPath:candidate]) {
+                return candidate;
+            }
+        }
+    }
+
+    NSString *fallback = [@"/usr/bin" stringByAppendingPathComponent:name];
+    if ([[NSFileManager defaultManager] isExecutableFileAtPath:fallback]) {
+        return fallback;
+    }
+    return nil;
+}
+
+static BOOL OMDMathToolchainAvailable(void)
+{
+    return OMDTestExecutablePathNamed(@"dvisvgm") != nil &&
+           (OMDTestExecutablePathNamed(@"latex") != nil ||
+            OMDTestExecutablePathNamed(@"tex") != nil);
+}
+
 @interface OMMarkdownRendererTests : XCTestCase
 @end
 
@@ -435,6 +471,70 @@
             XCTAssertNotNil(background);
         }
     }
+}
+
+- (void)testDisplayMathCasesBlockRendersWithExternalTools
+{
+    if (!OMDMathToolchainAvailable()) {
+        return;
+    }
+
+    OMMarkdownParsingOptions *options = [OMMarkdownParsingOptions defaultOptions];
+    [options setMathRenderingPolicy:OMMarkdownMathRenderingPolicyExternalTools];
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] initWithTheme:nil
+                                                                parsingOptions:options] autorelease];
+    NSString *markdown = @"$$\nD_{nom,yr} =\n\\begin{cases}\n-\\ln(1 - D_e), & b \\approx 0 \\\\\n\\dfrac{(1 - D_e)^{-b} - 1}{b}, & \\text{otherwise}\n\\end{cases}\n$$";
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
+    XCTAssertNotNil(rendered);
+
+    NSString *text = [rendered string];
+    XCTAssertTrue([rendered containsAttachments]);
+    XCTAssertTrue([text rangeOfString:@"\\begin{cases}"].location == NSNotFound);
+    XCTAssertTrue([text rangeOfString:@"\\text{otherwise}"].location == NSNotFound);
+    XCTAssertTrue([text rangeOfString:@"D_{nom,yr} ="].location == NSNotFound);
+}
+
+- (void)testDisplayMathBlockSurvivesSetextHeadingInterpretation
+{
+    if (!OMDMathToolchainAvailable()) {
+        return;
+    }
+
+    OMMarkdownParsingOptions *options = [OMMarkdownParsingOptions defaultOptions];
+    [options setMathRenderingPolicy:OMMarkdownMathRenderingPolicyExternalTools];
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] initWithTheme:nil
+                                                                parsingOptions:options] autorelease];
+    NSString *markdown = @"$$\nV_{gas}(m) =\n\\frac{Q_i}{a_i (b - 1)}\n\\left(\n(1 + b a_i (m+1))^{\\frac{b-1}{b}}\n-\n(1 + b a_i m)^{\\frac{b-1}{b}}\n\\right)\n$$";
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
+    XCTAssertNotNil(rendered);
+
+    NSString *text = [rendered string];
+    XCTAssertTrue([rendered containsAttachments]);
+    XCTAssertTrue([text rangeOfString:@"$$"].location == NSNotFound);
+    XCTAssertTrue([text rangeOfString:@"V_{gas}(m) ="].location == NSNotFound);
+    XCTAssertTrue([text rangeOfString:@"\\frac{Q_i}{a_i (b - 1)}"].location == NSNotFound);
+}
+
+- (void)testDisplayMathBlockSurvivesInlineEmphasisParsing
+{
+    if (!OMDMathToolchainAvailable()) {
+        return;
+    }
+
+    OMMarkdownParsingOptions *options = [OMMarkdownParsingOptions defaultOptions];
+    [options setMathRenderingPolicy:OMMarkdownMathRenderingPolicyExternalTools];
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] initWithTheme:nil
+                                                                parsingOptions:options] autorelease];
+    NSString *markdown = @"$$\nV_{tail} =\n\\int_{t_0}^{t_1} q^* e^{-a_{lim}\\tau}\\,d\\tau\n=\n\\begin{cases}\nq^*(t_1 - t_0), & a_{lim} \\approx 0 \\\\\n-\\dfrac{q^*}{a_{lim}}\\left(e^{-a_{lim} t_1} - e^{-a_{lim} t_0}\\right), & \\text{otherwise}\n\\end{cases}\n$$";
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
+    XCTAssertNotNil(rendered);
+
+    NSString *text = [rendered string];
+    XCTAssertTrue([rendered containsAttachments]);
+    XCTAssertTrue([text rangeOfString:@"$$"].location == NSNotFound);
+    XCTAssertTrue([text rangeOfString:@"V_{tail} ="].location == NSNotFound);
+    XCTAssertTrue([text rangeOfString:@"\\begin{cases}"].location == NSNotFound);
+    XCTAssertTrue([text rangeOfString:@"q^*"].location == NSNotFound);
 }
 
 - (void)testInlineHTMLIsRenderedAsText

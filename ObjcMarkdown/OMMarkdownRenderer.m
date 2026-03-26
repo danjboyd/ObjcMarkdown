@@ -44,6 +44,7 @@ typedef struct {
     OMMarkdownParsingOptions *parsingOptions;
     NSArray *sourceLines;
     NSMutableArray *blockAnchors;
+    NSMutableArray *consumedDisplayMathLineRanges;
     OMMathPerfStats *mathPerfStats;
     CGFloat layoutWidth;
     BOOL allowTableHorizontalOverflow;
@@ -1094,6 +1095,167 @@ static BOOL OMNodeLineBounds(cmark_node *node, NSUInteger *startLineOut, NSUInte
     return YES;
 }
 
+static NSString *OMSourceFragmentForNode(cmark_node *node, NSArray *sourceLines)
+{
+    if (node == NULL || sourceLines == nil) {
+        return nil;
+    }
+
+    NSUInteger startLine = 0;
+    NSUInteger endLine = 0;
+    if (!OMNodeLineBounds(node, &startLine, &endLine)) {
+        return nil;
+    }
+
+    int startColumnValue = cmark_node_get_start_column(node);
+    int endColumnValue = cmark_node_get_end_column(node);
+    if (startColumnValue <= 0 || endColumnValue <= 0) {
+        return nil;
+    }
+
+    NSUInteger lineCount = [sourceLines count];
+    if (startLine == 0 || startLine > lineCount) {
+        return nil;
+    }
+    if (endLine < startLine) {
+        endLine = startLine;
+    }
+    if (endLine > lineCount) {
+        endLine = lineCount;
+    }
+
+    NSMutableString *fragment = [NSMutableString string];
+    NSUInteger line = startLine;
+    for (; line <= endLine; line++) {
+        NSString *sourceLine = [sourceLines objectAtIndex:line - 1];
+        NSUInteger lineLength = [sourceLine length];
+        NSUInteger lineStartColumn = (line == startLine) ? (NSUInteger)startColumnValue : 1;
+        NSUInteger lineEndColumn = (line == endLine) ? (NSUInteger)endColumnValue : lineLength;
+
+        if (lineStartColumn == 0 || lineStartColumn > lineLength + 1) {
+            return nil;
+        }
+        if (lineEndColumn > lineLength) {
+            lineEndColumn = lineLength;
+        }
+
+        if (lineStartColumn <= lineEndColumn && lineLength > 0) {
+            NSRange range = NSMakeRange(lineStartColumn - 1,
+                                        lineEndColumn - lineStartColumn + 1);
+            [fragment appendString:[sourceLine substringWithRange:range]];
+        }
+
+        if (line < endLine) {
+            [fragment appendString:@"\n"];
+        }
+    }
+
+    return fragment;
+}
+
+static BOOL OMSourceLineMatchesDisplayMathFence(NSArray *sourceLines, NSUInteger lineNumber)
+{
+    if (sourceLines == nil || lineNumber == 0 || lineNumber > [sourceLines count]) {
+        return NO;
+    }
+
+    NSString *line = [sourceLines objectAtIndex:lineNumber - 1];
+    NSString *trimmed = [line stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    return [trimmed isEqualToString:@"$$"];
+}
+
+static BOOL OMLineNumberFallsWithinRanges(NSUInteger lineNumber, NSArray *ranges)
+{
+    if (lineNumber == 0 || ranges == nil) {
+        return NO;
+    }
+
+    for (NSValue *value in ranges) {
+        NSRange range = [value rangeValue];
+        if (range.length == 0) {
+            continue;
+        }
+        if (lineNumber >= range.location && lineNumber < (range.location + range.length)) {
+            return YES;
+        }
+    }
+    return NO;
+}
+
+static BOOL OMDisplayMathLineAlreadyConsumed(NSUInteger lineNumber,
+                                             const OMRenderContext *renderContext)
+{
+    NSArray *ranges = renderContext != NULL ? renderContext->consumedDisplayMathLineRanges : nil;
+    return OMLineNumberFallsWithinRanges(lineNumber, ranges);
+}
+
+static void OMConsumeDisplayMathLineRange(NSUInteger startLine,
+                                          NSUInteger endLine,
+                                          const OMRenderContext *renderContext)
+{
+    NSMutableArray *ranges = renderContext != NULL ? renderContext->consumedDisplayMathLineRanges : nil;
+    if (ranges == nil || startLine == 0 || endLine < startLine) {
+        return;
+    }
+
+    [ranges addObject:[NSValue valueWithRange:NSMakeRange(startLine, endLine - startLine + 1)]];
+}
+
+static NSString *OMRawDisplayMathFormulaForFenceRange(NSArray *sourceLines,
+                                                      NSUInteger startFenceLine,
+                                                      NSUInteger endFenceLine)
+{
+    if (sourceLines == nil || startFenceLine == 0 || endFenceLine <= startFenceLine) {
+        return nil;
+    }
+
+    NSMutableString *formula = [NSMutableString string];
+    NSUInteger line = startFenceLine + 1;
+    for (; line < endFenceLine; line++) {
+        if ([formula length] > 0) {
+            [formula appendString:@"\n"];
+        }
+        [formula appendString:[sourceLines objectAtIndex:line - 1]];
+    }
+
+    return [formula stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+}
+
+static BOOL OMDisplayMathFenceRangeStartingAtLine(NSArray *sourceLines,
+                                                  NSUInteger startFenceLine,
+                                                  NSUInteger *endFenceLineOut,
+                                                  NSString **formulaOut)
+{
+    if (!OMSourceLineMatchesDisplayMathFence(sourceLines, startFenceLine)) {
+        return NO;
+    }
+
+    NSUInteger count = [sourceLines count];
+    NSUInteger line = startFenceLine + 1;
+    for (; line <= count; line++) {
+        if (!OMSourceLineMatchesDisplayMathFence(sourceLines, line)) {
+            continue;
+        }
+
+        NSString *formula = OMRawDisplayMathFormulaForFenceRange(sourceLines,
+                                                                 startFenceLine,
+                                                                 line);
+        if (formula == nil || [formula length] == 0) {
+            return NO;
+        }
+
+        if (endFenceLineOut != NULL) {
+            *endFenceLineOut = line;
+        }
+        if (formulaOut != NULL) {
+            *formulaOut = formula;
+        }
+        return YES;
+    }
+
+    return NO;
+}
+
 static NSString *OMBlockSignatureForLineRange(NSArray *sourceLines,
                                               NSUInteger startLine,
                                               NSUInteger endLine)
@@ -1125,17 +1287,13 @@ static NSString *OMBlockSignatureForLineRange(NSArray *sourceLines,
     return OMNormalizedBlockIDText(joined);
 }
 
-static NSString *OMStableBlockIDForNode(cmark_node *node,
-                                        const OMRenderContext *renderContext)
+static NSString *OMStableBlockIDForTypeAndLineRange(cmark_node_type nodeType,
+                                                    NSUInteger startLine,
+                                                    NSUInteger endLine,
+                                                    const OMRenderContext *renderContext)
 {
     NSArray *sourceLines = renderContext != NULL ? renderContext->sourceLines : nil;
-    if (node == NULL || sourceLines == nil) {
-        return nil;
-    }
-
-    NSUInteger startLine = 0;
-    NSUInteger endLine = 0;
-    if (!OMNodeLineBounds(node, &startLine, &endLine)) {
+    if (sourceLines == nil) {
         return nil;
     }
 
@@ -1143,25 +1301,24 @@ static NSString *OMStableBlockIDForNode(cmark_node *node,
     if (signature == nil || [signature length] == 0) {
         signature = @"_";
     }
-    return [NSString stringWithFormat:@"%d|%@", (int)cmark_node_get_type(node), signature];
+    return [NSString stringWithFormat:@"%d|%@", (int)nodeType, signature];
 }
 
-static void OMRecordBlockAnchor(cmark_node *node,
-                                NSUInteger targetStart,
-                                NSUInteger targetEnd,
-                                const OMRenderContext *renderContext)
+static void OMRecordBlockAnchorForSourceRange(cmark_node *node,
+                                              NSUInteger sourceStartLine,
+                                              NSUInteger sourceEndLine,
+                                              NSUInteger targetStart,
+                                              NSUInteger targetEnd,
+                                              const OMRenderContext *renderContext)
 {
     NSMutableArray *blockAnchors = renderContext != NULL ? renderContext->blockAnchors : nil;
     if (blockAnchors == nil || node == NULL) {
         return;
     }
-    if (targetEnd <= targetStart) {
+    if (sourceStartLine == 0 || sourceEndLine < sourceStartLine) {
         return;
     }
-
-    NSUInteger sourceStartLine = 0;
-    NSUInteger sourceEndLine = 0;
-    if (!OMNodeLineBounds(node, &sourceStartLine, &sourceEndLine)) {
+    if (targetEnd <= targetStart) {
         return;
     }
 
@@ -1171,11 +1328,32 @@ static void OMRecordBlockAnchor(cmark_node *node,
                                    [NSNumber numberWithUnsignedInteger:targetStart], OMMarkdownRendererAnchorTargetStartKey,
                                    [NSNumber numberWithUnsignedInteger:(targetEnd - targetStart)], OMMarkdownRendererAnchorTargetLengthKey,
                                    nil];
-    NSString *blockID = OMStableBlockIDForNode(node, renderContext);
+    NSString *blockID = OMStableBlockIDForTypeAndLineRange(cmark_node_get_type(node),
+                                                           sourceStartLine,
+                                                           sourceEndLine,
+                                                           renderContext);
     if (blockID != nil && [blockID length] > 0) {
         [anchor setObject:blockID forKey:OMMarkdownRendererAnchorBlockIDKey];
     }
     [blockAnchors addObject:anchor];
+}
+
+static void OMRecordBlockAnchor(cmark_node *node,
+                                NSUInteger targetStart,
+                                NSUInteger targetEnd,
+                                const OMRenderContext *renderContext)
+{
+    NSUInteger sourceStartLine = 0;
+    NSUInteger sourceEndLine = 0;
+    if (!OMNodeLineBounds(node, &sourceStartLine, &sourceEndLine)) {
+        return;
+    }
+    OMRecordBlockAnchorForSourceRange(node,
+                                      sourceStartLine,
+                                      sourceEndLine,
+                                      targetStart,
+                                      targetEnd,
+                                      renderContext);
 }
 
 static void OMRenderInlines(cmark_node *node,
@@ -1196,6 +1374,13 @@ static void OMRenderBlocks(cmark_node *node,
                            CGFloat scale,
                            CGFloat layoutWidth,
                            const OMRenderContext *renderContext);
+
+static void OMAppendDisplayMathFormula(NSString *formula,
+                                       OMTheme *theme,
+                                       NSMutableAttributedString *output,
+                                       NSMutableDictionary *attributes,
+                                       CGFloat scale,
+                                       const OMRenderContext *renderContext);
 
 static NSMutableDictionary *OMListContext(NSMutableArray *listStack)
 {
@@ -3401,14 +3586,41 @@ static NSCache *OMMathBestAvailableZoomCache(void)
     return cache;
 }
 
+static NSUInteger OMMathArtifactConcurrencyLimit(void)
+{
+    static NSUInteger limit = 0;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        NSUInteger resolved = 1;
+        NSInteger cpuCount = [[NSProcessInfo processInfo] activeProcessorCount];
+        if (cpuCount >= 4) {
+            resolved = 4;
+        } else if (cpuCount >= 2) {
+            resolved = 2;
+        }
+        limit = resolved;
+    });
+    return limit;
+}
+
 static dispatch_queue_t OMMathArtifactQueue(void)
 {
     static dispatch_queue_t queue = NULL;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
-        queue = dispatch_queue_create("org.objcmarkdown.math-artifacts", DISPATCH_QUEUE_SERIAL);
+        queue = dispatch_queue_create("org.objcmarkdown.math-artifacts", DISPATCH_QUEUE_CONCURRENT);
     });
     return queue;
+}
+
+static dispatch_semaphore_t OMMathArtifactSemaphore(void)
+{
+    static dispatch_semaphore_t semaphore = NULL;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        semaphore = dispatch_semaphore_create((long)OMMathArtifactConcurrencyLimit());
+    });
+    return semaphore;
 }
 
 static NSMutableSet *OMMathPendingAssetKeys(void)
@@ -3711,27 +3923,31 @@ static void OMScheduleAsyncMathAssetGeneration(NSString *formula,
     NSString *formulaCopy = [formula copy];
     NSString *assetKeyCopy = [assetKey copy];
     dispatch_async(OMMathArtifactQueue(), ^{
+        dispatch_semaphore_wait(OMMathArtifactSemaphore(), DISPATCH_TIME_FOREVER);
         @autoreleasepool {
-            NSData *svgData = OMSVGDataForMathFormula(formulaCopy,
-                                                      displayMath,
-                                                      renderZoom,
-                                                      maximumFormulaLength,
-                                                      externalToolTimeout,
-                                                      NULL);
-            if (svgData != nil) {
-                [OMMathBaseSVGDataCache() setObject:svgData forKey:assetKeyCopy];
-                dispatch_async(dispatch_get_main_queue(), ^{
-                    [[NSNotificationCenter defaultCenter]
-                        postNotificationName:OMMarkdownRendererMathArtifactsDidWarmNotification
-                                      object:nil];
-                });
+            @try {
+                NSData *svgData = OMSVGDataForMathFormula(formulaCopy,
+                                                          displayMath,
+                                                          renderZoom,
+                                                          maximumFormulaLength,
+                                                          externalToolTimeout,
+                                                          NULL);
+                if (svgData != nil) {
+                    [OMMathBaseSVGDataCache() setObject:svgData forKey:assetKeyCopy];
+                    dispatch_async(dispatch_get_main_queue(), ^{
+                        [[NSNotificationCenter defaultCenter]
+                            postNotificationName:OMMarkdownRendererMathArtifactsDidWarmNotification
+                                          object:nil];
+                    });
+                }
+            } @finally {
+                @synchronized (pending) {
+                    [pending removeObject:assetKeyCopy];
+                }
+                [formulaCopy release];
+                [assetKeyCopy release];
+                dispatch_semaphore_signal(OMMathArtifactSemaphore());
             }
-
-            @synchronized (pending) {
-                [pending removeObject:assetKeyCopy];
-            }
-            [formulaCopy release];
-            [assetKeyCopy release];
         }
     });
 }
@@ -3954,18 +4170,12 @@ static void OMAppendTextWithMathSpans(NSString *text,
                     !OMDollarIsEscaped(text, i)) {
                     if (i > contentStart) {
                         NSString *formula = [text substringWithRange:NSMakeRange(contentStart, i - contentStart)];
-                        NSAttributedString *attachment = OMMathAttachmentAttributedString(formula,
-                                                                                           theme,
-                                                                                           attributes,
-                                                                                           scale,
-                                                                                           YES,
-                                                                                           renderContext);
-                        if (attachment != nil) {
-                            OMAppendAttributedSegment(output, attachment);
-                        } else {
-                            NSDictionary *mathAttrs = OMMathAttributes(theme, attributes, scale, YES);
-                            OMAppendString(output, formula, mathAttrs);
-                        }
+                        OMAppendDisplayMathFormula(formula,
+                                                   theme,
+                                                   output,
+                                                   attributes,
+                                                   scale,
+                                                   renderContext);
                         renderedMath = YES;
                         cursor = i + 2;
                     }
@@ -4014,6 +4224,94 @@ static void OMAppendTextWithMathSpans(NSString *text,
     }
 }
 
+static void OMAppendDisplayMathFormula(NSString *formula,
+                                       OMTheme *theme,
+                                       NSMutableAttributedString *output,
+                                       NSMutableDictionary *attributes,
+                                       CGFloat scale,
+                                       const OMRenderContext *renderContext)
+{
+    if (formula == nil || [formula length] == 0) {
+        return;
+    }
+
+    NSDictionary *mathAttrs = OMMathAttributes(theme, attributes, scale, YES);
+    NSAttributedString *attachment = OMMathAttachmentAttributedString(formula,
+                                                                      theme,
+                                                                      attributes,
+                                                                      scale,
+                                                                      YES,
+                                                                      renderContext);
+    if (attachment != nil) {
+        NSMutableAttributedString *segment = [[[NSMutableAttributedString alloc]
+            initWithAttributedString:attachment] autorelease];
+        if ([segment length] > 0) {
+            [segment addAttributes:mathAttrs range:NSMakeRange(0, [segment length])];
+        }
+        OMAppendAttributedSegment(output, segment);
+    } else {
+        OMAppendString(output, formula, mathAttrs);
+    }
+}
+
+// Recover fenced display math directly from source lines before cmark can
+// reinterpret interior lines as headings, emphasis, or other Markdown.
+static BOOL OMTryRenderRawDisplayMathBlock(cmark_node *node,
+                                           OMTheme *theme,
+                                           NSMutableAttributedString *output,
+                                           NSMutableDictionary *attributes,
+                                           NSMutableArray *listStack,
+                                           CGFloat scale,
+                                           const OMRenderContext *renderContext)
+{
+    if (!OMShouldParseMathSpans(renderContext) || node == NULL) {
+        return NO;
+    }
+
+    cmark_node_type type = cmark_node_get_type(node);
+    if (type == CMARK_NODE_DOCUMENT ||
+        type == CMARK_NODE_LIST ||
+        type == CMARK_NODE_ITEM ||
+        type == CMARK_NODE_BLOCK_QUOTE) {
+        return NO;
+    }
+
+    NSUInteger startLine = 0;
+    if (!OMNodeLineBounds(node, &startLine, NULL)) {
+        return NO;
+    }
+    if (OMDisplayMathLineAlreadyConsumed(startLine, renderContext)) {
+        return NO;
+    }
+
+    NSArray *sourceLines = renderContext != NULL ? renderContext->sourceLines : nil;
+    NSUInteger endFenceLine = 0;
+    NSString *formula = nil;
+    if (!OMDisplayMathFenceRangeStartingAtLine(sourceLines,
+                                               startLine,
+                                               &endFenceLine,
+                                               &formula)) {
+        return NO;
+    }
+
+    NSUInteger targetStart = [output length];
+    OMAppendDisplayMathFormula(formula, theme, output, attributes, scale, renderContext);
+    if (OMIsTightList(listStack)) {
+        OMAppendString(output, @"\n", attributes);
+    } else {
+        OMAppendString(output, @"\n\n", attributes);
+    }
+
+    OMConsumeDisplayMathLineRange(startLine, endFenceLine, renderContext);
+    OMRecordBlockAnchorForSourceRange(node,
+                                      startLine,
+                                      endFenceLine,
+                                      targetStart,
+                                      [output length],
+                                      renderContext);
+    return YES;
+}
+
 static BOOL OMTextNodeIsDisplayMathFence(cmark_node *node)
 {
     if (node == NULL || cmark_node_get_type(node) != CMARK_NODE_TEXT) {
@@ -4031,6 +4329,38 @@ static BOOL OMTextNodeIsDisplayMathFence(cmark_node *node)
     }
     NSString *trimmed = [text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
     return [trimmed isEqualToString:@"$$"];
+}
+
+// Rebuild display-math blocks from source slices so CommonMark escaping
+// does not collapse TeX row separators like `\\` inside `cases`.
+static NSString *OMRawDisplayMathFormulaFromNodes(cmark_node *startNode,
+                                                  cmark_node *endNode,
+                                                  const OMRenderContext *renderContext)
+{
+    NSArray *sourceLines = (renderContext != NULL) ? renderContext->sourceLines : nil;
+    if (startNode == NULL || endNode == NULL || sourceLines == nil) {
+        return nil;
+    }
+
+    NSMutableString *formula = [NSMutableString string];
+    cmark_node *cursor = cmark_node_next(startNode);
+    while (cursor != NULL && cursor != endNode) {
+        cmark_node_type type = cmark_node_get_type(cursor);
+        if (type == CMARK_NODE_TEXT) {
+            NSString *fragment = OMSourceFragmentForNode(cursor, sourceLines);
+            if (fragment == nil) {
+                return nil;
+            }
+            [formula appendString:fragment];
+        } else if (type == CMARK_NODE_SOFTBREAK || type == CMARK_NODE_LINEBREAK) {
+            [formula appendString:@"\n"];
+        } else {
+            return nil;
+        }
+        cursor = cmark_node_next(cursor);
+    }
+
+    return [formula stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
 }
 
 static cmark_node *OMTryAppendMultiNodeDisplayMath(cmark_node *startNode,
@@ -4060,23 +4390,20 @@ static cmark_node *OMTryAppendMultiNodeDisplayMath(cmark_node *startNode,
             NSString *text = literal != NULL ? [NSString stringWithUTF8String:literal] : @"";
             NSString *trimmed = [text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
             if ([trimmed isEqualToString:@"$$"]) {
-                NSString *normalized = [formula stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+                NSString *normalized = OMRawDisplayMathFormulaFromNodes(startNode, cursor, renderContext);
+                if (normalized == nil) {
+                    normalized = [formula stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+                }
                 if ([normalized length] == 0) {
                     return NULL;
                 }
 
-                NSAttributedString *attachment = OMMathAttachmentAttributedString(normalized,
-                                                                                  theme,
-                                                                                  attributes,
-                                                                                  scale,
-                                                                                  YES,
-                                                                                  renderContext);
-                if (attachment != nil) {
-                    OMAppendAttributedSegment(output, attachment);
-                } else {
-                    NSDictionary *mathAttrs = OMMathAttributes(theme, attributes, scale, YES);
-                    OMAppendString(output, normalized, mathAttrs);
-                }
+                OMAppendDisplayMathFormula(normalized,
+                                           theme,
+                                           output,
+                                           attributes,
+                                           scale,
+                                           renderContext);
                 if (didRender != NULL) {
                     *didRender = YES;
                 }
@@ -4227,12 +4554,14 @@ static cmark_node *OMTryAppendMultiNodeDisplayMath(cmark_node *startNode,
     NSMutableArray *codeRanges = [NSMutableArray array];
     NSMutableArray *blockquoteRanges = [NSMutableArray array];
     NSMutableArray *blockAnchors = [NSMutableArray array];
+    NSMutableArray *consumedDisplayMathLineRanges = [NSMutableArray array];
     NSArray *sourceLines = OMSourceLinesForMarkdown(markdown);
     OMMathPerfStats stats = {0};
     OMRenderContext renderContext;
     renderContext.parsingOptions = self.parsingOptions;
     renderContext.sourceLines = sourceLines;
     renderContext.blockAnchors = blockAnchors;
+    renderContext.consumedDisplayMathLineRanges = consumedDisplayMathLineRanges;
     renderContext.mathPerfStats = &stats;
     renderContext.layoutWidth = self.layoutWidth;
     renderContext.allowTableHorizontalOverflow = self.allowTableHorizontalOverflow;
@@ -4583,6 +4912,20 @@ static void OMRenderBlocks(cmark_node *node,
 {
     NSUInteger startLocation = [output length];
     cmark_node_type type = cmark_node_get_type(node);
+    NSUInteger sourceStartLine = 0;
+    BOOL hasSourceLineBounds = OMNodeLineBounds(node, &sourceStartLine, NULL);
+    if (hasSourceLineBounds && OMDisplayMathLineAlreadyConsumed(sourceStartLine, renderContext)) {
+        return;
+    }
+    if (OMTryRenderRawDisplayMathBlock(node,
+                                       theme,
+                                       output,
+                                       attributes,
+                                       listStack,
+                                       scale,
+                                       renderContext)) {
+        return;
+    }
     if (type == CMARK_NODE_BLOCK_QUOTE) {
         cmark_node *child = cmark_node_first_child(node);
         while (child != NULL) {
