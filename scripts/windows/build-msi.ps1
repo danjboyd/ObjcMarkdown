@@ -67,6 +67,9 @@ if (-not (Test-Path $runtimeStage)) {
 Remove-Item -Recurse -Force $appStage -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $appStage | Out-Null
 Copy-Item -Force (Join-Path $StagingDir "MarkdownViewer.cmd") $appStage
+if (Test-Path (Join-Path $StagingDir "MarkdownViewer.exe")) {
+  Copy-Item -Force (Join-Path $StagingDir "MarkdownViewer.exe") $appStage
+}
 Copy-Item -Recurse -Force (Join-Path $StagingDir "app") $appStage
 
 Write-Host "Harvesting files from $StagingDir"

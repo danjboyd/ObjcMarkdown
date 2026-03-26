@@ -9,6 +9,10 @@ MarkdownViewer_OBJC_FILES = main.m OMDAppDelegate.m OMDTextView.m OMDSourceTextV
 MarkdownViewer_CPPFLAGS += -I../ObjcMarkdown
 MarkdownViewer_CPPFLAGS += -I../third_party/libs-OpenSave/Headers
 MarkdownViewer_CPPFLAGS += -I../third_party/TextViewVimKit/src
+ifneq (,$(findstring mingw,$(GNUSTEP_HOST_OS)))
+MarkdownViewer_OBJCFLAGS += -include sys/types.h "-Dmode_t=unsigned short"
+MarkdownViewer_WINDRES_FILES = MarkdownViewer.rc
+endif
 MarkdownViewer_LDFLAGS += -L../ObjcMarkdown/$(GNUSTEP_OBJ_DIR) -lObjcMarkdown -lcmark
 MarkdownViewer_LDFLAGS += $(CMARK_LIBS)
 MarkdownViewer_LDFLAGS += -L../third_party/libs-OpenSave/Source/$(GNUSTEP_OBJ_DIR) -lOpenSave

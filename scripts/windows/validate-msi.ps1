@@ -15,26 +15,37 @@ if (-not (Test-Path $MsiPath)) {
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 
 Write-Host "Installing MSI: $MsiPath"
-Start-Process msiexec.exe -Wait -ArgumentList "/i", $MsiPath, "/qn", "/norestart", "/l*v", (Join-Path $LogDir "install.log")
-if ($LASTEXITCODE -ne 0) {
-  throw "MSI install failed with exit code $LASTEXITCODE"
+$installProcess = Start-Process msiexec.exe -Wait -PassThru -ArgumentList "/i", $MsiPath, "/qn", "/norestart", "/l*v", (Join-Path $LogDir "install.log")
+if ($installProcess.ExitCode -ne 0) {
+  throw "MSI install failed with exit code $($installProcess.ExitCode)"
 }
 
-$cmdPath = Join-Path $InstallDir "MarkdownViewer.cmd"
-if (-not (Test-Path $cmdPath)) {
-  throw "Expected app launcher not found: $cmdPath"
+if (-not (Test-Path $InstallDir)) {
+  $fallbackInstallDir = "C:\Program Files (x86)\ObjcMarkdown"
+  if (Test-Path $fallbackInstallDir) {
+    $InstallDir = $fallbackInstallDir
+  }
 }
 
-$runtimeBin = "C:\clang64\bin"
-if (-not (Test-Path $runtimeBin)) {
-  throw "Expected runtime not found: $runtimeBin"
+$launcherPath = Join-Path $InstallDir "MarkdownViewer.exe"
+if (-not (Test-Path $launcherPath)) {
+  throw "Expected app launcher not found: $launcherPath"
+}
+
+$runtimeCandidates = @(
+  (Join-Path $InstallDir "clang64\\bin"),
+  "C:\clang64\bin"
+)
+$runtimeBin = $runtimeCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+if (-not $runtimeBin) {
+  throw "Expected runtime not found in any of: $($runtimeCandidates -join ', ')"
 }
 
 if ($RunSmoke) {
   Write-Host "Running smoke test"
   $smokeFile = Join-Path $env:TEMP "omd-smoke.md"
   Set-Content -Path $smokeFile -Value "# Smoke Test`n`nOK"
-  $proc = Start-Process $cmdPath -ArgumentList $smokeFile -PassThru
+  $proc = Start-Process $launcherPath -ArgumentList $smokeFile -PassThru
   Start-Sleep -Seconds 5
   if (-not $proc.HasExited) {
     $proc | Stop-Process -Force
@@ -42,7 +53,7 @@ if ($RunSmoke) {
 }
 
 Write-Host "Uninstalling MSI: $MsiPath"
-Start-Process msiexec.exe -Wait -ArgumentList "/x", $MsiPath, "/qn", "/norestart", "/l*v", (Join-Path $LogDir "uninstall.log")
-if ($LASTEXITCODE -ne 0) {
-  throw "MSI uninstall failed with exit code $LASTEXITCODE"
+$uninstallProcess = Start-Process msiexec.exe -Wait -PassThru -ArgumentList "/x", $MsiPath, "/qn", "/norestart", "/l*v", (Join-Path $LogDir "uninstall.log")
+if ($uninstallProcess.ExitCode -ne 0) {
+  throw "MSI uninstall failed with exit code $($uninstallProcess.ExitCode)"
 }

@@ -10,6 +10,9 @@ OBJCMARKDOWN_ENABLE_TOML_THEME ?= 1
 ObjcMarkdown_OBJC_FILES = OMMarkdownRenderer.m OMTheme.m OMMarkdownParsingOptions.m
 ObjcMarkdown_HEADER_FILES = OMMarkdownRenderer.h OMTheme.h OMMarkdownParsingOptions.h
 ObjcMarkdown_CPPFLAGS += $(CMARK_CFLAGS) -DOBJCMARKDOWN_ENABLE_TOML_THEME=$(OBJCMARKDOWN_ENABLE_TOML_THEME)
+ifneq (,$(findstring mingw,$(GNUSTEP_HOST_OS)))
+ObjcMarkdown_OBJCFLAGS += -include sys/types.h "-Dmode_t=unsigned short"
+endif
 ifeq ($(OBJCMARKDOWN_ENABLE_TOML_THEME),1)
 ObjcMarkdown_C_FILES = ../third_party/tomlc99/toml.c
 ObjcMarkdown_CPPFLAGS += -I../third_party/tomlc99

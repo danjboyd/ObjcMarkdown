@@ -3,13 +3,17 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 STAGING_DIR="${1:-$ROOT/dist/ObjcMarkdown}"
+LAUNCHER_SOURCE="$ROOT/scripts/windows/MarkdownViewerLauncher.c"
+LAUNCHER_RESOURCE="$ROOT/scripts/windows/MarkdownViewerLauncher.rc"
 
 APP_DIR="$STAGING_DIR/app"
 BIN_DIR="$STAGING_DIR/clang64/bin"
 GNUSTEP_DIR="$STAGING_DIR/clang64/lib/GNUstep"
+ETC_DIR="$STAGING_DIR/clang64/etc"
+SHARE_DIR="$STAGING_DIR/clang64/share"
 
 rm -rf "$STAGING_DIR"
-mkdir -p "$APP_DIR" "$BIN_DIR" "$GNUSTEP_DIR"
+mkdir -p "$APP_DIR" "$BIN_DIR" "$GNUSTEP_DIR" "$ETC_DIR" "$SHARE_DIR"
 
 # Copy app bundle
 cp -R "$ROOT/ObjcMarkdownViewer/MarkdownViewer.app" "$APP_DIR/"
@@ -18,9 +22,16 @@ cp -R "$ROOT/ObjcMarkdownViewer/MarkdownViewer.app" "$APP_DIR/"
 cp "$ROOT/ObjcMarkdown/obj/ObjcMarkdown-0.dll" "$BIN_DIR/"
 cp "$ROOT/third_party/libs-OpenSave/Source/obj/OpenSave-0.dll" "$BIN_DIR/"
 cp "$ROOT/third_party/TextViewVimKitBuild/obj/TextViewVimKit-0.dll" "$BIN_DIR/"
+cp /clang64/bin/defaults.exe "$BIN_DIR/"
+cp /clang64/bin/libgcc_s_seh-1.dll "$BIN_DIR/"
+cp /clang64/bin/libstdc++-6.dll "$BIN_DIR/"
 
 # Copy GNUstep resources (themes, bundles, images, etc.)
 cp -R /clang64/lib/GNUstep/* "$GNUSTEP_DIR/"
+
+# Copy runtime config data needed by the GNUstep backend stack on clean machines.
+cp -R /clang64/etc/fonts "$ETC_DIR/"
+cp -R /clang64/share/fontconfig "$SHARE_DIR/"
 
 # Dependency collection (recursive)
 declare -A SEEN
@@ -80,6 +91,8 @@ collect_deps "$APP_DIR/MarkdownViewer.app/MarkdownViewer.exe"
 collect_deps "$BIN_DIR/ObjcMarkdown-0.dll"
 collect_deps "$BIN_DIR/OpenSave-0.dll"
 collect_deps "$BIN_DIR/TextViewVimKit-0.dll"
+collect_deps "$GNUSTEP_DIR/Bundles/libgnustep-back-031.bundle/libgnustep-back-031.dll"
+collect_deps "$GNUSTEP_DIR/Themes/WinUXTheme.theme/WinUXTheme.dll"
 
 check_debug_crt() {
   local bad=()
@@ -103,17 +116,61 @@ check_debug_crt() {
 
 check_debug_crt
 
+build_windows_launcher() {
+  local output="$STAGING_DIR/MarkdownViewer.exe"
+  local compiler=""
+  local rc_compiler=""
+  local rc_object=""
+
+  case "$(uname -s)" in
+    MINGW*|MSYS*|CYGWIN*) ;;
+    *)
+      return 0
+      ;;
+  esac
+
+  if command -v clang >/dev/null 2>&1; then
+    compiler=clang
+  elif command -v cc >/dev/null 2>&1; then
+    compiler=cc
+  else
+    echo "ERROR: no Windows C compiler found to build MarkdownViewer.exe launcher." >&2
+    exit 1
+  fi
+
+  if command -v llvm-windres >/dev/null 2>&1; then
+    rc_compiler=llvm-windres
+  elif command -v windres >/dev/null 2>&1; then
+    rc_compiler=windres
+  fi
+
+  if [ -n "$rc_compiler" ] && [ -f "$LAUNCHER_RESOURCE" ]; then
+    rc_object="$STAGING_DIR/MarkdownViewerLauncher-resource.o"
+    "$rc_compiler" "$LAUNCHER_RESOURCE" -O coff -o "$rc_object"
+    "$compiler" -O2 -municode -mwindows -o "$output" "$LAUNCHER_SOURCE" "$rc_object" -lshlwapi
+  else
+    "$compiler" -O2 -municode -mwindows -o "$output" "$LAUNCHER_SOURCE" -lshlwapi
+  fi
+}
+
+build_windows_launcher
+
 # Create launcher for Windows users
 cat > "$STAGING_DIR/MarkdownViewer.cmd" <<'CMD'
 @echo off
 set ROOT=%~dp0
-if not exist C:\clang64\lib\GNUstep (
-  if exist "%ROOT%clang64\lib\GNUstep" (
-    echo Installing GNUstep runtime to C:\clang64...
-    xcopy /E /I /Y "%ROOT%clang64" "C:\clang64" >nul
-  )
+if exist "%ROOT%MarkdownViewer.exe" (
+  start "" "%ROOT%MarkdownViewer.exe" %*
+  exit /b %ERRORLEVEL%
 )
-set PATH=C:\clang64\bin;%PATH%
+if exist "%ROOT%clang64\bin" (
+  set PATH=%ROOT%clang64\bin;%PATH%
+  set GNUSTEP_PATHPREFIX_LIST=%ROOT%clang64
+) else (
+  set PATH=C:\clang64\bin;%PATH%
+  set GNUSTEP_PATHPREFIX_LIST=C:\clang64
+)
+if not defined GSTheme set GSTheme=WinUXTheme
 start "" "%ROOT%app\MarkdownViewer.app\MarkdownViewer.exe" %*
 CMD
 

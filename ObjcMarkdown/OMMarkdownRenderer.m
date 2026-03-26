@@ -334,6 +334,22 @@ static NSFont *OMFontWithTraits(NSFont *font, NSFontTraitMask traits)
     return converted != nil ? converted : font;
 }
 
+static void OMApplyItalicFallbackIfNeeded(NSMutableDictionary *attributes, NSFont *originalFont, NSFont *resolvedFont)
+{
+    if (attributes == nil) {
+        return;
+    }
+
+    if (resolvedFont != nil && originalFont != nil && resolvedFont != originalFont) {
+        return;
+    }
+
+    if ([attributes objectForKey:NSObliquenessAttributeName] == nil) {
+        [attributes setObject:[NSNumber numberWithDouble:0.2]
+                       forKey:NSObliquenessAttributeName];
+    }
+}
+
 typedef struct {
     NSColor *keywordColor;
     NSColor *commentColor;
@@ -1438,6 +1454,91 @@ static NSString *OMInlinePlainText(cmark_node *node)
     return [buffer stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
 }
 
+static BOOL OMMarkerIsEscaped(NSString *text, NSUInteger location)
+{
+    if (text == nil || [text length] == 0 || location == 0 || location > [text length]) {
+        return NO;
+    }
+
+    NSUInteger backslashCount = 0;
+    NSInteger index = (NSInteger)location - 1;
+    while (index >= 0) {
+        if ([text characterAtIndex:(NSUInteger)index] != '\\') {
+            break;
+        }
+        backslashCount += 1;
+        index -= 1;
+    }
+    return (backslashCount % 2) == 1;
+}
+
+static NSString *OMNormalizeGFMStrikethroughMarkdown(NSString *markdown)
+{
+    if (markdown == nil || [markdown length] < 4) {
+        return markdown;
+    }
+
+    NSMutableArray *delimiterLocations = [NSMutableArray array];
+    NSUInteger codeSpanFenceLength = 0;
+    NSUInteger length = [markdown length];
+    NSUInteger index = 0;
+    for (; index < length; index++) {
+        unichar ch = [markdown characterAtIndex:index];
+        if (ch == '`') {
+            NSUInteger runLength = 1;
+            while ((index + runLength) < length && [markdown characterAtIndex:(index + runLength)] == '`') {
+                runLength += 1;
+            }
+            if (codeSpanFenceLength == 0) {
+                codeSpanFenceLength = runLength;
+            } else if (codeSpanFenceLength == runLength) {
+                codeSpanFenceLength = 0;
+            }
+            index += runLength - 1;
+            continue;
+        }
+
+        if (codeSpanFenceLength != 0) {
+            continue;
+        }
+
+        if (ch == '~' &&
+            (index + 1) < length &&
+            [markdown characterAtIndex:(index + 1)] == '~' &&
+            !OMMarkerIsEscaped(markdown, index)) {
+            [delimiterLocations addObject:[NSNumber numberWithUnsignedInteger:index]];
+            index += 1;
+        }
+    }
+
+    if ([delimiterLocations count] < 2) {
+        return markdown;
+    }
+
+    NSMutableDictionary *replacementMap = [NSMutableDictionary dictionary];
+    NSUInteger replacementCount = ([delimiterLocations count] / 2) * 2;
+    for (index = 0; index < replacementCount; index++) {
+        NSString *replacement = ((index % 2) == 0) ? @"<del>" : @"</del>";
+        [replacementMap setObject:replacement forKey:[delimiterLocations objectAtIndex:index]];
+    }
+
+    NSMutableString *normalized = [NSMutableString string];
+    index = 0;
+    while (index < length) {
+        NSNumber *key = [NSNumber numberWithUnsignedInteger:index];
+        NSString *replacement = [replacementMap objectForKey:key];
+        if (replacement != nil) {
+            [normalized appendString:replacement];
+            index += 2;
+            continue;
+        }
+        [normalized appendFormat:@"%C", [markdown characterAtIndex:index]];
+        index += 1;
+    }
+
+    return normalized;
+}
+
 typedef NS_ENUM(NSUInteger, OMPipeTableAlignment) {
     OMPipeTableAlignmentLeft = 0,
     OMPipeTableAlignmentCenter = 1,
@@ -1964,6 +2065,7 @@ static NSMutableAttributedString *OMPipeTableAttributedCellContent(NSString *cel
                                                                    const OMRenderContext *renderContext)
 {
     NSString *normalized = (cellMarkdown != nil ? cellMarkdown : @"");
+    normalized = OMNormalizeGFMStrikethroughMarkdown(normalized);
     NSMutableAttributedString *result = [[[NSMutableAttributedString alloc] init] autorelease];
     if ([normalized length] == 0) {
         return result;
@@ -3091,6 +3193,22 @@ static void OMAppendHTMLLiteral(const char *literal,
         return;
     }
 
+    NSString *trimmed = [html stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    NSString *lower = [trimmed lowercaseString];
+    if ([lower isEqualToString:@"<del>"] ||
+        [lower isEqualToString:@"<s>"] ||
+        [lower isEqualToString:@"<strike>"]) {
+        [attributes setObject:[NSNumber numberWithInteger:NSUnderlineStyleSingle]
+                       forKey:NSStrikethroughStyleAttributeName];
+        return;
+    }
+    if ([lower isEqualToString:@"</del>"] ||
+        [lower isEqualToString:@"</s>"] ||
+        [lower isEqualToString:@"</strike>"]) {
+        [attributes removeObjectForKey:NSStrikethroughStyleAttributeName];
+        return;
+    }
+
     OMAppendString(output, html, attributes);
     if (blockNode) {
         OMAppendString(output, @"\n\n", attributes);
@@ -4060,10 +4178,15 @@ static cmark_node *OMTryAppendMultiNodeDisplayMath(cmark_node *startNode,
         return [[[NSAttributedString alloc] initWithString:@""] autorelease];
     }
 
+    NSString *markdownForParsing = OMNormalizeGFMStrikethroughMarkdown(markdown);
+    if (markdownForParsing == nil) {
+        markdownForParsing = markdown;
+    }
+
     BOOL perfLogging = OMPerformanceLoggingEnabled();
     NSTimeInterval totalStart = perfLogging ? OMNow() : 0.0;
 
-    NSData *markdownData = [markdown dataUsingEncoding:NSUTF8StringEncoding];
+    NSData *markdownData = [markdownForParsing dataUsingEncoding:NSUTF8StringEncoding];
     if (markdownData == nil) {
         return [[[NSAttributedString alloc] initWithString:@""] autorelease];
     }
@@ -4600,6 +4723,7 @@ static void OMRenderInlines(cmark_node *node,
                 if (newFont != nil) {
                     [emphAttrs setObject:newFont forKey:NSFontAttributeName];
                 }
+                OMApplyItalicFallbackIfNeeded(emphAttrs, font, newFont);
                 OMRenderInlines(child, theme, output, emphAttrs, scale, renderContext);
                 [emphAttrs release];
                 break;

@@ -21,6 +21,12 @@
 #import <AppKit/NSInterfaceStyle.h>
 #import <GNUstepGUI/GSTheme.h>
 
+#include <sys/types.h>
+#if defined(_WIN32)
+#include <windows.h>
+#include <shellapi.h>
+#include <stdio.h>
+#endif
 #include <math.h>
 
 static const CGFloat OMDPrintExportZoomScale = 0.8;
@@ -101,6 +107,107 @@ static NSString * const OMDExplorerSidebarVisibleDefaultsKey = @"ObjcMarkdownExp
 static NSString * const OMDExplorerGitHubTokenDefaultsKey = @"ObjcMarkdownGitHubToken";
 static NSString * const OMDGitHubCacheErrorDomain = @"OMDGitHubCacheErrorDomain";
 
+static void OMDStartupTrace(NSString *message)
+{
+    if (message == nil || [message length] == 0) {
+        return;
+    }
+#if defined(_WIN32)
+    NSString *logPath = [NSTemporaryDirectory() stringByAppendingPathComponent:@"ObjcMarkdown-startup.log"];
+    NSData *existing = [NSData dataWithContentsOfFile:logPath];
+    if (existing == nil) {
+        [[NSData data] writeToFile:logPath atomically:YES];
+    }
+    NSFileHandle *handle = [NSFileHandle fileHandleForWritingAtPath:logPath];
+    if (handle == nil) {
+        return;
+    }
+    [handle seekToEndOfFile];
+    NSString *line = [NSString stringWithFormat:@"%@\r\n", message];
+    NSData *data = [line dataUsingEncoding:NSUTF8StringEncoding];
+    if (data != nil) {
+        [handle writeData:data];
+    }
+    [handle closeFile];
+#else
+    (void)message;
+#endif
+}
+
+static void OMDApplyWindowsMenuToWindow(NSWindow *window)
+{
+#if defined(_WIN32)
+    if (window == nil) {
+        return;
+    }
+
+    if (NSInterfaceStyleForKey(@"NSMenuInterfaceStyle", nil) == NSWindows95InterfaceStyle) {
+        NSMenu *mainMenu = [NSApp mainMenu];
+        if (mainMenu != nil) {
+            [window setMenu:mainMenu];
+            [[GSTheme theme] updateMenu:mainMenu forWindow:window];
+            OMDStartupTrace(@"windows menu applied to window");
+        }
+    }
+#else
+    (void)window;
+#endif
+}
+
+static void OMDRefreshWindowsMainMenu(void)
+{
+#if defined(_WIN32)
+    if (NSInterfaceStyleForKey(@"NSMenuInterfaceStyle", nil) == NSWindows95InterfaceStyle) {
+        NSMenu *mainMenu = [NSApp mainMenu];
+        if (mainMenu != nil) {
+            [mainMenu update];
+            [[GSTheme theme] updateAllWindowsWithMenu:mainMenu];
+            OMDStartupTrace(@"windows main menu refreshed");
+        }
+    }
+#endif
+}
+
+static void OMDLogMenuSnapshot(NSString *label, NSMenu *menu, NSWindow *window)
+{
+#if defined(_WIN32)
+    NSMutableArray *titles = [NSMutableArray array];
+    NSUInteger count = 0;
+    if (menu != nil) {
+        count = [menu numberOfItems];
+        for (NSUInteger index = 0; index < count; index++) {
+            id item = [menu itemAtIndex:index];
+            NSString *title = [item title];
+            if (title == nil) {
+                title = @"<nil>";
+            }
+            [titles addObject:title];
+        }
+    }
+
+    NSString *windowTitle = nil;
+    NSString *windowMenuTitle = nil;
+    if (window != nil) {
+        windowTitle = [window title];
+        if ([window menu] != nil) {
+            windowMenuTitle = [[window menu] title];
+        }
+    }
+
+    OMDStartupTrace([NSString stringWithFormat:@"%@ menuCount=%lu menuTitle=%@ windowTitle=%@ windowMenuTitle=%@ items=%@",
+                                               label,
+                                               (unsigned long)count,
+                                               (menu != nil ? [menu title] : @"<nil>"),
+                                               (windowTitle != nil ? windowTitle : @"<nil>"),
+                                               (windowMenuTitle != nil ? windowMenuTitle : @"<nil>"),
+                                               [titles componentsJoinedByString:@","]]);
+#else
+    (void)label;
+    (void)menu;
+    (void)window;
+#endif
+}
+
 static NSString * const OMDTabMarkdownKey = @"markdown";
 static NSString * const OMDTabSourcePathKey = @"sourcePath";
 static NSString * const OMDTabDisplayTitleKey = @"displayTitle";
@@ -115,6 +222,160 @@ static NSString * const OMDTabSyntaxLanguageKey = @"syntaxLanguage";
 static NSString * const OMDTabLoadedDiskFingerprintKey = @"loadedDiskFingerprint";
 static NSString * const OMDTabObservedDiskFingerprintKey = @"observedDiskFingerprint";
 static NSString * const OMDTabSuppressedDiskFingerprintKey = @"suppressedDiskFingerprint";
+
+static NSString *OMDTrimmedString(NSString *value);
+static NSString *OMDHTMLEscapedString(NSString *value);
+
+static NSArray *OMDExecutableCandidateNames(NSString *name)
+{
+    if (name == nil || [name length] == 0) {
+        return [NSArray array];
+    }
+#if defined(_WIN32)
+    return [NSArray arrayWithObjects:name,
+                                      [name stringByAppendingString:@".exe"],
+                                      [name stringByAppendingString:@".cmd"],
+                                      [name stringByAppendingString:@".bat"],
+                                      nil];
+#else
+    return [NSArray arrayWithObject:name];
+#endif
+}
+
+static NSArray *OMDExecutableSearchDirectories(void)
+{
+    NSMutableArray *directories = [NSMutableArray array];
+    NSDictionary *environment = [[NSProcessInfo processInfo] environment];
+    NSString *pathValue = [environment objectForKey:@"PATH"];
+    if (pathValue != nil && [pathValue length] > 0) {
+#if defined(_WIN32)
+        NSArray *searchPaths = [pathValue componentsSeparatedByString:@";"];
+#else
+        NSArray *searchPaths = [pathValue componentsSeparatedByString:@":"];
+#endif
+        for (NSString *searchPath in searchPaths) {
+            if (searchPath != nil && [searchPath length] > 0) {
+                [directories addObject:searchPath];
+            }
+        }
+    }
+
+#if defined(_WIN32)
+    [directories addObjectsFromArray:@[
+        @"C:/msys64/usr/bin",
+        @"C:/msys64/clang64/bin",
+        @"C:/clang64/bin"
+    ]];
+#else
+    [directories addObject:@"/usr/bin"];
+#endif
+
+    return directories;
+}
+
+static NSString *OMDExecutablePathNamed(NSString *name)
+{
+    if (name == nil || [name length] == 0) {
+        return nil;
+    }
+
+    NSFileManager *fileManager = [NSFileManager defaultManager];
+    NSArray *candidateNames = OMDExecutableCandidateNames(name);
+    NSArray *searchPaths = OMDExecutableSearchDirectories();
+    for (NSString *searchPath in searchPaths) {
+        if (searchPath == nil || [searchPath length] == 0) {
+            continue;
+        }
+        for (NSString *candidateName in candidateNames) {
+            NSString *candidate = [searchPath stringByAppendingPathComponent:candidateName];
+            if ([fileManager isExecutableFileAtPath:candidate]) {
+                return candidate;
+            }
+        }
+    }
+
+    return nil;
+}
+
+static BOOL OMDLooksLikeWindowsAbsolutePath(NSString *path)
+{
+#if defined(_WIN32)
+    if (path == nil || [path length] < 2) {
+        return NO;
+    }
+
+    unichar first = [path characterAtIndex:0];
+    unichar second = [path characterAtIndex:1];
+    if (((first >= 'A' && first <= 'Z') || (first >= 'a' && first <= 'z')) &&
+        second == ':') {
+        return YES;
+    }
+
+    if ([path hasPrefix:@"\\\\"] || [path hasPrefix:@"//"]) {
+        return YES;
+    }
+#else
+    (void)path;
+#endif
+    return NO;
+}
+
+static NSString *OMDNormalizedExternalLocalPath(NSString *path)
+{
+    NSString *trimmed = OMDTrimmedString(path);
+    if ([trimmed length] == 0) {
+        return nil;
+    }
+
+    if ([trimmed hasPrefix:@"file://"]) {
+        NSURL *url = [NSURL URLWithString:trimmed];
+        if (url != nil && [url isFileURL]) {
+            NSString *urlPath = [url path];
+            if ([urlPath length] > 0) {
+                trimmed = urlPath;
+            }
+        }
+    }
+
+#if defined(_WIN32)
+    if ([trimmed rangeOfString:@"\\"].location != NSNotFound) {
+        trimmed = [trimmed stringByReplacingOccurrencesOfString:@"\\" withString:@"/"];
+    }
+#endif
+
+    return trimmed;
+}
+
+static NSString *OMDHTMLEscapedString(NSString *value)
+{
+    if (value == nil) {
+        return @"";
+    }
+
+    NSString *escaped = [value stringByReplacingOccurrencesOfString:@"&" withString:@"&amp;"];
+    escaped = [escaped stringByReplacingOccurrencesOfString:@"<" withString:@"&lt;"];
+    escaped = [escaped stringByReplacingOccurrencesOfString:@">" withString:@"&gt;"];
+    escaped = [escaped stringByReplacingOccurrencesOfString:@"\"" withString:@"&quot;"];
+    return escaped;
+}
+
+static BOOL OMDPreviewStyleDiagnosticsEnabled(void)
+{
+    NSDictionary *environment = [[NSProcessInfo processInfo] environment];
+    NSString *flag = [environment objectForKey:@"OMD_LOG_PREVIEW_STYLE_ATTRS"];
+    if (flag == nil || [flag length] == 0) {
+        flag = [environment objectForKey:@"OBJCMARKDOWN_LOG_PREVIEW_STYLE_ATTRS"];
+    }
+    if (flag == nil || [flag length] == 0) {
+        return [[NSUserDefaults standardUserDefaults] boolForKey:@"ObjcMarkdownLogPreviewStyleAttrs"];
+    }
+
+    NSString *lower = [[flag stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] lowercaseString];
+    return [lower isEqualToString:@"1"] ||
+           [lower isEqualToString:@"true"] ||
+           [lower isEqualToString:@"yes"] ||
+           [lower isEqualToString:@"on"];
+}
 
 typedef NS_ENUM(NSInteger, OMDSplitSyncMode) {
     OMDSplitSyncModeUnlinked = 0,
@@ -1861,12 +2122,18 @@ static OMDRoundedCardView *OMDCreatePreferencesCard(NSRect frame, OMDLayoutMetri
 - (NSString *)markdownForCurrentPreview;
 - (NSString *)decodedTextForFileAtPath:(NSString *)path error:(NSError **)error;
 - (BOOL)openDocumentAtPath:(NSString *)path;
+- (BOOL)openDocumentAtPath:(NSString *)path
+                  inNewTab:(BOOL)inNewTab
+       requireDirtyConfirm:(BOOL)requireDirtyConfirm;
 - (BOOL)openDocumentAtPathInNewWindow:(NSString *)path;
+- (NSInteger)selectedExplorerSourceModeControlIndex;
+- (void)setSelectedExplorerSourceModeControlIndex:(NSInteger)index;
 - (void)openRecentDocumentFromMenuItem:(id)sender;
 - (void)clearRecentDocumentsMenu:(id)sender;
 - (void)rebuildOpenRecentMenu;
 - (void)noteRecentDocumentAtPathIfAvailable:(NSString *)path;
 - (void)setupWorkspaceChrome;
+- (void)applyWindowsWindowIconsIfPossible;
 - (void)layoutWorkspaceChrome;
 - (CGFloat)currentTabStripHeight;
 - (BOOL)isExplorerSidebarVisiblePreference;
@@ -1985,8 +2252,21 @@ static OMDRoundedCardView *OMDCreatePreferencesCard(NSRect frame, OMDLayoutMetri
 - (NSPrintInfo *)configuredPrintInfo;
 - (CGFloat)printableContentWidthForPrintInfo:(NSPrintInfo *)printInfo;
 - (OMDTextView *)newPrintTextViewForPrintInfo:(NSPrintInfo *)printInfo;
+#if defined(_WIN32)
+- (NSString *)windowsHeadlessBrowserPath;
+- (NSString *)temporaryHTMLExportPath;
+- (NSString *)windowsPDFSavePathWithSuggestedName:(NSString *)suggestedName;
+- (NSString *)styledHTMLDocumentWithBody:(NSString *)bodyHTML title:(NSString *)title;
+- (BOOL)writePandocHTMLForCurrentPreviewToPath:(NSString *)path;
+- (BOOL)writeHTMLForPrintView:(OMDTextView *)printView toPath:(NSString *)path;
+- (BOOL)exportHTMLAtPath:(NSString *)htmlPath toPDFAtPath:(NSString *)pdfPath usingBrowser:(NSString *)browserPath;
+- (BOOL)exportPrintView:(OMDTextView *)printView toPDFAtPath:(NSString *)pdfPath usingBrowser:(NSString *)browserPath;
+- (NSString *)temporaryPDFPrintPath;
+- (BOOL)launchWindowsShellPrintForPDFAtPath:(NSString *)path;
+#endif
 - (void)requestInteractiveRender;
 - (void)requestInteractiveRenderForLayoutWidthIfNeeded;
+- (void)logPreviewStyleDiagnosticsForRenderedString:(NSAttributedString *)rendered;
 - (void)updateAdaptiveZoomDebounceWithRenderDurationMs:(NSTimeInterval)durationMs
                                      sampledAsZoomRender:(BOOL)isZoomRender;
 - (NSRect)currentPreviewClipBounds;
@@ -2345,17 +2625,35 @@ static NSMutableArray *OMDSecondaryWindows(void)
 
 - (void)applicationDidFinishLaunching:(NSNotification *)notification
 {
+    OMDStartupTrace(@"appDidFinishLaunching: enter");
 #if defined(_WIN32)
     // Ensure OpenSave is initialized and prefers native Win32 dialogs.
     GSOpenSaveSetMode(GSOpenSaveModeWin32);
 #else
     GSOpenSaveSetMode(GSOpenSaveModeAuto);
 #endif
+    OMDStartupTrace(@"appDidFinishLaunching: open-save mode set");
 
     [self setupWindow];
+    OMDStartupTrace(@"appDidFinishLaunching: setupWindow returned");
+    if ([NSApp mainMenu] == nil || [[NSApp mainMenu] numberOfItems] == 0) {
+        OMDStartupTrace(@"appDidFinishLaunching: main menu missing, rebuilding");
+        @try {
+            [self setupMainMenu];
+            OMDRefreshWindowsMainMenu();
+            OMDApplyWindowsMenuToWindow(_window);
+            OMDLogMenuSnapshot(@"appDidFinishLaunching: after menu rebuild", [NSApp mainMenu], _window);
+        } @catch (id exception) {
+            OMDStartupTrace([NSString stringWithFormat:@"appDidFinishLaunching: menu rebuild threw class=%@ description=%@",
+                                                       NSStringFromClass([exception class]),
+                                                       exception]);
+        }
+    }
     BOOL openedFromArgs = [self openDocumentFromArguments];
+    OMDStartupTrace([NSString stringWithFormat:@"appDidFinishLaunching: openDocumentFromArguments=%@", openedFromArgs ? @"YES" : @"NO"]);
     if (!_openedFileOnLaunch && !openedFromArgs) {
         [self restoreRecoveryIfAvailable];
+        OMDStartupTrace(@"appDidFinishLaunching: restoreRecoveryIfAvailable returned");
     }
 }
 
@@ -2367,7 +2665,15 @@ static NSMutableArray *OMDSecondaryWindows(void)
 
 - (void)applicationWillFinishLaunching:(NSNotification *)notification
 {
-    [self setupMainMenu];
+    OMDStartupTrace(@"applicationWillFinishLaunching: enter");
+    @try {
+        [self setupMainMenu];
+        OMDStartupTrace(@"applicationWillFinishLaunching: setupMainMenu returned");
+    } @catch (id exception) {
+        OMDStartupTrace([NSString stringWithFormat:@"applicationWillFinishLaunching: setupMainMenu threw class=%@ description=%@",
+                                                   NSStringFromClass([exception class]),
+                                                   exception]);
+    }
 }
 
 - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)sender
@@ -2379,16 +2685,14 @@ static NSMutableArray *OMDSecondaryWindows(void)
 {
     (void)theApplication;
     _openedFileOnLaunch = YES;
-    if ([_documentTabs count] == 0 && _currentPath == nil && _currentMarkdown == nil) {
-        return [self openDocumentAtPath:filename];
-    }
-    return [self openDocumentAtPathInNewWindow:filename];
+    BOOL openInNewTab = !([_documentTabs count] == 0 && _currentPath == nil && _currentMarkdown == nil);
+    return [self openDocumentAtPath:filename inNewTab:openInNewTab requireDirtyConfirm:!openInNewTab];
 }
 
 - (void)setupMainMenu
 {
+    OMDStartupTrace(@"setupMainMenu: enter");
     NSMenu *menubar = [[[NSMenu alloc] initWithTitle:@"GSMainMenu"] autorelease];
-    [NSApp setMainMenu:menubar];
 
     NSString *appName = [[NSProcessInfo processInfo] processName];
     NSInterfaceStyle style = NSInterfaceStyleForKey(@"NSMenuInterfaceStyle", nil);
@@ -2430,6 +2734,113 @@ static NSMutableArray *OMDSecondaryWindows(void)
                                                              action:@selector(terminate:)
                                                       keyEquivalent:@"q"];
     [quitItem setTarget:NSApp];
+
+#if defined(_WIN32)
+    NSMenuItem *fileMenuItemWin = [[[NSMenuItem alloc] initWithTitle:@"File"
+                                                              action:NULL
+                                                       keyEquivalent:@""] autorelease];
+    [menubar addItem:fileMenuItemWin];
+
+    NSMenu *fileMenuWin = [[[NSMenu alloc] initWithTitle:@"File"] autorelease];
+    [[fileMenuWin addItemWithTitle:@"Open Markdown..."
+                            action:@selector(openDocument:)
+                     keyEquivalent:@"o"] setTarget:self];
+    [[fileMenuWin addItemWithTitle:@"New Window"
+                            action:@selector(newWindow:)
+                     keyEquivalent:@"n"] setTarget:self];
+    NSMenuItem *openRecentItemWin = (NSMenuItem *)[fileMenuWin addItemWithTitle:@"Open Recent"
+                                                                           action:NULL
+                                                                    keyEquivalent:@""];
+    NSMenu *openRecentMenuWin = [[[NSMenu alloc] initWithTitle:@"Open Recent"] autorelease];
+    [openRecentMenuWin setAutoenablesItems:NO];
+    [openRecentMenuWin setDelegate:(id)self];
+    [openRecentItemWin setSubmenu:openRecentMenuWin];
+    [_fileOpenRecentMenu release];
+    _fileOpenRecentMenu = [openRecentMenuWin retain];
+    [[fileMenuWin addItemWithTitle:@"Import..."
+                            action:@selector(importDocument:)
+                     keyEquivalent:@"I"] setTarget:self];
+    [fileMenuWin addItem:[NSMenuItem separatorItem]];
+    [[fileMenuWin addItemWithTitle:@"Save"
+                            action:@selector(saveDocument:)
+                     keyEquivalent:@"s"] setTarget:self];
+    [[fileMenuWin addItemWithTitle:@"Save Markdown As..."
+                            action:@selector(saveDocumentAsMarkdown:)
+                     keyEquivalent:@"S"] setTarget:self];
+    [[fileMenuWin addItemWithTitle:@"Reload from Disk"
+                            action:@selector(reloadDocumentFromDisk:)
+                     keyEquivalent:@""] setTarget:self];
+    [fileMenuWin addItem:[NSMenuItem separatorItem]];
+    [[fileMenuWin addItemWithTitle:@"Print..."
+                            action:@selector(printDocument:)
+                     keyEquivalent:@"p"] setTarget:self];
+    [fileMenuWin addItem:[NSMenuItem separatorItem]];
+    [[fileMenuWin addItemWithTitle:@"Close"
+                            action:@selector(performClose:)
+                     keyEquivalent:@"w"] setTarget:nil];
+    [fileMenuItemWin setSubmenu:fileMenuWin];
+
+    NSMenuItem *editMenuItemWin = [[[NSMenuItem alloc] initWithTitle:@"Edit"
+                                                               action:NULL
+                                                        keyEquivalent:@""] autorelease];
+    [menubar addItem:editMenuItemWin];
+
+    NSMenu *editMenuWin = [[[NSMenu alloc] initWithTitle:@"Edit"] autorelease];
+    [[editMenuWin addItemWithTitle:@"Undo"
+                            action:@selector(undo:)
+                     keyEquivalent:@"z"] setTarget:self];
+    [[editMenuWin addItemWithTitle:@"Redo"
+                            action:@selector(redo:)
+                     keyEquivalent:@"Z"] setTarget:self];
+    [editMenuWin addItem:[NSMenuItem separatorItem]];
+    [[editMenuWin addItemWithTitle:@"Cut"
+                            action:@selector(cut:)
+                     keyEquivalent:@"x"] setTarget:nil];
+    [[editMenuWin addItemWithTitle:@"Copy"
+                            action:@selector(copy:)
+                     keyEquivalent:@"c"] setTarget:nil];
+    [[editMenuWin addItemWithTitle:@"Paste"
+                            action:@selector(paste:)
+                     keyEquivalent:@"v"] setTarget:nil];
+    [editMenuWin addItem:[NSMenuItem separatorItem]];
+    [[editMenuWin addItemWithTitle:@"Select All"
+                            action:@selector(selectAll:)
+                     keyEquivalent:@"a"] setTarget:nil];
+    [editMenuItemWin setSubmenu:editMenuWin];
+
+    NSMenuItem *viewMenuItemWin = [[[NSMenuItem alloc] initWithTitle:@"View"
+                                                               action:NULL
+                                                        keyEquivalent:@""] autorelease];
+    [menubar addItem:viewMenuItemWin];
+
+    NSMenu *viewMenuWin = [[[NSMenu alloc] initWithTitle:@"View"] autorelease];
+    [[viewMenuWin addItemWithTitle:@"Reading Mode"
+                         action:@selector(setReadMode:)
+                  keyEquivalent:@"1"] setTarget:self];
+    [[viewMenuWin addItemWithTitle:@"Edit Mode"
+                         action:@selector(setEditMode:)
+                  keyEquivalent:@"2"] setTarget:self];
+    [[viewMenuWin addItemWithTitle:@"Split Mode"
+                         action:@selector(setSplitMode:)
+                  keyEquivalent:@"3"] setTarget:self];
+    _viewShowExplorerMenuItem = (NSMenuItem *)[viewMenuWin addItemWithTitle:@"Show Explorer"
+                                                                   action:@selector(toggleExplorerSidebar:)
+                                                            keyEquivalent:@""];
+    [_viewShowExplorerMenuItem setTarget:self];
+    _viewShowFormattingBarMenuItem = (NSMenuItem *)[viewMenuWin addItemWithTitle:@"Show Formatting Bar"
+                                                                        action:@selector(toggleFormattingBar:)
+                                                                 keyEquivalent:@""];
+    [_viewShowFormattingBarMenuItem setTarget:self];
+    [viewMenuItemWin setSubmenu:viewMenuWin];
+
+    OMDLogMenuSnapshot(@"setupMainMenu: before setMainMenu", menubar, _window);
+    [NSApp setMainMenu:menubar];
+    OMDLogMenuSnapshot(@"setupMainMenu: after setMainMenu", [NSApp mainMenu], _window);
+    OMDRefreshWindowsMainMenu();
+    OMDLogMenuSnapshot(@"setupMainMenu: after refresh", [NSApp mainMenu], _window);
+    OMDStartupTrace(@"setupMainMenu: complete");
+    return;
+#endif
 
     NSMenuItem *fileMenuItem = [[[NSMenuItem alloc] initWithTitle:@"File"
                                                            action:NULL
@@ -2687,16 +3098,22 @@ static NSMutableArray *OMDSecondaryWindows(void)
 
     [viewMenuItem setSubmenu:viewMenu];
 
+    OMDLogMenuSnapshot(@"setupMainMenu: before setMainMenu", menubar, _window);
     [NSApp setMainMenu:menubar];
+    OMDLogMenuSnapshot(@"setupMainMenu: after setMainMenu", [NSApp mainMenu], _window);
+    OMDRefreshWindowsMainMenu();
+    OMDLogMenuSnapshot(@"setupMainMenu: after refresh", [NSApp mainMenu], _window);
+    OMDStartupTrace(@"setupMainMenu: complete");
 }
 
 - (void)setupWindow
 {
+    OMDStartupTrace(@"setupWindow: enter");
     OMDLayoutMetrics metrics = OMDLayoutMetricsForMode([self effectiveLayoutDensityMode]);
     NSRect frame = NSMakeRect(100, 100, 900, 700);
     _window = [[OMDMainWindow alloc]
         initWithContentRect:frame
-                  styleMask:(NSTitledWindowMask | NSClosableWindowMask | NSResizableWindowMask)
+                  styleMask:(NSTitledWindowMask | NSClosableWindowMask | NSMiniaturizableWindowMask | NSResizableWindowMask)
                     backing:NSBackingStoreBuffered
                       defer:NO];
     [_window setFrameAutosaveName:@"ObjcMarkdownViewerMainWindow"];
@@ -2706,15 +3123,14 @@ static NSMutableArray *OMDSecondaryWindows(void)
     NSImage *appIcon = OMDImageNamed(@"markdown_icon.png");
     if (appIcon != nil) {
         [NSApp setApplicationIconImage:appIcon];
-    }
-
-    NSInterfaceStyle style = NSInterfaceStyleForKey(@"NSMenuInterfaceStyle", nil);
-    if (style == NSWindows95InterfaceStyle) {
-        NSMenu *mainMenu = [NSApp mainMenu];
-        if (mainMenu != nil) {
-            [_window setMenu:mainMenu];
+        if ([_window respondsToSelector:@selector(setMiniwindowImage:)]) {
+            [_window setMiniwindowImage:appIcon];
         }
     }
+    [self applyWindowsWindowIconsIfPossible];
+    OMDStartupTrace(@"setupWindow: window created");
+
+    OMDApplyWindowsMenuToWindow(_window);
 
     _zoomScale = 1.0;
     _zoomUsesDebouncedRendering = NO;
@@ -2728,7 +3144,9 @@ static NSMutableArray *OMDSecondaryWindows(void)
         }
     }
     [self setupToolbar];
+    OMDStartupTrace(@"setupWindow: setupToolbar returned");
     [self setupWorkspaceChrome];
+    OMDStartupTrace(@"setupWindow: setupWorkspaceChrome returned");
 
     _splitRatio = 0.5;
     _lastObservedSplitAvailableWidth = -1.0;
@@ -2854,9 +3272,14 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [_window makeKeyAndOrderFront:nil];
     [self normalizeWindowFrameIfNeeded];
     [_window makeKeyAndOrderFront:nil];
+    OMDRefreshWindowsMainMenu();
+    OMDApplyWindowsMenuToWindow(_window);
+    OMDLogMenuSnapshot(@"setupWindow: after menu attach", [NSApp mainMenu], _window);
     [self applyExplorerSidebarVisibility];
+    OMDStartupTrace(@"setupWindow: window visible");
 
     _renderer = [[OMMarkdownRenderer alloc] init];
+    OMDStartupTrace(@"setupWindow: renderer allocated");
     OMMarkdownParsingOptions *options = [OMMarkdownParsingOptions defaultOptions];
     id mathPolicyValue = [defaults objectForKey:OMDMathRenderingPolicyDefaultsKey];
     if ([mathPolicyValue respondsToSelector:@selector(integerValue)]) {
@@ -2894,10 +3317,24 @@ static NSMutableArray *OMDSecondaryWindows(void)
 
     _viewerMode = OMDViewerModeFromInteger([[NSUserDefaults standardUserDefaults] integerForKey:@"ObjcMarkdownViewerMode"]);
     [self setViewerMode:_viewerMode persistPreference:NO];
+    OMDStartupTrace(@"setupWindow: viewer mode applied");
     [self updateTabStrip];
+    OMDStartupTrace(@"setupWindow: tab strip updated");
     [self reloadExplorerEntries];
+    OMDStartupTrace(@"setupWindow: explorer reloaded");
     [self applyLayoutDensityPreference];
+    OMDStartupTrace(@"setupWindow: layout density applied");
     [self startExternalFileMonitor];
+    OMDStartupTrace(@"setupWindow: complete");
+    [self performSelector:@selector(logDelayedMenuSnapshot:)
+               withObject:nil
+               afterDelay:1.0];
+}
+
+- (void)logDelayedMenuSnapshot:(id)sender
+{
+    (void)sender;
+    OMDLogMenuSnapshot(@"delayed menu snapshot", [NSApp mainMenu], _window);
 }
 
 - (void)setupWorkspaceChrome
@@ -3839,11 +4276,8 @@ static NSMutableArray *OMDSecondaryWindows(void)
         return;
     }
 
-    if ([_documentTabs count] == 0 && _currentPath == nil && _currentMarkdown == nil) {
-        [self openDocumentAtPath:path];
-    } else {
-        [self openDocumentAtPathInNewWindow:path];
-    }
+    BOOL openInNewTab = !([_documentTabs count] == 0 && _currentPath == nil && _currentMarkdown == nil);
+    [self openDocumentAtPath:path inNewTab:openInNewTab requireDirtyConfirm:!openInNewTab];
 }
 
 - (void)clearRecentDocumentsMenu:(id)sender
@@ -3898,11 +4332,8 @@ static NSMutableArray *OMDSecondaryWindows(void)
     }
 
     NSString *path = [filenames objectAtIndex:0];
-    if ([_documentTabs count] == 0 && _currentPath == nil && _currentMarkdown == nil) {
-        [self openDocumentAtPath:path];
-    } else {
-        [self openDocumentAtPathInNewWindow:path];
-    }
+    BOOL openInNewTab = !([_documentTabs count] == 0 && _currentPath == nil && _currentMarkdown == nil);
+    [self openDocumentAtPath:path inNewTab:openInNewTab requireDirtyConfirm:!openInNewTab];
 }
 
 - (void)importDocument:(id)sender
@@ -4013,13 +4444,13 @@ static NSMutableArray *OMDSecondaryWindows(void)
 
 - (NSString *)resolvedAbsolutePathForLocalPath:(NSString *)path
 {
-    NSString *trimmed = OMDTrimmedString(path);
+    NSString *trimmed = OMDNormalizedExternalLocalPath(path);
     if ([trimmed length] == 0) {
         return nil;
     }
 
     NSString *resolvedPath = [trimmed stringByExpandingTildeInPath];
-    if (![resolvedPath isAbsolutePath]) {
+    if (![resolvedPath isAbsolutePath] && !OMDLooksLikeWindowsAbsolutePath(resolvedPath)) {
         NSString *cwd = [[NSFileManager defaultManager] currentDirectoryPath];
         resolvedPath = [cwd stringByAppendingPathComponent:resolvedPath];
     }
@@ -5057,10 +5488,21 @@ static NSMutableArray *OMDSecondaryWindows(void)
         return;
     }
 
+    BOOL ok = NO;
+#if defined(_WIN32)
+    NSString *temporaryPDFPath = [self temporaryPDFPrintPath];
+    NSString *browserPath = [self windowsHeadlessBrowserPath];
+    if (temporaryPDFPath != nil &&
+        browserPath != nil &&
+        [self exportPrintView:printView toPDFAtPath:temporaryPDFPath usingBrowser:browserPath]) {
+        ok = [self launchWindowsShellPrintForPDFAtPath:temporaryPDFPath];
+    }
+#else
     NSPrintOperation *operation = [NSPrintOperation printOperationWithView:printView printInfo:printInfo];
     [operation setShowsPrintPanel:YES];
     [operation setShowsProgressPanel:YES];
-    BOOL ok = [operation runOperation];
+    ok = [operation runOperation];
+#endif
     [printView release];
 
     if (!ok) {
@@ -5071,12 +5513,334 @@ static NSMutableArray *OMDSecondaryWindows(void)
     }
 }
 
+#if defined(_WIN32)
+- (NSString *)windowsHeadlessBrowserPath
+{
+    NSArray *candidates = [NSArray arrayWithObjects:
+                           @"C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe",
+                           @"C:/Program Files/Microsoft/Edge/Application/msedge.exe",
+                           @"C:/Program Files/Google/Chrome/Application/chrome.exe",
+                           @"C:/Program Files (x86)/Google/Chrome/Application/chrome.exe",
+                           nil];
+    NSFileManager *fileManager = [NSFileManager defaultManager];
+    for (NSString *candidate in candidates) {
+        if ([fileManager isExecutableFileAtPath:candidate]) {
+            return candidate;
+        }
+    }
+    return nil;
+}
+
+- (NSString *)temporaryHTMLExportPath
+{
+    NSString *temporaryDirectory = NSTemporaryDirectory();
+    if (temporaryDirectory == nil || [temporaryDirectory length] == 0) {
+        temporaryDirectory = @"C:/Windows/Temp";
+    }
+    NSString *fileName = [NSString stringWithFormat:@"ObjcMarkdown-Export-%@.html",
+                                                    [[NSProcessInfo processInfo] globallyUniqueString]];
+    return [temporaryDirectory stringByAppendingPathComponent:fileName];
+}
+
+- (NSString *)windowsPDFSavePathWithSuggestedName:(NSString *)suggestedName
+{
+    NSString *initialDirectory = nil;
+    if (_currentPath != nil && [_currentPath length] > 0) {
+        initialDirectory = [_currentPath stringByDeletingLastPathComponent];
+    } else {
+        initialDirectory = [@"~/Desktop" stringByExpandingTildeInPath];
+    }
+
+    NSString *fileName = (suggestedName != nil && [suggestedName length] > 0)
+        ? suggestedName
+        : @"Export.pdf";
+    if (![[[fileName pathExtension] lowercaseString] isEqualToString:@"pdf"]) {
+        fileName = [fileName stringByAppendingPathExtension:@"pdf"];
+    }
+
+    NSUInteger dirLength = [initialDirectory length];
+    wchar_t *wideDirectory = (wchar_t *)calloc(dirLength + 1, sizeof(wchar_t));
+    if (wideDirectory == NULL) {
+        return nil;
+    }
+    [initialDirectory getCharacters:(unichar *)wideDirectory range:NSMakeRange(0, dirLength)];
+    wideDirectory[dirLength] = L'\0';
+
+    NSUInteger fileLength = [fileName length];
+    wchar_t fileBuffer[32768];
+    memset(fileBuffer, 0, sizeof(fileBuffer));
+    if (fileLength > 0) {
+        NSUInteger copyLength = MIN(fileLength, ((sizeof(fileBuffer) / sizeof(wchar_t)) - 1));
+        [fileName getCharacters:(unichar *)fileBuffer range:NSMakeRange(0, copyLength)];
+        fileBuffer[copyLength] = L'\0';
+    }
+
+    const wchar_t filter[] = L"PDF Files (*.pdf)\0*.pdf\0All Files (*.*)\0*.*\0\0";
+    const wchar_t defaultExt[] = L"pdf";
+    const wchar_t title[] = L"Export as PDF";
+
+    OPENFILENAMEW ofn;
+    memset(&ofn, 0, sizeof(ofn));
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner = NULL;
+    ofn.lpstrFile = fileBuffer;
+    ofn.nMaxFile = sizeof(fileBuffer) / sizeof(wchar_t);
+    ofn.lpstrFilter = filter;
+    ofn.nFilterIndex = 1;
+    ofn.lpstrDefExt = defaultExt;
+    ofn.lpstrTitle = title;
+    ofn.lpstrInitialDir = wideDirectory;
+    ofn.Flags = OFN_EXPLORER | OFN_HIDEREADONLY | OFN_PATHMUSTEXIST | OFN_OVERWRITEPROMPT;
+
+    NSString *selectedPath = nil;
+    if (GetSaveFileNameW(&ofn)) {
+        selectedPath = [NSString stringWithCharacters:(const unichar *)fileBuffer length:wcslen(fileBuffer)];
+    }
+
+    free(wideDirectory);
+    return selectedPath;
+}
+
+- (NSString *)styledHTMLDocumentWithBody:(NSString *)bodyHTML title:(NSString *)title
+{
+    NSString *safeTitle = OMDHTMLEscapedString(title != nil ? title : @"Document");
+    NSString *body = (bodyHTML != nil ? bodyHTML : @"");
+    return [NSString stringWithFormat:
+            @"<!doctype html><html><head><meta charset=\"utf-8\">"
+            "<title>%@</title>"
+            "<style>"
+            "@page{size:auto;margin:0.7in;}"
+            "html,body{margin:0;padding:0;background:#ffffff;color:#24292f;}"
+            "body{font-family:Segoe UI,Arial,sans-serif;font-size:12pt;line-height:1.55;}"
+            ".page{max-width:7.2in;margin:0 auto;}"
+            "h1,h2,h3,h4,h5,h6{font-weight:600;line-height:1.25;margin:1.2em 0 0.5em;color:#24292f;page-break-after:avoid;}"
+            "h1{font-size:2em;padding-bottom:0.3em;border-bottom:1px solid #d0d7de;}"
+            "h2{font-size:1.5em;padding-bottom:0.2em;border-bottom:1px solid #d0d7de;}"
+            "h3{font-size:1.25em;}"
+            "p,ul,ol,blockquote,table,pre{margin:0 0 1em 0;}"
+            "ul,ol{padding-left:1.6em;}"
+            "li + li{margin-top:0.25em;}"
+            "a{color:#0969da;text-decoration:none;}"
+            "code{font-family:Consolas,'Courier New',monospace;font-size:0.92em;background:#f6f8fa;border-radius:4px;padding:0.12em 0.35em;}"
+            "pre{background:#f6f8fa;border:1px solid #d0d7de;border-radius:6px;padding:14px 16px;overflow-wrap:anywhere;white-space:pre-wrap;}"
+            "pre code{background:transparent;padding:0;border-radius:0;}"
+            "blockquote{margin-left:0;padding:0 1em;color:#57606a;border-left:0.25em solid #d0d7de;}"
+            "table{width:100%%;border-collapse:collapse;table-layout:auto;font-size:0.96em;page-break-inside:auto;}"
+            "thead{display:table-header-group;}"
+            "tr{page-break-inside:avoid;page-break-after:auto;}"
+            "th,td{border:1px solid #d0d7de;padding:6px 10px;vertical-align:top;text-align:left;}"
+            "th{font-weight:600;background:#f6f8fa;}"
+            "img{max-width:100%%;}"
+            "hr{border:none;border-top:1px solid #d0d7de;margin:1.5em 0;}"
+            "</style></head><body><div class=\"page\">%@</div></body></html>",
+            safeTitle,
+            body];
+}
+
+- (BOOL)writePandocHTMLForCurrentPreviewToPath:(NSString *)path
+{
+    if (path == nil || [path length] == 0) {
+        return NO;
+    }
+
+    OMDDocumentConverter *converter = [self documentConverter];
+    if (converter == nil ||
+        ![[converter backendName] isEqualToString:@"pandoc"] ||
+        ![converter canExportExtension:@"html"]) {
+        return NO;
+    }
+
+    NSString *markdown = [self markdownForCurrentPreview];
+    if (markdown == nil) {
+        markdown = _currentMarkdown;
+    }
+    if (markdown == nil) {
+        return NO;
+    }
+
+    NSString *fragmentPath = [self temporaryHTMLExportPath];
+    if (fragmentPath == nil) {
+        return NO;
+    }
+
+    NSError *error = nil;
+    BOOL exported = [converter exportMarkdown:markdown toPath:fragmentPath error:&error];
+    if (!exported) {
+        [[NSFileManager defaultManager] removeItemAtPath:fragmentPath error:NULL];
+        return NO;
+    }
+
+    NSString *fragment = [NSString stringWithContentsOfFile:fragmentPath
+                                                   encoding:NSUTF8StringEncoding
+                                                      error:NULL];
+    [[NSFileManager defaultManager] removeItemAtPath:fragmentPath error:NULL];
+    if (fragment == nil || [fragment length] == 0) {
+        return NO;
+    }
+
+    NSString *title = (_currentPath != nil ? [[_currentPath lastPathComponent] stringByDeletingPathExtension] : @"Markdown Export");
+    NSString *html = nil;
+    NSRange htmlTagRange = [[fragment lowercaseString] rangeOfString:@"<html"];
+    if (htmlTagRange.location != NSNotFound) {
+        html = fragment;
+    } else {
+        html = [self styledHTMLDocumentWithBody:fragment title:title];
+    }
+
+    NSData *htmlData = [html dataUsingEncoding:NSUTF8StringEncoding];
+    if (htmlData == nil || [htmlData length] == 0) {
+        return NO;
+    }
+    return [htmlData writeToFile:path atomically:YES];
+}
+
+- (BOOL)writeHTMLForPrintView:(OMDTextView *)printView toPath:(NSString *)path
+{
+    if (printView == nil || path == nil || [path length] == 0) {
+        return NO;
+    }
+
+    NSAttributedString *content = [[printView textStorage] copy];
+    if (content == nil) {
+        return NO;
+    }
+    NSError *error = nil;
+    NSDictionary *attributes = [NSDictionary dictionaryWithObjectsAndKeys:
+                                NSHTMLTextDocumentType, NSDocumentTypeDocumentAttribute,
+                                [NSNumber numberWithUnsignedInteger:NSUTF8StringEncoding], NSCharacterEncodingDocumentAttribute,
+                                nil];
+    NSData *htmlData = [content dataFromRange:NSMakeRange(0, [content length])
+                           documentAttributes:attributes
+                                        error:&error];
+    [content release];
+    if (htmlData == nil || [htmlData length] == 0) {
+        NSString *plainText = [[printView textStorage] string];
+        if (plainText == nil) {
+            plainText = @"";
+        }
+        NSString *htmlString = [NSString stringWithFormat:
+                                @"<!doctype html><html><head><meta charset=\"utf-8\">"
+                                "<style>body{font-family:Segoe UI,Arial,sans-serif;margin:40px;line-height:1.45;color:#222;}pre{white-space:pre-wrap;word-wrap:break-word;font:14px/1.45 Consolas,'Courier New',monospace;}</style>"
+                                "</head><body><pre>%@</pre></body></html>",
+                                OMDHTMLEscapedString(plainText)];
+        htmlData = [htmlString dataUsingEncoding:NSUTF8StringEncoding];
+        if (htmlData == nil || [htmlData length] == 0) {
+            return NO;
+        }
+    }
+    return [htmlData writeToFile:path atomically:YES];
+}
+
+- (BOOL)exportHTMLAtPath:(NSString *)htmlPath toPDFAtPath:(NSString *)pdfPath usingBrowser:(NSString *)browserPath
+{
+    if (htmlPath == nil || [htmlPath length] == 0 || pdfPath == nil || [pdfPath length] == 0 || browserPath == nil) {
+        return NO;
+    }
+
+    NSURL *htmlURL = [NSURL fileURLWithPath:htmlPath];
+    if (htmlURL == nil) {
+        return NO;
+    }
+
+    NSTask *task = [[[NSTask alloc] init] autorelease];
+    [task setLaunchPath:browserPath];
+    [task setArguments:[NSArray arrayWithObjects:
+                        @"--headless",
+                        @"--disable-gpu",
+                        @"--allow-file-access-from-files",
+                        @"--no-pdf-header-footer",
+                        [NSString stringWithFormat:@"--print-to-pdf=%@", pdfPath],
+                        [htmlURL absoluteString],
+                        nil]];
+
+    NSPipe *stdoutPipe = [NSPipe pipe];
+    NSPipe *stderrPipe = [NSPipe pipe];
+    [task setStandardOutput:stdoutPipe];
+    [task setStandardError:stderrPipe];
+
+    BOOL launched = YES;
+    @try {
+        [task launch];
+        [task waitUntilExit];
+    } @catch (NSException *exception) {
+        launched = NO;
+        (void)exception;
+    }
+
+    return (launched &&
+            [task terminationStatus] == 0 &&
+            [[NSFileManager defaultManager] fileExistsAtPath:pdfPath]);
+}
+
+- (BOOL)exportPrintView:(OMDTextView *)printView toPDFAtPath:(NSString *)pdfPath usingBrowser:(NSString *)browserPath
+{
+    NSString *htmlPath = [self temporaryHTMLExportPath];
+    if (htmlPath == nil) {
+        return NO;
+    }
+
+    BOOL wroteHTML = [self writePandocHTMLForCurrentPreviewToPath:htmlPath];
+    if (!wroteHTML) {
+        wroteHTML = [self writeHTMLForPrintView:printView toPath:htmlPath];
+    }
+    if (!wroteHTML) {
+        [[NSFileManager defaultManager] removeItemAtPath:htmlPath error:NULL];
+        return NO;
+    }
+
+    BOOL success = [self exportHTMLAtPath:htmlPath toPDFAtPath:pdfPath usingBrowser:browserPath];
+    [[NSFileManager defaultManager] removeItemAtPath:htmlPath error:NULL];
+    return success;
+}
+
+- (NSString *)temporaryPDFPrintPath
+{
+    NSString *temporaryDirectory = NSTemporaryDirectory();
+    if (temporaryDirectory == nil || [temporaryDirectory length] == 0) {
+        temporaryDirectory = @"C:/Windows/Temp";
+    }
+    NSString *fileName = [NSString stringWithFormat:@"ObjcMarkdown-Print-%@.pdf",
+                                                    [[NSProcessInfo processInfo] globallyUniqueString]];
+    return [temporaryDirectory stringByAppendingPathComponent:fileName];
+}
+
+- (BOOL)launchWindowsShellPrintForPDFAtPath:(NSString *)path
+{
+    if (path == nil || [path length] == 0) {
+        return NO;
+    }
+
+    NSUInteger length = [path length];
+    wchar_t *widePath = (wchar_t *)calloc(length + 1, sizeof(wchar_t));
+    if (widePath == NULL) {
+        return NO;
+    }
+
+    [path getCharacters:(unichar *)widePath range:NSMakeRange(0, length)];
+    widePath[length] = L'\0';
+
+    HINSTANCE result = ShellExecuteW(NULL, L"print", widePath, NULL, NULL, SW_HIDE);
+    if ((INT_PTR)result <= 32) {
+        result = ShellExecuteW(NULL, L"open", widePath, NULL, NULL, SW_SHOWNORMAL);
+    }
+
+    free(widePath);
+    return ((INT_PTR)result > 32);
+}
+#endif
+
 - (void)exportDocumentAsPDF:(id)sender
 {
     if (![self ensureDocumentLoadedForActionName:@"Export as PDF"]) {
         return;
     }
 
+#if defined(_WIN32)
+    NSString *path = [self windowsPDFSavePathWithSuggestedName:[self defaultExportFileNameWithExtension:@"pdf"]];
+    if (path == nil || [path length] == 0) {
+        return;
+    }
+#else
     NSSavePanel *panel = [NSSavePanel savePanel];
     [panel setAllowedFileTypes:[NSArray arrayWithObject:@"pdf"]];
     [panel setCanCreateDirectories:YES];
@@ -5096,6 +5860,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
     if (path == nil || [path length] == 0) {
         return;
     }
+#endif
     if (![[[path pathExtension] lowercaseString] isEqualToString:@"pdf"]) {
         path = [path stringByAppendingPathExtension:@"pdf"];
     }
@@ -5106,6 +5871,11 @@ static NSMutableArray *OMDSecondaryWindows(void)
         return;
     }
 
+#if defined(_WIN32)
+    NSString *browserPath = [self windowsHeadlessBrowserPath];
+    BOOL success = (browserPath != nil &&
+                    [self exportPrintView:printView toPDFAtPath:path usingBrowser:browserPath]);
+#else
     [printInfo setJobDisposition:NSPrintSaveJob];
     [[printInfo dictionary] setObject:path forKey:NSPrintSavePath];
 
@@ -5114,6 +5884,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [operation setShowsPrintPanel:NO];
     [operation setShowsProgressPanel:YES];
     BOOL success = [operation runOperation];
+#endif
 
     [printView release];
 
@@ -5229,6 +6000,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
     _isProgrammaticPreviewUpdate = YES;
     [[_textView textStorage] setAttributedString:rendered];
     _isProgrammaticPreviewUpdate = NO;
+    [self logPreviewStyleDiagnosticsForRenderedString:rendered];
     NSTimeInterval applyMs = perfLogging ? ((OMDNow() - applyStart) * 1000.0) : 0.0;
     [self updatePreviewDocumentGeometry];
     NSTimeInterval postStart = perfLogging ? OMDNow() : 0.0;
@@ -5290,6 +6062,44 @@ static NSMutableArray *OMDSecondaryWindows(void)
     }
 }
 
+- (void)logPreviewStyleDiagnosticsForRenderedString:(NSAttributedString *)rendered
+{
+    if (!OMDPreviewStyleDiagnosticsEnabled() || rendered == nil || [rendered length] == 0) {
+        return;
+    }
+
+    static NSArray *tokens = nil;
+    if (tokens == nil) {
+        tokens = [[NSArray alloc] initWithObjects:@"italic sample", @"remove sample", @"bold sample", nil];
+    }
+
+    NSString *text = [rendered string];
+    for (NSString *token in tokens) {
+        NSRange range = [text rangeOfString:token];
+        if (range.location == NSNotFound) {
+            NSLog(@"[StyleDiag] token='%@' not found in preview text", token);
+            continue;
+        }
+
+        NSDictionary *attrs = [rendered attributesAtIndex:range.location effectiveRange:NULL];
+        NSFont *font = [attrs objectForKey:NSFontAttributeName];
+        NSNumber *obliqueness = [attrs objectForKey:NSObliquenessAttributeName];
+        NSNumber *strikethrough = [attrs objectForKey:NSStrikethroughStyleAttributeName];
+        NSUInteger traits = 0;
+        if (font != nil) {
+            traits = [[NSFontManager sharedFontManager] traitsOfFont:font];
+        }
+
+        NSLog(@"[StyleDiag] token='%@' font='%@' traits=%lu obliqueness=%@ strikethrough=%@ attrs=%@",
+              token,
+              (font != nil ? [font fontName] : @"<nil>"),
+              (unsigned long)traits,
+              (obliqueness != nil ? [obliqueness description] : @"<nil>"),
+              (strikethrough != nil ? [strikethrough description] : @"<nil>"),
+              attrs);
+    }
+}
+
 - (void)clearPreviewPresentation
 {
     if (_textView == nil || _previewScrollView == nil || _previewCanvasView == nil) {
@@ -5339,6 +6149,44 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [_previewCanvasView setNeedsDisplayInRect:dirtyRect];
     [_textView setNeedsDisplay:YES];
     [self scrollScrollViewToDocumentTop:_previewScrollView];
+}
+
+- (void)applyWindowsWindowIconsIfPossible
+{
+#if defined(_WIN32)
+    if (_window == nil || ![_window respondsToSelector:@selector(windowHandle)]) {
+        return;
+    }
+
+    HWND hwnd = (HWND)[_window windowHandle];
+    if (hwnd == NULL) {
+        return;
+    }
+
+    HINSTANCE instance = GetModuleHandleW(NULL);
+    if (instance == NULL) {
+        return;
+    }
+
+    HICON largeIcon = (HICON)LoadImageW(instance,
+                                        MAKEINTRESOURCEW(1),
+                                        IMAGE_ICON,
+                                        GetSystemMetrics(SM_CXICON),
+                                        GetSystemMetrics(SM_CYICON),
+                                        LR_DEFAULTCOLOR);
+    HICON smallIcon = (HICON)LoadImageW(instance,
+                                        MAKEINTRESOURCEW(1),
+                                        IMAGE_ICON,
+                                        GetSystemMetrics(SM_CXSMICON),
+                                        GetSystemMetrics(SM_CYSMICON),
+                                        LR_DEFAULTCOLOR);
+    if (largeIcon != NULL) {
+        SendMessageW(hwnd, WM_SETICON, ICON_BIG, (LPARAM)largeIcon);
+    }
+    if (smallIcon != NULL) {
+        SendMessageW(hwnd, WM_SETICON, ICON_SMALL, (LPARAM)smallIcon);
+    }
+#endif
 }
 
 - (void)updateAdaptiveZoomDebounceWithRenderDurationMs:(NSTimeInterval)durationMs
@@ -7291,6 +8139,9 @@ constrainSplitPosition:(CGFloat)proposedPosition
         userComboWidth = 1.0;
     }
     CGFloat navigateButtonWidth = 32.0;
+#if defined(_WIN32)
+    navigateButtonWidth = 44.0;
+#endif
     CGFloat navigateButtonGap = 6.0;
     CGFloat pathWidth = width - (metrics.explorerSidePadding * 2.0) - navigateButtonWidth - navigateButtonGap;
     if (pathWidth < 1.0) {
@@ -7307,14 +8158,26 @@ constrainSplitPosition:(CGFloat)proposedPosition
     NSFont *labelFont = [NSFont systemFontOfSize:(metrics.scale > 1.05 ? 12.0 : 11.0)];
     NSFont *pathFont = [NSFont systemFontOfSize:(metrics.scale > 1.05 ? 11.0 : 10.5)];
 
+#if defined(_WIN32)
+    _explorerSourceModeControl = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(metrics.explorerSidePadding,
+                                                                                 NSHeight(bounds) - 34,
+                                                                                 wideControlWidth,
+                                                                                 metrics.explorerControlHeight)
+                                                            pullsDown:NO];
+    [(NSPopUpButton *)_explorerSourceModeControl removeAllItems];
+    [(NSPopUpButton *)_explorerSourceModeControl addItemWithTitle:@"Local"];
+    [(NSPopUpButton *)_explorerSourceModeControl addItemWithTitle:@"GitHub"];
+    [(NSPopUpButton *)_explorerSourceModeControl setFont:labelFont];
+#else
     _explorerSourceModeControl = [[NSSegmentedControl alloc] initWithFrame:NSMakeRect(metrics.explorerSidePadding,
                                                                                       NSHeight(bounds) - 34,
                                                                                       wideControlWidth,
                                                                                       metrics.explorerControlHeight)];
-    [_explorerSourceModeControl setSegmentCount:2];
-    [_explorerSourceModeControl setLabel:@"Local" forSegment:0];
-    [_explorerSourceModeControl setLabel:@"GitHub" forSegment:1];
-    [_explorerSourceModeControl setSelectedSegment:_explorerSourceMode];
+    [(NSSegmentedControl *)_explorerSourceModeControl setSegmentCount:2];
+    [(NSSegmentedControl *)_explorerSourceModeControl setLabel:@"Local" forSegment:0];
+    [(NSSegmentedControl *)_explorerSourceModeControl setLabel:@"GitHub" forSegment:1];
+#endif
+    [self setSelectedExplorerSourceModeControlIndex:_explorerSourceMode];
     [_explorerSourceModeControl setTarget:self];
     [_explorerSourceModeControl setAction:@selector(explorerSourceModeChanged:)];
     [_explorerSourceModeControl setAutoresizingMask:(NSViewWidthSizable | NSViewMinYMargin)];
@@ -7396,7 +8259,13 @@ constrainSplitPosition:(CGFloat)proposedPosition
     [_explorerNavigateUpButton setBezelStyle:NSRoundedBezelStyle];
     [_explorerNavigateUpButton setImage:OMDToolbarTintedImage(OMDExplorerNavigateParentBaseImage(),
                                                               OMDResolvedControlTextColor())];
+#if defined(_WIN32)
+    [_explorerNavigateUpButton setTitle:@"Up"];
+    [_explorerNavigateUpButton setFont:labelFont];
+    [_explorerNavigateUpButton setImagePosition:NSImageLeft];
+#else
     [_explorerNavigateUpButton setImagePosition:NSImageOnly];
+#endif
     [_explorerNavigateUpButton setToolTip:@"Go to the parent folder or repository path"];
     [_explorerNavigateUpButton setTarget:self];
     [_explorerNavigateUpButton setAction:@selector(explorerNavigateUp:)];
@@ -7466,7 +8335,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
 {
     OMDLayoutMetrics metrics = OMDLayoutMetricsForMode([self effectiveLayoutDensityMode]);
     BOOL githubMode = (_explorerSourceMode == OMDExplorerSourceModeGitHub);
-    [_explorerSourceModeControl setSelectedSegment:_explorerSourceMode];
+    [self setSelectedExplorerSourceModeControlIndex:_explorerSourceMode];
     if (_explorerGitHubUserComboBox != nil) {
         [_explorerGitHubUserComboBox setStringValue:(_explorerGitHubUser != nil ? _explorerGitHubUser : @"")];
     }
@@ -7506,6 +8375,9 @@ constrainSplitPosition:(CGFloat)proposedPosition
         userComboWidth = 1.0;
     }
     CGFloat navigateButtonWidth = 32.0;
+#if defined(_WIN32)
+    navigateButtonWidth = 44.0;
+#endif
     CGFloat navigateButtonGap = 6.0;
     CGFloat pathWidth = width - (metrics.explorerSidePadding * 2.0) - navigateButtonWidth - navigateButtonGap;
     if (pathWidth < 1.0) {
@@ -7850,9 +8722,8 @@ constrainSplitPosition:(CGFloat)proposedPosition
                  output:(NSString **)output
                   error:(NSError **)error
 {
-    BOOL hasEnv = [[NSFileManager defaultManager] isExecutableFileAtPath:@"/usr/bin/env"];
-    BOOL hasGit = [[NSFileManager defaultManager] isExecutableFileAtPath:@"/usr/bin/git"];
-    if (!hasEnv && !hasGit) {
+    NSString *gitPath = OMDExecutablePathNamed(@"git");
+    if (gitPath == nil) {
         if (error != NULL) {
             *error = [NSError errorWithDomain:OMDGitHubCacheErrorDomain
                                          code:1
@@ -7871,12 +8742,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
     for (; attempt < 3; attempt++) {
         NSTask *task = [[[NSTask alloc] init] autorelease];
         NSMutableArray *taskArguments = [NSMutableArray array];
-        if (hasEnv) {
-            [task setLaunchPath:@"/usr/bin/env"];
-            [taskArguments addObject:@"git"];
-        } else {
-            [task setLaunchPath:@"/usr/bin/git"];
-        }
+        [task setLaunchPath:gitPath];
         if (arguments != nil) {
             [taskArguments addObjectsFromArray:arguments];
         }
@@ -7884,11 +8750,19 @@ constrainSplitPosition:(CGFloat)proposedPosition
         if (directory != nil && [directory length] > 0) {
             [task setCurrentDirectoryPath:directory];
         }
+        NSMutableDictionary *environment = [NSMutableDictionary dictionaryWithDictionary:[[NSProcessInfo processInfo] environment]];
+        [environment setObject:@"0" forKey:@"GIT_TERMINAL_PROMPT"];
+        [environment setObject:@"never" forKey:@"GIT_ASKPASS"];
+        [environment setObject:@"Never" forKey:@"GCM_INTERACTIVE"];
+        [task setEnvironment:environment];
 
         NSPipe *stdoutPipe = [NSPipe pipe];
         NSPipe *stderrPipe = [NSPipe pipe];
         [task setStandardOutput:stdoutPipe];
         [task setStandardError:stderrPipe];
+        if ([NSFileHandle respondsToSelector:@selector(fileHandleWithNullDevice)]) {
+            [task setStandardInput:[NSFileHandle fileHandleWithNullDevice]];
+        }
 
         BOOL launched = YES;
         NSString *attemptLaunchFailureReason = nil;
@@ -8006,7 +8880,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
 
     if (!exists) {
         NSError *cloneError = nil;
-        BOOL cloned = [self runGitArguments:@[@"clone", @"--depth", @"1", remoteURL, repoPath]
+        BOOL cloned = [self runGitArguments:@[@"clone", @"--quiet", @"--depth", @"1", remoteURL, repoPath]
                                 inDirectory:nil
                                      output:NULL
                                       error:&cloneError];
@@ -8023,7 +8897,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
                                                     options:NSCaseInsensitiveSearch];
                 if (existsRange.location != NSNotFound) {
                     [fileManager removeItemAtPath:repoPath error:NULL];
-                    cloned = [self runGitArguments:@[@"clone", @"--depth", @"1", remoteURL, repoPath]
+                    cloned = [self runGitArguments:@[@"clone", @"--quiet", @"--depth", @"1", remoteURL, repoPath]
                                        inDirectory:nil
                                             output:NULL
                                              error:&cloneError];
@@ -8057,28 +8931,28 @@ constrainSplitPosition:(CGFloat)proposedPosition
                     error:NULL];
 
     NSError *fetchError = nil;
-    BOOL fetched = [self runGitArguments:@[@"fetch", @"--depth", @"1", @"origin"]
+    BOOL fetched = [self runGitArguments:@[@"fetch", @"--quiet", @"--depth", @"1", @"origin"]
                              inDirectory:repoPath
                                   output:NULL
                                    error:&fetchError];
     if (fetched) {
-        BOOL checkedOut = [self runGitArguments:@[@"checkout", @"-f", @"--detach", @"origin/HEAD"]
+        BOOL checkedOut = [self runGitArguments:@[@"checkout", @"--quiet", @"-f", @"--detach", @"origin/HEAD"]
                                     inDirectory:repoPath
                                          output:NULL
                                           error:NULL];
         if (!checkedOut) {
-            checkedOut = [self runGitArguments:@[@"checkout", @"-f", @"--detach", @"origin/main"]
+            checkedOut = [self runGitArguments:@[@"checkout", @"--quiet", @"-f", @"--detach", @"origin/main"]
                                     inDirectory:repoPath
                                          output:NULL
                                           error:NULL];
         }
         if (!checkedOut) {
-            [self runGitArguments:@[@"checkout", @"-f", @"--detach", @"origin/master"]
+            [self runGitArguments:@[@"checkout", @"--quiet", @"-f", @"--detach", @"origin/master"]
                       inDirectory:repoPath
                            output:NULL
                             error:NULL];
         }
-        [self runGitArguments:@[@"reset", @"--hard"]
+        [self runGitArguments:@[@"reset", @"--quiet", @"--hard"]
                   inDirectory:repoPath
                        output:NULL
                         error:NULL];
@@ -8506,12 +9380,42 @@ constrainSplitPosition:(CGFloat)proposedPosition
 
 - (void)explorerSourceModeChanged:(id)sender
 {
-    NSInteger mode = [_explorerSourceModeControl selectedSegment];
+    NSInteger mode = [self selectedExplorerSourceModeControlIndex];
     if (mode != OMDExplorerSourceModeGitHub) {
         mode = OMDExplorerSourceModeLocal;
     }
     _explorerSourceMode = mode;
     [self reloadExplorerEntries];
+}
+
+- (NSInteger)selectedExplorerSourceModeControlIndex
+{
+#if defined(_WIN32)
+    if ([_explorerSourceModeControl isKindOfClass:[NSPopUpButton class]]) {
+        return [(NSPopUpButton *)_explorerSourceModeControl indexOfSelectedItem];
+    }
+#else
+    if ([_explorerSourceModeControl isKindOfClass:[NSSegmentedControl class]]) {
+        return [(NSSegmentedControl *)_explorerSourceModeControl selectedSegment];
+    }
+#endif
+    return OMDExplorerSourceModeLocal;
+}
+
+- (void)setSelectedExplorerSourceModeControlIndex:(NSInteger)index
+{
+    if (index != OMDExplorerSourceModeGitHub) {
+        index = OMDExplorerSourceModeLocal;
+    }
+#if defined(_WIN32)
+    if ([_explorerSourceModeControl isKindOfClass:[NSPopUpButton class]]) {
+        [(NSPopUpButton *)_explorerSourceModeControl selectItemAtIndex:index];
+    }
+#else
+    if ([_explorerSourceModeControl isKindOfClass:[NSSegmentedControl class]]) {
+        [(NSSegmentedControl *)_explorerSourceModeControl setSelectedSegment:index];
+    }
+#endif
 }
 
 - (void)explorerNavigateUp:(id)sender
@@ -12912,10 +13816,9 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
     NSUInteger i = 1;
     for (; i < [args count]; i++) {
         NSString *candidate = [args objectAtIndex:i];
-        NSString *expanded = [candidate stringByExpandingTildeInPath];
-        if (![expanded isAbsolutePath]) {
-            NSString *cwd = [fm currentDirectoryPath];
-            expanded = [cwd stringByAppendingPathComponent:expanded];
+        NSString *expanded = [self resolvedAbsolutePathForLocalPath:candidate];
+        if ([expanded length] == 0) {
+            continue;
         }
         if ([fm fileExistsAtPath:expanded]) {
             BOOL opened = [self openDocumentAtPath:expanded];
@@ -12939,6 +13842,13 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
 }
 
 - (BOOL)openDocumentAtPath:(NSString *)path
+{
+    return [self openDocumentAtPath:path inNewTab:NO requireDirtyConfirm:YES];
+}
+
+- (BOOL)openDocumentAtPath:(NSString *)path
+                  inNewTab:(BOOL)inNewTab
+       requireDirtyConfirm:(BOOL)requireDirtyConfirm
 {
     NSString *resolvedPath = [self resolvedAbsolutePathForLocalPath:path];
     if ([resolvedPath length] == 0) {
@@ -12965,8 +13875,8 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
                                          readOnly:NO
                                        renderMode:renderMode
                                    syntaxLanguage:syntaxLanguage
-                                         inNewTab:NO
-                              requireDirtyConfirm:YES];
+                                         inNewTab:inNewTab
+                              requireDirtyConfirm:requireDirtyConfirm];
     if (opened) {
         [self noteRecentDocumentAtPathIfAvailable:resolvedPath];
     }

@@ -86,7 +86,7 @@ Currently supported in the renderer:
 This repository is currently a `0.1` source-first preview.
 
 - Primary supported environment: GNUstep on Linux with a clang/libobjc2/libdispatch toolchain.
-- Windows support exists, but it is still experimental. See [WINDOWS_BUILD.md](WINDOWS_BUILD.md).
+- Windows support exists through the MSYS2 `clang64` toolchain. PowerShell/Codex sessions should use `scripts/windows/build-from-powershell.ps1`; see [WINDOWS_BUILD.md](WINDOWS_BUILD.md).
 - macOS compatibility is still a project goal, but there is not yet a maintained macOS setup guide in this repo.
 
 ## Toolchain Requirements
@@ -153,12 +153,23 @@ The current Linux CI entry point is:
 
 - [linux-gnustep-clang.yml](.github/workflows/linux-gnustep-clang.yml)
 
+Windows packaging and release publishing are handled by:
+
+- [windows-packaging.yml](.github/workflows/windows-packaging.yml)
+
+Release flow:
+
+- Push an annotated tag like `v0.1.0`.
+- GitHub Actions runs the Linux gate, builds the Windows MSI and portable ZIP, and uploads the Windows artifacts for that tag.
+- Clean-machine validation is still done with the OCI Windows workflow in [docs/windows-oci-msi-validation.md](docs/windows-oci-msi-validation.md).
+
 ## Public Docs
 
 - [Roadmap.md](Roadmap.md)
 - [OpenIssues.md](OpenIssues.md)
 - [ClosedIssues.md](ClosedIssues.md)
 - [WINDOWS_BUILD.md](WINDOWS_BUILD.md)
+- [docs/windows-oci-msi-validation.md](docs/windows-oci-msi-validation.md)
 - [docs/linux-clang-toolchain.md](docs/linux-clang-toolchain.md)
 
 Working notes, milestone handoffs, and validation checklists that were cluttering the repo root now live under [docs/internal](docs/internal/README.md).

@@ -2,67 +2,87 @@
 
 ## Status
 
-This repository is validated on GNUstep/Linux first. Windows support is an active bring-up target.
-We use WSL for Codex ergonomics, but all Windows builds should use MSYS2 `clang64` from WSL.
+This repository is validated on GNUstep/Linux first. On Windows, the only supported
+build method is MSYS2 `clang64`, followed by staging and MSI packaging.
 
-This document gives two paths:
-- Fast path: WSL2 (recommended for immediate productivity)
-- Native Windows GNUstep path (experimental)
+WSL may be used as a convenience shell to invoke the Windows MSYS2 environment, but
+WSL GNUstep and native Windows GNUstep bring-up are not supported build paths for
+this project.
 
-## Path A (Recommended): WSL2 GNUstep
-
-Use this when you need a working Windows-hosted environment quickly.
-
-1. Install WSL2 and an Ubuntu distro.
-2. In WSL, install GNUstep, `gmake`, compiler toolchain, `pkg-config`, and `cmark` dev headers/libs.
-3. Clone the repo in WSL.
-4. Build and run:
-
-```bash
-source /usr/GNUstep/System/Library/Makefiles/GNUstep.sh
-gmake
-gmake run TableRenderDemo.md
-```
-
-5. Run tests:
-
-```bash
-source /usr/GNUstep/System/Library/Makefiles/GNUstep.sh
-mkdir -p ~/GNUstep/Defaults/.lck
-LD_LIBRARY_PATH=$PWD/ObjcMarkdown/obj:/usr/GNUstep/System/Library/Libraries xctest ObjcMarkdownTests/ObjcMarkdownTests.bundle
-```
-
-## Path B: Native Windows GNUstep (Experimental)
+## Supported Windows Build Method: MSYS2 `clang64`
 
 ### 1) Required Components
 
-- GNUstep make/base/gui toolchain for Windows
+- MSYS2 with the `clang64` environment
+- GNUstep make/base/gui toolchain installed in MSYS2 `clang64`
 - Objective-C capable compiler toolchain
-- `gmake`
+- `make`
 - `pkg-config`
-- `cmark` headers and library (`cmark.h`, linkable `cmark`)
+- `cmark` headers and library (`cmark.h`, linkable `cmark`; MSYS2 exposes this via `libcmark.pc`)
 - `xctest` (from GNUstep tools-xctest) if you want unit tests on Windows
+- WiX if you are producing the MSI package
 
 ### 2) Environment Expectations
 
-You need a shell session where GNUstep variables are set (equivalent to sourcing `GNUstep.sh` on Linux).
+Run all Windows builds inside the MSYS2 `clang64` environment. If you launch the
+build from WSL, invoke MSYS2 on the Windows side and use the Windows repo path.
+
+Before building, load the MSYS2 profile and GNUstep environment:
+
+```bash
+source /etc/profile
+source /clang64/share/GNUstep/Makefiles/GNUstep.sh
+```
 
 Sanity checks:
 
 ```bash
-gmake --version
-pkg-config --cflags cmark
-pkg-config --libs cmark
+make --version
+pkg-config --cflags libcmark
+pkg-config --libs libcmark
 ```
 
 If these fail, do not continue until fixed.
 
+### 2a) PowerShell / Codex Entry Point
+
+When you are driving the build from Windows PowerShell, do not try to build in plain
+PowerShell directly. Use PowerShell only as the launcher for the supported MSYS2
+`clang64` shell.
+
+This repo includes a helper script for that workflow:
+
+```powershell
+.\scripts\windows\build-from-powershell.ps1
+```
+
+That default command performs the equivalent of:
+
+```powershell
+& 'C:\msys64\usr\bin\env.exe' 'MSYSTEM=CLANG64' 'CHERE_INVOKING=1' '/usr/bin/bash' '-lc' 'source /etc/profile; source /clang64/share/GNUstep/Makefiles/GNUstep.sh; cd /c/Users/Support/git/ObjcMarkdown; make'
+```
+
+Important:
+- Keep the `cd /c/.../ObjcMarkdown` inside the MSYS2 command. Do not assume the
+  PowerShell working directory will carry over correctly into MSYS2.
+- The helper script resolves the repo root automatically from its own location, so it
+  is suitable for Codex sessions launched from PowerShell in this repo.
+- Override `-MsysRoot` if MSYS2 is installed somewhere other than `C:\msys64`.
+
 ### 3) Build
 
-From repo root:
+From the repo root inside MSYS2 `clang64`:
 
 ```bash
-gmake
+source /etc/profile
+source /clang64/share/GNUstep/Makefiles/GNUstep.sh
+make
+```
+
+From PowerShell/Codex, use:
+
+```powershell
+.\scripts\windows\build-from-powershell.ps1 -Task build
 ```
 
 This builds:
@@ -72,18 +92,29 @@ This builds:
 - `MarkdownViewer`
 - `ObjcMarkdownTests`
 
+Windows/MSYS2 note:
+- The current tree includes a viewer-target workaround for the MSYS2 `clang64` + GNUstep header issue where `dispatch/io.h` fails with `unknown type name 'mode_t'`.
+- The workaround is applied in `ObjcMarkdownViewer/GNUmakefile` by forcing `sys/types.h` into the Objective-C compile and defining `mode_t` for that target's Windows build.
+- If that error reappears in a future Codex session, inspect the actual compile line with `make -n messages=yes` inside `ObjcMarkdownViewer/` before changing unrelated code.
+
 ### 4) Run
 
-Preferred:
-
 ```bash
-gmake run TableRenderDemo.md
+source /etc/profile
+source /clang64/share/GNUstep/Makefiles/GNUstep.sh
+make run TableRenderDemo.md
 ```
 
-If `openapp` is unavailable in your Windows GNUstep environment, run the app binary directly:
+From PowerShell/Codex, use:
+
+```powershell
+.\scripts\windows\build-from-powershell.ps1 -Task run -RunTarget TableRenderDemo.md
+```
+
+If `openapp` is unavailable in your MSYS2 `clang64` environment, run the app binary directly:
 
 ```bash
-ObjcMarkdownViewer/MarkdownViewer.app/MarkdownViewer TableRenderDemo.md
+ObjcMarkdownViewer/MarkdownViewer.app/MarkdownViewer.exe TableRenderDemo.md
 ```
 
 Theme note (Windows):
@@ -93,9 +124,20 @@ Theme note (Windows):
 ### 5) Tests
 
 ```bash
+source /etc/profile
+source /clang64/share/GNUstep/Makefiles/GNUstep.sh
 mkdir -p ~/GNUstep/Defaults/.lck
 xctest ObjcMarkdownTests/ObjcMarkdownTests.bundle
 ```
+
+From PowerShell/Codex, use:
+
+```powershell
+.\scripts\windows\build-from-powershell.ps1 -Task test
+```
+
+The PowerShell helper creates `~/GNUstep/Defaults/.lck` and prepends the repo build
+output directories to `PATH` before invoking `xctest`.
 
 If dynamic library loading fails on Windows, add repo build output directories to your runtime DLL search path (`PATH`) before running tests/app.
 
@@ -108,28 +150,37 @@ Suggested directories:
 
 1. `cmark` not found
 - Symptom: `cmark.h` missing or `-lcmark` link errors.
-- Fix: install/provide cmark dev package and ensure `pkg-config` can resolve it.
+- Fix: install/provide cmark dev package and ensure `pkg-config --libs libcmark` works.
 
-2. `dispatch` / `-ldispatch` link errors
+2. GNUstep environment not loaded
+- Symptom: errors such as `/common.make: No such file or directory`.
+- Fix: source `/etc/profile` and `/clang64/share/GNUstep/Makefiles/GNUstep.sh` before running `make`.
+
+3. `dispatch` / `-ldispatch` link errors
 - Symptom: unresolved `dispatch_*` symbols.
 - Fix: install/provide libdispatch for your Windows GNUstep toolchain, or patch linkage for a no-dispatch fallback build.
 
-3. `openapp` missing
-- Symptom: `gmake run` fails.
+4. MSYS2 `mode_t` header break
+- Symptom: Windows app sources fail while including AppKit/Foundation/dispatch with an error like `dispatch/io.h: unknown type name 'mode_t'`.
+- Fix: keep the Windows-specific viewer build workaround in `ObjcMarkdownViewer/GNUmakefile` that forces `sys/types.h` and defines `mode_t` for the Objective-C compile.
+- Diagnostic: run `make -n messages=yes` in `ObjcMarkdownViewer/` and verify the compile line still includes the Windows workaround flags.
+
+5. `openapp` missing
+- Symptom: `make run` fails.
 - Fix: launch the app binary directly.
 
-4. Test lock directory missing
+6. Test lock directory missing
 - Symptom: defaults/lock file errors while running tests.
 - Fix: create `~/GNUstep/Defaults/.lck`.
 
-5. Sombre theme crash (Windows)
+7. Sombre theme crash (Windows)
 - Symptom: launch under `GSTheme=Sombre` fails with an `NSInvalidArgumentException` and no usable main window.
 - Fix: use `WinUXTheme` (default in `scripts/omd-viewer-msys2.sh`) unless you are actively investigating Sombre.
 - If you want Sombre enabled: rebuild and install Sombre with the same MSYS2 toolchain version as the app so `Sombre.dll` links to the same `gnustep-base-*.dll`.
 
 ## First-Pass Bring-Up Checklist
 
-- `gmake` completes without errors
+- `make` completes without errors
 - App launches and renders `TableRenderDemo.md`
 - `xctest ObjcMarkdownTests/ObjcMarkdownTests.bundle` executes
 - Toolbar icons are legible in current theme
@@ -144,10 +195,21 @@ Suggested directories:
 ## Packaging (MSI + Portable ZIP)
 
 This repo includes a staging script that gathers the app bundle, GNUstep resources,
-and runtime DLL dependencies into a single directory.
+and runtime DLL dependencies into a single directory. Windows release artifacts are
+expected to come from this MSYS2 `clang64` build output.
+
+Run staging from MSYS2 `clang64`, not plain WSL/Linux. The staging script builds the
+production `MarkdownViewer.exe` GUI launcher only when it is running in a Windows/MSYS2
+environment.
 
 ```bash
 ./scripts/windows/stage-runtime.sh dist/ObjcMarkdown
+```
+
+From PowerShell/Codex, use:
+
+```powershell
+.\scripts\windows\build-from-powershell.ps1 -Task stage -StageDir dist/ObjcMarkdown
 ```
 
 The CI workflow then:
@@ -156,64 +218,84 @@ The CI workflow then:
 
 Runtime layout:
 - GNUstep runtime files are installed under `C:\clang64` (mirroring MSYS2 layout).
-- The app launcher adds `C:\clang64\bin` to `PATH` before launching.
+- The production launcher is a GUI-mode `MarkdownViewer.exe` that configures the runtime path and starts the bundled app without opening a console window.
+- The launcher prefers a bundled `clang64` folder when present, and otherwise falls back to `C:\clang64\bin`.
 - The portable ZIP includes `PortableSetup.cmd` to copy the runtime into `C:\clang64`.
+
+For the OCI-based clean-machine MSI validation workflow, including the current
+golden Windows image and the intended `scp`/`ssh` validation loop, see
+[docs/windows-oci-msi-validation.md](docs/windows-oci-msi-validation.md).
 
 ## Windows Builds From WSL (MSYS2 clang64)
 
 We are typically inside WSL, but Windows builds must be performed by MSYS2 `clang64`.
-Initiate the Windows build from WSL by invoking the MSYS2 bash on Windows.
+Initiate the Windows build from WSL by invoking the MSYS2 environment on Windows,
+then source the MSYS2 profile and GNUstep shell setup before calling `make`.
 
-Example (adjust MSYS2 path if different):
+Example (adjust paths if different):
 
 ```bash
-/mnt/c/msys64/clang64.exe -lc "cd /c/Users/Support/git/ObjcMarkdown && ./scripts/windows/build-msys2.sh"
+powershell.exe -NoProfile -Command "& 'C:\msys64\usr\bin\env.exe' 'MSYSTEM=CLANG64' 'CHERE_INVOKING=1' '/usr/bin/bash' '-lc' 'source /etc/profile; source /clang64/share/GNUstep/Makefiles/GNUstep.sh; cd /c/Users/Support/git/ObjcMarkdown; make'"
 ```
 
 Notes:
 - Use the Windows repo path, not the WSL path, in the `cd` inside MSYS2.
-- If you need to pass environment variables, set them inside the `-lc` command.
+- The repo no longer uses `scripts/windows/build-msys2.sh`; invoke `make` directly after loading the environment.
+- This WSL-to-Windows PowerShell/MSYS2 path was used successfully to build the current app from this repo.
 
-## Clean VM MSI Validation (Windows Sandbox)
+## PowerShell Helper Summary
 
-Use Windows Sandbox to validate the MSI on a clean Windows environment (no MSYS2/GNUstep preinstalled).
-This should be done after a successful MSYS2 `clang64` build and packaging run.
-
-1) Confirm Sandbox feature is enabled (PowerShell, admin):
+The repo helper script wraps the supported MSYS2 `clang64` path for common Windows
+tasks:
 
 ```powershell
-Get-WindowsOptionalFeature -Online -FeatureName Containers-DisposableClientVM | Select-Object State
+.\scripts\windows\build-from-powershell.ps1
+.\scripts\windows\build-from-powershell.ps1 -Task test
+.\scripts\windows\build-from-powershell.ps1 -Task run -RunTarget TableRenderDemo.md
+.\scripts\windows\build-from-powershell.ps1 -Task stage -StageDir dist/ObjcMarkdown
+.\scripts\windows\build-from-powershell.ps1 -Task command -Command 'make -n messages=yes'
 ```
 
-Expected: `Enabled`.
+Use `-Task command` when you need an arbitrary MSYS2/GNUstep command without manually
+rewriting the `env.exe ... bash -lc ...` wrapper in PowerShell.
 
-2) Create a Sandbox config file in the repo, e.g. `ObjcMarkdownSandbox.wsb`:
+## Clean VM MSI Validation (OCI)
 
-```xml
-<Configuration>
-  <MappedFolders>
-    <MappedFolder>
-      <HostFolder>C:\Users\Support\git\ObjcMarkdown\dist</HostFolder>
-      <ReadOnly>true</ReadOnly>
-    </MappedFolder>
-  </MappedFolders>
-  <LogonCommand>
-    <Command>cmd /c "dir C:\Users\WDAGUtilityAccount\Desktop\dist && start C:\Users\WDAGUtilityAccount\Desktop\dist"</Command>
-  </LogonCommand>
-</Configuration>
+The canonical clean-machine validation path is the OCI golden-image workflow in
+`docs/windows-oci-msi-validation.md`, not Windows Sandbox.
+
+For a one-shot run from PowerShell:
+
+```powershell
+.\scripts\windows\oci-run-msi-validation.ps1 `
+  -Version 0.1.0 `
+  -IdentityFile C:\Users\Support\.ssh\id_rsa `
+  -RunSmoke
 ```
 
-3) Launch the `.wsb` by double-clicking it in Windows.
+If you are reaching the guest through the office jump host:
 
-4) In Sandbox:
-- Open the mapped `dist` folder.
-- Run the MSI (for example: `ObjcMarkdown-0.0.0.0-win64.msi`).
-- Confirm install succeeds, Start Menu shortcut exists, and uninstall entry exists.
-- Launch the app via Start Menu shortcut (or `C:\Program Files (x86)\ObjcMarkdown\MarkdownViewer.cmd`) and verify no missing DLL/runtime errors.
+```powershell
+.\scripts\windows\oci-run-msi-validation.ps1 `
+  -Version 0.1.0 `
+  -IdentityFile C:\Users\Support\.ssh\id_rsa `
+  -JumpHost iep-vm2 `
+  -RunSmoke
+```
 
-Important:
-- Do not use `MarkdownViewer.exe` directly for validation. The MSI ships `MarkdownViewer.cmd` to set runtime `PATH` first; direct `.exe` launch can fail with missing DLL errors by design.
+Lower-level OCI entry points:
 
-5) Record findings in `OpenIssues.md` issue 7:
-- Missing DLLs or runtime errors.
-- Exact MSI filename tested and observed behavior.
+- `.\scripts\windows\oci-launch-validation-vm.ps1`
+- `.\scripts\windows\oci-open-rdp-rule.ps1`
+- `.\scripts\windows\oci-push-and-test-msi.ps1`
+- `.\scripts\windows\oci-terminate-validation-vm.ps1`
+
+Notes:
+
+- The automation launches a fresh VM from the OCI golden image, copies the MSI with `scp`, runs `scripts/windows/validate-msi.ps1` over `ssh`, collects logs under `dist/oci-logs`, and terminates the VM unless you pass `-KeepVm`.
+- Use `-OpenRdp` only when manual visual inspection is needed after the automated validation pass. The RDP rule helper narrows access to the current public IP by default.
+- If the subnet still exposes SSH on `0.0.0.0/0`, a fresh Windows guest can hit `Exceeded MaxStartups` from unsolicited connections before your validation login lands. In that case, temporarily narrow port `22` to your current public IP for the validation window, then restore the original rule.
+- Do not use `app\MarkdownViewer.app\MarkdownViewer.exe` directly for validation. The MSI ships a top-level `MarkdownViewer.exe` launcher that sets runtime state first; launching the inner app binary directly can still fail with missing DLL errors by design.
+
+Windows Sandbox can still be used as an informal local smoke check, but it is no
+longer the tracked release-validation path for this repo.

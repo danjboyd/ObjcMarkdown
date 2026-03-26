@@ -147,6 +147,49 @@
     XCTAssertNotNil(color);
 }
 
+- (void)testStrikethroughAppliesInlineStyle
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:@"Keep ~~remove~~ text."];
+    XCTAssertNotNil(rendered);
+
+    NSString *text = [rendered string];
+    NSRange range = [text rangeOfString:@"remove"];
+    XCTAssertTrue(range.location != NSNotFound);
+    if (range.location == NSNotFound) {
+        return;
+    }
+
+    NSDictionary *attrs = [rendered attributesAtIndex:range.location effectiveRange:NULL];
+    NSNumber *style = [attrs objectForKey:NSStrikethroughStyleAttributeName];
+    XCTAssertNotNil(style);
+    XCTAssertEqual([style integerValue], (NSInteger)NSUnderlineStyleSingle);
+}
+
+- (void)testItalicAppliesFontOrObliquenessStyle
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:@"Some *italic* text."];
+    XCTAssertNotNil(rendered);
+
+    NSString *text = [rendered string];
+    NSRange range = [text rangeOfString:@"italic"];
+    XCTAssertTrue(range.location != NSNotFound);
+    if (range.location == NSNotFound) {
+        return;
+    }
+
+    NSDictionary *attrs = [rendered attributesAtIndex:range.location effectiveRange:NULL];
+    NSNumber *obliqueness = [attrs objectForKey:NSObliquenessAttributeName];
+    NSFont *font = [attrs objectForKey:NSFontAttributeName];
+    BOOL hasVisibleItalicStyle = (obliqueness != nil && [obliqueness doubleValue] != 0.0);
+    if (!hasVisibleItalicStyle && font != nil) {
+        NSFontManager *manager = [NSFontManager sharedFontManager];
+        hasVisibleItalicStyle = (([manager traitsOfFont:font] & NSItalicFontMask) != 0);
+    }
+    XCTAssertTrue(hasVisibleItalicStyle);
+}
+
 - (void)testPipeTableRendersAsStructuredMultilineContent
 {
     OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];

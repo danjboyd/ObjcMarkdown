@@ -13,29 +13,25 @@
 
     <Directory Id="TARGETDIR" Name="SourceDir">
       <Directory Id="ProgramFilesFolder">
-        <Directory Id="INSTALLDIR" Name="ObjcMarkdown" />
-      </Directory>
-      <Directory Id="SystemDrive">
-        <Directory Id="CLANG64DIR" Name="clang64">
-          <Directory Id="CLANG64BIN" Name="bin" />
-          <Directory Id="CLANG64LIB" Name="lib">
-            <Directory Id="CLANG64GNUSTEP" Name="GNUstep" />
+        <Directory Id="INSTALLDIR" Name="ObjcMarkdown">
+          <Directory Id="CLANG64DIR" Name="clang64">
+            <Directory Id="CLANG64BIN" Name="bin" />
+            <Directory Id="CLANG64LIB" Name="lib">
+              <Directory Id="CLANG64GNUSTEP" Name="GNUstep" />
+            </Directory>
           </Directory>
         </Directory>
       </Directory>
-      <Directory Id="ProgramMenuFolder">
-        <Directory Id="ProgramMenuDir" Name="ObjcMarkdown" />
-      </Directory>
+      <Directory Id="ProgramMenuFolder" />
     </Directory>
 
     <DirectoryRef Id="INSTALLDIR">
       <Component Id="AppShortcut" Guid="c49d7049-7b76-49a1-b979-a939ef72cbc0">
         <Shortcut Id="StartMenuShortcut"
-                  Directory="ProgramMenuDir"
-                  Name="ObjcMarkdown"
+                  Directory="ProgramMenuFolder"
+                  Name="Markdown Viewer"
                   WorkingDirectory="INSTALLDIR"
-                  Target="[INSTALLDIR]MarkdownViewer.cmd" />
-        <RemoveFolder Id="RemoveProgramMenuDir" Directory="ProgramMenuDir" On="uninstall" />
+                  Target="[INSTALLDIR]MarkdownViewer.exe" />
         <RegistryValue Root="HKCU" Key="Software\ObjcMarkdown" Name="installed" Type="integer" Value="1" KeyPath="yes" />
       </Component>
     </DirectoryRef>

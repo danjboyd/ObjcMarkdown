@@ -16,6 +16,45 @@ The current priority is not to chase every Markdown-editor feature at once. The 
   - eventual Linux app packaging
 - keep CommonMark behavior strong before going deeper on GitHub-flavored extensions
 
+## Phase 7: Windows Release Packaging and OCI Validation
+
+Goal:
+- make tagged releases produce installable Windows artifacts and validate them on a fresh OCI Windows environment
+
+### Phase 7A: Stabilize And Commit The Release Baseline
+
+Scope:
+- commit the current local Windows/MSI/OCI workflow, script, and documentation changes before cutting any release tag
+- reconcile docs and issue tracking so the OCI golden-image validation path is the documented source of truth
+- make sure the release process is understandable from repo docs rather than session memory
+
+### Phase 7B: Tagged CI Artifact Production
+
+Scope:
+- keep GitHub Actions responsible for building release artifacts on pushed version tags
+- finish and verify the tag-triggered MSI and portable ZIP build flow
+- optionally publish the MSI and ZIP to a GitHub Release page in addition to Actions artifacts
+- document the exact tag-push workflow for creating a release build
+
+### Phase 7C: OCI Clean-Machine Validation Automation
+
+Scope:
+- use the OCI golden-image workflow for clean-machine validation rather than depending on one long-lived mutable VM
+- use helper scripts under `scripts/windows/` for VM launch, artifact copy, MSI install/smoke test, log collection, and VM teardown
+- run the full tagged-release flow against a fresh OCI VM from the golden image
+- collect validation logs and track any installer/runtime defects explicitly
+
+Immediate next steps:
+- `Phase 7A`: commit the current local Windows/MSI/OCI changes and update stale tracker/docs that still describe the older validation path
+- `Phase 7B`: verify the tag-triggered GitHub Actions flow for MSI and portable ZIP builds, then add GitHub Release publishing if we want release-page assets
+- `Phase 7C`: repeat the clean-machine validation pass from a tagged artifact and codify the SSH-ingress hardening needed to keep fresh guests reachable during validation
+
+Acceptance criteria:
+- `Phase 7A`: the current Windows/MSI/OCI process is committed and documented coherently
+- `Phase 7B`: pushing a tag such as `v0.1.0` produces a Windows MSI and portable ZIP in CI
+- `Phase 7C`: the MSI is validated on a fresh OCI Windows VM launched from the golden image, with logs collected and follow-up defects tracked explicitly
+- release tagging and validation are repeatable without ad hoc manual recovery steps
+
 ## Deferred Work
 
 These are interesting, but they are not the current release gate:

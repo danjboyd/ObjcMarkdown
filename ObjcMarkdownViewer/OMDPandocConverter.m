@@ -21,21 +21,37 @@
 
 static NSString *OMDExecutablePathNamed(NSString *name)
 {
+    if (name == nil || [name length] == 0) {
+        return nil;
+    }
+
     NSDictionary *environment = [[NSProcessInfo processInfo] environment];
     NSString *pathValue = [environment objectForKey:@"PATH"];
     if (pathValue == nil || [pathValue length] == 0) {
         return nil;
     }
 
+#if defined(_WIN32)
+    NSArray *searchPaths = [pathValue componentsSeparatedByString:@";"];
+    NSArray *candidateNames = [NSArray arrayWithObjects:name,
+                                                     [name stringByAppendingString:@".exe"],
+                                                     [name stringByAppendingString:@".cmd"],
+                                                     [name stringByAppendingString:@".bat"],
+                                                     nil];
+#else
     NSArray *searchPaths = [pathValue componentsSeparatedByString:@":"];
+    NSArray *candidateNames = [NSArray arrayWithObject:name];
+#endif
     NSFileManager *fileManager = [NSFileManager defaultManager];
     for (NSString *searchPath in searchPaths) {
         if (searchPath == nil || [searchPath length] == 0) {
             continue;
         }
-        NSString *candidate = [searchPath stringByAppendingPathComponent:name];
-        if ([fileManager isExecutableFileAtPath:candidate]) {
-            return candidate;
+        for (NSString *candidateName in candidateNames) {
+            NSString *candidate = [searchPath stringByAppendingPathComponent:candidateName];
+            if ([fileManager isExecutableFileAtPath:candidate]) {
+                return candidate;
+            }
         }
     }
 
@@ -58,9 +74,29 @@ static NSString *OMDResolvePandocPath(void)
         return pathValue;
     }
 
+#if defined(_WIN32)
+    NSMutableArray *windowsCandidates = [NSMutableArray arrayWithObjects:
+                                         @"C:/Program Files/Pandoc/pandoc.exe",
+                                         @"C:/Program Files (x86)/Pandoc/pandoc.exe",
+                                         nil];
+    NSString *localAppData = [environment objectForKey:@"LOCALAPPDATA"];
+    if (localAppData != nil && [localAppData length] > 0) {
+        NSString *normalized = [localAppData stringByReplacingOccurrencesOfString:@"\\" withString:@"/"];
+        [windowsCandidates addObject:[normalized stringByAppendingPathComponent:@"Pandoc/pandoc.exe"]];
+    }
+    NSFileManager *fileManager = [NSFileManager defaultManager];
+    for (NSString *candidate in windowsCandidates) {
+        if ([fileManager isExecutableFileAtPath:candidate]) {
+            return candidate;
+        }
+    }
+#endif
+
+#if !defined(_WIN32)
     if ([[NSFileManager defaultManager] isExecutableFileAtPath:@"/usr/bin/pandoc"]) {
         return @"/usr/bin/pandoc";
     }
+#endif
 
     return nil;
 }
@@ -320,7 +356,7 @@ static NSString *OMDResolvePandocPath(void)
     }
 
     NSArray *arguments = [NSArray arrayWithObjects:
-        @"--from", @"commonmark",
+        @"--from", @"gfm",
         @"--to", targetFormat,
         @"--wrap=none",
         @"--output", path,

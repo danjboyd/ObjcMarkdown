@@ -6,27 +6,71 @@
 NSString * const OMDGitHubClientErrorDomain = @"OMDGitHubClientErrorDomain";
 static NSString * const OMDGitHubTokenDefaultsKey = @"ObjcMarkdownGitHubToken";
 
+static NSArray *OMDExecutableCandidateNames(NSString *name)
+{
+    if (name == nil || [name length] == 0) {
+        return [NSArray array];
+    }
+#if defined(_WIN32)
+    return [NSArray arrayWithObjects:name,
+                                      [name stringByAppendingString:@".exe"],
+                                      [name stringByAppendingString:@".cmd"],
+                                      [name stringByAppendingString:@".bat"],
+                                      nil];
+#else
+    return [NSArray arrayWithObject:name];
+#endif
+}
+
+static NSArray *OMDExecutableSearchDirectories(void)
+{
+    NSMutableArray *directories = [NSMutableArray array];
+    NSDictionary *environment = [[NSProcessInfo processInfo] environment];
+    NSString *pathValue = [environment objectForKey:@"PATH"];
+    if (pathValue != nil && [pathValue length] > 0) {
+#if defined(_WIN32)
+        NSArray *searchPaths = [pathValue componentsSeparatedByString:@";"];
+#else
+        NSArray *searchPaths = [pathValue componentsSeparatedByString:@":"];
+#endif
+        for (NSString *searchPath in searchPaths) {
+            if (searchPath != nil && [searchPath length] > 0) {
+                [directories addObject:searchPath];
+            }
+        }
+    }
+
+#if defined(_WIN32)
+    [directories addObjectsFromArray:@[
+        @"C:/msys64/usr/bin",
+        @"C:/msys64/clang64/bin",
+        @"C:/clang64/bin"
+    ]];
+#else
+    [directories addObject:@"/usr/bin"];
+#endif
+
+    return directories;
+}
+
 static NSString *OMDExecutablePathNamed(NSString *name)
 {
     if (name == nil || [name length] == 0) {
         return nil;
     }
 
-    NSDictionary *environment = [[NSProcessInfo processInfo] environment];
-    NSString *pathValue = [environment objectForKey:@"PATH"];
-    if (pathValue == nil || [pathValue length] == 0) {
-        return nil;
-    }
-
-    NSArray *searchPaths = [pathValue componentsSeparatedByString:@":"];
     NSFileManager *fileManager = [NSFileManager defaultManager];
+    NSArray *candidateNames = OMDExecutableCandidateNames(name);
+    NSArray *searchPaths = OMDExecutableSearchDirectories();
     for (NSString *searchPath in searchPaths) {
         if (searchPath == nil || [searchPath length] == 0) {
             continue;
         }
-        NSString *candidate = [searchPath stringByAppendingPathComponent:name];
-        if ([fileManager isExecutableFileAtPath:candidate]) {
-            return candidate;
+        for (NSString *candidateName in candidateNames) {
+            NSString *candidate = [searchPath stringByAppendingPathComponent:candidateName];
+            if ([fileManager isExecutableFileAtPath:candidate]) {
+                return candidate;
+            }
         }
     }
 
@@ -39,9 +83,11 @@ static NSString *OMDResolveCurlPath(void)
     if (pathValue != nil) {
         return pathValue;
     }
+#if !defined(_WIN32)
     if ([[NSFileManager defaultManager] isExecutableFileAtPath:@"/usr/bin/curl"]) {
         return @"/usr/bin/curl";
     }
+#endif
     return nil;
 }
 

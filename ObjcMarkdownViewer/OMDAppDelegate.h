@@ -1,6 +1,11 @@
 // ObjcMarkdownViewer
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <sys/types.h>
+#if defined(_WIN32) && !defined(_MODE_T_)
+#define _MODE_T_
+typedef unsigned short mode_t;
+#endif
 #import <AppKit/AppKit.h>
 #import "OMDSourceTextView.h"
 
@@ -44,7 +49,7 @@
     OMDGitHubClient *_gitHubClient;
     NSMenu *_fileOpenRecentMenu;
     NSMenuItem *_viewShowExplorerMenuItem;
-    NSSegmentedControl *_explorerSourceModeControl;
+    NSControl *_explorerSourceModeControl;
     NSTextField *_explorerLocalRootLabel;
     NSTextField *_explorerGitHubUserLabel;
     NSComboBox *_explorerGitHubUserComboBox;

@@ -7,7 +7,38 @@ on:
   workflow_dispatch:
 
 jobs:
+  linux-gate:
+    runs-on:
+      - self-hosted
+      - linux
+      - gnustep-clang
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Verify GNUstep clang environment
+        shell: bash
+        run: |
+          set -eo pipefail
+          test -f /usr/GNUstep/System/Library/Makefiles/GNUstep.sh
+          set +u
+          source /usr/GNUstep/System/Library/Makefiles/GNUstep.sh
+          set -u
+          command -v clang
+          command -v gmake
+          command -v xctest
+
+      - name: Build and run tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./scripts/ci/run-linux-ci.sh
+
   build-msi:
+    needs: linux-gate
     runs-on: windows-latest
     defaults:
       run:
@@ -83,37 +114,7 @@ jobs:
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: objcmarkdown-windows
+          name: objcmarkdown-windows-${{ steps.version.outputs.version }}
           path: |
             dist/*.msi
             dist/*.zip
-
-  validate-msi:
-    needs: build-msi
-    runs-on: [self-hosted, kvm-host]
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Download MSI Artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: objcmarkdown-windows
-          path: dist
-
-      - name: Validate MSI on Clean VM
-        env:
-          WINRM_HOST: ${{ secrets.WINRM_HOST }}
-          WINRM_USER: ${{ secrets.WINRM_USER }}
-          WINRM_PASS: ${{ secrets.WINRM_PASS }}
-          VM_NAME: iep-abbyy
-          SNAPSHOT: clean
-          RUN_SMOKE: "1"
-        run: |
-          ls -la dist
-          MSI_PATH=$(ls dist/*.msi | head -n 1)
-          if [ -z "$MSI_PATH" ]; then
-            echo "MSI not found in dist" >&2
-            exit 2
-          fi
-          scripts/windows/validate-msi.sh "$MSI_PATH"

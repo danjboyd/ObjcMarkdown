@@ -54,23 +54,36 @@
 - **Description**: Build automated GitHub pipelines that produce a usable Windows MSI for the MSYS2/clang GNUstep build, including all required runtime components.
 - **Current State**:
   - GitHub Actions `windows-packaging` workflow builds MSI on `windows-latest` using MSYS2 `clang64` + WiX.
-  - Added a follow-on `validate-msi` job that runs on a self-hosted KVM host and reverts a clean Windows VM snapshot before validation.
-  - Added unattended validation scripts:
-    - Host: `scripts/windows/validate-msi.sh`
-    - VM: `scripts/windows/validate-msi.ps1`
-    - WinRM helper: `scripts/windows/winrm_run.py`
-  - Current blocker: latest workflow run is queued; no MSI artifact has been produced yet in CI.
+  - Tagged artifact production is configured to build the MSI and portable ZIP in CI.
+  - OCI golden-image validation is now the documented clean-machine path:
+    - Runbook: `docs/windows-oci-msi-validation.md`
+    - Guest-side installer validation: `scripts/windows/validate-msi.ps1`
+    - OCI automation helpers:
+      - `scripts/windows/oci-launch-validation-vm.ps1`
+      - `scripts/windows/oci-open-rdp-rule.ps1`
+      - `scripts/windows/oci-push-and-test-msi.ps1`
+      - `scripts/windows/oci-terminate-validation-vm.ps1`
+      - `scripts/windows/oci-run-msi-validation.ps1`
+  - First full end-to-end OCI validation pass succeeded on `2026-03-26` against a locally built `0.1.0.0` MSI:
+    - fresh OCI VM launched from the golden image,
+    - MSI install succeeded,
+    - smoke launch succeeded,
+    - uninstall succeeded,
+    - logs collected under `dist/oci-logs/20260326-132324`.
+  - The main operational issue exposed by that pass was SSH reachability on a world-open port `22` rule:
+    - the fresh Windows guest hit `Exceeded MaxStartups` until SSH ingress was temporarily narrowed to the current public IP,
+    - the original broad `22` rule was restored after validation.
   - Fixed CI issues so far:
     - MSYS2 `mode_t` typedef clash avoided by forcing `-D__mode_t_defined -D_MODE_T_ -D_MODE_T_DEFINED`.
     - Skipped tests in Windows MSI build (`OMD_SKIP_TESTS=1`) because XCTest headers are not present.
     - Version resolution now tolerates missing tags.
 - **Next Steps**:
-  - Wait for/trigger a hosted Windows runner so `build-msi` completes and publishes MSI artifacts.
-  - Ensure GitHub Actions secrets are present for validation job:
-    - `WINRM_HOST`, `WINRM_USER`, `WINRM_PASS`.
-  - Confirm self-hosted runner label `kvm-host` is online and can reach VM `172.17.2.183:5985`.
-  - Run validation on clean snapshot and collect logs.
-  - After a successful install, capture a screenshot of the app running in the VM (via `virsh screenshot` or in-VM PowerShell).
+  - Commit the current Windows/MSI/OCI scripts and doc updates so the OCI path is the repo-tracked source of truth.
+  - Trigger or verify a tagged GitHub Actions run so MSI and portable ZIP artifacts are actually produced for the current workflow.
+  - Encode the temporary SSH-ingress narrowing/restoration into the documented validation procedure or helper automation so repeat runs do not depend on manual intervention.
+  - Run `scripts/windows/oci-run-msi-validation.ps1` against a CI-produced tagged artifact, not only a locally built MSI, and collect logs under `dist/oci-logs`.
+  - If the automated pass fails, keep the disposable VM only long enough for targeted RDP/manual investigation, then terminate it.
+  - Add a short manual visual follow-up after the automated pass for shortcut/icon/file-association checks if those remain part of the release gate.
 - **Requirements**:
   - Generate MSI artifacts from GitHub Actions on tagged releases (and optionally on `main` as pre-release builds).
   - Bundle app binaries plus required runtime libraries (including GNUstep base/gui/back and dependent DLLs such as cmark, dispatch, OpenSave, TextViewVimKit, and Objective-C runtime dependencies).
