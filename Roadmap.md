@@ -45,9 +45,8 @@ Scope:
 - collect validation logs and track any installer/runtime defects explicitly
 
 Immediate next steps:
-- `Phase 7A`: commit the current local Windows/MSI/OCI changes and update stale tracker/docs that still describe the older validation path
-- `Phase 7B`: verify the tag-triggered GitHub Actions flow for MSI and portable ZIP builds, then add GitHub Release publishing if we want release-page assets
-- `Phase 7C`: repeat the clean-machine validation pass from a tagged artifact and codify the SSH-ingress hardening needed to keep fresh guests reachable during validation
+- `Phase 7B`: verified on `2026-03-26` with tag `v0.1.1-rc2`; decide separately whether to add GitHub Release-page asset publishing in addition to Actions artifacts
+- `Phase 7C`: download the successful tagged CI artifact, repeat the clean-machine validation pass from that artifact, and codify the SSH-ingress hardening needed to keep fresh guests reachable during validation
 
 Acceptance criteria:
 - `Phase 7A`: the current Windows/MSI/OCI process is committed and documented coherently

@@ -57,6 +57,13 @@
   - Tagged artifact production is configured to build the MSI and portable ZIP in CI.
   - The Windows packaging workflow now runs independently of the self-hosted Linux lane so pushed release tags are not blocked when no repository runner is online.
   - Linux validation remains a separate `linux-gnustep-clang` workflow on the required self-hosted GNUstep runner and should still be green on the target commit before tagging a release.
+  - Tagged CI artifact production was verified on `2026-03-26` from tag `v0.1.1-rc2`:
+    - Actions run: `23612901170`
+    - Result: success
+    - Uploaded artifact bundle: `objcmarkdown-windows-0.1.1`
+  - The first verification attempt on `v0.1.1-rc1` exposed a staging-script portability bug:
+    - `scripts/windows/stage-runtime.sh` assumed `/clang64/bin/libgcc_s_seh-1.dll` existed on the GitHub runner,
+    - fixed by making compiler-runtime DLL copies conditional and letting dependency discovery stage the actual toolchain layout.
   - OCI golden-image validation is now the documented clean-machine path:
     - Runbook: `docs/windows-oci-msi-validation.md`
     - Guest-side installer validation: `scripts/windows/validate-msi.ps1`
@@ -80,9 +87,8 @@
     - Skipped tests in Windows MSI build (`OMD_SKIP_TESTS=1`) because XCTest headers are not present.
     - Version resolution now tolerates missing tags.
 - **Next Steps**:
-  - Verify a fresh tagged GitHub Actions run so MSI and portable ZIP artifacts are actually produced by the updated workflow.
   - Encode the temporary SSH-ingress narrowing/restoration into the documented validation procedure or helper automation so repeat runs do not depend on manual intervention.
-  - Run `scripts/windows/oci-run-msi-validation.ps1` against a CI-produced tagged artifact, not only a locally built MSI, and collect logs under `dist/oci-logs`.
+  - Run `scripts/windows/oci-run-msi-validation.ps1` against the CI-produced tagged artifact from run `23612901170`, not only a locally built MSI, and collect logs under `dist/oci-logs`.
   - If the automated pass fails, keep the disposable VM only long enough for targeted RDP/manual investigation, then terminate it.
   - Add a short manual visual follow-up after the automated pass for shortcut/icon/file-association checks if those remain part of the release gate.
 - **Requirements**:
