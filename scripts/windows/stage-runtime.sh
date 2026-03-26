@@ -15,6 +15,24 @@ SHARE_DIR="$STAGING_DIR/clang64/share"
 rm -rf "$STAGING_DIR"
 mkdir -p "$APP_DIR" "$BIN_DIR" "$GNUSTEP_DIR" "$ETC_DIR" "$SHARE_DIR"
 
+copy_required() {
+  local source="$1"
+  local dest="$2"
+  if [ ! -f "$source" ]; then
+    echo "ERROR: required runtime file not found: $source" >&2
+    exit 1
+  fi
+  cp "$source" "$dest"
+}
+
+copy_optional() {
+  local source="$1"
+  local dest="$2"
+  if [ -f "$source" ]; then
+    cp "$source" "$dest"
+  fi
+}
+
 # Copy app bundle
 cp -R "$ROOT/ObjcMarkdownViewer/MarkdownViewer.app" "$APP_DIR/"
 
@@ -22,9 +40,16 @@ cp -R "$ROOT/ObjcMarkdownViewer/MarkdownViewer.app" "$APP_DIR/"
 cp "$ROOT/ObjcMarkdown/obj/ObjcMarkdown-0.dll" "$BIN_DIR/"
 cp "$ROOT/third_party/libs-OpenSave/Source/obj/OpenSave-0.dll" "$BIN_DIR/"
 cp "$ROOT/third_party/TextViewVimKitBuild/obj/TextViewVimKit-0.dll" "$BIN_DIR/"
-cp /clang64/bin/defaults.exe "$BIN_DIR/"
-cp /clang64/bin/libgcc_s_seh-1.dll "$BIN_DIR/"
-cp /clang64/bin/libstdc++-6.dll "$BIN_DIR/"
+copy_required /clang64/bin/defaults.exe "$BIN_DIR/"
+# The exact compiler runtime DLL set varies across MSYS2 clang64 images.
+# Copy any known optional runtimes when present, then let recursive dependency
+# discovery pull in the rest from the actual binaries we staged.
+copy_optional /clang64/bin/libgcc_s_seh-1.dll "$BIN_DIR/"
+copy_optional /clang64/bin/libstdc++-6.dll "$BIN_DIR/"
+copy_optional /clang64/bin/libwinpthread-1.dll "$BIN_DIR/"
+copy_optional /clang64/bin/libc++.dll "$BIN_DIR/"
+copy_optional /clang64/bin/libc++abi.dll "$BIN_DIR/"
+copy_optional /clang64/bin/libunwind.dll "$BIN_DIR/"
 
 # Copy GNUstep resources (themes, bundles, images, etc.)
 cp -R /clang64/lib/GNUstep/* "$GNUSTEP_DIR/"
