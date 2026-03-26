@@ -270,6 +270,7 @@ For a one-shot run from PowerShell:
 .\scripts\windows\oci-run-msi-validation.ps1 `
   -Version 0.1.0 `
   -IdentityFile C:\Users\Support\.ssh\id_rsa `
+  -TemporarilyRestrictSshIngress `
   -RunSmoke
 ```
 
@@ -280,7 +281,21 @@ If you are reaching the guest through the office jump host:
   -Version 0.1.0 `
   -IdentityFile C:\Users\Support\.ssh\id_rsa `
   -JumpHost iep-vm2 `
+  -TemporarilyRestrictSshIngress `
   -RunSmoke
+```
+
+To validate the exact tagged CI artifact produced by GitHub Actions instead of a local build:
+
+```powershell
+gh run download 23612901170 -n objcmarkdown-windows-0.1.1 -D dist\ci-artifacts\23612901170
+
+.\scripts\windows\oci-run-msi-validation.ps1 `
+  -MsiPath dist\ci-artifacts\23612901170\ObjcMarkdown-0.1.1.0-win64.msi `
+  -IdentityFile C:\Users\Support\.ssh\id_rsa `
+  -TemporarilyRestrictSshIngress `
+  -RunSmoke `
+  -LogDir dist\oci-logs\ci-23612901170
 ```
 
 Lower-level OCI entry points:
@@ -294,7 +309,7 @@ Notes:
 
 - The automation launches a fresh VM from the OCI golden image, copies the MSI with `scp`, runs `scripts/windows/validate-msi.ps1` over `ssh`, collects logs under `dist/oci-logs`, and terminates the VM unless you pass `-KeepVm`.
 - Use `-OpenRdp` only when manual visual inspection is needed after the automated validation pass. The RDP rule helper narrows access to the current public IP by default.
-- If the subnet still exposes SSH on `0.0.0.0/0`, a fresh Windows guest can hit `Exceeded MaxStartups` from unsolicited connections before your validation login lands. In that case, temporarily narrow port `22` to your current public IP for the validation window, then restore the original rule.
+- Use `-TemporarilyRestrictSshIngress` when the subnet still exposes SSH on `0.0.0.0/0`. That switch adds a temporary narrow port `22` rule for the current public IP, removes the broad rule during validation, then restores the original rule after teardown unless you keep the VM.
 - Do not use `app\MarkdownViewer.app\MarkdownViewer.exe` directly for validation. The MSI ships a top-level `MarkdownViewer.exe` launcher that sets runtime state first; launching the inner app binary directly can still fail with missing DLL errors by design.
 
 Windows Sandbox can still be used as an informal local smoke check, but it is no

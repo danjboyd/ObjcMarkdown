@@ -45,8 +45,10 @@ Scope:
 - collect validation logs and track any installer/runtime defects explicitly
 
 Immediate next steps:
-- `Phase 7B`: verified on `2026-03-26` with tag `v0.1.1-rc2`; decide separately whether to add GitHub Release-page asset publishing in addition to Actions artifacts
-- `Phase 7C`: download the successful tagged CI artifact, repeat the clean-machine validation pass from that artifact, and codify the SSH-ingress hardening needed to keep fresh guests reachable during validation
+- `Phase 7B`: verified on `2026-03-26` with tag `v0.1.1-rc2`
+- `Phase 7C`: verified on `2026-03-26` against the CI-produced MSI from Actions run `23612901170`
+- optional release follow-up: publish tagged MSI and ZIP assets to a GitHub Release page in addition to Actions artifacts
+- optional release follow-up: do a short kept-VM manual visual pass when shortcut/icon/file-association polish needs explicit confirmation
 
 Acceptance criteria:
 - `Phase 7A`: the current Windows/MSI/OCI process is committed and documented coherently

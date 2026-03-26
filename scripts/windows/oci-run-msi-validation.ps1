@@ -9,6 +9,7 @@ param(
   [string]$LogDir,
   [string]$CompartmentId,
   [string]$AvailabilityDomain,
+  [string]$SecurityListId,
   [string]$SubnetId = "ocid1.subnet.oc1.phx.aaaaaaaaimvrd2faa744cu34ucvq2vpftgcnuhe7taaqhunvszhn64fzon4a",
   [string]$ImageId = "ocid1.image.oc1.phx.aaaaaaaa6253prkupypnde7blkcsojo66njxkyquiimmkdy7foiu4ywxyiva",
   [string]$Shape = "VM.Standard.E5.Flex",
@@ -18,8 +19,13 @@ param(
   [string]$IdentityFile,
   [string]$JumpHost,
   [string]$SshUser = "opc",
+  [string]$SshSourceCidr,
+  [string]$OriginalSshSourceCidr = "0.0.0.0/0",
+  [string]$TemporarySshRuleDescription = "Temporary SSH for MSI validation VM",
+  [string]$OriginalSshRuleDescription = "",
   [string]$RdpSourceCidr,
   [switch]$OpenRdp,
+  [switch]$TemporarilyRestrictSshIngress,
   [switch]$RunSmoke,
   [switch]$SkipBuild,
   [switch]$SkipTest,
@@ -40,6 +46,8 @@ $terminateScript = Join-Path $PSScriptRoot "oci-terminate-validation-vm.ps1"
 $resolvedMsiPath = $null
 $launchState = $null
 $validationResult = $null
+$temporarySshSourceCidr = $null
+$restoredOriginalSshRule = $false
 
 try {
   if (-not $MsiPath) {
@@ -83,22 +91,50 @@ try {
     $resolvedMsiPath = Resolve-OmdPath -Path $MsiPath
   }
 
-  $launchState = & $launchScript `
-    -CompartmentId $CompartmentId `
-    -AvailabilityDomain $AvailabilityDomain `
-    -SubnetId $SubnetId `
-    -ImageId $ImageId `
-    -Shape $Shape `
-    -Ocpus $Ocpus `
-    -MemoryInGBs $MemoryInGBs `
-    -SshPublicKeyPath $SshPublicKeyPath `
-    -IdentityFile $IdentityFile `
-    -JumpHost $JumpHost `
-    -SshUser $SshUser `
-    -StateFile $StateFile
+  $launchParams = @{
+    CompartmentId      = $CompartmentId
+    AvailabilityDomain = $AvailabilityDomain
+    SubnetId           = $SubnetId
+    ImageId            = $ImageId
+    Shape              = $Shape
+    Ocpus              = $Ocpus
+    MemoryInGBs        = $MemoryInGBs
+    SshPublicKeyPath   = $SshPublicKeyPath
+    IdentityFile       = $IdentityFile
+    JumpHost           = $JumpHost
+    SshUser            = $SshUser
+    StateFile          = $StateFile
+  }
+  if ($TemporarilyRestrictSshIngress) {
+    $launchParams.SkipSshWait = $true
+  }
+
+  $launchState = & $launchScript @launchParams
+
+  if ($TemporarilyRestrictSshIngress) {
+    $temporarySshSourceCidr = Get-OmdCurrentPublicCidr -SourceCidr $SshSourceCidr
+    Write-Host "Adding temporary SSH ingress rule for $temporarySshSourceCidr"
+    & $rdpScript `
+      -SecurityListId $SecurityListId `
+      -SubnetId $SubnetId `
+      -Port 22 `
+      -SourceCidr $temporarySshSourceCidr `
+      -Description $TemporarySshRuleDescription | Out-Null
+
+    if ($OriginalSshSourceCidr) {
+      Write-Host "Removing original SSH ingress rule for $OriginalSshSourceCidr"
+      & $rdpScript `
+        -SecurityListId $SecurityListId `
+        -SubnetId $SubnetId `
+        -Port 22 `
+        -SourceCidr $OriginalSshSourceCidr `
+        -Description $OriginalSshRuleDescription `
+        -Remove | Out-Null
+    }
+  }
 
   if ($OpenRdp) {
-    & $rdpScript -SubnetId $SubnetId -SourceCidr $RdpSourceCidr
+    & $rdpScript -SecurityListId $SecurityListId -SubnetId $SubnetId -SourceCidr $RdpSourceCidr
   }
 
   $validationParams = @{
@@ -113,8 +149,32 @@ try {
     $validationParams.LocalLogDir = $LogDir
   }
 
-  $validationResult = & $pushScript @validationParams
+  $validationOutput = @(& $pushScript @validationParams)
+  $validationResult = $validationOutput |
+    Where-Object { $_ -and $_.PSObject -and $_.PSObject.Properties["localLogDir"] } |
+    Select-Object -Last 1
 } finally {
+  if ($TemporarilyRestrictSshIngress -and $temporarySshSourceCidr -and -not $KeepVm) {
+    Write-Host "Restoring SSH ingress rules"
+    & $rdpScript `
+      -SecurityListId $SecurityListId `
+      -SubnetId $SubnetId `
+      -Port 22 `
+      -SourceCidr $temporarySshSourceCidr `
+      -Description $TemporarySshRuleDescription `
+      -Remove | Out-Null
+
+    if ($OriginalSshSourceCidr) {
+      & $rdpScript `
+        -SecurityListId $SecurityListId `
+        -SubnetId $SubnetId `
+        -Port 22 `
+        -SourceCidr $OriginalSshSourceCidr `
+        -Description $OriginalSshRuleDescription | Out-Null
+      $restoredOriginalSshRule = $true
+    }
+  }
+
   $resolvedStateFile = Resolve-OmdPath -Path $StateFile -AllowMissing
   if ((-not $KeepVm) -and ($launchState -or (Test-Path $resolvedStateFile))) {
     & $terminateScript -StateFile $StateFile | Out-Null
@@ -125,7 +185,9 @@ try {
   msiPath    = $resolvedMsiPath
   stateFile  = Resolve-OmdPath -Path $StateFile -AllowMissing
   guestHost  = $(if ($launchState) { $launchState.publicIp } else { $null })
-  logDir     = $(if ($validationResult) { $validationResult.localLogDir } else { $null })
+  logDir     = $(if ($validationResult -and $validationResult.PSObject.Properties["localLogDir"]) { $validationResult.localLogDir } else { $null })
   keptVm     = [bool]$KeepVm
+  temporarySshSourceCidr = $temporarySshSourceCidr
+  restoredOriginalSshRule = $restoredOriginalSshRule
   finishedAt = (Get-Date).ToString("o")
 }

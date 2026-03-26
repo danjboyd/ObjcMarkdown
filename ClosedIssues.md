@@ -800,3 +800,26 @@
   - Traced the remaining warnings to the app-owned `TabStripView` rather than GNUstep window decorations.
   - Switched the tab strip to fully manual layout and collapse it to `NSZeroRect` whenever the strip is not visible, instead of leaving a hidden zero-height autoresizing view in the hierarchy.
   - Rebuilt the app, verified a clean startup launch with no remaining negative-width warnings, and reran the full GNUstep test bundle.
+
+## 67) Automated Windows MSI packaging pipeline (GNUstep runtime included)
+
+- **Status**: Closed
+- **Closed On**: 2026-03-26
+- **Area**: Release engineering / Windows packaging / CI-CD
+- **Description**: Build automated GitHub pipelines that produce a usable Windows MSI for the MSYS2/clang GNUstep build, including all required runtime components.
+- **Resolution**:
+  - Updated [windows-packaging.yml](/C:/Users/Support/git/ObjcMarkdown/.github/workflows/windows-packaging.yml) so pushed `v*` tags build MSI and portable ZIP artifacts on `windows-latest` without blocking on the separate self-hosted Linux workflow.
+  - Hardened runtime staging in [stage-runtime.sh](/C:/Users/Support/git/ObjcMarkdown/scripts/windows/stage-runtime.sh) so MSYS2 `clang64` runtime DLL collection no longer assumes one specific compiler-runtime layout on GitHub runners.
+  - Verified tagged CI artifact production on `2026-03-26` from tag `v0.1.1-rc2`:
+    - Actions run: `23612901170`
+    - Result: success
+    - Uploaded artifact bundle: `objcmarkdown-windows-0.1.1`
+  - Completed clean-machine OCI validation against the CI-produced MSI `ObjcMarkdown-0.1.1.0-win64.msi` from that run:
+    - fresh OCI VM launched from the golden image,
+    - temporary narrow SSH ingress applied automatically during validation,
+    - MSI install succeeded,
+    - smoke launch succeeded,
+    - uninstall succeeded,
+    - logs collected under `dist/oci-logs/ci-23612901170`,
+    - disposable VM terminated after the run.
+  - Hardened [oci-run-msi-validation.ps1](/C:/Users/Support/git/ObjcMarkdown/scripts/windows/oci-run-msi-validation.ps1) to manage temporary SSH-ingress narrowing/restoration and to tolerate native `ssh`/`scp` output while still returning a structured result object.

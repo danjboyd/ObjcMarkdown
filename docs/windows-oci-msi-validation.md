@@ -308,6 +308,40 @@ That means the OCI path is now validated, but repeatability still depends on
 codifying SSH-ingress narrowing/restoration or otherwise tightening guest SSH
 exposure during validation.
 
+## Tagged CI Artifact OCI Result
+
+The first full CI-artifact OCI validation pass was completed later on
+`2026-03-26` against the tagged MSI from GitHub Actions run `23612901170`
+(`v0.1.1-rc2`).
+
+Observed result:
+
+- CI artifact download succeeded (`objcmarkdown-windows-0.1.1`)
+- fresh OCI VM launch from the golden image succeeded
+- temporary narrow SSH ingress was added automatically for the current public IP
+- the original broad SSH rule was removed during validation and restored after teardown
+- CI-produced MSI install succeeded
+- smoke launch succeeded
+- uninstall succeeded
+- local logs were collected under `dist/oci-logs/ci-23612901170`
+- disposable VM termination succeeded
+
+The validation used:
+
+- artifact MSI:
+  `dist/ci-artifacts/23612901170/ObjcMarkdown-0.1.1.0-win64.msi`
+- log directory:
+  `dist/oci-logs/ci-23612901170`
+- instance OCID:
+  `ocid1.instance.oc1.phx.anyhqljsofscz7qc7ywd257ztyz7g7dcieffmu2gr5pqav5x6e3feou5756a`
+
+One follow-up bug was found in the orchestrator after the successful remote run:
+
+- `oci-run-msi-validation.ps1` assumed `oci-push-and-test-msi.ps1` returned only
+  one object
+- native `ssh`/`scp` output meant the final result could be an array
+- this was fixed by selecting the structured result object explicitly
+
 ## SSH Notes
 
 The previous session verified SSH from the local machine into the prepared VM
@@ -396,6 +430,7 @@ Recommended first end-to-end run:
 .\scripts\windows\oci-run-msi-validation.ps1 `
   -Version 0.1.0 `
   -IdentityFile C:\Users\Support\.ssh\id_rsa `
+  -TemporarilyRestrictSshIngress `
   -RunSmoke
 ```
 
@@ -406,7 +441,21 @@ If you are routing through the office jump host:
   -Version 0.1.0 `
   -IdentityFile C:\Users\Support\.ssh\id_rsa `
   -JumpHost iep-vm2 `
+  -TemporarilyRestrictSshIngress `
   -RunSmoke
+```
+
+Tagged CI-artifact example:
+
+```powershell
+gh run download 23612901170 -n objcmarkdown-windows-0.1.1 -D dist\ci-artifacts\23612901170
+
+.\scripts\windows\oci-run-msi-validation.ps1 `
+  -MsiPath dist\ci-artifacts\23612901170\ObjcMarkdown-0.1.1.0-win64.msi `
+  -IdentityFile C:\Users\Support\.ssh\id_rsa `
+  -TemporarilyRestrictSshIngress `
+  -RunSmoke `
+  -LogDir dist\oci-logs\ci-23612901170
 ```
 
 ## Suggested Orchestrated End State
@@ -431,10 +480,10 @@ The next Codex session should:
 
 1. Read this file first.
 2. Keep the current golden image OCID as the source of truth.
-3. Run `oci-run-msi-validation.ps1` against a tagged CI-produced MSI, not only a local build.
-4. Codify the temporary SSH-ingress narrowing/restoration that was needed during the `2026-03-26` run, or move validation guests to a tighter SSH policy by default.
-5. Use `scp`/`ssh`, not `gh`, for the guest-side validation loop.
-6. Collect logs under `dist/oci-logs`, record any installer/runtime defects, and only keep a VM alive when manual RDP investigation is needed.
+3. Use `scp`/`ssh`, not `gh`, for the guest-side validation loop inside the guest.
+4. Reuse `-TemporarilyRestrictSshIngress` when the subnet still exposes SSH on `0.0.0.0/0`.
+5. Collect logs under `dist/oci-logs`, record any installer/runtime defects, and only keep a VM alive when manual RDP investigation is needed.
+6. Optionally add GitHub Release-page asset publishing or a short kept-VM manual visual pass if those become release gates.
 7. Optionally terminate the original source VM if it is no longer needed.
 
 ## Related Files
