@@ -159,8 +159,9 @@ Windows packaging and release publishing are handled by:
 
 Release flow:
 
+- Ensure the target commit has already passed the separate Linux CI workflow if you want a GNUstep/Linux gate before release tagging.
 - Push an annotated tag like `v0.1.0`.
-- GitHub Actions runs the Linux gate, builds the Windows MSI and portable ZIP, and uploads the Windows artifacts for that tag.
+- GitHub Actions runs `windows-packaging` on `windows-latest`, builds the Windows MSI and portable ZIP for that tag, and uploads the Windows artifacts.
 - Clean-machine validation is still done with the OCI Windows workflow in [docs/windows-oci-msi-validation.md](docs/windows-oci-msi-validation.md).
 
 ## Public Docs

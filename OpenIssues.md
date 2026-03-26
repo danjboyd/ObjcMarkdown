@@ -55,6 +55,8 @@
 - **Current State**:
   - GitHub Actions `windows-packaging` workflow builds MSI on `windows-latest` using MSYS2 `clang64` + WiX.
   - Tagged artifact production is configured to build the MSI and portable ZIP in CI.
+  - The Windows packaging workflow now runs independently of the self-hosted Linux lane so pushed release tags are not blocked when no repository runner is online.
+  - Linux validation remains a separate `linux-gnustep-clang` workflow on the required self-hosted GNUstep runner and should still be green on the target commit before tagging a release.
   - OCI golden-image validation is now the documented clean-machine path:
     - Runbook: `docs/windows-oci-msi-validation.md`
     - Guest-side installer validation: `scripts/windows/validate-msi.ps1`
@@ -78,8 +80,7 @@
     - Skipped tests in Windows MSI build (`OMD_SKIP_TESTS=1`) because XCTest headers are not present.
     - Version resolution now tolerates missing tags.
 - **Next Steps**:
-  - Commit the current Windows/MSI/OCI scripts and doc updates so the OCI path is the repo-tracked source of truth.
-  - Trigger or verify a tagged GitHub Actions run so MSI and portable ZIP artifacts are actually produced for the current workflow.
+  - Verify a fresh tagged GitHub Actions run so MSI and portable ZIP artifacts are actually produced by the updated workflow.
   - Encode the temporary SSH-ingress narrowing/restoration into the documented validation procedure or helper automation so repeat runs do not depend on manual intervention.
   - Run `scripts/windows/oci-run-msi-validation.ps1` against a CI-produced tagged artifact, not only a locally built MSI, and collect logs under `dist/oci-logs`.
   - If the automated pass fails, keep the disposable VM only long enough for targeted RDP/manual investigation, then terminate it.

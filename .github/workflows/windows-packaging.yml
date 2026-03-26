@@ -5,40 +5,14 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      version:
+        description: Optional version to package (for example 0.1.0 or v0.1.0).
+        required: false
+        type: string
 
 jobs:
-  linux-gate:
-    runs-on:
-      - self-hosted
-      - linux
-      - gnustep-clang
-    timeout-minutes: 30
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: Verify GNUstep clang environment
-        shell: bash
-        run: |
-          set -eo pipefail
-          test -f /usr/GNUstep/System/Library/Makefiles/GNUstep.sh
-          set +u
-          source /usr/GNUstep/System/Library/Makefiles/GNUstep.sh
-          set -u
-          command -v clang
-          command -v gmake
-          command -v xctest
-
-      - name: Build and run tests
-        shell: bash
-        run: |
-          set -euo pipefail
-          ./scripts/ci/run-linux-ci.sh
-
   build-msi:
-    needs: linux-gate
     runs-on: windows-latest
     defaults:
       run:
@@ -47,6 +21,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
+          fetch-depth: 0
           submodules: recursive
 
       - name: Setup MSYS2 (clang64)
@@ -89,15 +64,26 @@ jobs:
       - name: Resolve Version
         id: version
         run: |
-          $tag = (git describe --tags --abbrev=0 2>$null)
-          if ($LASTEXITCODE -ne 0) {
-            $tag = ""
-            $global:LASTEXITCODE = 0
-          }
-          if ($tag -match 'v?(\d+\.\d+\.\d+)') {
+          $versionPattern = '^v?(\d+\.\d+\.\d+)(?:[-+].*)?$'
+          $inputVersion = "${{ github.event.inputs.version }}"
+          $refType = "${{ github.ref_type }}"
+          $refName = "${{ github.ref_name }}"
+
+          if ($inputVersion -match $versionPattern) {
+            $version = $Matches[1]
+          } elseif ($refType -eq "tag" -and $refName -match $versionPattern) {
             $version = $Matches[1]
           } else {
-            $version = "0.0.0"
+            $tag = (git describe --tags --abbrev=0 2>$null)
+            if ($LASTEXITCODE -ne 0) {
+              $tag = ""
+              $global:LASTEXITCODE = 0
+            }
+            if ($tag -match $versionPattern) {
+              $version = $Matches[1]
+            } else {
+              $version = "0.0.0"
+            }
           }
           "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
