@@ -6,6 +6,7 @@
 @interface OMDPandocConverter ()
 {
     NSString *_pandocPath;
+    NSString *_pandocDataDirectory;
 }
 - (NSString *)pandocFormatForExtension:(NSString *)extension;
 - (NSString *)temporaryPathWithPrefix:(NSString *)prefix extension:(NSString *)extension;
@@ -101,6 +102,50 @@ static NSString *OMDResolvePandocPath(void)
     return nil;
 }
 
+static NSString *OMDResolvePandocDataDirectory(NSString *pandocPath)
+{
+    NSDictionary *environment = [[NSProcessInfo processInfo] environment];
+    NSFileManager *fileManager = [NSFileManager defaultManager];
+    NSArray *overrideKeys = [NSArray arrayWithObjects:@"OMD_PANDOC_DATA_DIR",
+                                                     @"PANDOC_DATA_DIR",
+                                                     nil];
+
+    for (NSString *overrideKey in overrideKeys) {
+        NSString *overridePath = [environment objectForKey:overrideKey];
+        if (overridePath == nil || [overridePath length] == 0) {
+            continue;
+        }
+
+        NSString *expandedPath = [[overridePath stringByExpandingTildeInPath] stringByStandardizingPath];
+        BOOL isDirectory = NO;
+        if ([fileManager fileExistsAtPath:expandedPath isDirectory:&isDirectory] && isDirectory) {
+            return expandedPath;
+        }
+    }
+
+    if (pandocPath != nil && [pandocPath length] > 0) {
+        NSString *derivedPath = [[[[pandocPath stringByDeletingLastPathComponent]
+            stringByAppendingPathComponent:@"../share/pandoc"] stringByStandardizingPath] copy];
+        BOOL isDirectory = NO;
+        if ([fileManager fileExistsAtPath:derivedPath isDirectory:&isDirectory] && isDirectory) {
+            return [derivedPath autorelease];
+        }
+        [derivedPath release];
+    }
+
+#if !defined(_WIN32)
+    {
+        NSString *systemPath = @"/usr/share/pandoc";
+        BOOL isDirectory = NO;
+        if ([fileManager fileExistsAtPath:systemPath isDirectory:&isDirectory] && isDirectory) {
+            return systemPath;
+        }
+    }
+#endif
+
+    return nil;
+}
+
 @implementation OMDPandocConverter
 
 + (OMDPandocConverter *)converterIfAvailable
@@ -117,6 +162,7 @@ static NSString *OMDResolvePandocPath(void)
     self = [super init];
     if (self != nil) {
         _pandocPath = [pandocPath copy];
+        _pandocDataDirectory = [OMDResolvePandocDataDirectory(pandocPath) copy];
     }
     return self;
 }
@@ -124,6 +170,7 @@ static NSString *OMDResolvePandocPath(void)
 - (void)dealloc
 {
     [_pandocPath release];
+    [_pandocDataDirectory release];
     [super dealloc];
 }
 
@@ -214,7 +261,15 @@ static NSString *OMDResolvePandocPath(void)
 
     NSTask *task = [[[NSTask alloc] init] autorelease];
     [task setLaunchPath:_pandocPath];
-    [task setArguments:arguments];
+    NSMutableArray *effectiveArguments = [NSMutableArray array];
+    if (_pandocDataDirectory != nil && [_pandocDataDirectory length] > 0) {
+        [effectiveArguments addObject:@"--data-dir"];
+        [effectiveArguments addObject:_pandocDataDirectory];
+    }
+    if (arguments != nil) {
+        [effectiveArguments addObjectsFromArray:arguments];
+    }
+    [task setArguments:effectiveArguments];
     if (logHandle != nil) {
         [task setStandardOutput:logHandle];
         [task setStandardError:logHandle];

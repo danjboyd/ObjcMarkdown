@@ -49,6 +49,7 @@ jobs:
           command -v clang
           command -v gmake
           command -v curl
+          command -v pandoc
           command -v magick || command -v convert
 
       - name: Build (GNUstep clang)
@@ -117,8 +118,10 @@ jobs:
         run: |
           set -euo pipefail
           source dist/ObjcMarkdown.AppDir/.omd-appdir-manifest
+          : "${APP_RUNTIME_LIB_DIR:=$APPDIR/usr/lib/ObjcMarkdownRuntime}"
 
           export PATH="$PWD/tools/linuxdeploy:$PATH"
+          export LD_LIBRARY_PATH="$APP_RUNTIME_LIB_DIR:$APPDIR/usr/GNUstep/System/Library/Libraries${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
           ./tools/linuxdeploy/linuxdeploy-x86_64.AppImage \
             --appdir "$APPDIR" \
             --desktop-file "$DESKTOP_FILE" \

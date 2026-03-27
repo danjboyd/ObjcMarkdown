@@ -19,6 +19,8 @@
 #import "GSVVimConfigLoader.h"
 #import "GSOpenSave.h"
 #import <AppKit/NSInterfaceStyle.h>
+#import <AppKit/NSPrinter.h>
+#import <GNUstepGUI/GSPrinting.h>
 #import <GNUstepGUI/GSTheme.h>
 
 #include <sys/types.h>
@@ -71,6 +73,9 @@ static const CGFloat OMDToolbarIconSize = 22.0;
 static const CGFloat OMDToolbarIconInset = 2.0;
 static const CGFloat OMDToolbarActionSegmentWidth = 46.0;
 static const CGFloat OMDToolbarActionGroupSpacing = 8.0;
+static const CGFloat OMDToolbarModeControlsWidth = 356.0;
+static const CGFloat OMDToolbarZoomControlsWidth = 300.0;
+static const CGFloat OMDUsableWindowWidthPadding = 96.0;
 static const CGFloat OMDPreviewCanvasHorizontalMargin = 32.0;
 static const CGFloat OMDPreviewMaximumLayoutWidth = 920.0;
 static const CGFloat OMDPreviewPageCornerRadius = 10.0;
@@ -144,31 +149,59 @@ static void OMDApplyWindowsMenuToWindow(NSWindow *window)
         NSMenu *mainMenu = [NSApp mainMenu];
         if (mainMenu != nil) {
             [window setMenu:mainMenu];
-#if defined(_WIN32)
-            [[GSTheme theme] updateMenu:mainMenu forWindow:window];
-            OMDStartupTrace(@"windows menu applied to window");
-#endif
+            if ([[GSTheme theme] respondsToSelector:@selector(updateMenu:forWindow:)]) {
+                [[GSTheme theme] updateMenu:mainMenu forWindow:window];
+            }
+            OMDStartupTrace(@"windows-style menu applied to window");
         }
     }
 }
 
 static void OMDRefreshWindowsMainMenu(void)
 {
-#if defined(_WIN32)
     if (NSInterfaceStyleForKey(@"NSMenuInterfaceStyle", nil) == NSWindows95InterfaceStyle) {
         NSMenu *mainMenu = [NSApp mainMenu];
         if (mainMenu != nil) {
             [mainMenu update];
-            [[GSTheme theme] updateAllWindowsWithMenu:mainMenu];
-            OMDStartupTrace(@"windows main menu refreshed");
+            if ([[GSTheme theme] respondsToSelector:@selector(updateAllWindowsWithMenu:)]) {
+                [[GSTheme theme] updateAllWindowsWithMenu:mainMenu];
+            }
+            OMDStartupTrace(@"windows-style main menu refreshed");
         }
     }
+}
+
+static BOOL OMDShouldUseToolbarFlexibleSpace(void)
+{
+#if defined(_WIN32) || defined(__APPLE__)
+    return YES;
+#else
+    return NO;
 #endif
+}
+
+static CGFloat OMDMinimumUsableWindowWidth(void)
+{
+#if defined(__APPLE__)
+    return 900.0;
+#else
+    CGFloat primaryActionsWidth = (OMDToolbarActionSegmentWidth * 6.0) + OMDToolbarActionGroupSpacing;
+    return primaryActionsWidth + OMDToolbarModeControlsWidth + OMDToolbarZoomControlsWidth + OMDUsableWindowWidthPadding;
+#endif
+}
+
+static CGFloat OMDDefaultWindowWidth(void)
+{
+    return OMDMinimumUsableWindowWidth();
+}
+
+static CGFloat OMDDefaultWindowHeight(void)
+{
+    return 760.0;
 }
 
 static void OMDLogMenuSnapshot(NSString *label, NSMenu *menu, NSWindow *window)
 {
-#if defined(_WIN32)
     NSMutableArray *titles = [NSMutableArray array];
     NSUInteger count = 0;
     if (menu != nil) {
@@ -199,11 +232,6 @@ static void OMDLogMenuSnapshot(NSString *label, NSMenu *menu, NSWindow *window)
                                                (windowTitle != nil ? windowTitle : @"<nil>"),
                                                (windowMenuTitle != nil ? windowMenuTitle : @"<nil>"),
                                                [titles componentsJoinedByString:@","]]);
-#else
-    (void)label;
-    (void)menu;
-    (void)window;
-#endif
 }
 
 static NSString * const OMDTabMarkdownKey = @"markdown";
@@ -222,7 +250,9 @@ static NSString * const OMDTabObservedDiskFingerprintKey = @"observedDiskFingerp
 static NSString * const OMDTabSuppressedDiskFingerprintKey = @"suppressedDiskFingerprint";
 
 static NSString *OMDTrimmedString(NSString *value);
+#if defined(_WIN32)
 static NSString *OMDHTMLEscapedString(NSString *value);
+#endif
 
 static NSArray *OMDExecutableCandidateNames(NSString *name)
 {
@@ -344,6 +374,7 @@ static NSString *OMDNormalizedExternalLocalPath(NSString *path)
     return trimmed;
 }
 
+#if defined(_WIN32)
 static NSString *OMDHTMLEscapedString(NSString *value)
 {
     if (value == nil) {
@@ -356,6 +387,7 @@ static NSString *OMDHTMLEscapedString(NSString *value)
     escaped = [escaped stringByReplacingOccurrencesOfString:@"\"" withString:@"&quot;"];
     return escaped;
 }
+#endif
 
 static BOOL OMDPreviewStyleDiagnosticsEnabled(void)
 {
@@ -538,6 +570,110 @@ static BOOL OMDPerformanceLoggingEnabled(void)
         resolved = YES;
     }
     return enabled;
+}
+
+static BOOL OMDPrintDiagnosticsEnabled(void)
+{
+    static BOOL resolved = NO;
+    static BOOL enabled = NO;
+    if (!resolved) {
+        NSDictionary *environment = [[NSProcessInfo processInfo] environment];
+        NSString *flag = [environment objectForKey:@"OMD_PRINT_DIAGNOSTICS"];
+        if (flag == nil || [flag length] == 0) {
+            flag = [environment objectForKey:@"OBJCMARKDOWN_PRINT_DIAGNOSTICS"];
+        }
+        if (flag != nil && [flag length] > 0) {
+            enabled = OMDTruthyFlagValue(flag);
+        } else {
+            enabled = [[NSUserDefaults standardUserDefaults] boolForKey:@"ObjcMarkdownPrintDiagnostics"];
+        }
+        resolved = YES;
+    }
+    return enabled;
+}
+
+static BOOL OMDLaunchPrintAutomationEnabled(void)
+{
+    static BOOL resolved = NO;
+    static BOOL enabled = NO;
+    if (!resolved) {
+        NSDictionary *environment = [[NSProcessInfo processInfo] environment];
+        NSString *flag = [environment objectForKey:@"OMD_AUTOMATION_PRINT_ON_LAUNCH"];
+        if (flag == nil || [flag length] == 0) {
+            flag = [environment objectForKey:@"OBJCMARKDOWN_AUTOMATION_PRINT_ON_LAUNCH"];
+        }
+        enabled = OMDTruthyFlagValue(flag);
+        resolved = YES;
+    }
+    return enabled;
+}
+
+static NSString *OMDLaunchPDFExportAutomationPath(void)
+{
+    NSDictionary *environment = [[NSProcessInfo processInfo] environment];
+    NSString *path = [environment objectForKey:@"OMD_AUTOMATION_EXPORT_PDF_PATH"];
+    if (path == nil || [path length] == 0) {
+        path = [environment objectForKey:@"OBJCMARKDOWN_AUTOMATION_EXPORT_PDF_PATH"];
+    }
+    if (path == nil || [path length] == 0) {
+        return nil;
+    }
+    return [[path stringByExpandingTildeInPath] stringByStandardizingPath];
+}
+
+static void OMDLogPrintDiagnostics(NSString *message)
+{
+    if (!OMDPrintDiagnosticsEnabled() || message == nil || [message length] == 0) {
+        return;
+    }
+    NSLog(@"OMDPrint: %@", message);
+}
+
+static NSString *OMDCUPSDefaultPrinterName(void)
+{
+    NSString *lpstatPath = OMDExecutablePathNamed(@"lpstat");
+    if (lpstatPath == nil || [lpstatPath length] == 0) {
+        return nil;
+    }
+
+    NSPipe *outputPipe = [NSPipe pipe];
+    NSTask *task = [[[NSTask alloc] init] autorelease];
+    [task setLaunchPath:lpstatPath];
+    [task setArguments:[NSArray arrayWithObject:@"-d"]];
+    [task setStandardOutput:outputPipe];
+    [task setStandardError:outputPipe];
+
+    NSMutableDictionary *environment = [NSMutableDictionary dictionaryWithDictionary:[[NSProcessInfo processInfo] environment]];
+    [environment setObject:@"C" forKey:@"LC_ALL"];
+    [environment setObject:@"C" forKey:@"LANG"];
+    [task setEnvironment:environment];
+
+    @try {
+        [task launch];
+        [task waitUntilExit];
+    } @catch (NSException *exception) {
+        OMDLogPrintDiagnostics([NSString stringWithFormat:@"lpstat -d launch failed: %@", [exception reason]]);
+        return nil;
+    }
+
+    NSData *outputData = [[outputPipe fileHandleForReading] readDataToEndOfFile];
+    NSString *output = [[[NSString alloc] initWithData:outputData encoding:NSUTF8StringEncoding] autorelease];
+    NSString *trimmed = OMDTrimmedString(output);
+    if ([trimmed length] == 0) {
+        return nil;
+    }
+
+    if ([trimmed hasPrefix:@"system default destination:"]) {
+        NSString *printerName = [trimmed substringFromIndex:[@"system default destination:" length]];
+        return OMDTrimmedString(printerName);
+    }
+
+    if ([trimmed isEqualToString:@"no system default destination"]) {
+        return nil;
+    }
+
+    OMDLogPrintDiagnostics([NSString stringWithFormat:@"unexpected lpstat -d output: %@", trimmed]);
+    return nil;
 }
 
 static BOOL OMDFontIsMonospaced(NSFont *font)
@@ -2080,6 +2216,13 @@ static OMDRoundedCardView *OMDCreatePreferencesCard(NSRect frame, OMDLayoutMetri
 - (void)saveDocument:(id)sender;
 - (void)saveDocumentAsMarkdown:(id)sender;
 - (void)printDocument:(id)sender;
+- (void)runLaunchPrintAutomationIfRequested;
+- (void)runLaunchPDFExportAutomationIfRequested;
+- (void)logPrintDiagnosticsForOperation:(NSPrintOperation *)operation
+                              printInfo:(NSPrintInfo *)printInfo
+                                  stage:(NSString *)stage;
+- (void)ensurePrintDefaultPrinterConfigured;
+- (BOOL)exportDocumentAsPDFToPath:(NSString *)path;
 - (void)exportDocumentAsPDF:(id)sender;
 - (void)exportDocumentAsRTF:(id)sender;
 - (void)exportDocumentAsDOCX:(id)sender;
@@ -2653,6 +2796,16 @@ static NSMutableArray *OMDSecondaryWindows(void)
         [self restoreRecoveryIfAvailable];
         OMDStartupTrace(@"appDidFinishLaunching: restoreRecoveryIfAvailable returned");
     }
+    if (OMDLaunchPrintAutomationEnabled()) {
+        [self performSelector:@selector(runLaunchPrintAutomationIfRequested)
+                   withObject:nil
+                   afterDelay:0.8];
+    }
+    if (OMDLaunchPDFExportAutomationPath() != nil) {
+        [self performSelector:@selector(runLaunchPDFExportAutomationIfRequested)
+                   withObject:nil
+                   afterDelay:1.0];
+    }
 }
 
 - (void)applicationDidBecomeActive:(NSNotification *)notification
@@ -2691,31 +2844,14 @@ static NSMutableArray *OMDSecondaryWindows(void)
 {
     OMDStartupTrace(@"setupMainMenu: enter");
     NSMenu *menubar = [[[NSMenu alloc] initWithTitle:@"GSMainMenu"] autorelease];
-    // Install the menu immediately so GNUstep can seed Windows95-style menus
-    // before we inspect the initial item list.
-    [NSApp setMainMenu:menubar];
 
     NSString *appName = [[NSProcessInfo processInfo] processName];
-    NSInterfaceStyle style = NSInterfaceStyleForKey(@"NSMenuInterfaceStyle", nil);
-
-    NSMenuItem *appMenuItem = nil;
-    NSMenu *appMenu = nil;
-
-    if (style == NSWindows95InterfaceStyle && [menubar numberOfItems] > 0) {
-        appMenuItem = (NSMenuItem *)[menubar itemAtIndex:0];
-        appMenu = [appMenuItem submenu];
-        if (appMenu == nil) {
-            appMenu = [[[NSMenu alloc] initWithTitle:appName] autorelease];
-            [menubar setSubmenu:appMenu forItem:appMenuItem];
-        }
-    } else {
-        appMenuItem = [[[NSMenuItem alloc] initWithTitle:appName
-                                                  action:NULL
-                                           keyEquivalent:@""] autorelease];
-        appMenu = [[[NSMenu alloc] initWithTitle:appName] autorelease];
-        [menubar addItem:appMenuItem];
-        [menubar setSubmenu:appMenu forItem:appMenuItem];
-    }
+    NSMenuItem *appMenuItem = [[[NSMenuItem alloc] initWithTitle:appName
+                                                          action:NULL
+                                                   keyEquivalent:@""] autorelease];
+    NSMenu *appMenu = [[[NSMenu alloc] initWithTitle:appName] autorelease];
+    [menubar addItem:appMenuItem];
+    [menubar setSubmenu:appMenu forItem:appMenuItem];
 
     NSString *aboutTitle = [NSString stringWithFormat:@"About %@", appName];
     NSMenuItem *aboutItem = [[[NSMenuItem alloc] initWithTitle:aboutTitle
@@ -3111,12 +3247,13 @@ static NSMutableArray *OMDSecondaryWindows(void)
 {
     OMDStartupTrace(@"setupWindow: enter");
     OMDLayoutMetrics metrics = OMDLayoutMetricsForMode([self effectiveLayoutDensityMode]);
-    NSRect frame = NSMakeRect(100, 100, 900, 700);
+    NSRect frame = NSMakeRect(100, 100, OMDDefaultWindowWidth(), OMDDefaultWindowHeight());
     _window = [[OMDMainWindow alloc]
         initWithContentRect:frame
                   styleMask:(NSTitledWindowMask | NSClosableWindowMask | NSMiniaturizableWindowMask | NSResizableWindowMask)
                     backing:NSBackingStoreBuffered
                       defer:NO];
+    [_window setMinSize:NSMakeSize(OMDMinimumUsableWindowWidth(), 600.0)];
     [_window setFrameAutosaveName:@"ObjcMarkdownViewerMainWindow"];
     [self normalizeWindowFrameIfNeeded];
     [_window setTitle:@"Markdown Viewer"];
@@ -3602,11 +3739,11 @@ static NSMutableArray *OMDSecondaryWindows(void)
     if (height > visible.size.height) {
         height = floor(visible.size.height * 0.92);
     }
-    if (width < 720.0) {
-        width = MIN(900.0, visible.size.width);
+    if (width < OMDMinimumUsableWindowWidth()) {
+        width = MIN(OMDDefaultWindowWidth(), visible.size.width);
     }
     if (height < 520.0) {
-        height = MIN(700.0, visible.size.height);
+        height = MIN(OMDDefaultWindowHeight(), visible.size.height);
     }
 
     CGFloat x = visible.origin.x + floor((visible.size.width - width) * 0.5);
@@ -3893,22 +4030,20 @@ static NSMutableArray *OMDSecondaryWindows(void)
 
 - (NSArray *)toolbarAllowedItemIdentifiers:(NSToolbar *)toolbar
 {
-    return [NSArray arrayWithObjects:
+    NSMutableArray *identifiers = [NSMutableArray arrayWithObjects:
         @"PrimaryActions",
-        @"ModeControls",
-        NSToolbarFlexibleSpaceItemIdentifier,
-        @"ZoomControls",
         nil];
+    [identifiers addObject:@"ModeControls"];
+    if (OMDShouldUseToolbarFlexibleSpace()) {
+        [identifiers addObject:NSToolbarFlexibleSpaceItemIdentifier];
+    }
+    [identifiers addObject:@"ZoomControls"];
+    return identifiers;
 }
 
 - (NSArray *)toolbarDefaultItemIdentifiers:(NSToolbar *)toolbar
 {
-    return [NSArray arrayWithObjects:
-        @"PrimaryActions",
-        @"ModeControls",
-        NSToolbarFlexibleSpaceItemIdentifier,
-        @"ZoomControls",
-        nil];
+    return [self toolbarAllowedItemIdentifiers:toolbar];
 }
 
 - (void)updateZoomLabel
@@ -5370,6 +5505,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
 
 - (NSPrintInfo *)configuredPrintInfo
 {
+    [self ensurePrintDefaultPrinterConfigured];
     NSPrintInfo *shared = [NSPrintInfo sharedPrintInfo];
     NSPrintInfo *printInfo = shared != nil ? [shared copy] : [[NSPrintInfo alloc] init];
     NSSize paperSize = [printInfo paperSize];
@@ -5381,6 +5517,161 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [printInfo setHorizontallyCentered:NO];
     [printInfo setVerticallyCentered:NO];
     return [printInfo autorelease];
+}
+
+- (void)ensurePrintDefaultPrinterConfigured
+{
+#if defined(_WIN32)
+    return;
+#else
+    NSString *defaultPrinterName = OMDCUPSDefaultPrinterName();
+    if (defaultPrinterName != nil && [defaultPrinterName length] > 0) {
+        OMDLogPrintDiagnostics([NSString stringWithFormat:@"existing CUPS default printer=%@", defaultPrinterName]);
+        return;
+    }
+
+    NSArray *printerNames = nil;
+    @try {
+        printerNames = [NSPrinter printerNames];
+    } @catch (NSException *exception) {
+        OMDLogPrintDiagnostics([NSString stringWithFormat:@"printerNames lookup failed: %@", [exception reason]]);
+        return;
+    }
+
+    if ([printerNames count] == 0) {
+        OMDLogPrintDiagnostics(@"no printers available while trying to seed default printer");
+        return;
+    }
+
+    NSString *printerName = [printerNames objectAtIndex:0];
+    if ([printerName isEqualToString:@"GSCUPSDummyPrinter"]) {
+        OMDLogPrintDiagnostics(@"only GSCUPSDummyPrinter is available; leaving default printer unset");
+        return;
+    }
+
+    NSPrinter *printer = nil;
+    @try {
+        printer = [NSPrinter printerWithName:printerName];
+    } @catch (NSException *exception) {
+        OMDLogPrintDiagnostics([NSString stringWithFormat:@"printerWithName failed for %@: %@", printerName, [exception reason]]);
+        return;
+    }
+
+    if (printer == nil) {
+        OMDLogPrintDiagnostics([NSString stringWithFormat:@"printerWithName returned nil for %@", printerName]);
+        return;
+    }
+
+    [NSPrintInfo setDefaultPrinter:printer];
+    OMDLogPrintDiagnostics([NSString stringWithFormat:@"seeded CUPS default printer=%@", printerName]);
+#endif
+}
+
+- (void)runLaunchPrintAutomationIfRequested
+{
+    if (!OMDLaunchPrintAutomationEnabled()) {
+        return;
+    }
+
+    OMDLogPrintDiagnostics([NSString stringWithFormat:@"launch automation currentPath=%@ markdownLength=%lu",
+                                                      (_currentPath != nil ? _currentPath : @"<nil>"),
+                                                      (unsigned long)[_currentMarkdown length]]);
+    if (_window != nil) {
+        [_window makeKeyAndOrderFront:nil];
+    }
+    [NSApp activateIgnoringOtherApps:YES];
+    [self printDocument:nil];
+}
+
+- (void)runLaunchPDFExportAutomationIfRequested
+{
+    NSString *path = OMDLaunchPDFExportAutomationPath();
+    if (path == nil || [path length] == 0) {
+        return;
+    }
+
+    OMDLogPrintDiagnostics([NSString stringWithFormat:@"launch PDF export automation path=%@", path]);
+    if (_window != nil) {
+        [_window makeKeyAndOrderFront:nil];
+    }
+    [NSApp activateIgnoringOtherApps:YES];
+
+    if ([self exportDocumentAsPDFToPath:path]) {
+        NSDictionary *attributes = [[NSFileManager defaultManager] attributesOfItemAtPath:path error:NULL];
+        unsigned long long fileSize = [[attributes objectForKey:NSFileSize] unsignedLongLongValue];
+        OMDLogPrintDiagnostics([NSString stringWithFormat:@"launch PDF export automation succeeded path=%@ size=%llu",
+                                                          path,
+                                                          fileSize]);
+    } else {
+        OMDLogPrintDiagnostics([NSString stringWithFormat:@"launch PDF export automation failed path=%@", path]);
+    }
+}
+
+- (void)logPrintDiagnosticsForOperation:(NSPrintOperation *)operation
+                              printInfo:(NSPrintInfo *)printInfo
+                                  stage:(NSString *)stage
+{
+    if (!OMDPrintDiagnosticsEnabled()) {
+        return;
+    }
+
+    NSArray *printerNames = nil;
+    NSPrinter *defaultPrinter = nil;
+    NSPrinter *selectedPrinter = nil;
+    NSPrintPanel *panel = nil;
+    NSBundle *printingBundle = nil;
+
+    @try {
+        printerNames = [NSPrinter printerNames];
+    } @catch (NSException *exception) {
+        OMDLogPrintDiagnostics([NSString stringWithFormat:@"%@ printerNames exception=%@",
+                                                          stage,
+                                                          [exception reason]]);
+    }
+
+    @try {
+        defaultPrinter = [NSPrintInfo defaultPrinter];
+    } @catch (NSException *exception) {
+        OMDLogPrintDiagnostics([NSString stringWithFormat:@"%@ defaultPrinter exception=%@",
+                                                          stage,
+                                                          [exception reason]]);
+    }
+
+    @try {
+        selectedPrinter = [printInfo printer];
+    } @catch (NSException *exception) {
+        OMDLogPrintDiagnostics([NSString stringWithFormat:@"%@ selectedPrinter exception=%@",
+                                                          stage,
+                                                          [exception reason]]);
+    }
+
+    @try {
+        panel = (operation != nil ? [operation printPanel] : nil);
+    } @catch (NSException *exception) {
+        OMDLogPrintDiagnostics([NSString stringWithFormat:@"%@ printPanel exception=%@",
+                                                          stage,
+                                                          [exception reason]]);
+    }
+
+    @try {
+        printingBundle = [GSPrinting printingBundle];
+    } @catch (NSException *exception) {
+        OMDLogPrintDiagnostics([NSString stringWithFormat:@"%@ printingBundle exception=%@",
+                                                          stage,
+                                                          [exception reason]]);
+    }
+
+    OMDLogPrintDiagnostics([NSString stringWithFormat:@"%@ operationClass=%@ panelClass=%@ panelVisible=%@ panelFrame=%@ bundlePath=%@ selectedPrinter=%@ defaultPrinter=%@ printerNames=%@ jobDisposition=%@",
+                                                      stage,
+                                                      (operation != nil ? NSStringFromClass([operation class]) : @"<nil>"),
+                                                      (panel != nil ? NSStringFromClass([panel class]) : @"<nil>"),
+                                                      (panel != nil && [panel isVisible] ? @"YES" : @"NO"),
+                                                      (panel != nil ? NSStringFromRect([panel frame]) : @"<nil>"),
+                                                      (printingBundle != nil ? [printingBundle bundlePath] : @"<nil>"),
+                                                      (selectedPrinter != nil ? [selectedPrinter name] : @"<nil>"),
+                                                      (defaultPrinter != nil ? [defaultPrinter name] : @"<nil>"),
+                                                      (printerNames != nil ? [printerNames componentsJoinedByString:@", "] : @"<nil>"),
+                                                      (printInfo != nil ? [printInfo jobDisposition] : @"<nil>")]);
 }
 
 - (CGFloat)printableContentWidthForPrintInfo:(NSPrintInfo *)printInfo
@@ -5487,6 +5778,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
 
 - (void)printDocument:(id)sender
 {
+    (void)sender;
     if (![self ensureDocumentLoadedForActionName:@"Print"]) {
         return;
     }
@@ -5494,6 +5786,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
     NSPrintInfo *printInfo = [self configuredPrintInfo];
     OMDTextView *printView = [self newPrintTextViewForPrintInfo:printInfo];
     if (printView == nil) {
+        OMDLogPrintDiagnostics(@"printDocument aborting because printView is nil");
         return;
     }
 
@@ -5508,9 +5801,11 @@ static NSMutableArray *OMDSecondaryWindows(void)
     }
 #else
     NSPrintOperation *operation = [NSPrintOperation printOperationWithView:printView printInfo:printInfo];
+    [self logPrintDiagnosticsForOperation:operation printInfo:printInfo stage:@"before runOperation"];
     [operation setShowsPrintPanel:YES];
     [operation setShowsProgressPanel:YES];
     ok = [operation runOperation];
+    [self logPrintDiagnosticsForOperation:operation printInfo:printInfo stage:@"after runOperation"];
 #endif
     [printView release];
 
@@ -5838,8 +6133,57 @@ static NSMutableArray *OMDSecondaryWindows(void)
 }
 #endif
 
+- (BOOL)exportDocumentAsPDFToPath:(NSString *)path
+{
+    if (path == nil || [path length] == 0) {
+        OMDLogPrintDiagnostics(@"export PDF aborted because destination path is empty");
+        return NO;
+    }
+
+    NSString *normalizedPath = path;
+    if (![[[normalizedPath pathExtension] lowercaseString] isEqualToString:@"pdf"]) {
+        normalizedPath = [normalizedPath stringByAppendingPathExtension:@"pdf"];
+    }
+
+    OMDLogPrintDiagnostics([NSString stringWithFormat:@"export PDF destination=%@", normalizedPath]);
+
+    NSPrintInfo *printInfo = [self configuredPrintInfo];
+    OMDTextView *printView = [self newPrintTextViewForPrintInfo:printInfo];
+    if (printView == nil) {
+        OMDLogPrintDiagnostics(@"export PDF aborting because printView is nil");
+        return NO;
+    }
+
+#if defined(_WIN32)
+    NSString *browserPath = [self windowsHeadlessBrowserPath];
+    BOOL success = (browserPath != nil &&
+                    [self exportPrintView:printView toPDFAtPath:normalizedPath usingBrowser:browserPath]);
+#else
+    [printInfo setJobDisposition:NSPrintSaveJob];
+    [[printInfo dictionary] setObject:normalizedPath forKey:NSPrintSavePath];
+
+    NSPrintOperation *operation = [NSPrintOperation printOperationWithView:printView
+                                                                 printInfo:printInfo];
+    [self logPrintDiagnosticsForOperation:operation printInfo:printInfo stage:@"before export runOperation"];
+    [operation setShowsPrintPanel:NO];
+    [operation setShowsProgressPanel:YES];
+    BOOL success = [operation runOperation];
+    [self logPrintDiagnosticsForOperation:operation printInfo:printInfo stage:@"after export runOperation"];
+#endif
+
+    [printView release];
+
+    BOOL fileExists = [[NSFileManager defaultManager] fileExistsAtPath:normalizedPath];
+    OMDLogPrintDiagnostics([NSString stringWithFormat:@"export PDF result success=%@ fileExists=%@ path=%@",
+                                                      (success ? @"YES" : @"NO"),
+                                                      (fileExists ? @"YES" : @"NO"),
+                                                      normalizedPath]);
+    return success && fileExists;
+}
+
 - (void)exportDocumentAsPDF:(id)sender
 {
+    (void)sender;
     if (![self ensureDocumentLoadedForActionName:@"Export as PDF"]) {
         return;
     }
@@ -5847,6 +6191,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
 #if defined(_WIN32)
     NSString *path = [self windowsPDFSavePathWithSuggestedName:[self defaultExportFileNameWithExtension:@"pdf"]];
     if (path == nil || [path length] == 0) {
+        OMDLogPrintDiagnostics(@"export PDF cancelled before destination selection on Windows");
         return;
     }
 #else
@@ -5860,42 +6205,22 @@ static NSMutableArray *OMDSecondaryWindows(void)
         [panel setDirectory:[_currentPath stringByDeletingLastPathComponent]];
     }
 
+    OMDLogPrintDiagnostics(@"export PDF presenting save panel");
     NSInteger result = [panel runModal];
+    OMDLogPrintDiagnostics([NSString stringWithFormat:@"export PDF save panel result=%ld",
+                                                      (long)result]);
     if (result != NSOKButton && result != NSFileHandlingPanelOKButton) {
+        OMDLogPrintDiagnostics(@"export PDF cancelled in save panel");
         return;
     }
 
     NSString *path = [panel filename];
     if (path == nil || [path length] == 0) {
+        OMDLogPrintDiagnostics(@"export PDF save panel returned empty filename");
         return;
     }
 #endif
-    if (![[[path pathExtension] lowercaseString] isEqualToString:@"pdf"]) {
-        path = [path stringByAppendingPathExtension:@"pdf"];
-    }
-
-    NSPrintInfo *printInfo = [self configuredPrintInfo];
-    OMDTextView *printView = [self newPrintTextViewForPrintInfo:printInfo];
-    if (printView == nil) {
-        return;
-    }
-
-#if defined(_WIN32)
-    NSString *browserPath = [self windowsHeadlessBrowserPath];
-    BOOL success = (browserPath != nil &&
-                    [self exportPrintView:printView toPDFAtPath:path usingBrowser:browserPath]);
-#else
-    [printInfo setJobDisposition:NSPrintSaveJob];
-    [[printInfo dictionary] setObject:path forKey:NSPrintSavePath];
-
-    NSPrintOperation *operation = [NSPrintOperation printOperationWithView:printView
-                                                                 printInfo:printInfo];
-    [operation setShowsPrintPanel:NO];
-    [operation setShowsProgressPanel:YES];
-    BOOL success = [operation runOperation];
-#endif
-
-    [printView release];
+    BOOL success = [self exportDocumentAsPDFToPath:path];
 
     if (!success) {
         NSAlert *alert = [[[NSAlert alloc] init] autorelease];

@@ -3,15 +3,34 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 STAGING_DIR="${1:-$ROOT/dist/ObjcMarkdown.AppDir}"
-THEME_SOURCE="${2:-${OMD_ADWAITA_THEME_SOURCE:-$ROOT/third_party/plugins-themes-Adwaita}}"
+DEFAULT_THEME_BUILD_SOURCE="$ROOT/third_party/plugins-themes-Adwaita"
+if [[ ! -e "$DEFAULT_THEME_BUILD_SOURCE/GNUmakefile" ]]; then
+  DEFAULT_THEME_BUILD_SOURCE="$ROOT/../gnustep/plugins-themes-adwaita"
+fi
+THEME_BUILD_SOURCE="${2:-${OMD_ADWAITA_THEME_SOURCE:-$DEFAULT_THEME_BUILD_SOURCE}}"
+THEME_BUNDLE_SOURCE="${OMD_ADWAITA_THEME_BUNDLE_SOURCE:-}"
+if [[ -z "$THEME_BUNDLE_SOURCE" ]]; then
+  for candidate in \
+    "$HOME/GNUstep/Library/Themes/Adwaita.theme" \
+    "/usr/GNUstep/Local/Library/Themes/Adwaita.theme" \
+    "/usr/GNUstep/System/Library/Themes/Adwaita.theme"; do
+    if [[ -e "$candidate/Adwaita" ]]; then
+      THEME_BUNDLE_SOURCE="$candidate"
+      break
+    fi
+  done
+fi
 
 mkdir -p "$(dirname "$STAGING_DIR")"
 APPDIR="$(cd "$(dirname "$STAGING_DIR")" && pwd)/$(basename "$STAGING_DIR")"
 USR_DIR="$APPDIR/usr"
 BIN_DIR="$USR_DIR/bin"
 LIB_DIR="$USR_DIR/lib"
+APP_RUNTIME_LIB_DIR="$USR_DIR/lib/ObjcMarkdownRuntime"
 APP_BASE_DIR="$USR_DIR/lib/ObjcMarkdown"
 APP_BUNDLE_DIR="$APP_BASE_DIR/MarkdownViewer.app"
+PANDOC_BINARY="${OMD_PANDOC_BINARY:-/usr/bin/pandoc}"
+PANDOC_SHARE_SOURCE="${OMD_PANDOC_SHARE_SOURCE:-/usr/share/pandoc}"
 GNUSTEP_ROOT="$USR_DIR/GNUstep"
 GNUSTEP_SYSTEM_ROOT="$GNUSTEP_ROOT/System"
 GNUSTEP_LOCAL_ROOT="$GNUSTEP_ROOT/Local"
@@ -19,6 +38,7 @@ GNUSTEP_NETWORK_ROOT="$GNUSTEP_ROOT/Network"
 GNUSTEP_LIB_DIR="$GNUSTEP_SYSTEM_ROOT/Library/Libraries"
 GNUSTEP_BUNDLE_DIR="$GNUSTEP_SYSTEM_ROOT/Library/Bundles"
 GNUSTEP_COLORPICKER_DIR="$GNUSTEP_SYSTEM_ROOT/Library/ColorPickers"
+GNUSTEP_IMAGES_DIR="$GNUSTEP_SYSTEM_ROOT/Library/Images"
 GNUSTEP_THEME_DIR="$GNUSTEP_SYSTEM_ROOT/Library/Themes"
 GNUSTEP_TOOLS_DIR="$GNUSTEP_SYSTEM_ROOT/Tools"
 GNUSTEP_MAKEFILES_DIR="$GNUSTEP_SYSTEM_ROOT/Library/Makefiles"
@@ -134,6 +154,34 @@ copy_elf_dependencies() {
   done < <(ldd "$binary" 2>/dev/null | awk '/=> \// { print $3 } /^\/[^ ]+/ { print $1 }' | sort -u)
 }
 
+copy_shared_by_soname() {
+  local soname="$1"
+  local dest="$2"
+  local resolved=""
+  local ldconfig_bin=""
+
+  if command -v ldconfig >/dev/null 2>&1; then
+    ldconfig_bin="$(command -v ldconfig)"
+  elif [[ -x /sbin/ldconfig ]]; then
+    ldconfig_bin="/sbin/ldconfig"
+  elif [[ -x /usr/sbin/ldconfig ]]; then
+    ldconfig_bin="/usr/sbin/ldconfig"
+  else
+    return
+  fi
+
+  resolved="$("$ldconfig_bin" -p 2>/dev/null | awk -v needle="$soname" '
+    $1 == needle && match_found == 0 {
+      print $NF
+      match_found = 1
+    }
+  ')"
+  if [[ -z "$resolved" ]]; then
+    return
+  fi
+  copy_library_chain "$resolved" "$dest"
+}
+
 copy_tree_elf_dependencies() {
   local tree="$1"
   local file=""
@@ -174,13 +222,20 @@ render_icon() {
 }
 
 install_adwaita_theme() {
-  require_file "$THEME_SOURCE/GNUmakefile"
+  if [[ -n "$THEME_BUNDLE_SOURCE" ]]; then
+    require_file "$THEME_BUNDLE_SOURCE/Adwaita"
+    mkdir -p "$GNUSTEP_THEME_DIR/Adwaita.theme"
+    copy_dir_contents "$THEME_BUNDLE_SOURCE" "$GNUSTEP_THEME_DIR/Adwaita.theme"
+    return
+  fi
+
+  require_file "$THEME_BUILD_SOURCE/GNUmakefile"
 
   source_host_gnustep
 
-  gmake -C "$THEME_SOURCE" clean >/dev/null
-  gmake -C "$THEME_SOURCE"
-  gmake -C "$THEME_SOURCE" install \
+  gmake -C "$THEME_BUILD_SOURCE" clean >/dev/null
+  gmake -C "$THEME_BUILD_SOURCE"
+  gmake -C "$THEME_BUILD_SOURCE" install \
     DESTDIR="$APPDIR" \
     GNUSTEP_INSTALLATION_DOMAIN=SYSTEM
 }
@@ -195,10 +250,12 @@ rm -rf "$APPDIR"
 mkdir -p \
   "$BIN_DIR" \
   "$LIB_DIR" \
+  "$APP_RUNTIME_LIB_DIR" \
   "$APP_BASE_DIR" \
   "$GNUSTEP_LIB_DIR" \
   "$GNUSTEP_BUNDLE_DIR" \
   "$GNUSTEP_COLORPICKER_DIR" \
+  "$GNUSTEP_IMAGES_DIR" \
   "$GNUSTEP_THEME_DIR" \
   "$GNUSTEP_TOOLS_DIR" \
   "$GNUSTEP_MAKEFILES_DIR" \
@@ -209,9 +266,13 @@ mkdir -p \
   "$GLIB_SCHEMA_DIR"
 
 cp -a "$ROOT/ObjcMarkdownViewer/MarkdownViewer.app" "$APP_BASE_DIR/"
-copy_glob "$ROOT/ObjcMarkdown/obj/libObjcMarkdown.so*" "$LIB_DIR"
-copy_glob "$ROOT/third_party/libs-OpenSave/Source/obj/libOpenSave.so*" "$LIB_DIR"
-copy_glob "$ROOT/third_party/TextViewVimKitBuild/obj/libTextViewVimKit.so*" "$LIB_DIR"
+copy_glob "$ROOT/ObjcMarkdown/obj/libObjcMarkdown.so*" "$APP_RUNTIME_LIB_DIR"
+copy_glob "$ROOT/third_party/libs-OpenSave/Source/obj/libOpenSave.so*" "$APP_RUNTIME_LIB_DIR"
+copy_glob "$ROOT/third_party/TextViewVimKitBuild/obj/libTextViewVimKit.so*" "$APP_RUNTIME_LIB_DIR"
+# Debian GNOME guests provide the GTK/Pango/Cairo stack we want GNUstep to use,
+# but they do not ship libicns by default. OpenSave/TextViewVimKit link it at
+# load time, so keep that one app-private dependency alongside the viewer libs.
+copy_shared_by_soname "libicns.so.1" "$APP_RUNTIME_LIB_DIR"
 
 copy_glob "/usr/GNUstep/System/Library/Libraries/libgnustep-base.so*" "$GNUSTEP_LIB_DIR"
 copy_glob "/usr/GNUstep/System/Library/Libraries/libgnustep-gui.so*" "$GNUSTEP_LIB_DIR"
@@ -222,6 +283,7 @@ copy_glob "/usr/GNUstep/System/Library/Libraries/libBlocksRuntime.so*" "$GNUSTEP
 
 copy_dir_contents "/usr/GNUstep/System/Library/Bundles" "$GNUSTEP_BUNDLE_DIR"
 copy_dir_contents "/usr/GNUstep/System/Library/ColorPickers" "$GNUSTEP_COLORPICKER_DIR"
+copy_dir_contents "/usr/GNUstep/System/Library/Images" "$GNUSTEP_IMAGES_DIR"
 copy_dir_contents "/usr/GNUstep/System/Library/Makefiles" "$GNUSTEP_MAKEFILES_DIR"
 
 if [[ -d "$GNUSTEP_BUNDLE_DIR/libgnustep-back-032.bundle" && ! -e "$GNUSTEP_BUNDLE_DIR/libgnustep-back.bundle" ]]; then
@@ -230,6 +292,21 @@ fi
 
 if [[ -x /usr/GNUstep/System/Tools/defaults ]]; then
   cp -a /usr/GNUstep/System/Tools/defaults "$GNUSTEP_TOOLS_DIR/"
+fi
+
+if [[ -x "$PANDOC_BINARY" ]]; then
+  cp -a "$PANDOC_BINARY" "$BIN_DIR/pandoc"
+  copy_elf_dependencies "$PANDOC_BINARY" "$LIB_DIR"
+  if [[ -d "$PANDOC_SHARE_SOURCE" ]]; then
+    mkdir -p "$SHARE_DIR/pandoc"
+    copy_dir_contents "$PANDOC_SHARE_SOURCE" "$SHARE_DIR/pandoc"
+  else
+    echo "ERROR: pandoc data directory is required: $PANDOC_SHARE_SOURCE" >&2
+    exit 1
+  fi
+else
+  echo "ERROR: pandoc is required to bundle DOCX/ODT/RTF/HTML conversion support." >&2
+  exit 1
 fi
 
 if [[ -d /usr/GNUstep/System/Library/Libraries/gnustep-base ]]; then
@@ -280,7 +357,8 @@ OMD_GNUSTEP_USER_LIBRARIES="$OMD_GNUSTEP_USER_LIBRARY/Libraries"
 OMD_GNUSTEP_USER_TOOLS="$OMD_GNUSTEP_USER_ROOT/Tools"
 OMD_GNUSTEP_PATHLIST="$OMD_GNUSTEP_USER_ROOT:$OMD_GNUSTEP_LOCAL_ROOT:$OMD_GNUSTEP_NETWORK_ROOT:$OMD_GNUSTEP_SYSTEM_ROOT"
 OMD_GNUSTEP_LIB_DIR="$OMD_GNUSTEP_SYSTEM_ROOT/Library/Libraries"
-OMD_APP_LIB_DIR="$OMD_APPDIR/usr/lib"
+OMD_APP_SHARED_LIB_DIR="$OMD_APPDIR/usr/lib"
+OMD_APP_LIB_DIR="$OMD_APPDIR/usr/lib/ObjcMarkdownRuntime"
 OMD_APP_BINARY="$OMD_APPDIR/usr/lib/ObjcMarkdown/MarkdownViewer.app/MarkdownViewer"
 OMD_DEFAULTS_TOOL="$OMD_GNUSTEP_SYSTEM_TOOLS/defaults"
 OMD_THEME_BUNDLE="$OMD_GNUSTEP_SYSTEM_ROOT/Library/Themes/Adwaita.theme"
@@ -288,60 +366,22 @@ OMD_BACKEND_BUNDLE="$(find "$OMD_GNUSTEP_SYSTEM_ROOT/Library/Bundles" -maxdepth 
 OMD_ORIGINAL_LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-}"
 OMD_RUNTIME_CONFIG_DIR="$OMD_GNUSTEP_USER_ROOT/Runtime"
 OMD_RUNTIME_CONFIG="$OMD_RUNTIME_CONFIG_DIR/GNUstep.conf"
-OMD_GNUSTEP_USER_RELATIVE_ROOT=".config/objcmarkdown-appimage/GNUstep"
+OMD_GNUSTEP_USER_DEFAULTS_DIR=".config/objcmarkdown-appimage/GNUstep/Defaults"
 
-mkdir -p "$OMD_GNUSTEP_USER_ROOT/Defaults/.lck" "$OMD_RUNTIME_CONFIG_DIR"
+mkdir -p "$OMD_GNUSTEP_USER_ROOT/Defaults/.lck" "$OMD_GNUSTEP_USER_LIBRARY/ApplicationSupport" "$OMD_RUNTIME_CONFIG_DIR"
 cat > "$OMD_RUNTIME_CONFIG" <<EOFCONF
 GNUSTEP_USER_CONFIG_FILE=
-GNUSTEP_USER_DEFAULTS_DIR=$OMD_GNUSTEP_USER_RELATIVE_ROOT/Defaults
+GNUSTEP_USER_DEFAULTS_DIR=$OMD_GNUSTEP_USER_DEFAULTS_DIR
 GNUSTEP_MAKEFILES=$OMD_GNUSTEP_SYSTEM_ROOT/Library/Makefiles
-GNUSTEP_SYSTEM_USERS_DIR=/home
-GNUSTEP_NETWORK_USERS_DIR=/home
-GNUSTEP_LOCAL_USERS_DIR=/home
-GNUSTEP_SYSTEM_APPS=$OMD_GNUSTEP_SYSTEM_ROOT/Applications
-GNUSTEP_SYSTEM_ADMIN_APPS=$OMD_GNUSTEP_SYSTEM_ROOT/Applications/Admin
-GNUSTEP_SYSTEM_WEB_APPS=$OMD_GNUSTEP_SYSTEM_LIBRARY/WebApplications
 GNUSTEP_SYSTEM_TOOLS=$OMD_GNUSTEP_SYSTEM_TOOLS
-GNUSTEP_SYSTEM_ADMIN_TOOLS=$OMD_GNUSTEP_SYSTEM_TOOLS/Admin
 GNUSTEP_SYSTEM_LIBRARY=$OMD_GNUSTEP_SYSTEM_LIBRARY
-GNUSTEP_SYSTEM_HEADERS=$OMD_GNUSTEP_SYSTEM_LIBRARY/Headers
 GNUSTEP_SYSTEM_LIBRARIES=$OMD_GNUSTEP_SYSTEM_LIBRARIES
-GNUSTEP_SYSTEM_DOC=$OMD_GNUSTEP_SYSTEM_LIBRARY/Documentation
-GNUSTEP_SYSTEM_DOC_MAN=$OMD_GNUSTEP_SYSTEM_LIBRARY/Documentation/man
-GNUSTEP_SYSTEM_DOC_INFO=$OMD_GNUSTEP_SYSTEM_LIBRARY/Documentation/info
-GNUSTEP_NETWORK_APPS=$OMD_GNUSTEP_NETWORK_ROOT/Applications
-GNUSTEP_NETWORK_ADMIN_APPS=$OMD_GNUSTEP_NETWORK_ROOT/Applications/Admin
-GNUSTEP_NETWORK_WEB_APPS=$OMD_GNUSTEP_NETWORK_LIBRARY/WebApplications
-GNUSTEP_NETWORK_TOOLS=$OMD_GNUSTEP_NETWORK_TOOLS
-GNUSTEP_NETWORK_ADMIN_TOOLS=$OMD_GNUSTEP_NETWORK_TOOLS/Admin
-GNUSTEP_NETWORK_LIBRARY=$OMD_GNUSTEP_NETWORK_LIBRARY
-GNUSTEP_NETWORK_HEADERS=$OMD_GNUSTEP_NETWORK_LIBRARY/Headers
-GNUSTEP_NETWORK_LIBRARIES=$OMD_GNUSTEP_NETWORK_LIBRARIES
-GNUSTEP_NETWORK_DOC=$OMD_GNUSTEP_NETWORK_LIBRARY/Documentation
-GNUSTEP_NETWORK_DOC_MAN=$OMD_GNUSTEP_NETWORK_LIBRARY/Documentation/man
-GNUSTEP_NETWORK_DOC_INFO=$OMD_GNUSTEP_NETWORK_LIBRARY/Documentation/info
-GNUSTEP_LOCAL_APPS=$OMD_GNUSTEP_LOCAL_ROOT/Applications
-GNUSTEP_LOCAL_ADMIN_APPS=$OMD_GNUSTEP_LOCAL_ROOT/Applications/Admin
-GNUSTEP_LOCAL_WEB_APPS=$OMD_GNUSTEP_LOCAL_LIBRARY/WebApplications
 GNUSTEP_LOCAL_TOOLS=$OMD_GNUSTEP_LOCAL_TOOLS
-GNUSTEP_LOCAL_ADMIN_TOOLS=$OMD_GNUSTEP_LOCAL_TOOLS/Admin
 GNUSTEP_LOCAL_LIBRARY=$OMD_GNUSTEP_LOCAL_LIBRARY
-GNUSTEP_LOCAL_HEADERS=$OMD_GNUSTEP_LOCAL_LIBRARY/Headers
 GNUSTEP_LOCAL_LIBRARIES=$OMD_GNUSTEP_LOCAL_LIBRARIES
-GNUSTEP_LOCAL_DOC=$OMD_GNUSTEP_LOCAL_LIBRARY/Documentation
-GNUSTEP_LOCAL_DOC_MAN=$OMD_GNUSTEP_LOCAL_LIBRARY/Documentation/man
-GNUSTEP_LOCAL_DOC_INFO=$OMD_GNUSTEP_LOCAL_LIBRARY/Documentation/info
-GNUSTEP_USER_DIR_APPS=$OMD_GNUSTEP_USER_RELATIVE_ROOT/Applications
-GNUSTEP_USER_DIR_ADMIN_APPS=$OMD_GNUSTEP_USER_RELATIVE_ROOT/Applications/Admin
-GNUSTEP_USER_DIR_WEB_APPS=$OMD_GNUSTEP_USER_RELATIVE_ROOT/Library/WebApplications
-GNUSTEP_USER_DIR_TOOLS=$OMD_GNUSTEP_USER_RELATIVE_ROOT/Tools
-GNUSTEP_USER_DIR_ADMIN_TOOLS=$OMD_GNUSTEP_USER_RELATIVE_ROOT/Tools/Admin
-GNUSTEP_USER_DIR_LIBRARY=$OMD_GNUSTEP_USER_RELATIVE_ROOT/Library
-GNUSTEP_USER_DIR_HEADERS=$OMD_GNUSTEP_USER_RELATIVE_ROOT/Library/Headers
-GNUSTEP_USER_DIR_LIBRARIES=$OMD_GNUSTEP_USER_RELATIVE_ROOT/Library/Libraries
-GNUSTEP_USER_DIR_DOC=$OMD_GNUSTEP_USER_RELATIVE_ROOT/Library/Documentation
-GNUSTEP_USER_DIR_DOC_MAN=$OMD_GNUSTEP_USER_RELATIVE_ROOT/Library/Documentation/man
-GNUSTEP_USER_DIR_DOC_INFO=$OMD_GNUSTEP_USER_RELATIVE_ROOT/Library/Documentation/info
+GNUSTEP_NETWORK_TOOLS=$OMD_GNUSTEP_NETWORK_TOOLS
+GNUSTEP_NETWORK_LIBRARY=$OMD_GNUSTEP_NETWORK_LIBRARY
+GNUSTEP_NETWORK_LIBRARIES=$OMD_GNUSTEP_NETWORK_LIBRARIES
 EOFCONF
 chmod 600 "$OMD_RUNTIME_CONFIG"
 
@@ -376,14 +416,14 @@ if [[ -n "$OMD_ORIGINAL_LD_LIBRARY_PATH" ]]; then
     if [[ -z "$entry" ]]; then
       continue
     fi
-    case "$entry" in
-      */GNUstep/Library/Libraries|*/GNUstep/*/Library/Libraries)
-        continue
-        ;;
-      "$OMD_APP_LIB_DIR"|"$OMD_GNUSTEP_LIB_DIR")
-        continue
-        ;;
-    esac
+  case "$entry" in
+    */GNUstep/Library/Libraries|*/GNUstep/*/Library/Libraries)
+      continue
+      ;;
+    "$OMD_APP_LIB_DIR"|"$OMD_APP_SHARED_LIB_DIR"|"$OMD_GNUSTEP_LIB_DIR")
+      continue
+      ;;
+  esac
     if [[ -z "$OMD_SANITIZED_LD_LIBRARY_PATH" ]]; then
       OMD_SANITIZED_LD_LIBRARY_PATH="$entry"
     else
@@ -420,13 +460,20 @@ else
   export PATH="$OMD_APPDIR/usr/bin:$OMD_GNUSTEP_SYSTEM_TOOLS:/usr/bin:/bin"
 fi
 if [[ -n "$OMD_SANITIZED_LD_LIBRARY_PATH" ]]; then
-  export LD_LIBRARY_PATH="$OMD_APP_LIB_DIR:$OMD_GNUSTEP_LIB_DIR:$OMD_SANITIZED_LD_LIBRARY_PATH"
+  export LD_LIBRARY_PATH="$OMD_APP_LIB_DIR:$OMD_GNUSTEP_LIB_DIR:$OMD_APP_SHARED_LIB_DIR:$OMD_SANITIZED_LD_LIBRARY_PATH"
 else
-  export LD_LIBRARY_PATH="$OMD_APP_LIB_DIR:$OMD_GNUSTEP_LIB_DIR"
+  export LD_LIBRARY_PATH="$OMD_APP_LIB_DIR:$OMD_GNUSTEP_LIB_DIR:$OMD_APP_SHARED_LIB_DIR"
 fi
 export XDG_DATA_DIRS="$OMD_APPDIR/usr/share${XDG_DATA_DIRS:+:$XDG_DATA_DIRS}"
 export FONTCONFIG_PATH="$OMD_APPDIR/usr/etc/fonts"
 export GSETTINGS_SCHEMA_DIR="$OMD_APPDIR/usr/share/glib-2.0/schemas"
+if [[ -x "$OMD_APPDIR/usr/bin/pandoc" ]]; then
+  export OMD_PANDOC_PATH="$OMD_APPDIR/usr/bin/pandoc"
+fi
+if [[ -d "$OMD_APPDIR/usr/share/pandoc" ]]; then
+  export OMD_PANDOC_DATA_DIR="$OMD_APPDIR/usr/share/pandoc"
+  export PANDOC_DATA_DIR="$OMD_PANDOC_DATA_DIR"
+fi
 
 if [[ -z "${GSTheme:-}" ]]; then
   current_theme=""
@@ -437,6 +484,23 @@ if [[ -z "${GSTheme:-}" ]]; then
     "$OMD_DEFAULTS_TOOL" write NSGlobalDomain GSTheme Adwaita >/dev/null 2>&1 || true
   fi
   export GSTheme=Adwaita
+fi
+
+if [[ -x "$OMD_DEFAULTS_TOOL" ]]; then
+  current_menu_style="$("$OMD_DEFAULTS_TOOL" read NSGlobalDomain NSMenuInterfaceStyle 2>/dev/null || true)"
+  if [[ -z "$current_menu_style" ]]; then
+    "$OMD_DEFAULTS_TOOL" write NSGlobalDomain NSMenuInterfaceStyle NSWindows95InterfaceStyle >/dev/null 2>&1 || true
+  fi
+
+  current_window_decoration="$("$OMD_DEFAULTS_TOOL" read NSGlobalDomain GSWindowDecoration 2>/dev/null || true)"
+  if [[ -z "$current_window_decoration" ]]; then
+    "$OMD_DEFAULTS_TOOL" write NSGlobalDomain GSWindowDecoration Default >/dev/null 2>&1 || true
+  fi
+
+  current_suppress_icon="$("$OMD_DEFAULTS_TOOL" read NSGlobalDomain GSSuppressAppIcon 2>/dev/null || true)"
+  if [[ -z "$current_suppress_icon" ]]; then
+    "$OMD_DEFAULTS_TOOL" write NSGlobalDomain GSSuppressAppIcon 1 >/dev/null 2>&1 || true
+  fi
 fi
 
 if [[ "${1:-}" == "--omd-print-runtime-env" ]]; then
@@ -460,6 +524,10 @@ THEME_BUNDLE=$OMD_THEME_BUNDLE
 THEME_BUNDLE_PRESENT=$([[ -d "$OMD_THEME_BUNDLE" ]] && printf '1' || printf '0')
 BACKEND_BUNDLE=${OMD_BACKEND_BUNDLE:-}
 BACKEND_BUNDLE_PRESENT=$([[ -n "${OMD_BACKEND_BUNDLE:-}" && -f "$OMD_BACKEND_BUNDLE" ]] && printf '1' || printf '0')
+PANDOC_PATH=${OMD_PANDOC_PATH:-}
+PANDOC_PRESENT=$([[ -n "${OMD_PANDOC_PATH:-}" && -x "$OMD_PANDOC_PATH" ]] && printf '1' || printf '0')
+PANDOC_DATA_DIR=${OMD_PANDOC_DATA_DIR:-}
+PANDOC_DATA_PRESENT=$([[ -n "${OMD_PANDOC_DATA_DIR:-}" && -d "$OMD_PANDOC_DATA_DIR" ]] && printf '1' || printf '0')
 LD_LIBRARY_PATH=$LD_LIBRARY_PATH
 DIAG
   exit 0
@@ -507,8 +575,11 @@ THEME_LIBRARY="$(find "$GNUSTEP_THEME_DIR/Adwaita.theme" -maxdepth 1 -type f ! -
 cat > "$MANIFEST_FILE" <<EOF
 APPDIR=$APPDIR
 APP_BINARY=$APP_BINARY
+APP_RUNTIME_LIB_DIR=$APP_RUNTIME_LIB_DIR
 BACKEND_LIBRARY=$BACKEND_LIBRARY
 THEME_LIBRARY=$THEME_LIBRARY
+THEME_BUNDLE_SOURCE=${THEME_BUNDLE_SOURCE:-}
+THEME_BUILD_SOURCE=$THEME_BUILD_SOURCE
 DESKTOP_FILE=$DESKTOP_FILE
 ICON_FILE=$ICON_FILE
 EOF

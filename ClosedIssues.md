@@ -847,3 +847,60 @@
   - Changed the print/export renderer to clone the active preview renderer's parsing options instead of starting from defaults.
   - Preserved the user's current math-rendering policy and related parsing settings for print and PDF export.
   - Rebuilt the app and reran the full GNUstep test bundle after the export fix.
+
+## 70) Linux AppImage clean-Debian backend initialization failure
+
+- **Status**: Closed
+- **Closed On**: 2026-03-27
+- **Area**: Release engineering / Linux packaging / GNUstep runtime
+- **Description**: The March 26 AppImage failed to initialize the GNUstep backend on a clean Debian guest. Host-side packaging was then tightened to remove build-tree path leakage and the rebuilt AppImage was revalidated directly inside the Debian validation VM.
+- **Resolution**:
+  - Updated [GNUmakefile](/home/danboyd/git/ObjcMarkdown/ObjcMarkdownViewer/GNUmakefile) so the packaged viewer binary uses only packaged-relative runtime lookup instead of repo-local build-tree `RUNPATH` entries.
+  - Hardened [validate-appimage.sh](/home/danboyd/git/ObjcMarkdown/scripts/linux/validate-appimage.sh) to reject packaged ELFs whose `RPATH` or `RUNPATH` escapes the AppDir/AppImage and to correctly validate extracted AppImages referenced by relative path.
+  - Updated [linux-appimage.yml](/home/danboyd/git/ObjcMarkdown/.github/workflows/linux-appimage.yml) so the `linuxdeploy` step resolves the staged runtime through exported `LD_LIBRARY_PATH` rather than ambient host library state.
+  - Rebuilt the AppImage locally and validated the March 27 artifact on the host:
+    - `dfb7c0e57df82061efc4660d5982343301c9db69022d20023f0048234f3cb3bb`
+  - Took a libvirt revert point for the Debian validation VM on hypervisor `iep-vm2` before guest testing:
+    - domain: `iep-appimage-test`
+    - snapshot: `pre-appimage-validation-2026-03-27`
+  - Verified from inside the Debian VM that the packaged backend bundle exists and its dependency closure resolves from the extracted AppImage runtime.
+  - Confirmed the guest has no ambient GNUstep install:
+    - `/usr/GNUstep` absent
+    - no `defaults` tool on `PATH`
+  - Launched the March 27 AppImage inside the guest GNOME session with `--GNU-Debug=BackendBundle` and confirmed it loads the packaged backend from the extracted AppImage path:
+    - `Loading Backend from /tmp/appimage_extracted_.../usr/GNUstep/System/Library/Bundles/libgnustep-back-032.bundle`
+  - Confirmed the GUI stayed running in the guest until explicitly terminated after the smoke window, which closes the earlier clean-Debian startup failure.
+
+## 71) Linux AppImage PDF export failed because the shared export helper was compiled out
+
+- **Status**: Closed
+- **Closed On**: 2026-03-27
+- **Area**: Viewer / Export / PDF / Linux AppImage
+- **Description**: The AppImage's `Export as PDF` path had been refactored to use a shared `exportDocumentAsPDFToPath:` helper, but that method body was still inside a Windows-only preprocessor section. The Linux build therefore shipped without the selector, so the packaged viewer raised `does not recognize exportDocumentAsPDFToPath:` when export was triggered.
+- **Resolution**:
+  - Moved `exportDocumentAsPDFToPath:` out of the Windows-only region in [OMDAppDelegate.m](/home/danboyd/git/ObjcMarkdown/ObjcMarkdownViewer/OMDAppDelegate.m) so both Linux and Windows builds include the shared export implementation.
+  - Kept the platform-specific PDF backends inside the method:
+    - Windows continues to use the headless-browser HTML-to-PDF path.
+    - Linux continues to use `NSPrintOperation` with `NSPrintSaveJob`.
+  - Rebuilt the viewer, reran the full GNUstep `xctest` bundle, rebuilt the AppImage, and revalidated the package on the host.
+  - Verified inside the Debian AppImage validation VM that the rebuilt AppImage now exports a real PDF successfully:
+    - AppImage SHA-256: `b6bb9bb3c812397e3aa3d29640e5a633f47b825547045b8e65f9983bc6b16482`
+    - Exported file: `/tmp/omd-export-automated.pdf`
+    - Result: PDF 1.7, 2 pages, 41077 bytes
+
+## 72) Linux AppImage omitted GNUstep system image resources, breaking themed menu/control glyphs
+
+- **Status**: Closed
+- **Closed On**: 2026-03-27
+- **Area**: Release engineering / Linux packaging / GNUstep UI resources
+- **Description**: The AppImage bundled the GNUstep theme library and GUI/backend shared libraries, but it did not stage `/usr/GNUstep/System/Library/Images`. That directory contains core GNUstep UI artwork such as `GNUstepMenuImage.tiff`, submenu arrows, and switch/check state images. Without it, the packaged Adwaita UI fell back to incorrect or missing glyphs, including bullet-like indicators where checkmarks should render and missing submenu arrows in the `Export` menu.
+- **Resolution**:
+  - Updated [stage-appimage-runtime.sh](/home/danboyd/git/ObjcMarkdown/scripts/linux/stage-appimage-runtime.sh) to bundle `/usr/GNUstep/System/Library/Images` into the AppDir/AppImage.
+  - Updated [validate-appimage.sh](/home/danboyd/git/ObjcMarkdown/scripts/linux/validate-appimage.sh) to fail packaging validation when key GNUstep image assets are missing:
+    - `GNUstepMenuImage.tiff`
+    - `common_ArrowRight.tiff`
+    - `common_SwitchOn.tiff`
+    - `common_SwitchOff.tiff`
+  - Rebuilt and revalidated the AppDir and AppImage after the packaging fix.
+  - Verified in the Debian VM that the rebuilt AppImage now extracts those image resources correctly.
+  - Rebuilt AppImage SHA-256: `6cc632e5046bc0d050de28a7128fbdd9ccdeda70b630cd63d69c3021d3cc0ba9`

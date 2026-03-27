@@ -18,5 +18,5 @@ gmake -C "$ROOT/third_party/libs-OpenSave" Source
 gmake -C "$ROOT" ObjcMarkdown ObjcMarkdownViewer
 
 APP_BIN="$ROOT/ObjcMarkdownViewer/MarkdownViewer.app/MarkdownViewer"
-LD_LIBRARY_PATH="$ROOT/ObjcMarkdown/obj:$ROOT/third_party/libs-OpenSave/Source/obj:/usr/GNUstep/System/Library/Libraries${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+LD_LIBRARY_PATH="$ROOT/ObjcMarkdown/obj:$ROOT/third_party/libs-OpenSave/Source/obj:$ROOT/third_party/TextViewVimKitBuild/obj:/usr/GNUstep/System/Library/Libraries${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
 exec "$APP_BIN" "$@"
