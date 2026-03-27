@@ -145,6 +145,23 @@ Expected output:
 
 - `dist\installer\ObjcMarkdown-<version>-win64.msi`
 
+Packager-based local packaging flow:
+
+```powershell
+.\scripts\windows\build-from-powershell.ps1 -Task test
+
+C:\Users\Support\git\gnustep-packager\scripts\run-packaging-pipeline.ps1 `
+  -Manifest C:\Users\Support\git\ObjcMarkdown\packaging\package.manifest.json `
+  -Backend msi `
+  -SkipBackendValidation
+```
+
+Expected output:
+
+- `dist\gnustep-packager\packages\ObjcMarkdown-<manifest-version>-win64.msi`
+- the artifact name keeps the manifest version string instead of forcing the
+  legacy four-part MSI filename convention
+
 ## Preferred Day-Two Validation Loop
 
 ### 1) Launch A Fresh VM From The Golden Image
@@ -342,6 +359,69 @@ One follow-up bug was found in the orchestrator after the successful remote run:
 - native `ssh`/`scp` output meant the final result could be an array
 - this was fixed by selecting the structured result object explicitly
 
+## Packager-Backed OCI Result
+
+The first full OCI validation pass using the sibling `gnustep-packager` repo
+completed on `2026-03-27`.
+
+Observed result:
+
+- local GNUstep tests succeeded before packaging
+- `gnustep-packager` build succeeded
+- `gnustep-packager` stage succeeded
+- `gnustep-packager` MSI packaging succeeded
+- fresh OCI VM launch from the golden image succeeded
+- temporary narrow SSH ingress was added automatically for the current public IP
+- the original broad SSH rule was removed during validation and restored after teardown
+- remote MSI install succeeded
+- remote smoke launch succeeded
+- remote uninstall succeeded
+- local OCI logs were collected under `dist/oci-logs/20260327-165910`
+- disposable VM termination succeeded
+
+The successful command was:
+
+```powershell
+.\scripts\windows\oci-run-msi-validation.ps1 `
+  -PackagingMode packager `
+  -PackagerManifest packaging\package.manifest.json `
+  -IdentityFile C:\Users\Support\.ssh\id_rsa `
+  -TemporarilyRestrictSshIngress `
+  -RunSmoke
+```
+
+The validation used:
+
+- artifact MSI:
+  `dist/gnustep-packager/packages/ObjcMarkdown-0.1.1-rc2-win64.msi`
+- log directory:
+  `dist/oci-logs/20260327-165910`
+- instance OCID:
+  `ocid1.instance.oc1.phx.anyhqljsofscz7qcom7kjv7yzedly7iu6xlufg7tzlvij3aqkwcaon5ipgia`
+
+Required follow-up fixes that were made during this session:
+
+- `scripts/windows/validate-msi.ps1` was updated to handle per-user installs
+  under `%LOCALAPPDATA%\ObjcMarkdown`, not only `C:\Program Files\ObjcMarkdown`
+- `scripts/windows/validate-msi.ps1` now always attempts uninstall in a
+  `finally` path so a failed smoke check does not strand the guest in a dirty
+  state
+- `scripts/windows/oci-run-msi-validation.ps1` now supports
+  `-PackagingMode packager`
+- `scripts/windows/oci-run-msi-validation.ps1` now cleans up a still-live prior
+  validation VM recorded in the state file before launching a new one
+- `scripts/windows/oci-launch-validation-vm.ps1` now tags validation VMs as
+  disposable MSI-validation machines
+- `scripts/windows/oci-cleanup-validation-vms.ps1` was added as a manual sweep
+  command for leftover validation VMs
+
+Leave-off state for the next session:
+
+- the packager-backed OCI path is now validated end to end
+- `dist/oci/last-validation-vm.json` for this run records `terminated: true`
+- the current known-good OCI log directory is `dist/oci-logs/20260327-165910`
+- no further OCI work is required to prove the packager MSI path itself
+
 ## SSH Notes
 
 The previous session verified SSH from the local machine into the prepared VM
@@ -424,6 +504,40 @@ Destroys the disposable VM after results are collected.
 One-shot orchestrator:
 build -> test -> stage -> package -> launch VM -> push MSI -> validate -> collect logs -> terminate VM
 
+The script supports both:
+
+- `-PackagingMode legacy`
+  Use the in-repo `scripts/windows/build-msi.ps1` flow.
+- `-PackagingMode packager`
+  Use the sibling `..\gnustep-packager` repo and
+  `packaging/package.manifest.json` to produce the MSI before the OCI steps.
+
+Recommended packager-backed run:
+
+```powershell
+.\scripts\windows\oci-run-msi-validation.ps1 `
+  -PackagingMode packager `
+  -PackagerManifest packaging\package.manifest.json `
+  -IdentityFile C:\Users\Support\.ssh\id_rsa `
+  -TemporarilyRestrictSshIngress `
+  -RunSmoke
+```
+
+Shutdown/cost-control behavior:
+
+- VM termination is the default at the end of the run.
+- Passing `-KeepVm` is the only normal way to keep a validation VM alive.
+- Before launching a new validation VM, the script now checks the state file and
+  terminates any still-live prior validation VM recorded there unless you pass
+  `-SkipCleanupExistingVm`.
+- Validation VMs are tagged as disposable MSI validation machines at launch.
+
+Emergency cleanup command:
+
+```powershell
+.\scripts\windows\oci-cleanup-validation-vms.ps1
+```
+
 Recommended first end-to-end run:
 
 ```powershell
@@ -464,7 +578,7 @@ The desired stable process is:
 
 1. Build locally from PowerShell with MSYS2 `clang64`.
 2. Stage runtime locally.
-3. Package MSI locally with WiX.
+3. Package MSI locally with either the legacy WiX flow or `gnustep-packager`.
 4. Launch disposable Windows VM from
    `ocid1.image.oc1.phx.aaaaaaaa6253prkupypnde7blkcsojo66njxkyquiimmkdy7foiu4ywxyiva`.
 5. Copy MSI to guest over `scp`.
@@ -483,8 +597,9 @@ The next Codex session should:
 3. Use `scp`/`ssh`, not `gh`, for the guest-side validation loop inside the guest.
 4. Reuse `-TemporarilyRestrictSshIngress` when the subnet still exposes SSH on `0.0.0.0/0`.
 5. Collect logs under `dist/oci-logs`, record any installer/runtime defects, and only keep a VM alive when manual RDP investigation is needed.
-6. Optionally add GitHub Release-page asset publishing or a short kept-VM manual visual pass if those become release gates.
-7. Optionally terminate the original source VM if it is no longer needed.
+6. If a session ever dies mid-run, use `scripts/windows/oci-cleanup-validation-vms.ps1` to terminate any leftover disposable validation VMs.
+7. Optionally add GitHub Release-page asset publishing or a short kept-VM manual visual pass if those become release gates.
+8. Optionally terminate the original source VM if it is no longer needed.
 
 ## Related Files
 
@@ -493,4 +608,5 @@ The next Codex session should:
 - [scripts/windows/build-msi.ps1](/C:/Users/Support/git/ObjcMarkdown/scripts/windows/build-msi.ps1)
 - [scripts/windows/validate-msi.ps1](/C:/Users/Support/git/ObjcMarkdown/scripts/windows/validate-msi.ps1)
 - [scripts/windows/oci-open-rdp-rule.ps1](/C:/Users/Support/git/ObjcMarkdown/scripts/windows/oci-open-rdp-rule.ps1)
+- [scripts/windows/oci-cleanup-validation-vms.ps1](/C:/Users/Support/git/ObjcMarkdown/scripts/windows/oci-cleanup-validation-vms.ps1)
 - [scripts/windows/oci-run-msi-validation.ps1](/C:/Users/Support/git/ObjcMarkdown/scripts/windows/oci-run-msi-validation.ps1)

@@ -30,6 +30,7 @@ $shapeConfigJson = (@{
   ocpus       = $Ocpus
   memoryInGBs = $MemoryInGBs
 } | ConvertTo-Json -Compress)
+$freeformTagsJson = (Get-OmdValidationVmFreeformTags -ManagedBy "oci-launch-validation-vm.ps1" | ConvertTo-Json -Compress)
 
 Write-Host "Launching OCI validation VM $DisplayName"
 Write-Host "Compartment: $CompartmentId"
@@ -44,6 +45,7 @@ $launchResult = Invoke-OciJson -Arguments @(
   "--availability-domain", $AvailabilityDomain,
   "--shape", $Shape,
   "--shape-config", $shapeConfigJson,
+  "--freeform-tags", $freeformTagsJson,
   "--image-id", $ImageId,
   "--subnet-id", $SubnetId,
   "--assign-public-ip", "true",
@@ -76,6 +78,7 @@ $state = [ordered]@{
   sshPublicKeyPath   = $resolvedSshPublicKeyPath
   identityFile       = $resolvedIdentityFile
   jumpHost           = $JumpHost
+  freeformTags       = (Get-OmdValidationVmFreeformTags -ManagedBy "oci-launch-validation-vm.ps1")
   stateFile          = $resolvedStateFile
   launchedAt         = (Get-Date).ToString("o")
 }

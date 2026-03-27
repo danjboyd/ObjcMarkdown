@@ -13,6 +13,8 @@ $script:OmdOciDefaults = [ordered]@{
   LogRoot      = "dist/oci-logs"
 }
 
+$script:OmdOciValidationVmDisplayNamePrefix = "objcmarkdown-msi-validation-"
+
 function Get-OmdRepoRoot {
   return (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 }
@@ -431,6 +433,67 @@ function Get-OciInstancePublicIp {
   return Get-OmdPropertyValue -InputObject $firstVnic -Names @("public-ip", "publicIp")
 }
 
+function Get-OciInstanceRecord {
+  param([Parameter(Mandatory = $true)][string]$InstanceId)
+
+  $result = Invoke-OciJson -Arguments @("compute", "instance", "get", "--instance-id", $InstanceId)
+  if ($null -eq $result) {
+    return $null
+  }
+
+  return $result.data
+}
+
+function Get-OciInstanceLifecycleState {
+  param([Parameter(Mandatory = $true)][string]$InstanceId)
+
+  $record = Get-OciInstanceRecord -InstanceId $InstanceId
+  if ($null -eq $record) {
+    return $null
+  }
+
+  return [string](Get-OmdPropertyValue -InputObject $record -Names @("lifecycle-state", "lifecycleState"))
+}
+
+function Get-OmdValidationVmFreeformTags {
+  param(
+    [string]$ManagedBy = "oci-run-msi-validation.ps1",
+    [string]$Owner = $env:USERNAME
+  )
+
+  return [ordered]@{
+    Project      = "ObjcMarkdown"
+    Purpose      = "MSIValidation"
+    ManagedBy    = $ManagedBy
+    Disposable   = "true"
+    Owner        = $Owner
+    Repository   = "ObjcMarkdown"
+  }
+}
+
+function Test-OmdValidationVmMatch {
+  param(
+    [Parameter(Mandatory = $true)]$Instance,
+    [string]$DisplayNamePrefix = $script:OmdOciValidationVmDisplayNamePrefix
+  )
+
+  $displayName = [string](Get-OmdPropertyValue -InputObject $Instance -Names @("display-name", "displayName"))
+  if (-not [string]::IsNullOrWhiteSpace($displayName) -and $displayName.StartsWith($DisplayNamePrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+    return $true
+  }
+
+  $freeformTags = Get-OmdPropertyValue -InputObject $Instance -Names @("freeform-tags", "freeformTags")
+  if ($freeformTags) {
+    $project = [string](Get-OmdPropertyValue -InputObject $freeformTags -Names @("Project"))
+    $purpose = [string](Get-OmdPropertyValue -InputObject $freeformTags -Names @("Purpose"))
+    if ($project -eq "ObjcMarkdown" -and $purpose -eq "MSIValidation") {
+      return $true
+    }
+  }
+
+  return $false
+}
+
 function Wait-OciInstancePublicIp {
   param(
     [Parameter(Mandatory = $true)][string]$InstanceId,
@@ -482,6 +545,45 @@ function Resolve-OmdVersionFromGit {
   }
 
   return "0.0.0"
+}
+
+function Resolve-OmdGnustepPackagerRoot {
+  param([string]$PackagerRoot = "..\gnustep-packager")
+
+  return (Resolve-OmdPath -Path $PackagerRoot)
+}
+
+function Resolve-OmdGnustepPackagerManifestPath {
+  param([string]$ManifestPath = "packaging/package.manifest.json")
+
+  return (Resolve-OmdPath -Path $ManifestPath)
+}
+
+function Get-OmdGnustepPackagerArtifactPlan {
+  param(
+    [string]$PackagerRoot = "..\gnustep-packager",
+    [string]$ManifestPath = "packaging/package.manifest.json",
+    [string]$Backend = "msi",
+    [string]$PackageVersion
+  )
+
+  $resolvedPackagerRoot = Resolve-OmdGnustepPackagerRoot -PackagerRoot $PackagerRoot
+  $resolvedManifestPath = Resolve-OmdGnustepPackagerManifestPath -ManifestPath $ManifestPath
+  $coreScript = Join-Path $resolvedPackagerRoot "scripts\lib\core.ps1"
+  if (-not (Test-Path $coreScript)) {
+    throw "gnustep-packager core script not found: $coreScript"
+  }
+
+  . $coreScript
+
+  $context = Get-GpManifestContext -Path $resolvedManifestPath -PackageVersion $PackageVersion
+  $issues = @(Test-GpManifest -Manifest $context.Manifest)
+  if ($issues.Count -gt 0) {
+    throw ("gnustep-packager manifest validation failed: " + ([string]::Join("; ", $issues)))
+  }
+
+  $resolvedBackend = Resolve-GpBackendName -Manifest $context.Manifest -RequestedBackend $Backend
+  return (Get-GpArtifactPlan -Context $context -Backend $resolvedBackend)
 }
 
 function Get-OmdCurrentPublicCidr {

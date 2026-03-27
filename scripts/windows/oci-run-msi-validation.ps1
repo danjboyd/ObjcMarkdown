@@ -4,6 +4,11 @@ param(
   [string]$MsysRoot = "C:\msys64",
   [string]$StageDir = "dist/ObjcMarkdown",
   [string]$InstallerOutDir = "dist/installer",
+  [ValidateSet("legacy", "packager")]
+  [string]$PackagingMode = "legacy",
+  [string]$PackagerRoot = "..\gnustep-packager",
+  [string]$PackagerManifest = "packaging/package.manifest.json",
+  [string]$PackagerBackend = "msi",
   [string]$MsiPath,
   [string]$StateFile = "dist/oci/last-validation-vm.json",
   [string]$LogDir,
@@ -26,6 +31,7 @@ param(
   [string]$RdpSourceCidr,
   [switch]$OpenRdp,
   [switch]$TemporarilyRestrictSshIngress,
+  [switch]$SkipCleanupExistingVm,
   [switch]$RunSmoke,
   [switch]$SkipBuild,
   [switch]$SkipTest,
@@ -48,45 +54,116 @@ $launchState = $null
 $validationResult = $null
 $temporarySshSourceCidr = $null
 $restoredOriginalSshRule = $false
+$cleanedExistingVm = $false
 
 try {
+  if (-not $SkipCleanupExistingVm) {
+    $resolvedExistingStateFile = Resolve-OmdPath -Path $StateFile -AllowMissing
+    if (Test-Path $resolvedExistingStateFile) {
+      $existingState = Read-OmdStateFile -StateFile $resolvedExistingStateFile
+      $existingInstanceId = [string]$existingState.instanceId
+      $existingMarkedTerminated = [bool]($existingState.PSObject.Properties["terminated"] -and $existingState.terminated)
+      if ((-not $existingMarkedTerminated) -and (-not [string]::IsNullOrWhiteSpace($existingInstanceId))) {
+        try {
+          $existingLifecycle = Get-OciInstanceLifecycleState -InstanceId $existingInstanceId
+          if ($existingLifecycle -and ($existingLifecycle -notin @("TERMINATED", "TERMINATING"))) {
+            Write-Host "Cleaning up existing validation VM recorded in state file: $existingInstanceId ($existingLifecycle)"
+            & $terminateScript -StateFile $StateFile | Out-Null
+            $cleanedExistingVm = $true
+          }
+        } catch {
+          Write-Warning "Unable to inspect or terminate existing validation VM from ${resolvedExistingStateFile}: $($_.Exception.Message)"
+        }
+      }
+    }
+  }
+
   if (-not $MsiPath) {
-    if (-not $Version) {
+    if (($PackagingMode -eq "legacy") -and (-not $Version)) {
       $Version = Resolve-OmdVersionFromGit
     }
 
-    if (-not $SkipBuild) {
-      & $buildHelper -Task build -MsysRoot $MsysRoot
-      if ($LASTEXITCODE -ne 0) {
-        throw "Windows build failed."
+    if ($PackagingMode -eq "packager") {
+      if (-not $SkipTest) {
+        & $buildHelper -Task test -MsysRoot $MsysRoot
+        if ($LASTEXITCODE -ne 0) {
+          throw "Windows tests failed."
+        }
       }
-    }
 
-    if (-not $SkipTest) {
-      & $buildHelper -Task test -MsysRoot $MsysRoot
-      if ($LASTEXITCODE -ne 0) {
-        throw "Windows tests failed."
+      $resolvedPackagerRoot = Resolve-OmdGnustepPackagerRoot -PackagerRoot $PackagerRoot
+      $resolvedPackagerManifest = Resolve-OmdGnustepPackagerManifestPath -ManifestPath $PackagerManifest
+      $packagerPipeline = Join-Path $resolvedPackagerRoot "scripts\run-packaging-pipeline.ps1"
+      if (-not (Test-Path $packagerPipeline)) {
+        throw "gnustep-packager pipeline script not found: $packagerPipeline"
       }
-    }
 
-    if (-not $SkipStage) {
-      & $buildHelper -Task stage -StageDir $StageDir -MsysRoot $MsysRoot
-      if ($LASTEXITCODE -ne 0) {
-        throw "Windows staging failed."
+      $packagerParams = @{
+        Manifest              = $resolvedPackagerManifest
+        Backend               = $PackagerBackend
+        SkipBackendValidation = $true
       }
-    }
-
-    if (-not $SkipPackage) {
-      $resolvedInstallerOutDir = Resolve-OmdPath -Path $InstallerOutDir -AllowMissing
-      New-Item -ItemType Directory -Force -Path $resolvedInstallerOutDir | Out-Null
-      & $buildMsiScript -StagingDir $StageDir -Version $Version -OutDir $resolvedInstallerOutDir
-      if ($LASTEXITCODE -ne 0) {
-        throw "MSI packaging failed."
+      if ($Version) {
+        $packagerParams["PackageVersion"] = $Version
       }
-    }
+      if ($SkipBuild) {
+        $packagerParams["SkipBuild"] = $true
+      }
+      if ($SkipStage) {
+        $packagerParams["SkipStage"] = $true
+      }
+      if ($SkipPackage) {
+        $packagerParams["SkipPackage"] = $true
+      }
 
-    $normalizedVersion = Normalize-OmdMsiVersion -Version $Version
-    $resolvedMsiPath = Resolve-OmdPath -Path (Join-Path $InstallerOutDir ("ObjcMarkdown-" + $normalizedVersion + "-win64.msi"))
+      & $packagerPipeline @packagerParams
+      if ($LASTEXITCODE -ne 0) {
+        throw "gnustep-packager pipeline failed."
+      }
+
+      $artifactPlan = Get-OmdGnustepPackagerArtifactPlan `
+        -PackagerRoot $resolvedPackagerRoot `
+        -ManifestPath $resolvedPackagerManifest `
+        -Backend $PackagerBackend `
+        -PackageVersion $Version
+      $resolvedMsiPath = $artifactPlan.ArtifactPath
+      if (-not (Test-Path $resolvedMsiPath)) {
+        throw "gnustep-packager MSI artifact not found: $resolvedMsiPath"
+      }
+    } else {
+      if (-not $SkipBuild) {
+        & $buildHelper -Task build -MsysRoot $MsysRoot
+        if ($LASTEXITCODE -ne 0) {
+          throw "Windows build failed."
+        }
+      }
+
+      if (-not $SkipTest) {
+        & $buildHelper -Task test -MsysRoot $MsysRoot
+        if ($LASTEXITCODE -ne 0) {
+          throw "Windows tests failed."
+        }
+      }
+
+      if (-not $SkipStage) {
+        & $buildHelper -Task stage -StageDir $StageDir -MsysRoot $MsysRoot
+        if ($LASTEXITCODE -ne 0) {
+          throw "Windows staging failed."
+        }
+      }
+
+      if (-not $SkipPackage) {
+        $resolvedInstallerOutDir = Resolve-OmdPath -Path $InstallerOutDir -AllowMissing
+        New-Item -ItemType Directory -Force -Path $resolvedInstallerOutDir | Out-Null
+        & $buildMsiScript -StagingDir $StageDir -Version $Version -OutDir $resolvedInstallerOutDir
+        if ($LASTEXITCODE -ne 0) {
+          throw "MSI packaging failed."
+        }
+      }
+
+      $normalizedVersion = Normalize-OmdMsiVersion -Version $Version
+      $resolvedMsiPath = Resolve-OmdPath -Path (Join-Path $InstallerOutDir ("ObjcMarkdown-" + $normalizedVersion + "-win64.msi"))
+    }
   } else {
     $resolvedMsiPath = Resolve-OmdPath -Path $MsiPath
   }
@@ -183,11 +260,13 @@ try {
 
 [pscustomobject]@{
   msiPath    = $resolvedMsiPath
+  packagingMode = $PackagingMode
   stateFile  = Resolve-OmdPath -Path $StateFile -AllowMissing
   guestHost  = $(if ($launchState) { $launchState.publicIp } else { $null })
   logDir     = $(if ($validationResult -and $validationResult.PSObject.Properties["localLogDir"]) { $validationResult.localLogDir } else { $null })
   keptVm     = [bool]$KeepVm
   temporarySshSourceCidr = $temporarySshSourceCidr
   restoredOriginalSshRule = $restoredOriginalSshRule
+  cleanedExistingVm = [bool]$cleanedExistingVm
   finishedAt = (Get-Date).ToString("o")
 }

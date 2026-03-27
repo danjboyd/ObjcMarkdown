@@ -264,7 +264,26 @@ rewriting the `env.exe ... bash -lc ...` wrapper in PowerShell.
 The canonical clean-machine validation path is the OCI golden-image workflow in
 `docs/windows-oci-msi-validation.md`, not Windows Sandbox.
 
-For a one-shot run from PowerShell:
+`oci-run-msi-validation.ps1` now supports two local packaging modes:
+
+- `legacy`
+  Use the in-repo `build-msi.ps1` WiX flow. This remains the default.
+- `packager`
+  Use the sibling [gnustep-packager](/C:/Users/Support/git/gnustep-packager) repo with
+  [packaging/package.manifest.json](/C:/Users/Support/git/ObjcMarkdown/packaging/package.manifest.json).
+
+For a one-shot OCI run using `gnustep-packager`:
+
+```powershell
+.\scripts\windows\oci-run-msi-validation.ps1 `
+  -PackagingMode packager `
+  -PackagerManifest packaging\package.manifest.json `
+  -IdentityFile C:\Users\Support\.ssh\id_rsa `
+  -TemporarilyRestrictSshIngress `
+  -RunSmoke
+```
+
+For the legacy in-repo WiX flow:
 
 ```powershell
 .\scripts\windows\oci-run-msi-validation.ps1 `
@@ -308,9 +327,17 @@ Lower-level OCI entry points:
 Notes:
 
 - The automation launches a fresh VM from the OCI golden image, copies the MSI with `scp`, runs `scripts/windows/validate-msi.ps1` over `ssh`, collects logs under `dist/oci-logs`, and terminates the VM unless you pass `-KeepVm`.
+- Before launching a new validation VM, the orchestrator now checks the current state file and terminates any still-live prior validation VM recorded there unless you pass `-SkipCleanupExistingVm`.
+- In `packager` mode, the orchestrator still uses the same OCI launch/push/validate/teardown flow. Only the local MSI production step changes.
 - Use `-OpenRdp` only when manual visual inspection is needed after the automated validation pass. The RDP rule helper narrows access to the current public IP by default.
 - Use `-TemporarilyRestrictSshIngress` when the subnet still exposes SSH on `0.0.0.0/0`. That switch adds a temporary narrow port `22` rule for the current public IP, removes the broad rule during validation, then restores the original rule after teardown unless you keep the VM.
 - Do not use `app\MarkdownViewer.app\MarkdownViewer.exe` directly for validation. The MSI ships a top-level `MarkdownViewer.exe` launcher that sets runtime state first; launching the inner app binary directly can still fail with missing DLL errors by design.
+
+If you ever suspect a prior session left a validation VM running, sweep them explicitly:
+
+```powershell
+.\scripts\windows\oci-cleanup-validation-vms.ps1
+```
 
 Windows Sandbox can still be used as an informal local smoke check, but it is no
 longer the tracked release-validation path for this repo.
