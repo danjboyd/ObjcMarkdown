@@ -56,6 +56,109 @@ Acceptance criteria:
 - `Phase 7C`: the MSI is validated on a fresh OCI Windows VM launched from the golden image, with logs collected and follow-up defects tracked explicitly
 - release tagging and validation are repeatable without ad hoc manual recovery steps
 
+## Phase 8: Externalize Linux and Windows Packaging Through gnustep-packager
+
+Goal:
+- make `gnustep-packager` the system of record for AppImage and MSI generation in local and CI release flows while shrinking `ObjcMarkdown` to consumer-owned build, stage, manifest, and validation glue
+
+### Phase 8A: Define The Downstream Packaging Contract
+
+Scope:
+- add downstream packaging manifests for Linux AppImage and Windows MSI rather than relying on backend-specific scripts as the contract
+- pin the initial integration to the currently audited `gnustep-packager` baseline (`fb29ee4ef61ecfcc8e7e0c8ee0b690883351324c`) until an explicit upstream release tag is chosen
+- define the normalized staged payload shape for this repo:
+  - `app/`
+  - `runtime/`
+  - `metadata/`
+- decide which app-owned assets remain staged here:
+  - icons
+  - runtime notices
+  - sample smoke documents if needed
+  - Linux Adwaita theme input
+  - Windows WinUX theme input
+- express GNUstep theme defaults through manifest-driven launch policy instead of custom backend launchers:
+  - Linux `GSTheme=Adwaita` with `ifUnset`
+  - Windows `GSTheme=WinUXTheme` with `ifUnset`
+
+### Phase 8B: Normalize Linux Staging And AppImage Parity
+
+Scope:
+- replace the current AppDir-producing Linux script with a stage script that emits only `app/`, `runtime/`, and `metadata/`
+- stage the Linux private runtime closure required for stock-machine execution:
+  - GNUstep libraries
+  - GNUstep backend bundle
+  - Adwaita theme payload
+  - fontconfig data
+  - glib schemas required by the packaged theme/runtime path
+  - bundled `pandoc` payload if release behavior still requires built-in document conversion on end-user systems
+- validate Linux packaging through `gnustep-packager` strict AppImage runtime-closure checks and smoke launch rather than `linuxdeploy`-specific logic
+- keep Linux-specific preflight limited to host verification and preparing pinned theme input on the self-hosted GNUstep runner
+
+### Phase 8C: Normalize Windows Staging And MSI Parity
+
+Scope:
+- replace the current install-tree/WiX-oriented Windows script with a stage script that emits only `app/`, `runtime/`, and `metadata/`
+- stage the Windows private runtime closure required for stock-machine execution:
+  - GNUstep runtime DLLs
+  - project DLLs
+  - `defaults.exe`
+  - GNUstep bundles and support resources
+  - WinUX theme payload
+  - fontconfig data
+  - installer icons and notices
+- use the packager launcher contract rather than the repo-local launcher as the startup path
+- pass MSI runtime closure under the new default failure policy so unresolved non-system DLLs stop packaging instead of leaking into release artifacts
+- validate the packager-produced MSI against the existing clean-machine OCI path before removing the old implementation
+
+### Phase 8D: GitHub Actions Cutover
+
+Scope:
+- replace backend-building logic in:
+  - `linux-appimage.yml`
+  - `windows-packaging.yml`
+  with thin caller workflows that use the reusable `gnustep-packager` workflow
+- keep release version/tag behavior in this repo but pass the resolved version into the reusable workflow through `package-version`
+- configure the Linux caller to use:
+  - the existing self-hosted GNUstep runner labels
+  - `skip-default-host-setup: true`
+  - a repo-owned preflight command for GNUstep host verification and Adwaita theme checkout
+- configure the Windows caller to use:
+  - `windows-latest`
+  - the packager MSI baseline
+  - `msys2-packages` for app-specific dependencies such as `mingw-w64-clang-x86_64-cmark`
+- keep CI validation enabled for both backends and preserve any extra app-specific smoke we still need beyond the shared packager validation
+
+### Phase 8E: External-Only Backend Packaging Cleanup
+
+Scope:
+- perform a parity pass on tagged releases so the packager-produced AppImage and MSI match current release expectations for launch, theming, runtime closure, and artifact naming
+- remove backend assembly code from this repo after parity is proven:
+  - `linuxdeploy` download/use logic
+  - custom AppDir assembly logic
+  - custom `AppRun` generation
+  - custom MSI/WiX build path
+  - custom top-level Windows launcher source used only for packaging
+- keep only the consumer-owned pieces that `gnustep-packager` intentionally requires downstream repos to own:
+  - manifests
+  - build scripts
+  - normalized stage scripts
+  - small preflight helpers
+  - any app-specific validation that is truly product-specific rather than backend-generic
+- update repo docs so external `gnustep-packager` usage is the documented source of truth for release packaging
+
+Immediate next steps:
+- start with `Phase 8A` by creating a `packaging/` layout and drafting separate Linux and Windows manifests
+- preserve the current release workflows until both normalized staging paths work locally through `gnustep-packager`
+- treat the current upstream `main` commit `fb29ee4ef61ecfcc8e7e0c8ee0b690883351324c` as the initial pinned integration target unless it is replaced by a release tag before cutover
+- keep the OCI validation flow from Phase 7 as the clean-machine confirmation path for the packager-produced MSI
+
+Acceptance criteria:
+- `Phase 8A`: the repo contains committed downstream manifests and a documented normalized staging contract for both target platforms
+- `Phase 8B`: the Linux AppImage is built by `gnustep-packager`, includes the private GNUstep runtime plus Adwaita theming, and passes strict runtime-closure validation without depending on host GNUstep libraries
+- `Phase 8C`: the Windows MSI is built by `gnustep-packager`, includes the private GNUstep runtime plus WinUX theming, and passes clean-machine validation without relying on a shared preinstalled `C:\\clang64` runtime
+- `Phase 8D`: pushing a release tag produces the AppImage and MSI through the reusable `gnustep-packager` workflow rather than repo-local backend assembly
+- `Phase 8E`: backend packaging implementation is externalized; this repo retains only consumer build/stage/manifests and any genuinely app-specific validation hooks
+
 ## Deferred Work
 
 These are interesting, but they are not the current release gate:
