@@ -67,6 +67,7 @@
       "enabled": true,
       "kind": "staged-layout",
       "requiredPaths": [
+        "metadata/icons/markdown_icon.ico",
         "metadata/icons/markdown_icon.png",
         "clang64/bin/defaults.exe",
         "app/MarkdownViewer.app/Resources/theme-github.toml"
@@ -126,6 +127,7 @@
       "shortcutName": "Markdown Viewer",
       "installDirectoryName": "ObjcMarkdown",
       "launcherFileName": "MarkdownViewer.exe",
+      "iconRelativePath": "metadata/icons/markdown_icon.ico",
       "fallbackRuntimeRoot": "C:\\clang64"
     },
     "appimage": {

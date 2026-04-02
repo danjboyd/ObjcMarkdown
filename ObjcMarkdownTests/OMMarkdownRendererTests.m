@@ -594,6 +594,31 @@ static BOOL OMDMathToolchainAvailable(void)
     XCTAssertTrue([[rendered string] rangeOfString:@"$a+b=c$"].location != NSNotFound);
 }
 
+- (void)testStyledMathFallbackNormalizesCommonTeXCommands
+{
+    OMMarkdownParsingOptions *options = [OMMarkdownParsingOptions defaultOptions];
+    [options setMathRenderingPolicy:OMMarkdownMathRenderingPolicyStyledText];
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] initWithTheme:nil
+                                                                parsingOptions:options] autorelease];
+
+    NSString *markdown = @"Inline math: $\\Delta = \\frac{P(A \\cap B)}{P(B)}$, $\\alpha + \\beta$, $\\sqrt{2}$, and $P(A \\mid B)$.";
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
+    XCTAssertNotNil(rendered);
+
+    NSString *text = [rendered string];
+    XCTAssertTrue([text rangeOfString:@"\\Delta"].location == NSNotFound);
+    XCTAssertTrue([text rangeOfString:@"\\frac"].location == NSNotFound);
+    XCTAssertTrue([text rangeOfString:@"\\cap"].location == NSNotFound);
+    XCTAssertTrue([text rangeOfString:@"\\alpha"].location == NSNotFound);
+    XCTAssertTrue([text rangeOfString:@"\\beta"].location == NSNotFound);
+    XCTAssertTrue([text rangeOfString:@"\\sqrt"].location == NSNotFound);
+    XCTAssertTrue([text rangeOfString:@"\\mid"].location == NSNotFound);
+    XCTAssertTrue([text rangeOfString:@"\u0394 = (P(A \u2229 B))/(P(B))"].location != NSNotFound);
+    XCTAssertTrue([text rangeOfString:@"\u03b1 + \u03b2"].location != NSNotFound);
+    XCTAssertTrue([text rangeOfString:@"\u221a(2)"].location != NSNotFound);
+    XCTAssertTrue([text rangeOfString:@"P(A | B)"].location != NSNotFound);
+}
+
 - (void)testHTMLPolicyIgnoreDropsInlineAndBlockHTML
 {
     OMMarkdownParsingOptions *options = [OMMarkdownParsingOptions defaultOptions];

@@ -3468,6 +3468,203 @@ static NSDictionary *OMMathAttributes(OMTheme *theme,
     return [mathAttrs autorelease];
 }
 
+static BOOL OMMathIsCommandCharacter(unichar ch)
+{
+    return (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z');
+}
+
+static BOOL OMMathExtractGroupedContent(NSString *text,
+                                        NSUInteger startIndex,
+                                        unichar openChar,
+                                        unichar closeChar,
+                                        NSString **contentOut,
+                                        NSUInteger *nextIndexOut)
+{
+    if (text == nil || startIndex >= [text length] || [text characterAtIndex:startIndex] != openChar) {
+        return NO;
+    }
+
+    NSUInteger depth = 1;
+    NSUInteger cursor = startIndex + 1;
+    while (cursor < [text length]) {
+        unichar ch = [text characterAtIndex:cursor];
+        if (ch == openChar && !OMMarkerIsEscaped(text, cursor)) {
+            depth += 1;
+        } else if (ch == closeChar && !OMMarkerIsEscaped(text, cursor)) {
+            depth -= 1;
+            if (depth == 0) {
+                if (contentOut != NULL) {
+                    *contentOut = [text substringWithRange:NSMakeRange(startIndex + 1,
+                                                                      cursor - (startIndex + 1))];
+                }
+                if (nextIndexOut != NULL) {
+                    *nextIndexOut = cursor + 1;
+                }
+                return YES;
+            }
+        }
+        cursor += 1;
+    }
+
+    return NO;
+}
+
+static NSString *OMMathUnicodeReplacementForCommand(NSString *command)
+{
+    if (command == nil || [command length] == 0) {
+        return nil;
+    }
+
+    if ([command isEqualToString:@"alpha"]) return @"\u03b1";
+    if ([command isEqualToString:@"beta"]) return @"\u03b2";
+    if ([command isEqualToString:@"gamma"]) return @"\u03b3";
+    if ([command isEqualToString:@"delta"]) return @"\u03b4";
+    if ([command isEqualToString:@"Delta"]) return @"\u0394";
+    if ([command isEqualToString:@"pi"]) return @"\u03c0";
+    if ([command isEqualToString:@"theta"]) return @"\u03b8";
+    if ([command isEqualToString:@"lambda"]) return @"\u03bb";
+    if ([command isEqualToString:@"mu"]) return @"\u03bc";
+    if ([command isEqualToString:@"sigma"]) return @"\u03c3";
+    if ([command isEqualToString:@"Sigma"]) return @"\u03a3";
+    if ([command isEqualToString:@"sum"]) return @"\u03a3";
+    if ([command isEqualToString:@"int"]) return @"\u222b";
+    if ([command isEqualToString:@"infty"]) return @"\u221e";
+    if ([command isEqualToString:@"times"]) return @"\u00d7";
+    if ([command isEqualToString:@"cdot"]) return @"\u00b7";
+    if ([command isEqualToString:@"leq"]) return @"\u2264";
+    if ([command isEqualToString:@"geq"]) return @"\u2265";
+    if ([command isEqualToString:@"neq"]) return @"\u2260";
+    if ([command isEqualToString:@"approx"]) return @"\u2248";
+    if ([command isEqualToString:@"to"]) return @"\u2192";
+    if ([command isEqualToString:@"rightarrow"]) return @"\u2192";
+    if ([command isEqualToString:@"leftarrow"]) return @"\u2190";
+    if ([command isEqualToString:@"mid"]) return @"|";
+    if ([command isEqualToString:@"cap"]) return @"\u2229";
+    if ([command isEqualToString:@"cup"]) return @"\u222a";
+    return nil;
+}
+
+static NSString *OMReadableMathFallbackString(NSString *formula)
+{
+    if (formula == nil || [formula length] == 0) {
+        return formula;
+    }
+
+    NSMutableString *normalized = [NSMutableString string];
+    NSUInteger length = [formula length];
+    NSUInteger index = 0;
+    while (index < length) {
+        unichar ch = [formula characterAtIndex:index];
+        if (ch == '{' || ch == '}') {
+            index += 1;
+            continue;
+        }
+
+        if (ch != '\\') {
+            [normalized appendFormat:@"%C", ch];
+            index += 1;
+            continue;
+        }
+
+        if (index + 1 >= length) {
+            [normalized appendString:@"\\"];
+            break;
+        }
+
+        NSUInteger commandStart = index + 1;
+        NSUInteger commandEnd = commandStart;
+        while (commandEnd < length && OMMathIsCommandCharacter([formula characterAtIndex:commandEnd])) {
+            commandEnd += 1;
+        }
+
+        if (commandEnd > commandStart) {
+            NSString *command = [formula substringWithRange:NSMakeRange(commandStart, commandEnd - commandStart)];
+            if ([command isEqualToString:@"left"] || [command isEqualToString:@"right"]) {
+                index = commandEnd;
+                continue;
+            }
+
+            if ([command isEqualToString:@"frac"]) {
+                NSString *numerator = nil;
+                NSString *denominator = nil;
+                NSUInteger numeratorEnd = 0;
+                NSUInteger denominatorEnd = 0;
+                if (OMMathExtractGroupedContent(formula, commandEnd, '{', '}', &numerator, &numeratorEnd) &&
+                    OMMathExtractGroupedContent(formula, numeratorEnd, '{', '}', &denominator, &denominatorEnd)) {
+                    [normalized appendFormat:@"(%@)/(%@)",
+                     OMReadableMathFallbackString(numerator),
+                     OMReadableMathFallbackString(denominator)];
+                    index = denominatorEnd;
+                    continue;
+                }
+            }
+
+            if ([command isEqualToString:@"sqrt"]) {
+                NSUInteger contentStart = commandEnd;
+                NSString *rootDegree = nil;
+                if (contentStart < length && [formula characterAtIndex:contentStart] == '[') {
+                    NSUInteger degreeEnd = 0;
+                    if (OMMathExtractGroupedContent(formula, contentStart, '[', ']', &rootDegree, &degreeEnd)) {
+                        contentStart = degreeEnd;
+                    }
+                }
+
+                NSString *radicand = nil;
+                NSUInteger radicandEnd = 0;
+                if (OMMathExtractGroupedContent(formula, contentStart, '{', '}', &radicand, &radicandEnd)) {
+                    if ([rootDegree length] > 0) {
+                        [normalized appendFormat:@"\u221a[%@](%@)",
+                         OMReadableMathFallbackString(rootDegree),
+                         OMReadableMathFallbackString(radicand)];
+                    } else {
+                        [normalized appendFormat:@"\u221a(%@)", OMReadableMathFallbackString(radicand)];
+                    }
+                    index = radicandEnd;
+                    continue;
+                }
+            }
+
+            if ([command isEqualToString:@"text"] ||
+                [command isEqualToString:@"mathrm"] ||
+                [command isEqualToString:@"operatorname"]) {
+                NSString *content = nil;
+                NSUInteger nextIndex = 0;
+                if (OMMathExtractGroupedContent(formula, commandEnd, '{', '}', &content, &nextIndex)) {
+                    [normalized appendString:OMReadableMathFallbackString(content)];
+                    index = nextIndex;
+                    continue;
+                }
+            }
+
+            NSString *replacement = OMMathUnicodeReplacementForCommand(command);
+            if (replacement != nil) {
+                [normalized appendString:replacement];
+            } else {
+                [normalized appendString:command];
+            }
+            index = commandEnd;
+            continue;
+        }
+
+        unichar escaped = [formula characterAtIndex:index + 1];
+        switch (escaped) {
+            case ',':
+            case ';':
+            case ':':
+            case '!':
+            case ' ':
+                [normalized appendString:@" "];
+                break;
+            default:
+                [normalized appendFormat:@"%C", escaped];
+                break;
+        }
+        index += 2;
+    }
+
+    return normalized;
+}
+
 static NSString *OMExecutablePathNamed(NSString *name)
 {
     if (name == nil || [name length] == 0) {
@@ -4205,7 +4402,7 @@ static void OMAppendTextWithMathSpans(NSString *text,
                                 OMAppendAttributedSegment(output, attachment);
                             } else {
                                 NSDictionary *mathAttrs = OMMathAttributes(theme, attributes, scale, NO);
-                                OMAppendString(output, formula, mathAttrs);
+                                OMAppendString(output, OMReadableMathFallbackString(formula), mathAttrs);
                             }
                             renderedMath = YES;
                             cursor = i + 1;
@@ -4250,7 +4447,7 @@ static void OMAppendDisplayMathFormula(NSString *formula,
         }
         OMAppendAttributedSegment(output, segment);
     } else {
-        OMAppendString(output, formula, mathAttrs);
+        OMAppendString(output, OMReadableMathFallbackString(formula), mathAttrs);
     }
 }
 

@@ -27,5 +27,10 @@ foreach ($fileName in @("markdown_icon.png", "open-icon.png")) {
   }
 }
 
+$iconSource = ".\Resources\markdown_icon.ico"
+if (Test-Path $iconSource) {
+  Copy-Item -Force $iconSource (Join-Path $metadataIcons "markdown_icon.ico")
+}
+
 Copy-Item -Force ".\FileAssociations.md" (Join-Path $metadataDocs "FileAssociations.md")
 Set-Content -Path (Join-Path $resolvedStageRoot "metadata\\README.txt") -Value "gnustep-packager metadata for ObjcMarkdown"

@@ -5,7 +5,7 @@ APP_NAME = MarkdownViewer
 CMARK_PKG := $(shell pkg-config --exists cmark 2>/dev/null && echo cmark || echo libcmark)
 CMARK_LIBS := $(shell pkg-config --libs $(CMARK_PKG) 2>/dev/null)
 
-MarkdownViewer_OBJC_FILES = main.m OMDAppDelegate.m OMDTextView.m OMDSourceTextView.m OMDSourceHighlighter.m OMDLineNumberRulerView.m OMDDocumentConverter.m OMDPandocConverter.m OMDPreviewSync.m OMDViewerModeState.m OMDCodeCopyButton.m OMDCopyFeedbackBadgeView.m OMDFormattingBarView.m OMDGitHubClient.m OMDInlineToggle.m
+MarkdownViewer_OBJC_FILES = main.m OMDAppDelegate.m OMDTextView.m OMDSourceTextView.m OMDSourceHighlighter.m OMDLineNumberRulerView.m OMDDocumentConverter.m OMDPandocConverter.m OMDPreviewSync.m OMDViewerModeState.m OMDCodeCopyButton.m OMDCopyFeedbackBadgeView.m OMDFormattingBarView.m OMDGitHubClient.m OMDInlineToggle.m OMDPanelSelection.m
 MarkdownViewer_CPPFLAGS += -I../ObjcMarkdown
 MarkdownViewer_CPPFLAGS += -I../third_party/libs-OpenSave/Headers
 MarkdownViewer_CPPFLAGS += -I../third_party/TextViewVimKit/src
