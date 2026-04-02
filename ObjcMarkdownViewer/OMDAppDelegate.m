@@ -75,6 +75,8 @@ static const CGFloat OMDToolbarActionSegmentWidth = 46.0;
 static const CGFloat OMDToolbarActionGroupSpacing = 8.0;
 static const CGFloat OMDToolbarModeControlsWidth = 356.0;
 static const CGFloat OMDToolbarZoomControlsWidth = 300.0;
+static const CGFloat OMDWin11SplitDividerThickness = 1.0;
+static const CGFloat OMDWin11SplitDividerHitThickness = 9.0;
 static const CGFloat OMDUsableWindowWidthPadding = 96.0;
 static const CGFloat OMDPreviewCanvasHorizontalMargin = 32.0;
 static const CGFloat OMDPreviewMaximumLayoutWidth = 920.0;
@@ -2201,6 +2203,61 @@ static NSString *OMDDefaultCacheDirectory(void)
 
 @end
 
+@interface OMDWin11SplitView : NSSplitView
+@end
+
+@implementation OMDWin11SplitView
+
+- (id)initWithFrame:(NSRect)frameRect
+{
+    self = [super initWithFrame:frameRect];
+    if (self != nil) {
+        [self setDividerStyle:NSSplitViewDividerStyleThin];
+        if ([self respondsToSelector:@selector(setDividerColor:)]) {
+            [self setDividerColor:OMDResolvedSubtleSeparatorColor()];
+        }
+    }
+    return self;
+}
+
+- (CGFloat)dividerThickness
+{
+    return OMDWin11SplitDividerThickness;
+}
+
+- (void)drawDividerInRect:(NSRect)dividerRect
+{
+    NSColor *background = OMDResolvedChromeBackgroundColor();
+    NSColor *separator = OMDResolvedSubtleSeparatorColor();
+    NSRect strokeRect = dividerRect;
+
+    if (background == nil) {
+        background = [NSColor clearColor];
+    }
+    if (separator == nil) {
+        separator = [NSColor colorWithCalibratedWhite:0.80 alpha:1.0];
+    }
+    if ([separator respondsToSelector:@selector(colorWithAlphaComponent:)]) {
+        separator = [separator colorWithAlphaComponent:(OMDColorIsDark(background) ? 0.58 : 0.78)];
+    }
+
+    [background setFill];
+    NSRectFill(dividerRect);
+
+    if ([self isVertical]) {
+        strokeRect.origin.x = floor(NSMidX(dividerRect));
+        strokeRect.size.width = 1.0;
+    } else {
+        strokeRect.origin.y = floor(NSMidY(dividerRect));
+        strokeRect.size.height = 1.0;
+    }
+
+    [separator setFill];
+    NSRectFill(strokeRect);
+}
+
+@end
+
 static OMDRoundedCardView *OMDCreatePreferencesCard(NSRect frame, OMDLayoutMetrics metrics)
 {
     OMDRoundedCardView *card = [[[OMDRoundedCardView alloc] initWithFrame:frame] autorelease];
@@ -3297,7 +3354,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
         }
     }
 
-    _splitView = [[NSSplitView alloc] initWithFrame:[_documentContainer bounds]];
+    _splitView = [[OMDWin11SplitView alloc] initWithFrame:[_documentContainer bounds]];
     [_splitView setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable)];
     [_splitView setVertical:YES];
     [_splitView setDelegate:self];
@@ -3499,10 +3556,10 @@ static NSMutableArray *OMDSecondaryWindows(void)
         initialMainWidth = 0.0;
     }
 
-    _workspaceSplitView = [[NSSplitView alloc] initWithFrame:NSMakeRect(NSMinX(contentBounds),
-                                                                        NSMinY(contentBounds),
-                                                                        contentWidth,
-                                                                        contentHeight)];
+    _workspaceSplitView = [[OMDWin11SplitView alloc] initWithFrame:NSMakeRect(NSMinX(contentBounds),
+                                                                               NSMinY(contentBounds),
+                                                                               contentWidth,
+                                                                               contentHeight)];
     [_workspaceSplitView setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable)];
     [_workspaceSplitView setVertical:YES];
     [_workspaceSplitView setDelegate:self];
@@ -6629,6 +6686,34 @@ constrainSplitPosition:(CGFloat)proposedPosition
         return maxPosition;
     }
     return proposedPosition;
+}
+
+- (NSRect)splitView:(NSSplitView *)splitView
+      effectiveRect:(NSRect)proposedEffectiveRect
+       forDrawnRect:(NSRect)drawnRect
+   ofDividerAtIndex:(NSInteger)dividerIndex
+{
+    NSRect effectiveRect = proposedEffectiveRect;
+    CGFloat extra = 0.0;
+
+    (void)dividerIndex;
+
+    if (splitView != _splitView && splitView != _workspaceSplitView) {
+        return proposedEffectiveRect;
+    }
+
+    effectiveRect = drawnRect;
+    if ([splitView isVertical]) {
+        extra = MAX(0.0, OMDWin11SplitDividerHitThickness - NSWidth(effectiveRect));
+        effectiveRect.origin.x -= floor(extra / 2.0);
+        effectiveRect.size.width += extra;
+    } else {
+        extra = MAX(0.0, OMDWin11SplitDividerHitThickness - NSHeight(effectiveRect));
+        effectiveRect.origin.y -= floor(extra / 2.0);
+        effectiveRect.size.height += extra;
+    }
+
+    return NSIntersectionRect(effectiveRect, [splitView bounds]);
 }
 
 - (void)splitViewDidResizeSubviews:(NSNotification *)notification
