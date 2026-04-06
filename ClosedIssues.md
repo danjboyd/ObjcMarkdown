@@ -904,3 +904,16 @@
   - Rebuilt and revalidated the AppDir and AppImage after the packaging fix.
   - Verified in the Debian VM that the rebuilt AppImage now extracts those image resources correctly.
   - Rebuilt AppImage SHA-256: `6cc632e5046bc0d050de28a7128fbdd9ccdeda70b630cd63d69c3021d3cc0ba9`
+
+## 73) Launching with a document could show a transparent shell window before content appeared
+
+- **Status**: Closed
+- **Closed On**: 2026-04-06
+- **Area**: Viewer / Launch / Window presentation
+- **Description**: The viewer presented its main window from `setupWindow` before launch-time document opening finished. When a document was supplied at launch, the app could show a title bar and transparent or unpainted content area while synchronous open/render work still occupied the main thread.
+- **Resolution**:
+  - Added an explicit launch overlay so startup can paint a stable loading state immediately instead of showing an empty or transparent content region.
+  - Deferred launch-time document open and recovery handling to the next run-loop turn after first window presentation, giving GNUstep a chance to draw the loading state before synchronous file-open and preview-render work begins.
+  - Moved explorer population and related nonessential window startup work out of the initial first-paint path so the window becomes visible sooner.
+  - Preserved secondary-window behavior by presenting empty windows immediately and scheduling deferred post-presentation explorer setup separately.
+  - Rebuilt the GNUstep app and test bundle after the launch-presentation change.

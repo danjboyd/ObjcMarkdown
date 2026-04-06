@@ -2615,6 +2615,14 @@ static OMDRoundedCardView *OMDCreatePreferencesCard(NSRect frame, OMDLayoutMetri
 - (void)rebuildOpenRecentMenu;
 - (void)noteRecentDocumentAtPathIfAvailable:(NSString *)path;
 - (void)setupWorkspaceChrome;
+- (void)showLaunchOverlayWithTitle:(NSString *)title detail:(NSString *)detail;
+- (void)hideLaunchOverlay;
+- (NSString *)firstLaunchDocumentPathFromArguments;
+- (BOOL)hasRecoverySnapshotAvailable;
+- (void)performDeferredInitialLaunchWork;
+- (void)schedulePostPresentationSetupIfNeeded;
+- (void)runDeferredPostPresentationSetup;
+- (void)presentWindowIfNeeded;
 - (void)applyWindowsWindowIconsIfPossible;
 - (void)layoutWorkspaceChrome;
 - (CGFloat)currentTabStripHeight;
@@ -3011,9 +3019,16 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [self cancelPendingPreviewStatusAutoHide];
     [self cancelPendingSourceSyntaxHighlighting];
     [self cancelPendingRecoveryAutosave];
+    [NSObject cancelPreviousPerformRequestsWithTarget:self
+                                             selector:@selector(performDeferredInitialLaunchWork)
+                                               object:nil];
+    [NSObject cancelPreviousPerformRequestsWithTarget:self
+                                             selector:@selector(runDeferredPostPresentationSetup)
+                                               object:nil];
     [self stopExternalFileMonitor];
     [self hideCopyFeedback];
     [_sourceVimCommandLine release];
+    [_pendingLaunchOpenPath release];
     [_currentDocumentSyntaxLanguage release];
     [_currentDisplayTitle release];
     [_currentMarkdown release];
@@ -3055,6 +3070,9 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [_zoomLabel release];
     [_zoomResetButton release];
     [_zoomContainer release];
+    [_launchOverlayTitleLabel release];
+    [_launchOverlayDetailLabel release];
+    [_launchOverlayView release];
     [_modeLabel release];
     [_previewStatusLabel release];
     [_modeControl release];
@@ -3131,12 +3149,32 @@ static NSMutableArray *OMDSecondaryWindows(void)
                                                        exception]);
         }
     }
-    BOOL openedFromArgs = [self openDocumentFromArguments];
-    OMDStartupTrace([NSString stringWithFormat:@"appDidFinishLaunching: openDocumentFromArguments=%@", openedFromArgs ? @"YES" : @"NO"]);
-    if (!_openedFileOnLaunch && !openedFromArgs) {
-        [self restoreRecoveryIfAvailable];
-        OMDStartupTrace(@"appDidFinishLaunching: restoreRecoveryIfAvailable returned");
+
+    NSString *startupPath = (_pendingLaunchOpenPath != nil ? _pendingLaunchOpenPath
+                                                           : [self firstLaunchDocumentPathFromArguments]);
+    BOOL shouldCheckRecovery = (!_openedFileOnLaunch &&
+                                [startupPath length] == 0 &&
+                                [self hasRecoverySnapshotAvailable]);
+    if ([startupPath length] > 0) {
+        [self showLaunchOverlayWithTitle:@"Loading document..."
+                                  detail:[startupPath lastPathComponent]];
+    } else if (shouldCheckRecovery) {
+        [self showLaunchOverlayWithTitle:@"Checking recovery snapshot..."
+                                  detail:nil];
+    } else {
+        [self hideLaunchOverlay];
     }
+
+    [self presentWindowIfNeeded];
+    if ([startupPath length] > 0 || shouldCheckRecovery) {
+        _launchWorkScheduled = YES;
+        [self performSelector:@selector(performDeferredInitialLaunchWork)
+                   withObject:nil
+                   afterDelay:0.0];
+    } else {
+        [self schedulePostPresentationSetupIfNeeded];
+    }
+
     if (OMDLaunchPrintAutomationEnabled()) {
         [self performSelector:@selector(runLaunchPrintAutomationIfRequested)
                    withObject:nil
@@ -3176,9 +3214,36 @@ static NSMutableArray *OMDSecondaryWindows(void)
 - (BOOL)application:(NSApplication *)theApplication openFile:(NSString *)filename
 {
     (void)theApplication;
+    NSString *resolvedPath = [self resolvedAbsolutePathForLocalPath:filename];
     _openedFileOnLaunch = YES;
+
+    BOOL shouldDeferForLaunch = (_window == nil ||
+                                 _launchWorkScheduled ||
+                                 (!_postPresentationSetupComplete &&
+                                  [_documentTabs count] == 0 &&
+                                  _currentPath == nil &&
+                                  _currentMarkdown == nil));
+    if (shouldDeferForLaunch) {
+        [_pendingLaunchOpenPath release];
+        _pendingLaunchOpenPath = [(resolvedPath != nil ? resolvedPath : filename) copy];
+        if (_window != nil) {
+            [self showLaunchOverlayWithTitle:@"Loading document..."
+                                      detail:[_pendingLaunchOpenPath lastPathComponent]];
+            [self presentWindowIfNeeded];
+            if (!_launchWorkScheduled) {
+                _launchWorkScheduled = YES;
+                [self performSelector:@selector(performDeferredInitialLaunchWork)
+                           withObject:nil
+                           afterDelay:0.0];
+            }
+        }
+        return YES;
+    }
+
     BOOL openInNewTab = !([_documentTabs count] == 0 && _currentPath == nil && _currentMarkdown == nil);
-    return [self openDocumentAtPath:filename inNewTab:openInNewTab requireDirtyConfirm:!openInNewTab];
+    return [self openDocumentAtPath:(resolvedPath != nil ? resolvedPath : filename)
+                           inNewTab:openInNewTab
+                requireDirtyConfirm:!openInNewTab];
 }
 
 - (void)setupMainMenu
@@ -3748,15 +3813,51 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [_splitView addSubview:_previewScrollView];
 
     [_documentContainer addSubview:_previewScrollView];
+    _launchOverlayView = [[OMDFlippedFillView alloc] initWithFrame:[_documentContainer bounds]];
+    [_launchOverlayView setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable)];
+    if ([_launchOverlayView isKindOfClass:[OMDFlippedFillView class]]) {
+        [(OMDFlippedFillView *)_launchOverlayView setFillColor:OMDResolvedChromeBackgroundColor()];
+    }
+    [_launchOverlayView setHidden:YES];
 
-    [_window makeKeyAndOrderFront:nil];
-    [self normalizeWindowFrameIfNeeded];
-    [_window makeKeyAndOrderFront:nil];
-    OMDRefreshWindowsMainMenu();
-    OMDApplyWindowsMenuToWindow(_window);
-    OMDLogMenuSnapshot(@"setupWindow: after menu attach", [NSApp mainMenu], _window);
+    NSRect overlayBounds = [_launchOverlayView bounds];
+    CGFloat cardWidth = 420.0;
+    CGFloat cardHeight = 110.0;
+    OMDRoundedCardView *launchCard = [[[OMDRoundedCardView alloc]
+        initWithFrame:NSMakeRect(floor((NSWidth(overlayBounds) - cardWidth) * 0.5),
+                                 floor((NSHeight(overlayBounds) - cardHeight) * 0.5),
+                                 cardWidth,
+                                 cardHeight)] autorelease];
+    [launchCard setAutoresizingMask:(NSViewMinXMargin | NSViewMaxXMargin | NSViewMinYMargin | NSViewMaxYMargin)];
+    [launchCard setFillColor:OMDResolvedPanelCardFillColor()];
+    [launchCard setBorderColor:OMDResolvedPanelCardBorderColor()];
+    [launchCard setCornerRadius:14.0];
+
+    _launchOverlayTitleLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(22.0, 58.0, cardWidth - 44.0, 24.0)];
+    [_launchOverlayTitleLabel setBezeled:NO];
+    [_launchOverlayTitleLabel setEditable:NO];
+    [_launchOverlayTitleLabel setSelectable:NO];
+    [_launchOverlayTitleLabel setDrawsBackground:NO];
+    [_launchOverlayTitleLabel setAlignment:NSCenterTextAlignment];
+    [_launchOverlayTitleLabel setFont:[NSFont boldSystemFontOfSize:16.0]];
+    [_launchOverlayTitleLabel setStringValue:@"Loading document..."];
+    [launchCard addSubview:_launchOverlayTitleLabel];
+
+    _launchOverlayDetailLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(22.0, 30.0, cardWidth - 44.0, 20.0)];
+    [_launchOverlayDetailLabel setBezeled:NO];
+    [_launchOverlayDetailLabel setEditable:NO];
+    [_launchOverlayDetailLabel setSelectable:NO];
+    [_launchOverlayDetailLabel setDrawsBackground:NO];
+    [_launchOverlayDetailLabel setAlignment:NSCenterTextAlignment];
+    [_launchOverlayDetailLabel setTextColor:[NSColor disabledControlTextColor]];
+    [_launchOverlayDetailLabel setFont:[NSFont systemFontOfSize:12.0]];
+    [_launchOverlayDetailLabel setStringValue:@""];
+    [launchCard addSubview:_launchOverlayDetailLabel];
+
+    [_launchOverlayView addSubview:launchCard];
+    [_documentContainer addSubview:_launchOverlayView];
+
     [self applyExplorerSidebarVisibility];
-    OMDStartupTrace(@"setupWindow: window visible");
 
     _renderer = [[OMMarkdownRenderer alloc] init];
     OMDStartupTrace(@"setupWindow: renderer allocated");
@@ -3800,15 +3901,150 @@ static NSMutableArray *OMDSecondaryWindows(void)
     OMDStartupTrace(@"setupWindow: viewer mode applied");
     [self updateTabStrip];
     OMDStartupTrace(@"setupWindow: tab strip updated");
-    [self reloadExplorerEntries];
-    OMDStartupTrace(@"setupWindow: explorer reloaded");
-    [self applyLayoutDensityPreference];
-    OMDStartupTrace(@"setupWindow: layout density applied");
-    [self startExternalFileMonitor];
     OMDStartupTrace(@"setupWindow: complete");
     [self performSelector:@selector(logDelayedMenuSnapshot:)
                withObject:nil
                afterDelay:1.0];
+}
+
+- (void)showLaunchOverlayWithTitle:(NSString *)title detail:(NSString *)detail
+{
+    if (_launchOverlayView == nil || _launchOverlayTitleLabel == nil) {
+        return;
+    }
+
+    NSString *resolvedTitle = ([title length] > 0 ? title : @"Loading...");
+    [_launchOverlayTitleLabel setStringValue:resolvedTitle];
+
+    NSString *resolvedDetail = OMDTrimmedString(detail);
+    if ([resolvedDetail length] > 0 && _launchOverlayDetailLabel != nil) {
+        [_launchOverlayDetailLabel setStringValue:resolvedDetail];
+        [_launchOverlayDetailLabel setHidden:NO];
+    } else if (_launchOverlayDetailLabel != nil) {
+        [_launchOverlayDetailLabel setStringValue:@""];
+        [_launchOverlayDetailLabel setHidden:YES];
+    }
+
+    [_documentContainer addSubview:_launchOverlayView
+                        positioned:NSWindowAbove
+                        relativeTo:nil];
+    [_launchOverlayView setHidden:NO];
+    [_launchOverlayView setNeedsDisplay:YES];
+}
+
+- (void)hideLaunchOverlay
+{
+    if (_launchOverlayView == nil) {
+        return;
+    }
+    [_launchOverlayView setHidden:YES];
+}
+
+- (NSString *)firstLaunchDocumentPathFromArguments
+{
+    NSArray *args = [[NSProcessInfo processInfo] arguments];
+    if ([args count] <= 1) {
+        return nil;
+    }
+
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSUInteger i = 1;
+    for (; i < [args count]; i++) {
+        NSString *candidate = [args objectAtIndex:i];
+        NSString *expanded = [self resolvedAbsolutePathForLocalPath:candidate];
+        if ([expanded length] == 0) {
+            continue;
+        }
+        if ([fm fileExistsAtPath:expanded]) {
+            return expanded;
+        }
+    }
+    return nil;
+}
+
+- (BOOL)hasRecoverySnapshotAvailable
+{
+    NSString *snapshotPath = [self recoverySnapshotPath];
+    if ([snapshotPath length] == 0) {
+        return NO;
+    }
+
+    NSDictionary *snapshot = [NSDictionary dictionaryWithContentsOfFile:snapshotPath];
+    NSString *markdown = [snapshot objectForKey:@"markdown"];
+    return [markdown isKindOfClass:[NSString class]] && [markdown length] > 0;
+}
+
+- (void)performDeferredInitialLaunchWork
+{
+    _launchWorkScheduled = NO;
+
+    BOOL openedFromArgs = NO;
+    if ([_pendingLaunchOpenPath length] > 0) {
+        NSString *pendingPath = [[_pendingLaunchOpenPath copy] autorelease];
+        [_pendingLaunchOpenPath release];
+        _pendingLaunchOpenPath = nil;
+        openedFromArgs = [self openDocumentAtPath:pendingPath
+                                         inNewTab:NO
+                              requireDirtyConfirm:NO];
+        OMDStartupTrace([NSString stringWithFormat:@"performDeferredInitialLaunchWork: pending open=%@",
+                                                   openedFromArgs ? @"YES" : @"NO"]);
+    } else {
+        openedFromArgs = [self openDocumentFromArguments];
+        OMDStartupTrace([NSString stringWithFormat:@"performDeferredInitialLaunchWork: openDocumentFromArguments=%@",
+                                                   openedFromArgs ? @"YES" : @"NO"]);
+    }
+
+    if (!_openedFileOnLaunch && !openedFromArgs) {
+        [self restoreRecoveryIfAvailable];
+        OMDStartupTrace(@"performDeferredInitialLaunchWork: restoreRecoveryIfAvailable returned");
+    }
+
+    [self hideLaunchOverlay];
+    [self schedulePostPresentationSetupIfNeeded];
+}
+
+- (void)schedulePostPresentationSetupIfNeeded
+{
+    if (_postPresentationSetupComplete || _postPresentationSetupScheduled) {
+        return;
+    }
+
+    _postPresentationSetupScheduled = YES;
+    [self performSelector:@selector(runDeferredPostPresentationSetup)
+               withObject:nil
+               afterDelay:0.0];
+}
+
+- (void)runDeferredPostPresentationSetup
+{
+    _postPresentationSetupScheduled = NO;
+    if (_postPresentationSetupComplete) {
+        return;
+    }
+
+    [self reloadExplorerEntries];
+    OMDStartupTrace(@"runDeferredPostPresentationSetup: explorer reloaded");
+    [self applyLayoutDensityPreference];
+    OMDStartupTrace(@"runDeferredPostPresentationSetup: layout density applied");
+    [self startExternalFileMonitor];
+    OMDStartupTrace(@"runDeferredPostPresentationSetup: external file monitor started");
+    _postPresentationSetupComplete = YES;
+}
+
+- (void)presentWindowIfNeeded
+{
+    if (_window == nil || [_window isVisible]) {
+        return;
+    }
+
+    [_window makeKeyAndOrderFront:nil];
+    [self normalizeWindowFrameIfNeeded];
+    [_window makeKeyAndOrderFront:nil];
+    OMDRefreshWindowsMainMenu();
+    OMDApplyWindowsMenuToWindow(_window);
+    OMDLogMenuSnapshot(@"presentWindowIfNeeded: after menu attach", [NSApp mainMenu], _window);
+    [self applyExplorerSidebarVisibility];
+    OMDStartupTrace(@"presentWindowIfNeeded: window visible");
 }
 
 - (void)logDelayedMenuSnapshot:(id)sender
@@ -4770,6 +5006,8 @@ static NSMutableArray *OMDSecondaryWindows(void)
 
     OMDAppDelegate *controller = [[OMDAppDelegate alloc] init];
     [controller setupWindow];
+    [controller presentWindowIfNeeded];
+    [controller schedulePostPresentationSetupIfNeeded];
     [controller registerAsSecondaryWindow];
     [controller release];
 }
@@ -4858,6 +5096,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
         [controller setupWindow];
         BOOL imported = [controller importDocumentAtPath:path];
         if (imported) {
+            [controller schedulePostPresentationSetupIfNeeded];
             [controller registerAsSecondaryWindow];
         } else {
             [controller->_window close];
@@ -8498,6 +8737,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
         NSInteger existingIndex = [self documentTabIndexForLocalPath:normalizedSourcePath];
         if (existingIndex >= 0) {
             [self selectDocumentTabAtIndex:existingIndex];
+            [self presentWindowIfNeeded];
             return YES;
         }
     }
@@ -8517,6 +8757,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
                                                  diskFingerprint:initialDiskFingerprint];
 
     [self installDocumentTabRecord:tab inNewTab:inNewTab resetViewport:YES];
+    [self presentWindowIfNeeded];
     return YES;
 }
 
@@ -14598,6 +14839,7 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
     [controller setupWindow];
     BOOL opened = [controller openDocumentAtPath:path];
     if (opened) {
+        [controller schedulePostPresentationSetupIfNeeded];
         [controller registerAsSecondaryWindow];
     } else {
         [controller->_window close];
