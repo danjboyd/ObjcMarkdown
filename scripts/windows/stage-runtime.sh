@@ -54,6 +54,13 @@ copy_optional /clang64/bin/libunwind.dll "$BIN_DIR/"
 # Copy GNUstep resources (themes, bundles, images, etc.)
 cp -R /clang64/lib/GNUstep/* "$GNUSTEP_DIR/"
 
+# The packaged app does not use the GNUstep preference panes or the
+# SystemPreferences app, and the current CLANG64 payload mixes pref-pane
+# binaries that import an older gnustep-base DLL we do not ship.
+rm -rf "$GNUSTEP_DIR/Applications/SystemPreferences.app"
+find "$GNUSTEP_DIR/Bundles" -maxdepth 1 -type d -name '*.prefPane' -exec rm -rf {} +
+rm -rf "$GNUSTEP_DIR/Frameworks/PreferencePanes.framework"
+
 # Copy runtime config data needed by the GNUstep backend stack on clean machines.
 cp -R /clang64/etc/fonts "$ETC_DIR/"
 cp -R /clang64/share/fontconfig "$SHARE_DIR/"
@@ -195,7 +202,20 @@ if exist "%ROOT%clang64\bin" (
   set PATH=C:\clang64\bin;%PATH%
   set GNUSTEP_PATHPREFIX_LIST=C:\clang64
 )
-if not defined GSTheme set GSTheme=WinUXTheme
+if exist "%ROOT%clang64\texlive\TinyTeX\bin\windows" (
+  set PATH=%ROOT%clang64\texlive\TinyTeX\bin\windows;%PATH%
+)
+if not defined GSTheme (
+  if exist "%ROOT%clang64\lib\GNUstep\Themes\WinUITheme.theme\WinUITheme.dll" (
+    set GSTheme=WinUITheme
+  ) else (
+    if exist "C:\clang64\lib\GNUstep\Themes\WinUITheme.theme\WinUITheme.dll" (
+      set GSTheme=WinUITheme
+    ) else (
+      set GSTheme=WinUXTheme
+    )
+  )
+)
 start "" "%ROOT%app\MarkdownViewer.app\MarkdownViewer.exe" %*
 CMD
 

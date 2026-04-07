@@ -36,6 +36,89 @@ function Get-OmdProcessesByExecutablePath {
   return @($matches.ToArray())
 }
 
+function Test-OmdBundledTinyTeXRuntime {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$TeXBinDir
+  )
+
+  $latexPath = Join-Path $TeXBinDir "latex.exe"
+  $dvisvgmPath = Join-Path $TeXBinDir "dvisvgm.exe"
+  $dvipngPath = Join-Path $TeXBinDir "dvipng.exe"
+  $smokeDir = Join-Path $env:TEMP "omd-tinytex-smoke"
+  $formulaPath = Join-Path $smokeDir "formula.tex"
+  $dviPath = Join-Path $smokeDir "formula.dvi"
+  $svgPath = Join-Path $smokeDir "formula.svg"
+  $pngPath = Join-Path $smokeDir "formula.png"
+
+  if (Test-Path $smokeDir) {
+    Remove-Item -LiteralPath $smokeDir -Recurse -Force
+  }
+  New-Item -ItemType Directory -Force -Path $smokeDir | Out-Null
+
+  Set-Content -Path $formulaPath -Encoding Ascii -Value @'
+\documentclass{article}
+\usepackage{amsmath}
+\pagestyle{empty}
+\begin{document}
+\[
+\int_0^1 x^2\,dx
+\]
+\end{document}
+'@
+
+  $originalPath = $env:PATH
+  try {
+    $env:PATH = "$TeXBinDir;$originalPath"
+
+    Push-Location $smokeDir
+    try {
+      & $latexPath "-interaction=nonstopmode" "-halt-on-error" "formula.tex" | Out-Null
+      if ($LASTEXITCODE -ne 0) {
+        throw "Bundled TinyTeX latex smoke compile failed with exit code $LASTEXITCODE."
+      }
+
+      if (-not (Test-Path $dviPath)) {
+        throw "Bundled TinyTeX latex smoke compile did not produce formula.dvi."
+      }
+
+      & $dvisvgmPath "--no-fonts" "--exact-bbox" "--stdout" "formula.dvi" > $svgPath
+      if ($LASTEXITCODE -ne 0) {
+        throw "Bundled TinyTeX dvisvgm smoke conversion failed with exit code $LASTEXITCODE."
+      }
+
+      & $dvipngPath "-T" "tight" "-bg" "Transparent" "-D" "180" "-o" "formula.png" "formula.dvi" | Out-Null
+      if ($LASTEXITCODE -ne 0) {
+        throw "Bundled TinyTeX dvipng smoke conversion failed with exit code $LASTEXITCODE."
+      }
+    } finally {
+      Pop-Location
+    }
+  } finally {
+    $env:PATH = $originalPath
+  }
+
+  if (-not (Test-Path $svgPath)) {
+    throw "Bundled TinyTeX dvisvgm smoke conversion did not produce formula.svg."
+  }
+
+  $svgInfo = Get-Item -LiteralPath $svgPath
+  if ($svgInfo.Length -le 0) {
+    throw "Bundled TinyTeX dvisvgm smoke conversion produced an empty formula.svg."
+  }
+
+  if (-not (Test-Path $pngPath)) {
+    throw "Bundled TinyTeX dvipng smoke conversion did not produce formula.png."
+  }
+
+  $pngInfo = Get-Item -LiteralPath $pngPath
+  if ($pngInfo.Length -le 0) {
+    throw "Bundled TinyTeX dvipng smoke conversion produced an empty formula.png."
+  }
+
+  Remove-Item -LiteralPath $smokeDir -Recurse -Force
+}
+
 if (-not (Test-Path $MsiPath)) {
   throw "MSI not found at $MsiPath"
 }
@@ -89,6 +172,29 @@ try {
   if (-not $runtimeBin) {
     throw "Expected runtime not found in any of: $($runtimeCandidates -join ', ')"
   }
+
+  $requiredThemePaths = @(
+    (Join-Path $InstallDir "clang64\\lib\\GNUstep\\Themes\\WinUXTheme.theme\\WinUXTheme.dll"),
+    (Join-Path $InstallDir "clang64\\lib\\GNUstep\\Themes\\Win11Theme.theme\\Win11Theme.dll"),
+    (Join-Path $InstallDir "clang64\\lib\\GNUstep\\Themes\\WinUITheme.theme\\WinUITheme.dll")
+  )
+  $missingThemePaths = @($requiredThemePaths | Where-Object { -not (Test-Path $_) })
+  if ($missingThemePaths.Count -gt 0) {
+    throw "Expected bundled themes were not found: $($missingThemePaths -join ', ')"
+  }
+
+  $bundledTeXBin = Join-Path $InstallDir "clang64\\texlive\\TinyTeX\\bin\\windows"
+  $requiredTeXPaths = @(
+    (Join-Path $bundledTeXBin "latex.exe"),
+    (Join-Path $bundledTeXBin "dvisvgm.exe"),
+    (Join-Path $bundledTeXBin "dvipng.exe")
+  )
+  $missingTeXPaths = @($requiredTeXPaths | Where-Object { -not (Test-Path $_) })
+  if ($missingTeXPaths.Count -gt 0) {
+    throw "Expected bundled TinyTeX runtime files were not found: $($missingTeXPaths -join ', ')"
+  }
+
+  Test-OmdBundledTinyTeXRuntime -TeXBinDir $bundledTeXBin
 
   if ($RunSmoke) {
     Write-Host "Running smoke test"

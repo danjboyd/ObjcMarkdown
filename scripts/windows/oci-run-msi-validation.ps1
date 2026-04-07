@@ -5,7 +5,7 @@ param(
   [string]$StageDir = "dist/ObjcMarkdown",
   [string]$InstallerOutDir = "dist/installer",
   [ValidateSet("legacy", "packager")]
-  [string]$PackagingMode = "legacy",
+  [string]$PackagingMode = "packager",
   [string]$PackagerRoot = "..\gnustep-packager",
   [string]$PackagerManifest = "packaging/package.manifest.json",
   [string]$PackagerBackend = "msi",

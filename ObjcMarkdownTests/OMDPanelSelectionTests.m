@@ -147,8 +147,8 @@
     [panel setFilenames:[NSArray arrayWithObjects:@"C:/tmp/alpha.md", @"C:/tmp/beta.md", nil]];
 
     NSArray *paths = OMDSelectedPathsFromOpenPanel((NSOpenPanel *)panel);
-    XCTAssertEqualObjects(paths,
-                          [NSArray arrayWithObjects:@"C:/tmp/alpha.md", @"C:/tmp/beta.md", nil]);
+    NSArray *expectedPaths = [NSArray arrayWithObjects:@"C:/tmp/alpha.md", @"C:/tmp/beta.md", nil];
+    XCTAssertEqualObjects(paths, expectedPaths);
 }
 
 - (void)testOpenPanelFallsBackToSingleURL

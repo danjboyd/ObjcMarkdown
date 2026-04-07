@@ -9,6 +9,7 @@
 #include <cmark.h>
 #if defined(_WIN32)
 #include <windows.h>
+#include <gdiplus/gdiplus.h>
 #else
 #include <dlfcn.h>
 #endif
@@ -53,11 +54,71 @@ typedef struct {
 
 static NSString *OMExecutablePathNamed(NSString *name);
 static BOOL OMURLUsesRemoteScheme(NSURL *url);
+static NSString *OMLaTeXExecutablePath(void);
+static NSString *OMPlainTexExecutablePath(void);
+static NSString *OMDviPngExecutablePath(void);
 
 static NSTimeInterval OMNow(void)
 {
     return [NSDate timeIntervalSinceReferenceDate];
 }
+
+#if defined(_WIN32)
+static NSString *OMWindowsNormalizedPath(NSString *value)
+{
+    if (value == nil) {
+        return nil;
+    }
+    return [value stringByReplacingOccurrencesOfString:@"/" withString:@"\\"];
+}
+
+static NSString *OMWindowsQuoteCommandArgument(NSString *value)
+{
+    if (value == nil) {
+        return @"\"\"";
+    }
+
+    NSMutableString *quoted = [NSMutableString stringWithString:@"\""];
+    NSUInteger length = [value length];
+    NSUInteger index = 0;
+    while (index < length) {
+        unichar character = [value characterAtIndex:index];
+        if (character == '\\') {
+            NSUInteger slashStart = index;
+            while (index < length && [value characterAtIndex:index] == '\\') {
+                index += 1;
+            }
+            NSUInteger slashCount = index - slashStart;
+            BOOL beforeQuoteOrEnd = (index == length || [value characterAtIndex:index] == '"');
+            NSUInteger copies = beforeQuoteOrEnd ? (slashCount * 2) : slashCount;
+            while (copies-- > 0) {
+                [quoted appendString:@"\\"];
+            }
+            if (index < length && [value characterAtIndex:index] == '"') {
+                [quoted appendString:@"\\\""];
+                index += 1;
+            }
+            continue;
+        }
+        if (character == '"') {
+            [quoted appendString:@"\\\""];
+        } else {
+            [quoted appendFormat:@"%C", character];
+        }
+        index += 1;
+    }
+    [quoted appendString:@"\""];
+    return quoted;
+}
+
+static NSString *OMWindowsTaskScriptPath(NSString *workingDirectory)
+{
+    if (workingDirectory == nil || [workingDirectory length] == 0) {
+        return nil;
+    }
+    return [workingDirectory stringByAppendingPathComponent:@"omd-run-task.cmd"];
+}
+#endif
 
 static BOOL OMTruthyFlagValue(NSString *value)
 {
@@ -90,6 +151,84 @@ static BOOL OMPerformanceLoggingEnabled(void)
     }
     return enabled;
 }
+
+#if defined(_WIN32)
+static void OMMathDebugLog(NSString *message)
+{
+    if (message == nil || [message length] == 0) {
+        return;
+    }
+
+    NSString *logPath = [NSTemporaryDirectory() stringByAppendingPathComponent:@"ObjcMarkdown-math.log"];
+    NSData *existing = [NSData dataWithContentsOfFile:logPath];
+    if (existing == nil) {
+        [[NSData data] writeToFile:logPath atomically:YES];
+    }
+
+    NSFileHandle *handle = [NSFileHandle fileHandleForWritingAtPath:logPath];
+    if (handle == nil) {
+        return;
+    }
+
+    [handle seekToEndOfFile];
+    NSString *line = [NSString stringWithFormat:@"%@\r\n", message];
+    NSData *data = [line dataUsingEncoding:NSUTF8StringEncoding];
+    if (data != nil) {
+        [handle writeData:data];
+    }
+    [handle closeFile];
+}
+
+static NSString *OMMathLogSnippet(NSString *value)
+{
+    if (value == nil) {
+        return @"<nil>";
+    }
+
+    NSString *sanitized = [[value stringByReplacingOccurrencesOfString:@"\r" withString:@" "]
+        stringByReplacingOccurrencesOfString:@"\n" withString:@" "];
+    if ([sanitized length] > 160) {
+        return [[sanitized substringToIndex:160] stringByAppendingString:@"..."];
+    }
+    return sanitized;
+}
+
+static NSString *OMMathDebugStringFromData(NSData *data)
+{
+    if (data == nil || [data length] == 0) {
+        return @"";
+    }
+
+    NSString *decoded = [[[NSString alloc] initWithData:data
+                                               encoding:NSUTF8StringEncoding] autorelease];
+    if (decoded == nil) {
+        decoded = [[[NSString alloc] initWithData:data
+                                         encoding:NSISOLatin1StringEncoding] autorelease];
+    }
+    return OMMathLogSnippet(decoded);
+}
+
+static void OMLogMathBackendStateIfNeeded(void)
+{
+    static BOOL logged = NO;
+    if (logged) {
+        return;
+    }
+    logged = YES;
+
+    NSDictionary *environment = [[NSProcessInfo processInfo] environment];
+    NSString *pathValue = [environment objectForKey:@"PATH"];
+    OMMathDebugLog([NSString stringWithFormat:@"backend: latex=%@ tex=%@ dvipng=%@ path=%@",
+                    OMMathLogSnippet(OMLaTeXExecutablePath()),
+                    OMMathLogSnippet(OMPlainTexExecutablePath()),
+                    OMMathLogSnippet(OMDviPngExecutablePath()),
+                    OMMathLogSnippet(pathValue)]);
+}
+#else
+static void OMLogMathBackendStateIfNeeded(void)
+{
+}
+#endif
 
 static OMMarkdownParsingOptions *OMRenderContextParsingOptions(const OMRenderContext *renderContext)
 {
@@ -267,7 +406,12 @@ static OMMarkdownHTMLPolicy OMHTMLPolicyForBlockNode(const OMRenderContext *rend
 static CGFloat OMMathRasterOversampleFactor(void)
 {
     static BOOL resolved = NO;
-    static CGFloat factor = 2.0;
+    static CGFloat factor =
+#if defined(_WIN32)
+        3.0;
+#else
+        2.0;
+#endif
     if (!resolved) {
         NSDictionary *environment = [[NSProcessInfo processInfo] environment];
         NSString *value = [environment objectForKey:@"OMD_MATH_OVERSAMPLE"];
@@ -3665,30 +3809,170 @@ static NSString *OMReadableMathFallbackString(NSString *formula)
     return normalized;
 }
 
+static NSArray *OMExecutableCandidateNames(NSString *name)
+{
+    if (name == nil || [name length] == 0) {
+        return [NSArray array];
+    }
+
+    NSMutableArray *candidates = [NSMutableArray arrayWithObject:name];
+#if defined(_WIN32)
+    NSString *lowercase = [name lowercaseString];
+    if (![lowercase hasSuffix:@".exe"] &&
+        ![lowercase hasSuffix:@".cmd"] &&
+        ![lowercase hasSuffix:@".bat"] &&
+        ![lowercase hasSuffix:@".com"]) {
+        [candidates addObject:[name stringByAppendingString:@".exe"]];
+        [candidates addObject:[name stringByAppendingString:@".cmd"]];
+        [candidates addObject:[name stringByAppendingString:@".bat"]];
+        [candidates addObject:[name stringByAppendingString:@".com"]];
+    }
+#endif
+    return candidates;
+}
+
+static NSString *OMExecutablePathInDirectory(NSString *directory,
+                                             NSString *name,
+                                             NSFileManager *fileManager)
+{
+    if (directory == nil || [directory length] == 0 || name == nil || [name length] == 0) {
+        return nil;
+    }
+
+    for (NSString *candidateName in OMExecutableCandidateNames(name)) {
+        NSString *candidate = [directory stringByAppendingPathComponent:candidateName];
+        if ([fileManager isExecutableFileAtPath:candidate]) {
+            return candidate;
+        }
+    }
+    return nil;
+}
+
+#if defined(_WIN32)
+static NSString *OMWindowsBundledExecutablePath(NSString *relativePath)
+{
+    if (relativePath == nil || [relativePath length] == 0) {
+        return nil;
+    }
+
+    NSString *executablePath = [[NSBundle mainBundle] executablePath];
+    if (executablePath == nil || [executablePath length] == 0) {
+        return nil;
+    }
+
+    NSFileManager *fileManager = [NSFileManager defaultManager];
+    NSString *searchRoot = [executablePath stringByDeletingLastPathComponent];
+    for (NSUInteger depth = 0; depth < 4 && searchRoot != nil && [searchRoot length] > 0; depth++) {
+        NSString *candidate = [searchRoot stringByAppendingPathComponent:relativePath];
+        if ([fileManager isExecutableFileAtPath:candidate]) {
+            return candidate;
+        }
+
+        NSString *parent = [searchRoot stringByDeletingLastPathComponent];
+        if (parent == nil || [parent isEqualToString:searchRoot]) {
+            break;
+        }
+        searchRoot = parent;
+    }
+
+    return nil;
+}
+
+static NSString *OMWindowsKnownExecutablePathNamed(NSString *name)
+{
+    if (name == nil || [name length] == 0) {
+        return nil;
+    }
+
+    NSString *lowercase = [[name stringByTrimmingCharactersInSet:
+        [NSCharacterSet whitespaceAndNewlineCharacterSet]] lowercaseString];
+    NSArray *candidatePaths = nil;
+
+    if ([lowercase isEqualToString:@"latex"] || [lowercase isEqualToString:@"latex.exe"]) {
+        candidatePaths = [NSArray arrayWithObjects:
+            @"clang64\\texlive\\TinyTeX\\bin\\windows\\latex.exe",
+            @"C:\\clang64\\texlive\\TinyTeX\\bin\\windows\\latex.exe",
+            nil];
+    } else if ([lowercase isEqualToString:@"tex"] || [lowercase isEqualToString:@"tex.exe"]) {
+        candidatePaths = [NSArray arrayWithObjects:
+            @"clang64\\texlive\\TinyTeX\\bin\\windows\\tex.exe",
+            @"C:\\clang64\\texlive\\TinyTeX\\bin\\windows\\tex.exe",
+            nil];
+    } else if ([lowercase isEqualToString:@"dvipng"] || [lowercase isEqualToString:@"dvipng.exe"]) {
+        candidatePaths = [NSArray arrayWithObjects:
+            @"clang64\\texlive\\TinyTeX\\bin\\windows\\dvipng.exe",
+            @"C:\\clang64\\texlive\\TinyTeX\\bin\\windows\\dvipng.exe",
+            nil];
+    } else if ([lowercase isEqualToString:@"dvisvgm"] || [lowercase isEqualToString:@"dvisvgm.exe"]) {
+        candidatePaths = [NSArray arrayWithObjects:
+            @"clang64\\texlive\\TinyTeX\\bin\\windows\\dvisvgm.exe",
+            @"C:\\clang64\\texlive\\TinyTeX\\bin\\windows\\dvisvgm.exe",
+            nil];
+    }
+
+    if (candidatePaths == nil) {
+        return nil;
+    }
+
+    NSFileManager *fileManager = [NSFileManager defaultManager];
+    for (NSString *candidatePath in candidatePaths) {
+        NSString *resolved = nil;
+        if ([candidatePath hasPrefix:@"C:\\"]) {
+            resolved = candidatePath;
+        } else {
+            resolved = OMWindowsBundledExecutablePath(candidatePath);
+        }
+        if (resolved != nil && [fileManager isExecutableFileAtPath:resolved]) {
+            return resolved;
+        }
+    }
+
+    return nil;
+}
+#endif
+
 static NSString *OMExecutablePathNamed(NSString *name)
 {
     if (name == nil || [name length] == 0) {
         return nil;
     }
 
-    NSDictionary *environment = [[NSProcessInfo processInfo] environment];
-    NSString *pathValue = [environment objectForKey:@"PATH"];
-    if (pathValue != nil && [pathValue length] > 0) {
-        NSArray *searchPaths = [pathValue componentsSeparatedByString:@":"];
-        NSFileManager *fileManager = [NSFileManager defaultManager];
-        for (NSString *searchPath in searchPaths) {
-            if (searchPath == nil || [searchPath length] == 0) {
-                continue;
-            }
-            NSString *candidate = [searchPath stringByAppendingPathComponent:name];
-            if ([fileManager isExecutableFileAtPath:candidate]) {
-                return candidate;
+    NSFileManager *fileManager = [NSFileManager defaultManager];
+    if ([name rangeOfString:@"/"].location != NSNotFound ||
+        [name rangeOfString:@"\\"].location != NSNotFound) {
+        for (NSString *candidateName in OMExecutableCandidateNames(name)) {
+            if ([fileManager isExecutableFileAtPath:candidateName]) {
+                return candidateName;
             }
         }
     }
 
-    NSString *fallback = [@"/usr/bin" stringByAppendingPathComponent:name];
-    if ([[NSFileManager defaultManager] isExecutableFileAtPath:fallback]) {
+#if defined(_WIN32)
+    NSString *bundled = OMWindowsKnownExecutablePathNamed(name);
+    if (bundled != nil) {
+        return bundled;
+    }
+#endif
+
+    NSDictionary *environment = [[NSProcessInfo processInfo] environment];
+    NSString *pathValue = [environment objectForKey:@"PATH"];
+    if (pathValue != nil && [pathValue length] > 0) {
+#if defined(_WIN32)
+        NSString *separator = ([pathValue rangeOfString:@";"].location != NSNotFound) ? @";" : @":";
+#else
+        NSString *separator = @":";
+#endif
+        NSArray *searchPaths = [pathValue componentsSeparatedByString:separator];
+        for (NSString *searchPath in searchPaths) {
+            NSString *resolved = OMExecutablePathInDirectory(searchPath, name, fileManager);
+            if (resolved != nil) {
+                return resolved;
+            }
+        }
+    }
+
+    NSString *fallback = OMExecutablePathInDirectory(@"/usr/bin", name, fileManager);
+    if (fallback != nil) {
         return fallback;
     }
     return nil;
@@ -3716,6 +4000,17 @@ static NSString *OMPlainTexExecutablePath(void)
     return path;
 }
 
+static NSString *OMDviPngExecutablePath(void)
+{
+    static NSString *path = nil;
+    static BOOL resolved = NO;
+    if (!resolved) {
+        path = [OMExecutablePathNamed(@"dvipng") retain];
+        resolved = YES;
+    }
+    return path;
+}
+
 static NSString *OMDviSvgmExecutablePath(void)
 {
     static NSString *path = nil;
@@ -3729,8 +4024,13 @@ static NSString *OMDviSvgmExecutablePath(void)
 
 static BOOL OMMathBackendAvailable(void)
 {
+#if defined(_WIN32)
+    return OMDviPngExecutablePath() != nil &&
+           (OMLaTeXExecutablePath() != nil || OMPlainTexExecutablePath() != nil);
+#else
     return OMDviSvgmExecutablePath() != nil &&
            (OMLaTeXExecutablePath() != nil || OMPlainTexExecutablePath() != nil);
+#endif
 }
 
 static NSCache *OMMathAttachmentCache(void)
@@ -3890,6 +4190,7 @@ static CGFloat OMMathZoomForFontSize(CGFloat fontSize)
 }
 
 static BOOL OMRunTask(NSString *launchPath,
+                      NSString *currentDirectoryPath,
                       NSArray *arguments,
                       NSData **stdoutData,
                       NSData **stderrData,
@@ -3904,8 +4205,41 @@ static BOOL OMRunTask(NSString *launchPath,
     }
 
     NSTask *task = [[[NSTask alloc] init] autorelease];
+#if defined(_WIN32)
+    if (currentDirectoryPath != nil && [currentDirectoryPath length] > 0) {
+        NSString *scriptPath = OMWindowsTaskScriptPath(currentDirectoryPath);
+        NSMutableArray *commandParts = [NSMutableArray array];
+        [commandParts addObject:OMWindowsQuoteCommandArgument(OMWindowsNormalizedPath(launchPath))];
+        for (NSString *argument in arguments) {
+            [commandParts addObject:OMWindowsQuoteCommandArgument(argument)];
+        }
+        NSString *scriptContents = [NSString stringWithFormat:@"@echo off\r\ncd /d %@\r\n%@\r\n",
+                                    OMWindowsQuoteCommandArgument(OMWindowsNormalizedPath(currentDirectoryPath)),
+                                    [commandParts componentsJoinedByString:@" "]];
+        if (scriptPath == nil ||
+            ![scriptContents writeToFile:scriptPath
+                              atomically:YES
+                                encoding:NSASCIIStringEncoding
+                                   error:NULL]) {
+            if (terminationStatus != NULL) {
+                *terminationStatus = -1;
+            }
+            return NO;
+        }
+
+        [task setLaunchPath:@"C:\\Windows\\System32\\cmd.exe"];
+        [task setArguments:[NSArray arrayWithObjects:@"/d", @"/c", scriptPath, nil]];
+    } else {
+        [task setLaunchPath:launchPath];
+        [task setArguments:arguments];
+    }
+#else
     [task setLaunchPath:launchPath];
+    if (currentDirectoryPath != nil && [currentDirectoryPath length] > 0) {
+        [task setCurrentDirectoryPath:currentDirectoryPath];
+    }
     [task setArguments:arguments];
+#endif
 
     NSPipe *outputPipe = [NSPipe pipe];
     NSPipe *errorPipe = [NSPipe pipe];
@@ -3923,17 +4257,40 @@ static BOOL OMRunTask(NSString *launchPath,
             }
             if ([task isRunning]) {
                 timedOut = YES;
+#if defined(_WIN32)
+                OMMathDebugLog([NSString stringWithFormat:@"task-timeout: launch=%@ args=%@ timeout=%.2f",
+                                OMMathLogSnippet(launchPath),
+                                OMMathLogSnippet([arguments componentsJoinedByString:@" "]),
+                                timeoutSeconds]);
+#endif
                 [task terminate];
             }
         }
         [task waitUntilExit];
     } @catch (NSException *exception) {
-        (void)exception;
         launched = NO;
+#if defined(_WIN32)
+        OMMathDebugLog([NSString stringWithFormat:@"task-launch-exception: launch=%@ args=%@ class=%@ reason=%@",
+                        OMMathLogSnippet(launchPath),
+                        OMMathLogSnippet([arguments componentsJoinedByString:@" "]),
+                        NSStringFromClass([exception class]),
+                        OMMathLogSnippet([exception description])]);
+#else
+        (void)exception;
+#endif
     }
 
     NSData *capturedOutput = [[outputPipe fileHandleForReading] readDataToEndOfFile];
     NSData *capturedError = [[errorPipe fileHandleForReading] readDataToEndOfFile];
+
+#if defined(_WIN32)
+    if (currentDirectoryPath != nil && [currentDirectoryPath length] > 0) {
+        NSString *scriptPath = OMWindowsTaskScriptPath(currentDirectoryPath);
+        if (scriptPath != nil) {
+            [[NSFileManager defaultManager] removeItemAtPath:scriptPath error:NULL];
+        }
+    }
+#endif
 
     if (stdoutData != NULL) {
         *stdoutData = capturedOutput;
@@ -3944,6 +4301,17 @@ static BOOL OMRunTask(NSString *launchPath,
     if (terminationStatus != NULL) {
         *terminationStatus = (launched && !timedOut) ? [task terminationStatus] : -1;
     }
+
+#if defined(_WIN32)
+    if (launched && !timedOut && [task terminationStatus] != 0) {
+        OMMathDebugLog([NSString stringWithFormat:@"task-nonzero-exit: launch=%@ args=%@ status=%d stdout=%@ stderr=%@",
+                        OMMathLogSnippet(launchPath),
+                        OMMathLogSnippet([arguments componentsJoinedByString:@" "]),
+                        [task terminationStatus],
+                        OMMathDebugStringFromData(capturedOutput),
+                        OMMathDebugStringFromData(capturedError)]);
+    }
+#endif
 
     return launched && !timedOut && [task terminationStatus] == 0;
 }
@@ -3963,6 +4331,320 @@ static NSString *OMCreateMathTempDirectory(void)
                                                                     error:NULL];
     return created ? path : nil;
 }
+
+#if defined(_WIN32)
+static BOOL OMEnsureWindowsGDIPlusStarted(void)
+{
+    static BOOL resolved = NO;
+    static BOOL started = NO;
+    static ULONG_PTR token = 0;
+
+    if (!resolved) {
+        GdiplusStartupInput input;
+        memset(&input, 0, sizeof(input));
+        input.GdiplusVersion = 1;
+        started = (GdiplusStartup(&token, &input, NULL) == Ok);
+        resolved = YES;
+    }
+
+    return started;
+}
+
+static wchar_t *OMCreateWidePathFromNSString(NSString *string)
+{
+    if (string == nil || [string length] == 0) {
+        return NULL;
+    }
+
+    NSUInteger length = [string length];
+    wchar_t *buffer = (wchar_t *)calloc(length + 1, sizeof(wchar_t));
+    if (buffer == NULL) {
+        return NULL;
+    }
+
+    [string getCharacters:(unichar *)buffer range:NSMakeRange(0, length)];
+    buffer[length] = L'\0';
+    return buffer;
+}
+
+static NSImage *OMWindowsImageFromPNGFile(NSString *path)
+{
+    if (path == nil || [path length] == 0 || !OMEnsureWindowsGDIPlusStarted()) {
+        return nil;
+    }
+
+    wchar_t *widePath = OMCreateWidePathFromNSString(path);
+    GpBitmap *bitmap = NULL;
+    BitmapData locked;
+    BOOL hasLock = NO;
+    NSImage *image = nil;
+
+    memset(&locked, 0, sizeof(locked));
+    if (widePath == NULL) {
+        return nil;
+    }
+
+    if (GdipCreateBitmapFromFile(widePath, &bitmap) != Ok || bitmap == NULL) {
+        free(widePath);
+        return nil;
+    }
+
+    do {
+        UINT width = 0;
+        UINT height = 0;
+        GpRect rect;
+        NSBitmapImageRep *bitmapRep = nil;
+        unsigned char *destBase = NULL;
+        BYTE *srcBase = NULL;
+        INT srcStride = 0;
+        NSUInteger destStride = 0;
+
+        if (GdipGetImageWidth((GpImage *)bitmap, &width) != Ok ||
+            GdipGetImageHeight((GpImage *)bitmap, &height) != Ok ||
+            width == 0 ||
+            height == 0) {
+            break;
+        }
+
+        rect.X = 0;
+        rect.Y = 0;
+        rect.Width = (INT)width;
+        rect.Height = (INT)height;
+        if (GdipBitmapLockBits(bitmap,
+                               &rect,
+                               ImageLockModeRead,
+                               PixelFormat32bppARGB,
+                               &locked) != Ok) {
+            break;
+        }
+        hasLock = YES;
+
+        bitmapRep = [[[NSBitmapImageRep alloc]
+            initWithBitmapDataPlanes:NULL
+                          pixelsWide:(NSInteger)width
+                          pixelsHigh:(NSInteger)height
+                       bitsPerSample:8
+                     samplesPerPixel:4
+                            hasAlpha:YES
+                            isPlanar:NO
+                      colorSpaceName:NSCalibratedRGBColorSpace
+                         bytesPerRow:(NSInteger)(width * 4)
+                        bitsPerPixel:32] autorelease];
+        if (bitmapRep == nil) {
+            break;
+        }
+
+        destBase = [bitmapRep bitmapData];
+        if (destBase == NULL) {
+            break;
+        }
+
+        srcBase = (BYTE *)locked.Scan0;
+        srcStride = locked.Stride;
+        if (srcBase == NULL || srcStride == 0) {
+            break;
+        }
+        if (srcStride < 0) {
+            srcBase += ((NSInteger)height - 1) * ((NSInteger)(-srcStride));
+            srcStride = -srcStride;
+        }
+
+        destStride = (NSUInteger)(width * 4);
+        for (UINT y = 0; y < height; y++) {
+            BYTE *srcRow = srcBase + ((NSUInteger)y * (NSUInteger)srcStride);
+            unsigned char *destRow = destBase + ((NSUInteger)y * destStride);
+            for (UINT x = 0; x < width; x++) {
+                BYTE *srcPixel = srcRow + ((NSUInteger)x * 4);
+                unsigned char *destPixel = destRow + ((NSUInteger)x * 4);
+
+                destPixel[0] = srcPixel[2];
+                destPixel[1] = srcPixel[1];
+                destPixel[2] = srcPixel[0];
+                destPixel[3] = srcPixel[3];
+            }
+        }
+
+        image = [[[NSImage alloc] initWithSize:NSMakeSize((CGFloat)width,
+                                                          (CGFloat)height)] autorelease];
+        if (image != nil) {
+            [image addRepresentation:bitmapRep];
+        }
+    } while (0);
+
+    if (hasLock) {
+        GdipBitmapUnlockBits(bitmap, &locked);
+    }
+    GdipDisposeImage((GpImage *)bitmap);
+    free(widePath);
+    return image;
+}
+
+static NSImage *OMPNGImageForMathFormula(NSString *formula,
+                                         BOOL displayMath,
+                                         CGFloat renderZoom,
+                                         NSUInteger maximumFormulaLength,
+                                         NSTimeInterval externalToolTimeout,
+                                         OMMathPerfStats *stats)
+{
+    if (!OMMathBackendAvailable() ||
+        formula == nil ||
+        [formula length] == 0 ||
+        (maximumFormulaLength > 0 && [formula length] > maximumFormulaLength)) {
+#if defined(_WIN32)
+        OMMathDebugLog([NSString stringWithFormat:@"png-skip: backend=%@ formulaLength=%lu max=%lu display=%@",
+                        OMMathBackendAvailable() ? @"yes" : @"no",
+                        (unsigned long)(formula != nil ? [formula length] : 0),
+                        (unsigned long)maximumFormulaLength,
+                        displayMath ? @"yes" : @"no"]);
+#endif
+        return nil;
+    }
+
+    NSString *tempDir = OMCreateMathTempDirectory();
+    if (tempDir == nil) {
+        return nil;
+    }
+
+    NSString *texPath = [tempDir stringByAppendingPathComponent:@"formula.tex"];
+    NSString *dviPath = [tempDir stringByAppendingPathComponent:@"formula.dvi"];
+    NSString *pngPath = [tempDir stringByAppendingPathComponent:@"formula.png"];
+    NSString *texExecutable = OMLaTeXExecutablePath();
+    BOOL usingLaTeX = texExecutable != nil;
+    if (!usingLaTeX) {
+        texExecutable = OMPlainTexExecutablePath();
+    }
+    if (texExecutable == nil) {
+#if defined(_WIN32)
+        OMMathDebugLog([NSString stringWithFormat:@"png-no-tex: formula=%@",
+                        OMMathLogSnippet(formula)]);
+#endif
+        [[NSFileManager defaultManager] removeItemAtPath:tempDir error:NULL];
+        return nil;
+    }
+
+    NSMutableString *texSource = [NSMutableString string];
+    if (usingLaTeX) {
+        [texSource appendString:@"\\documentclass{article}\n"];
+        [texSource appendString:@"\\usepackage{amsmath}\n"];
+        [texSource appendString:@"\\pagestyle{empty}\n"];
+        [texSource appendString:@"\\begin{document}\n"];
+        if (displayMath) {
+            [texSource appendFormat:@"\\[\n%@\n\\]\n", formula];
+        } else {
+            [texSource appendFormat:@"$%@$ \n", formula];
+        }
+        [texSource appendString:@"\\end{document}\n"];
+    } else {
+        [texSource appendString:@"\\hsize=10000pt\n"];
+        [texSource appendString:@"\\nopagenumbers\n"];
+        if (displayMath) {
+            [texSource appendFormat:@"\\setbox0=\\vbox{$$%@$$}\n", formula];
+        } else {
+            [texSource appendFormat:@"\\setbox0=\\hbox{$%@$}\n", formula];
+        }
+        [texSource appendString:@"\\shipout\\box0\n"];
+        [texSource appendString:@"\\bye\n"];
+    }
+
+    if (![texSource writeToFile:texPath
+                     atomically:YES
+                       encoding:NSUTF8StringEncoding
+                          error:NULL]) {
+#if defined(_WIN32)
+        OMMathDebugLog([NSString stringWithFormat:@"png-write-failed: tex=%@ formula=%@",
+                        OMMathLogSnippet(texPath),
+                        OMMathLogSnippet(formula)]);
+#endif
+        [[NSFileManager defaultManager] removeItemAtPath:tempDir error:NULL];
+        return nil;
+    }
+
+    NSArray *texArguments = [NSArray arrayWithObjects:
+        @"-interaction=nonstopmode",
+        @"-halt-on-error",
+        @"-output-directory", @".",
+        @"formula.tex",
+        nil];
+    NSTimeInterval texStart = OMNow();
+    if (!OMRunTask(texExecutable,
+                   tempDir,
+                   texArguments,
+                   NULL,
+                   NULL,
+                   NULL,
+                   externalToolTimeout) ||
+        ![[NSFileManager defaultManager] fileExistsAtPath:dviPath]) {
+#if defined(_WIN32)
+        OMMathDebugLog([NSString stringWithFormat:@"png-latex-failed: tex=%@ dvi=%@ formula=%@",
+                        OMMathLogSnippet(texExecutable),
+                        OMMathLogSnippet(dviPath),
+                        OMMathLogSnippet(formula)]);
+#endif
+        [[NSFileManager defaultManager] removeItemAtPath:tempDir error:NULL];
+        return nil;
+    }
+    if (stats != NULL) {
+        stats->latexRuns += 1;
+        stats->latexSeconds += (OMNow() - texStart);
+    }
+
+    if (renderZoom < 0.5) {
+        renderZoom = 0.5;
+    } else if (renderZoom > 10.0) {
+        renderZoom = 10.0;
+    }
+
+    NSInteger dpi = (NSInteger)lrint(96.0 * renderZoom);
+    if (dpi < 72) {
+        dpi = 72;
+    } else if (dpi > 1200) {
+        dpi = 1200;
+    }
+
+    NSArray *pngArguments = [NSArray arrayWithObjects:
+        @"-T", @"tight",
+        @"-bg", @"Transparent",
+        @"-D", [NSString stringWithFormat:@"%ld", (long)dpi],
+        @"-o", @"formula.png",
+        @"formula.dvi",
+        nil];
+    NSTimeInterval pngStart = OMNow();
+    if (!OMRunTask(OMDviPngExecutablePath(),
+                   tempDir,
+                   pngArguments,
+                   NULL,
+                   NULL,
+                   NULL,
+                   externalToolTimeout) ||
+        ![[NSFileManager defaultManager] fileExistsAtPath:pngPath]) {
+#if defined(_WIN32)
+        OMMathDebugLog([NSString stringWithFormat:@"png-dvipng-failed: dvipng=%@ png=%@ formula=%@",
+                        OMMathLogSnippet(OMDviPngExecutablePath()),
+                        OMMathLogSnippet(pngPath),
+                        OMMathLogSnippet(formula)]);
+#endif
+        [[NSFileManager defaultManager] removeItemAtPath:tempDir error:NULL];
+        return nil;
+    }
+    if (stats != NULL) {
+        stats->dvisvgmRuns += 1;
+        stats->dvisvgmSeconds += (OMNow() - pngStart);
+    }
+
+    NSImage *image = OMWindowsImageFromPNGFile(pngPath);
+    if (image == nil) {
+#if defined(_WIN32)
+        NSDictionary *attributes = [[NSFileManager defaultManager] attributesOfItemAtPath:pngPath error:NULL];
+        OMMathDebugLog([NSString stringWithFormat:@"png-decode-failed: png=%@ size=%@ formula=%@",
+                        OMMathLogSnippet(pngPath),
+                        OMMathLogSnippet([[attributes objectForKey:NSFileSize] description]),
+                        OMMathLogSnippet(formula)]);
+#endif
+    }
+    [[NSFileManager defaultManager] removeItemAtPath:tempDir error:NULL];
+    return image;
+}
+#endif
 
 static NSData *OMSVGDataForMathFormula(NSString *formula,
                                        BOOL displayMath,
@@ -4031,12 +4713,13 @@ static NSData *OMSVGDataForMathFormula(NSString *formula,
     NSArray *texArguments = [NSArray arrayWithObjects:
         @"-interaction=nonstopmode",
         @"-halt-on-error",
-        @"-output-directory", tempDir,
-        texPath,
+        @"-output-directory", @".",
+        @"formula.tex",
         nil];
     int texStatus = 0;
     NSTimeInterval texStart = OMNow();
     BOOL texOK = OMRunTask(texExecutable,
+                           tempDir,
                            texArguments,
                            NULL,
                            NULL,
@@ -4063,12 +4746,13 @@ static NSData *OMSVGDataForMathFormula(NSString *formula,
         @"--exact-bbox",
         zoomArgument,
         @"--stdout",
-        dviPath,
+        @"formula.dvi",
         nil];
     NSData *svgData = nil;
     int svgStatus = 0;
     NSTimeInterval svgStart = OMNow();
     BOOL svgOK = OMRunTask(OMDviSvgmExecutablePath(),
+                           tempDir,
                            svgArguments,
                            &svgData,
                            NULL,
@@ -4160,6 +4844,8 @@ static NSAttributedString *OMMathAttachmentAttributedString(NSString *formula,
         return nil;
     }
 
+    OMLogMathBackendStateIfNeeded();
+
     OMMathPerfStats *stats = renderContext != NULL ? renderContext->mathPerfStats : NULL;
     if (stats != NULL) {
         stats->mathRequests += 1;
@@ -4174,6 +4860,13 @@ static NSAttributedString *OMMathAttachmentAttributedString(NSString *formula,
         if (stats != NULL) {
             stats->mathFailures += 1;
         }
+#if defined(_WIN32)
+        OMMathDebugLog([NSString stringWithFormat:@"attachment-unavailable: backend=%@ formulaLength=%lu max=%lu formula=%@",
+                        OMMathBackendAvailable() ? @"yes" : @"no",
+                        (unsigned long)(formula != nil ? [formula length] : 0),
+                        (unsigned long)maxFormulaLength,
+                        OMMathLogSnippet(formula)]);
+#endif
         return nil;
     }
 
@@ -4200,7 +4893,9 @@ static NSAttributedString *OMMathAttachmentAttributedString(NSString *formula,
     NSTimeInterval mathStart = OMNow();
     NSString *assetKey = OMMathAssetCacheKey(formula, displayMath, renderZoom);
     NSImage *baseImage = [OMMathBaseImageCache() objectForKey:assetKey];
+#if !defined(_WIN32)
     NSData *svgData = nil;
+#endif
     CGFloat imageRenderZoom = renderZoom;
     BOOL usedFallbackImage = NO;
     if (baseImage != nil) {
@@ -4209,6 +4904,46 @@ static NSAttributedString *OMMathAttachmentAttributedString(NSString *formula,
         }
         OMRecordBestAvailableMathImage(formula, displayMath, renderZoom, baseImage);
     } else {
+#if defined(_WIN32)
+        if (stats != NULL) {
+            stats->mathAssetCacheMisses += 1;
+        }
+        if (asyncMathGenerationEnabled) {
+            CGFloat fallbackRenderZoom = 0.0;
+            NSImage *fallbackImage = OMBestAvailableMathImage(formula, displayMath, &fallbackRenderZoom);
+            if (fallbackImage != nil) {
+                baseImage = fallbackImage;
+                usedFallbackImage = YES;
+                imageRenderZoom = fallbackRenderZoom > 0.0 ? fallbackRenderZoom : oversample;
+                if (stats != NULL) {
+                    stats->mathAssetCacheHits += 1;
+                }
+            }
+        }
+
+        if (!usedFallbackImage) {
+            baseImage = OMPNGImageForMathFormula(formula,
+                                                 displayMath,
+                                                 renderZoom,
+                                                 maxFormulaLength,
+                                                 externalToolTimeout,
+                                                 stats);
+            if (baseImage == nil) {
+                if (stats != NULL) {
+                    stats->mathFailures += 1;
+                    stats->mathTotalSeconds += (OMNow() - mathStart);
+                }
+#if defined(_WIN32)
+                OMMathDebugLog([NSString stringWithFormat:@"attachment-render-failed: display=%@ formula=%@",
+                                displayMath ? @"yes" : @"no",
+                                OMMathLogSnippet(formula)]);
+#endif
+                return nil;
+            }
+            [OMMathBaseImageCache() setObject:baseImage forKey:assetKey];
+            OMRecordBestAvailableMathImage(formula, displayMath, renderZoom, baseImage);
+        }
+#else
         svgData = [OMMathBaseSVGDataCache() objectForKey:assetKey];
         if (svgData != nil) {
             if (stats != NULL) {
@@ -4274,6 +5009,7 @@ static NSAttributedString *OMMathAttachmentAttributedString(NSString *formula,
             baseImage = decodedImage;
             OMRecordBestAvailableMathImage(formula, displayMath, renderZoom, baseImage);
         }
+#endif
     }
 
     NSImage *image = [[baseImage copy] autorelease];

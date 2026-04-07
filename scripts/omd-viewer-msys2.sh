@@ -38,8 +38,14 @@ if [[ -z "${GSTheme:-}" ]]; then
   if [[ "${OMD_USE_SOMBRE_THEME:-0}" == "1" ]]; then
     export GSTheme=Sombre
   else
-    # Sombre is unstable on Windows GNUstep; default to WinUX unless explicitly enabled.
-    export GSTheme=WinUXTheme
+    # Sombre is unstable on Windows GNUstep; prefer WinUI when available and
+    # fall back to WinUX on plain CLANG64 runtimes that do not include it.
+    if [[ -f "$HOME/GNUstep/Library/Themes/WinUITheme.theme/WinUITheme.dll" || \
+          -f "/clang64/lib/GNUstep/Themes/WinUITheme.theme/WinUITheme.dll" ]]; then
+      export GSTheme=WinUITheme
+    else
+      export GSTheme=WinUXTheme
+    fi
   fi
 fi
 

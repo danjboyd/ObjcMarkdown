@@ -7,64 +7,26 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Optional version to package (for example 0.1.0 or v0.1.0).
+        description: Optional version to package (for example 0.1.0, 0.1.1-rc2, or v0.1.0).
         required: false
         type: string
 
 jobs:
-  build-msi:
-    runs-on: windows-latest
-    defaults:
-      run:
-        shell: pwsh
+  resolve-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          submodules: recursive
-
-      - name: Setup MSYS2 (clang64)
-        uses: msys2/setup-msys2@v2
-        with:
-          msystem: CLANG64
-          update: true
-          install: >-
-            make
-            mingw-w64-clang-x86_64-gnustep-make
-            mingw-w64-clang-x86_64-gnustep-base
-            mingw-w64-clang-x86_64-gnustep-gui
-            mingw-w64-clang-x86_64-gnustep-back
-            mingw-w64-clang-x86_64-libdispatch
-            mingw-w64-clang-x86_64-cmark
-            mingw-w64-clang-x86_64-libobjc2
-            mingw-w64-clang-x86_64-toolchain
-
-      - name: Download WiX
-        run: |
-          $url = "https://github.com/wixtoolset/wix3/releases/download/wix3112rtm/wix311-binaries.zip"
-          $zip = "$env:RUNNER_TEMP\\wix.zip"
-          $dest = "$PWD\\tools\\wix"
-          New-Item -ItemType Directory -Force -Path $dest | Out-Null
-          Invoke-WebRequest -Uri $url -OutFile $zip
-          Expand-Archive -Path $zip -DestinationPath $dest -Force
-
-      - name: Build (MSYS2)
-        shell: msys2 {0}
-        run: |
-          source /clang64/share/GNUstep/Makefiles/GNUstep.sh
-          make OMD_SKIP_TESTS=1
-
-      - name: Stage Runtime (MSYS2)
-        shell: msys2 {0}
-        run: |
-          source /clang64/share/GNUstep/Makefiles/GNUstep.sh
-          ./scripts/windows/stage-runtime.sh dist/ObjcMarkdown
 
       - name: Resolve Version
         id: version
+        shell: pwsh
         run: |
-          $versionPattern = '^v?(\d+\.\d+\.\d+)(?:[-+].*)?$'
+          $versionPattern = '^v?(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)$'
           $inputVersion = "${{ github.event.inputs.version }}"
           $refType = "${{ github.ref_type }}"
           $refName = "${{ github.ref_name }}"
@@ -85,22 +47,34 @@ jobs:
               $version = "0.0.0"
             }
           }
-          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
-      - name: Build MSI
-        run: |
-          ./scripts/windows/build-msi.ps1 -StagingDir dist/ObjcMarkdown -Version ${{ steps.version.outputs.version }} -OutDir dist
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
-      - name: Build Portable ZIP
-        run: |
-          $zipName = "ObjcMarkdown-${{ steps.version.outputs.version }}-win64-portable.zip"
-          if (Test-Path "dist/$zipName") { Remove-Item "dist/$zipName" }
-          Compress-Archive -Path "dist/ObjcMarkdown/*" -DestinationPath "dist/$zipName"
+  build-msi:
+    needs: resolve-version
+    uses: danjboyd/gnustep-packager/.github/workflows/package-gnustep-app.yml@main
+    with:
+      manifest-path: packaging/package.manifest.json
+      backend: msi
+      package-version: ${{ needs.resolve-version.outputs.version }}
+      msys2-packages: >-
+        mingw-w64-clang-x86_64-cmark
+      preflight-shell: pwsh
+      preflight-command: |
+        git submodule update --init --recursive
 
-      - name: Upload Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: objcmarkdown-windows-${{ steps.version.outputs.version }}
-          path: |
-            dist/*.msi
-            dist/*.zip
+        $themeRoot = Join-Path $env:GITHUB_WORKSPACE ".omd-theme-inputs"
+        New-Item -ItemType Directory -Force -Path $themeRoot | Out-Null
+
+        foreach ($repo in @("plugins-themes-win11theme", "plugins-themes-winuitheme")) {
+          $target = Join-Path $themeRoot $repo
+          if (Test-Path $target) {
+            continue
+          }
+
+          git clone --depth 1 ("https://github.com/danjboyd/{0}.git" -f $repo) $target
+        }
+      run-validation: true
+      run-smoke: true
+      artifact-name: objcmarkdown-windows-${{ needs.resolve-version.outputs.version }}
+    secrets: inherit

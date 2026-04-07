@@ -78,6 +78,7 @@ Currently supported in the renderer:
 - links, relative links with base-URL resolution, and image attachments with fallback text when decoding fails
 - inline and block HTML as safe fallback text by default, with an explicit ignore policy available in code
 - optional math styling for inline and display math
+- optional full LaTeX-backed math artifact rendering when the required external toolchain is available
 - GitHub-style pipe tables, including horizontal overflow for wide tables
 - optional renderer syntax highlighting for code blocks when the required tooling is available
 
@@ -166,7 +167,7 @@ Release flow:
 - Ensure the target commit has already passed the separate Linux CI workflow if you want a GNUstep/Linux gate before release tagging.
 - Push an annotated tag like `v0.1.0`.
 - GitHub Actions runs `linux-appimage` on the self-hosted GNUstep clang runner, stages the bundled GNUstep runtime plus the pinned Adwaita theme, builds an AppImage for that tag, and uploads the Linux artifact.
-- GitHub Actions runs `windows-packaging` on `windows-latest`, builds the Windows MSI and portable ZIP for that tag, and uploads the Windows artifacts.
+- GitHub Actions runs `windows-packaging` through the reusable `gnustep-packager` workflow on `windows-latest`, bundles the GNUstep runtime plus `WinUXTheme`, `Win11Theme`, `WinUITheme`, and a pinned TinyTeX runtime under `clang64\texlive\TinyTeX` for external LaTeX math rendering, and uploads the Windows package, log, and validation artifacts.
 - Clean-machine validation is still done with the OCI Windows workflow in [docs/windows-oci-msi-validation.md](docs/windows-oci-msi-validation.md).
 
 ## Public Docs

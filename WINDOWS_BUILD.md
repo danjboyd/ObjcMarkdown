@@ -20,7 +20,7 @@ this project.
 - `pkg-config`
 - `cmark` headers and library (`cmark.h`, linkable `cmark`; MSYS2 exposes this via `libcmark.pc`)
 - `xctest` (from GNUstep tools-xctest) if you want unit tests on Windows
-- WiX if you are producing the MSI package
+- the sibling [gnustep-packager](/C:/Users/Support/git/gnustep-packager) repo if you are producing the MSI package from this repo
 
 ### 2) Environment Expectations
 
@@ -118,7 +118,7 @@ ObjcMarkdownViewer/MarkdownViewer.app/MarkdownViewer.exe TableRenderDemo.md
 ```
 
 Theme note (Windows):
-- The MSYS2 helper script defaults to `WinUXTheme` because `Sombre` is unstable on Windows.
+- The MSYS2 helper script prefers `WinUITheme` when it is installed and falls back to `WinUXTheme` on plain CLANG64 runtimes.
 - To try Sombre anyway, run with `OMD_USE_SOMBRE_THEME=1` (expect possible launch failures).
 
 ### 5) Tests
@@ -175,7 +175,7 @@ Suggested directories:
 
 7. Sombre theme crash (Windows)
 - Symptom: launch under `GSTheme=Sombre` fails with an `NSInvalidArgumentException` and no usable main window.
-- Fix: use `WinUXTheme` (default in `scripts/omd-viewer-msys2.sh`) unless you are actively investigating Sombre.
+- Fix: use `WinUITheme` when available, or `WinUXTheme` as the fallback in `scripts/omd-viewer-msys2.sh`, unless you are actively investigating Sombre.
 - If you want Sombre enabled: rebuild and install Sombre with the same MSYS2 toolchain version as the app so `Sombre.dll` links to the same `gnustep-base-*.dll`.
 
 ## First-Pass Bring-Up Checklist
@@ -196,7 +196,9 @@ Suggested directories:
 
 This repo includes a staging script that gathers the app bundle, GNUstep resources,
 and runtime DLL dependencies into a single directory. Windows release artifacts are
-expected to come from this MSYS2 `clang64` build output.
+expected to come from this MSYS2 `clang64` build output, but the canonical MSI
+assembly step now lives in the sibling `gnustep-packager` repo rather than in a
+repo-local WiX pipeline.
 
 Run staging from MSYS2 `clang64`, not plain WSL/Linux. The staging script builds the
 production `MarkdownViewer.exe` GUI launcher only when it is running in a Windows/MSYS2
@@ -213,14 +215,27 @@ From PowerShell/Codex, use:
 ```
 
 The CI workflow then:
-- Harvests `dist/ObjcMarkdown` into an MSI using WiX.
-- Builds a portable ZIP from the same staging directory.
+- hands the consumer manifest to `gnustep-packager`
+- builds the Windows MSI and portable ZIP through the shared MSI backend
+- uploads package, log, and validation artifacts separately
 
 Runtime layout:
 - GNUstep runtime files are installed under `C:\clang64` (mirroring MSYS2 layout).
 - The production launcher is a GUI-mode `MarkdownViewer.exe` that configures the runtime path and starts the bundled app without opening a console window.
 - The launcher prefers a bundled `clang64` folder when present, and otherwise falls back to `C:\clang64\bin`.
 - The portable ZIP includes `PortableSetup.cmd` to copy the runtime into `C:\clang64`.
+- The packager stage now bundles `WinUXTheme`, `Win11Theme`, and `WinUITheme` into the private runtime, and packaged Windows launches prefer `WinUITheme` by default.
+- The packager stage now also bundles a pinned TinyTeX Windows runtime under `clang64\texlive\TinyTeX`, and packaged Windows launches prepend `clang64\texlive\TinyTeX\bin\windows` to `PATH`.
+- On fresh MSI installs, first-run Windows defaults switch math rendering to `External Tools (LaTeX)` when the bundled TinyTeX toolchain is present.
+
+Canonical local MSI packaging path:
+
+```powershell
+C:\Users\Support\git\gnustep-packager\scripts\run-packaging-pipeline.ps1 `
+  -Manifest C:\Users\Support\git\ObjcMarkdown\packaging\package.manifest.json `
+  -Backend msi `
+  -RunSmoke
+```
 
 For the OCI-based clean-machine MSI validation workflow, including the current
 golden Windows image and the intended `scp`/`ssh` validation loop, see
@@ -266,11 +281,11 @@ The canonical clean-machine validation path is the OCI golden-image workflow in
 
 `oci-run-msi-validation.ps1` now supports two local packaging modes:
 
-- `legacy`
-  Use the in-repo `build-msi.ps1` WiX flow. This remains the default.
 - `packager`
   Use the sibling [gnustep-packager](/C:/Users/Support/git/gnustep-packager) repo with
   [packaging/package.manifest.json](/C:/Users/Support/git/ObjcMarkdown/packaging/package.manifest.json).
+- `legacy`
+  Use the in-repo `build-msi.ps1` WiX flow only as a retirement fallback while the repo-local MSI path is being removed.
 
 For a one-shot OCI run using `gnustep-packager`:
 
@@ -328,7 +343,7 @@ Notes:
 
 - The automation launches a fresh VM from the OCI golden image, copies the MSI with `scp`, runs `scripts/windows/validate-msi.ps1` over `ssh`, collects logs under `dist/oci-logs`, and terminates the VM unless you pass `-KeepVm`.
 - Before launching a new validation VM, the orchestrator now checks the current state file and terminates any still-live prior validation VM recorded there unless you pass `-SkipCleanupExistingVm`.
-- In `packager` mode, the orchestrator still uses the same OCI launch/push/validate/teardown flow. Only the local MSI production step changes.
+- `packager` is now the default packaging mode for the orchestrator. The OCI launch/push/validate/teardown flow is unchanged; only the local MSI production step moves into `gnustep-packager`.
 - Use `-OpenRdp` only when manual visual inspection is needed after the automated validation pass. The RDP rule helper narrows access to the current public IP by default.
 - Use `-TemporarilyRestrictSshIngress` when the subnet still exposes SSH on `0.0.0.0/0`. That switch adds a temporary narrow port `22` rule for the current public IP, removes the broad rule during validation, then restores the original rule after teardown unless you keep the VM.
 - Do not use `app\MarkdownViewer.app\MarkdownViewer.exe` directly for validation. The MSI ships a top-level `MarkdownViewer.exe` launcher that sets runtime state first; launching the inner app binary directly can still fail with missing DLL errors by design.

@@ -3,6 +3,9 @@
 
 #import "OMDAppDelegate.h"
 
+static NSString * const OMDMathRenderingPolicyDefaultsKey = @"ObjcMarkdownMathRenderingPolicy";
+static NSInteger const OMDMathRenderingPolicyExternalToolsValue = 2;
+
 static void OMDStartupTrace(NSString *message)
 {
 #if defined(_WIN32)
@@ -29,12 +32,25 @@ static void OMDStartupTrace(NSString *message)
 #endif
 }
 
-static NSString *OMDWindowsBundledDefaultsToolPath(void)
+static NSString *OMDWindowsInstallRoot(void)
 {
 #if defined(_WIN32)
     NSString *executablePath = [[NSBundle mainBundle] executablePath];
-    NSString *bundleRoot = [[[executablePath stringByDeletingLastPathComponent]
+    if (executablePath == nil || [executablePath length] == 0) {
+        return nil;
+    }
+
+    return [[[executablePath stringByDeletingLastPathComponent]
         stringByDeletingLastPathComponent] stringByDeletingLastPathComponent];
+#else
+    return nil;
+#endif
+}
+
+static NSString *OMDWindowsBundledDefaultsToolPath(void)
+{
+#if defined(_WIN32)
+    NSString *bundleRoot = OMDWindowsInstallRoot();
     NSString *defaultsPath = [[bundleRoot stringByAppendingPathComponent:@"clang64"]
         stringByAppendingPathComponent:@"bin\\defaults.exe"];
 
@@ -43,6 +59,80 @@ static NSString *OMDWindowsBundledDefaultsToolPath(void)
     }
 #endif
     return @"defaults.exe";
+}
+
+static BOOL OMDWindowsThemeBundleExistsInDirectory(NSString *themesRoot, NSString *themeName)
+{
+#if defined(_WIN32)
+    if (themesRoot == nil || [themesRoot length] == 0 || themeName == nil || [themeName length] == 0) {
+        return NO;
+    }
+
+    NSString *bundlePath = [themesRoot stringByAppendingPathComponent:[NSString stringWithFormat:@"%@.theme",
+                                                                                                 themeName]];
+    NSString *dllPath = [bundlePath stringByAppendingPathComponent:[NSString stringWithFormat:@"%@.dll",
+                                                                                               themeName]];
+    return [[NSFileManager defaultManager] fileExistsAtPath:dllPath];
+#else
+    (void)themesRoot;
+    (void)themeName;
+    return NO;
+#endif
+}
+
+static BOOL OMDWindowsBundledExecutableExists(NSString *relativePath)
+{
+#if defined(_WIN32)
+    NSString *bundleRoot = OMDWindowsInstallRoot();
+    if (bundleRoot == nil || [bundleRoot length] == 0 ||
+        relativePath == nil || [relativePath length] == 0) {
+        return NO;
+    }
+
+    NSString *candidate = [bundleRoot stringByAppendingPathComponent:relativePath];
+    return [[NSFileManager defaultManager] isExecutableFileAtPath:candidate];
+#else
+    (void)relativePath;
+    return NO;
+#endif
+}
+
+static NSString *OMDWindowsPreferredThemeName(void)
+{
+#if defined(_WIN32)
+    NSString *preferredTheme = @"WinUITheme";
+    NSString *bundleRoot = OMDWindowsInstallRoot();
+    NSString *bundledThemesRoot = nil;
+    NSString *userThemesRoot = [[[NSHomeDirectory() stringByAppendingPathComponent:@"GNUstep"]
+        stringByAppendingPathComponent:@"Library"] stringByAppendingPathComponent:@"Themes"];
+    NSString *systemThemesRoot = [[[@"C:\\clang64" stringByAppendingPathComponent:@"lib"]
+        stringByAppendingPathComponent:@"GNUstep"] stringByAppendingPathComponent:@"Themes"];
+
+    if (bundleRoot != nil && [bundleRoot length] > 0) {
+        bundledThemesRoot = [[[[bundleRoot stringByAppendingPathComponent:@"clang64"]
+            stringByAppendingPathComponent:@"lib"] stringByAppendingPathComponent:@"GNUstep"]
+            stringByAppendingPathComponent:@"Themes"];
+        if (OMDWindowsThemeBundleExistsInDirectory(bundledThemesRoot, preferredTheme)) {
+            return preferredTheme;
+        }
+    }
+
+    if (OMDWindowsThemeBundleExistsInDirectory(userThemesRoot, preferredTheme) ||
+        OMDWindowsThemeBundleExistsInDirectory(systemThemesRoot, preferredTheme)) {
+        return preferredTheme;
+    }
+#endif
+    return @"WinUXTheme";
+}
+
+static BOOL OMDWindowsBundledExternalMathToolchainAvailable(void)
+{
+#if defined(_WIN32)
+    return OMDWindowsBundledExecutableExists(@"clang64\\texlive\\TinyTeX\\bin\\windows\\latex.exe") &&
+           OMDWindowsBundledExecutableExists(@"clang64\\texlive\\TinyTeX\\bin\\windows\\dvipng.exe");
+#else
+    return NO;
+#endif
 }
 
 static void OMDEnsureWindowsMenuInterfaceStyle(void)
@@ -85,7 +175,15 @@ static void OMDEnsureWindowsDefaultPreferences(void)
 
     value = [globalDomain objectForKey:@"GSTheme"];
     if (![value isKindOfClass:[NSString class]] || [(NSString *)value length] == 0) {
-        [updatedGlobalDomain setObject:@"WinUXTheme" forKey:@"GSTheme"];
+        [updatedGlobalDomain setObject:OMDWindowsPreferredThemeName() forKey:@"GSTheme"];
+        changed = YES;
+    }
+
+    value = [defaults objectForKey:OMDMathRenderingPolicyDefaultsKey];
+    if ((value == nil || ![value respondsToSelector:@selector(integerValue)]) &&
+        OMDWindowsBundledExternalMathToolchainAvailable()) {
+        [defaults setInteger:OMDMathRenderingPolicyExternalToolsValue
+                      forKey:OMDMathRenderingPolicyDefaultsKey];
         changed = YES;
     }
 

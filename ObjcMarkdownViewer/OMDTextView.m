@@ -19,9 +19,15 @@
 
 - (void)drawRect:(NSRect)dirtyRect
 {
+    NSGraphicsContext *context = [NSGraphicsContext currentContext];
     [self drawDocumentSurface];
     [self drawCodeBlockBackgrounds];
+    [context saveGraphicsState];
+    if ([context respondsToSelector:@selector(setImageInterpolation:)]) {
+        [context setImageInterpolation:NSImageInterpolationHigh];
+    }
     [super drawRect:dirtyRect];
+    [context restoreGraphicsState];
     [self drawBlockquoteLines];
 }
 

@@ -6,30 +6,80 @@
 #import <dispatch/dispatch.h>
 #import "OMMarkdownRenderer.h"
 
+static NSArray *OMDTestExecutableCandidateNames(NSString *name)
+{
+    if (name == nil || [name length] == 0) {
+        return [NSArray array];
+    }
+
+    NSMutableArray *candidates = [NSMutableArray arrayWithObject:name];
+#if defined(_WIN32)
+    NSString *lowercase = [name lowercaseString];
+    if (![lowercase hasSuffix:@".exe"] &&
+        ![lowercase hasSuffix:@".cmd"] &&
+        ![lowercase hasSuffix:@".bat"] &&
+        ![lowercase hasSuffix:@".com"]) {
+        [candidates addObject:[name stringByAppendingString:@".exe"]];
+        [candidates addObject:[name stringByAppendingString:@".cmd"]];
+        [candidates addObject:[name stringByAppendingString:@".bat"]];
+        [candidates addObject:[name stringByAppendingString:@".com"]];
+    }
+#endif
+    return candidates;
+}
+
+static NSString *OMDTestExecutablePathInDirectory(NSString *directory,
+                                                  NSString *name,
+                                                  NSFileManager *fileManager)
+{
+    if (directory == nil || [directory length] == 0 || name == nil || [name length] == 0) {
+        return nil;
+    }
+
+    for (NSString *candidateName in OMDTestExecutableCandidateNames(name)) {
+        NSString *candidate = [directory stringByAppendingPathComponent:candidateName];
+        if ([fileManager isExecutableFileAtPath:candidate]) {
+            return candidate;
+        }
+    }
+    return nil;
+}
+
 static NSString *OMDTestExecutablePathNamed(NSString *name)
 {
     if (name == nil || [name length] == 0) {
         return nil;
     }
 
-    NSDictionary *environment = [[NSProcessInfo processInfo] environment];
-    NSString *pathValue = [environment objectForKey:@"PATH"];
-    if (pathValue != nil && [pathValue length] > 0) {
-        NSArray *searchPaths = [pathValue componentsSeparatedByString:@":"];
-        NSFileManager *fileManager = [NSFileManager defaultManager];
-        for (NSString *searchPath in searchPaths) {
-            if (searchPath == nil || [searchPath length] == 0) {
-                continue;
-            }
-            NSString *candidate = [searchPath stringByAppendingPathComponent:name];
-            if ([fileManager isExecutableFileAtPath:candidate]) {
-                return candidate;
+    NSFileManager *fileManager = [NSFileManager defaultManager];
+    if ([name rangeOfString:@"/"].location != NSNotFound ||
+        [name rangeOfString:@"\\"].location != NSNotFound) {
+        for (NSString *candidateName in OMDTestExecutableCandidateNames(name)) {
+            if ([fileManager isExecutableFileAtPath:candidateName]) {
+                return candidateName;
             }
         }
     }
 
-    NSString *fallback = [@"/usr/bin" stringByAppendingPathComponent:name];
-    if ([[NSFileManager defaultManager] isExecutableFileAtPath:fallback]) {
+    NSDictionary *environment = [[NSProcessInfo processInfo] environment];
+    NSString *pathValue = [environment objectForKey:@"PATH"];
+    if (pathValue != nil && [pathValue length] > 0) {
+#if defined(_WIN32)
+        NSString *separator = ([pathValue rangeOfString:@";"].location != NSNotFound) ? @";" : @":";
+#else
+        NSString *separator = @":";
+#endif
+        NSArray *searchPaths = [pathValue componentsSeparatedByString:separator];
+        for (NSString *searchPath in searchPaths) {
+            NSString *resolved = OMDTestExecutablePathInDirectory(searchPath, name, fileManager);
+            if (resolved != nil) {
+                return resolved;
+            }
+        }
+    }
+
+    NSString *fallback = OMDTestExecutablePathInDirectory(@"/usr/bin", name, fileManager);
+    if (fallback != nil) {
         return fallback;
     }
     return nil;

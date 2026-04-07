@@ -45,14 +45,18 @@
     "workingDirectory": ".",
     "arguments": [],
     "pathPrepend": [
-      "clang64/bin"
+      "clang64/bin",
+      "clang64/texlive/TinyTeX/bin/windows"
     ],
     "resourceRoots": [
       "metadata/icons"
     ],
     "env": {
       "GNUSTEP_PATHPREFIX_LIST": "{@runtimeRoot}",
-      "GSTheme": "WinUXTheme"
+      "GSTheme": {
+        "value": "WinUITheme",
+        "policy": "ifUnset"
+      }
     }
   },
   "outputs": {
@@ -67,10 +71,18 @@
       "enabled": true,
       "kind": "staged-layout",
       "requiredPaths": [
+        "metadata/docs/BundledLaTeXRuntime.txt",
         "metadata/icons/markdown_icon.ico",
         "metadata/icons/markdown_icon.png",
+        "metadata/docs/BundledThemes.txt",
         "clang64/bin/defaults.exe",
-        "app/MarkdownViewer.app/Resources/theme-github.toml"
+        "app/MarkdownViewer.app/Resources/theme-github.toml",
+        "clang64/lib/GNUstep/Themes/WinUXTheme.theme/WinUXTheme.dll",
+        "clang64/lib/GNUstep/Themes/Win11Theme.theme/Win11Theme.dll",
+        "clang64/lib/GNUstep/Themes/WinUITheme.theme/WinUITheme.dll",
+        "clang64/texlive/TinyTeX/bin/windows/latex.exe",
+        "clang64/texlive/TinyTeX/bin/windows/dvisvgm.exe",
+        "clang64/texlive/TinyTeX/bin/windows/dvipng.exe"
       ],
       "timeoutSeconds": 30
     },
@@ -100,21 +112,6 @@
         "kind": "extension",
         "value": ".mdown",
         "description": "Markdown document"
-      },
-      {
-        "kind": "extension",
-        "value": ".rtf",
-        "description": "Rich Text document"
-      },
-      {
-        "kind": "extension",
-        "value": ".docx",
-        "description": "Word document"
-      },
-      {
-        "kind": "extension",
-        "value": ".odt",
-        "description": "OpenDocument Text document"
       }
     ]
   },

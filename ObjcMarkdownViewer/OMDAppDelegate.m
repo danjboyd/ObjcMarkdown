@@ -142,6 +142,64 @@ static void OMDStartupTrace(NSString *message)
 #endif
 }
 
+static NSUInteger OMDCountAttachmentsInAttributedString(NSAttributedString *attributedString)
+{
+    if (attributedString == nil) {
+        return 0;
+    }
+
+    NSUInteger count = 0;
+    NSUInteger length = [attributedString length];
+    NSUInteger index = 0;
+    while (index < length) {
+        NSRange effectiveRange = NSMakeRange(0, 0);
+        id value = [attributedString attribute:NSAttachmentAttributeName
+                                       atIndex:index
+                                effectiveRange:&effectiveRange];
+        if (value != nil) {
+            count += 1;
+        }
+        if (effectiveRange.length == 0) {
+            index += 1;
+        } else {
+            index = NSMaxRange(effectiveRange);
+        }
+    }
+
+    return count;
+}
+
+#if defined(_WIN32)
+static NSString *OMDWindowsInstallRoot(void)
+{
+    NSString *executablePath = [[NSBundle mainBundle] executablePath];
+    if (executablePath == nil || [executablePath length] == 0) {
+        return nil;
+    }
+
+    return [[[executablePath stringByDeletingLastPathComponent]
+        stringByDeletingLastPathComponent] stringByDeletingLastPathComponent];
+}
+
+static BOOL OMDWindowsBundledExecutableExists(NSString *relativePath)
+{
+    NSString *installRoot = OMDWindowsInstallRoot();
+    if (installRoot == nil || [installRoot length] == 0 ||
+        relativePath == nil || [relativePath length] == 0) {
+        return NO;
+    }
+
+    NSString *candidate = [installRoot stringByAppendingPathComponent:relativePath];
+    return [[NSFileManager defaultManager] isExecutableFileAtPath:candidate];
+}
+
+static BOOL OMDWindowsBundledExternalMathToolchainAvailable(void)
+{
+    return OMDWindowsBundledExecutableExists(@"clang64\\texlive\\TinyTeX\\bin\\windows\\latex.exe") &&
+           OMDWindowsBundledExecutableExists(@"clang64\\texlive\\TinyTeX\\bin\\windows\\dvipng.exe");
+}
+#endif
+
 static void OMDApplyWindowsMenuToWindow(NSWindow *window)
 {
     if (window == nil) {
@@ -3866,8 +3924,23 @@ static NSMutableArray *OMDSecondaryWindows(void)
     if ([mathPolicyValue respondsToSelector:@selector(integerValue)]) {
         [options setMathRenderingPolicy:OMDMathRenderingPolicyFromInteger([mathPolicyValue integerValue])];
     } else {
+#if defined(_WIN32)
+        if (OMDWindowsBundledExternalMathToolchainAvailable()) {
+            [options setMathRenderingPolicy:OMMarkdownMathRenderingPolicyExternalTools];
+            [defaults setInteger:(NSInteger)OMMarkdownMathRenderingPolicyExternalTools
+                          forKey:OMDMathRenderingPolicyDefaultsKey];
+            [defaults synchronize];
+            OMDStartupTrace(@"setupWindow: defaulted math policy to external tools");
+        } else {
+            [options setMathRenderingPolicy:OMMarkdownMathRenderingPolicyStyledText];
+            OMDStartupTrace(@"setupWindow: defaulted math policy to styled text");
+        }
+#else
         [options setMathRenderingPolicy:OMMarkdownMathRenderingPolicyStyledText];
+#endif
     }
+    OMDStartupTrace([NSString stringWithFormat:@"setupWindow: math policy=%ld",
+                                               (long)[options mathRenderingPolicy]]);
     id allowRemoteImages = [defaults objectForKey:OMDAllowRemoteImagesDefaultsKey];
     if ([allowRemoteImages respondsToSelector:@selector(boolValue)]) {
         [options setAllowRemoteImages:[allowRemoteImages boolValue]];
@@ -3884,7 +3957,13 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [_renderer setParsingOptions:options];
     [self updateRendererParsingOptionsForSourcePath:nil];
     _lastRenderedLayoutWidth = -1.0;
+#if defined(_WIN32)
+    // Windows GNUstep should render external math attachments on first paint
+    // instead of relying on background warmup callbacks.
+    [_renderer setAsynchronousMathGenerationEnabled:NO];
+#else
     [_renderer setAsynchronousMathGenerationEnabled:YES];
+#endif
     [_renderer setAllowTableHorizontalOverflow:YES];
     [_renderer setZoomScale:_zoomScale];
     [[NSNotificationCenter defaultCenter] addObserver:self
@@ -4207,7 +4286,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
     if ([value respondsToSelector:@selector(boolValue)]) {
         return [value boolValue];
     }
-    return YES;
+    return NO;
 }
 
 - (void)setExplorerSidebarVisiblePreference:(BOOL)visible
@@ -6910,6 +6989,11 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [self updateRendererLayoutWidth];
     NSTimeInterval markdownStart = perfLogging ? OMDNow() : 0.0;
     NSAttributedString *rendered = [_renderer attributedStringFromMarkdown:previewMarkdown];
+    OMDStartupTrace([NSString stringWithFormat:@"renderCurrentMarkdown: policy=%ld attachments=%lu renderedLength=%lu markdownLength=%lu",
+                                               (long)[self currentMathRenderingPolicy],
+                                               (unsigned long)OMDCountAttachmentsInAttributedString(rendered),
+                                               (unsigned long)(rendered != nil ? [rendered length] : 0),
+                                               (unsigned long)[previewMarkdown length]]);
     NSTimeInterval markdownMs = perfLogging ? ((OMDNow() - markdownStart) * 1000.0) : 0.0;
     NSTimeInterval applyStart = perfLogging ? OMDNow() : 0.0;
     _isProgrammaticPreviewUpdate = YES;

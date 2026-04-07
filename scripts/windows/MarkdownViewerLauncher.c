@@ -26,6 +26,59 @@ static BOOL OMDDirectoryExists(const wchar_t *path)
     return attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_DIRECTORY) != 0;
 }
 
+static BOOL OMDJoinPath(wchar_t *dest, size_t destCount, const wchar_t *left, const wchar_t *right);
+
+static BOOL OMDThemeBundleExistsInDirectory(const wchar_t *themesRoot, const wchar_t *themeName)
+{
+    wchar_t themeDll[OMD_MAX_PATH];
+    int written = 0;
+
+    if (themesRoot == NULL || themeName == NULL) {
+        return FALSE;
+    }
+
+    written = swprintf(themeDll,
+                       OMD_MAX_PATH,
+                       L"%ls\\%ls.theme\\%ls.dll",
+                       themesRoot,
+                       themeName,
+                       themeName);
+    if (written < 0 || written >= (int)OMD_MAX_PATH) {
+        return FALSE;
+    }
+
+    return OMDFileExists(themeDll);
+}
+
+static const wchar_t *OMDPreferredThemeName(const wchar_t *runtimeRoot)
+{
+    wchar_t themesRoot[OMD_MAX_PATH];
+    wchar_t userProfile[OMD_MAX_PATH];
+    wchar_t userThemesRoot[OMD_MAX_PATH];
+    DWORD userProfileLen = 0;
+
+    if (runtimeRoot != NULL) {
+        if (OMDJoinPath(themesRoot, OMD_MAX_PATH, runtimeRoot, L"lib\\GNUstep\\Themes") &&
+            OMDThemeBundleExistsInDirectory(themesRoot, L"WinUITheme")) {
+            return L"WinUITheme";
+        }
+    }
+
+    userProfileLen = GetEnvironmentVariableW(L"USERPROFILE", userProfile, OMD_MAX_PATH);
+    if (userProfileLen > 0 && userProfileLen < OMD_MAX_PATH) {
+        int written = swprintf(userThemesRoot,
+                               OMD_MAX_PATH,
+                               L"%ls\\GNUstep\\Library\\Themes",
+                               userProfile);
+        if (written >= 0 && written < (int)OMD_MAX_PATH &&
+            OMDThemeBundleExistsInDirectory(userThemesRoot, L"WinUITheme")) {
+            return L"WinUITheme";
+        }
+    }
+
+    return L"WinUXTheme";
+}
+
 static BOOL OMDJoinPath(wchar_t *dest, size_t destCount, const wchar_t *left, const wchar_t *right)
 {
     int written = swprintf(dest, destCount, L"%ls\\%ls", left, right);
@@ -209,6 +262,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE previous, PWSTR commandLine, i
     wchar_t appPath[OMD_MAX_PATH];
     wchar_t localRuntimeRoot[OMD_MAX_PATH];
     wchar_t localRuntimeBin[OMD_MAX_PATH];
+    wchar_t bundledTeXRoot[OMD_MAX_PATH];
+    wchar_t bundledTeXBin[OMD_MAX_PATH];
     wchar_t runtimeRoot[OMD_MAX_PATH];
     wchar_t runtimeBin[OMD_MAX_PATH];
     wchar_t commandBuffer[OMD_MAX_PATH];
@@ -265,6 +320,15 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE previous, PWSTR commandLine, i
         return 1;
     }
 
+    if (OMDJoinPath(bundledTeXRoot, OMD_MAX_PATH, runtimeRoot, L"texlive\\TinyTeX") &&
+        OMDJoinPath(bundledTeXBin, OMD_MAX_PATH, bundledTeXRoot, L"bin\\windows") &&
+        OMDDirectoryExists(bundledTeXBin)) {
+        if (!OMDPrependPath(bundledTeXBin)) {
+            OMDShowError(L"Unable to configure the bundled TinyTeX search path.");
+            return 1;
+        }
+    }
+
     if (!SetEnvironmentVariableW(L"GNUSTEP_PATHPREFIX_LIST", runtimeRoot)) {
         OMDShowError(L"Unable to configure GNUstep runtime paths.");
         return 1;
@@ -276,7 +340,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE previous, PWSTR commandLine, i
     }
 
     if (GetEnvironmentVariableW(L"GSTheme", NULL, 0) == 0) {
-        SetEnvironmentVariableW(L"GSTheme", L"WinUXTheme");
+        SetEnvironmentVariableW(L"GSTheme", OMDPreferredThemeName(runtimeRoot));
     }
 
     if (!OMDBuildChildCommandLine(commandBuffer, OMD_MAX_PATH, appPath)) {

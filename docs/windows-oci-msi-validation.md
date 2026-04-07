@@ -8,7 +8,7 @@ session resume exactly where the previous session left off.
 
 The goal is:
 
-1. Build and package the Windows MSI locally from the main repo workspace.
+1. Build and package the Windows MSI locally through the sibling `gnustep-packager` repo.
 2. Launch a fresh Windows VM in OCI from a prepared "golden" image.
 3. Copy the MSI to that VM over `scp`.
 4. Install and smoke-test the MSI over `ssh`.
@@ -111,56 +111,31 @@ The supported Windows build entry point is still:
 .\scripts\windows\build-from-powershell.ps1 -Task stage -StageDir dist/ObjcMarkdown
 ```
 
-MSI packaging script already in repo:
-
-- [scripts/windows/build-msi.ps1](/C:/Users/Support/git/ObjcMarkdown/scripts/windows/build-msi.ps1)
-
 MSI validation script already in repo:
 
 - [scripts/windows/validate-msi.ps1](/C:/Users/Support/git/ObjcMarkdown/scripts/windows/validate-msi.ps1)
 
-Typical local packaging flow:
-
-```powershell
-.\scripts\windows\build-from-powershell.ps1 -Task build
-.\scripts\windows\build-from-powershell.ps1 -Task test
-.\scripts\windows\build-from-powershell.ps1 -Task stage -StageDir dist/ObjcMarkdown
-
-$version = '0.1.0'
-$outDir = 'dist\installer'
-New-Item -ItemType Directory -Force -Path $outDir | Out-Null
-
-.\scripts\windows\build-msi.ps1 `
-  -StagingDir dist\ObjcMarkdown `
-  -Version $version `
-  -OutDir $outDir
-```
-
-Version note:
-
-- `build-msi.ps1` normalizes MSI versions to four numeric parts.
-- Example: `0.1.0` becomes `0.1.0.0`.
-
-Expected output:
-
-- `dist\installer\ObjcMarkdown-<version>-win64.msi`
-
-Packager-based local packaging flow:
+Canonical packager-backed local packaging flow:
 
 ```powershell
 .\scripts\windows\build-from-powershell.ps1 -Task test
-
 C:\Users\Support\git\gnustep-packager\scripts\run-packaging-pipeline.ps1 `
   -Manifest C:\Users\Support\git\ObjcMarkdown\packaging\package.manifest.json `
   -Backend msi `
-  -SkipBackendValidation
+  -RunSmoke
 ```
 
 Expected output:
 
 - `dist\gnustep-packager\packages\ObjcMarkdown-<manifest-version>-win64.msi`
-- the artifact name keeps the manifest version string instead of forcing the
-  legacy four-part MSI filename convention
+- `dist\gnustep-packager\packages\ObjcMarkdown-<manifest-version>-win64-portable.zip`
+- the staged runtime now includes `WinUXTheme`, `Win11Theme`, and `WinUITheme`
+- the staged runtime now also includes a private TinyTeX toolchain at `clang64\texlive\TinyTeX`
+
+Legacy in-repo WiX packaging still exists only as a fallback path while the
+retirement work finishes:
+
+- [scripts/windows/build-msi.ps1](/C:/Users/Support/git/ObjcMarkdown/scripts/windows/build-msi.ps1)
 
 ## Preferred Day-Two Validation Loop
 
@@ -255,6 +230,12 @@ Minimal direct install example:
 ssh -i C:\Users\Support\.ssh\id_rsa opc@<vm-ip> `
   "powershell -Command `"Start-Process msiexec.exe -Wait -ArgumentList '/i','C:\Users\opc\ObjcMarkdown.msi','/qn','/norestart','/l*v','C:\temp\omd-install.log'`""
 ```
+
+The validation script now verifies more than install/uninstall and process launch:
+
+- bundled Windows themes are present
+- bundled `latex.exe` and `dvisvgm.exe` are present under `clang64\texlive\TinyTeX\bin\windows`
+- the installed TinyTeX bundle can compile and convert a real formula on the guest
 
 ### 4) Manual Visual Checks Over RDP
 
@@ -506,17 +487,16 @@ build -> test -> stage -> package -> launch VM -> push MSI -> validate -> collec
 
 The script supports both:
 
-- `-PackagingMode legacy`
-  Use the in-repo `scripts/windows/build-msi.ps1` flow.
 - `-PackagingMode packager`
   Use the sibling `..\gnustep-packager` repo and
   `packaging/package.manifest.json` to produce the MSI before the OCI steps.
+- `-PackagingMode legacy`
+  Use the in-repo `scripts/windows/build-msi.ps1` flow only as a fallback while the repo-local MSI path is being retired.
 
 Recommended packager-backed run:
 
 ```powershell
 .\scripts\windows\oci-run-msi-validation.ps1 `
-  -PackagingMode packager `
   -PackagerManifest packaging\package.manifest.json `
   -IdentityFile C:\Users\Support\.ssh\id_rsa `
   -TemporarilyRestrictSshIngress `
@@ -542,7 +522,6 @@ Recommended first end-to-end run:
 
 ```powershell
 .\scripts\windows\oci-run-msi-validation.ps1 `
-  -Version 0.1.0 `
   -IdentityFile C:\Users\Support\.ssh\id_rsa `
   -TemporarilyRestrictSshIngress `
   -RunSmoke
@@ -552,7 +531,6 @@ If you are routing through the office jump host:
 
 ```powershell
 .\scripts\windows\oci-run-msi-validation.ps1 `
-  -Version 0.1.0 `
   -IdentityFile C:\Users\Support\.ssh\id_rsa `
   -JumpHost iep-vm2 `
   -TemporarilyRestrictSshIngress `
@@ -578,7 +556,7 @@ The desired stable process is:
 
 1. Build locally from PowerShell with MSYS2 `clang64`.
 2. Stage runtime locally.
-3. Package MSI locally with either the legacy WiX flow or `gnustep-packager`.
+3. Package MSI locally with `gnustep-packager`.
 4. Launch disposable Windows VM from
    `ocid1.image.oc1.phx.aaaaaaaa6253prkupypnde7blkcsojo66njxkyquiimmkdy7foiu4ywxyiva`.
 5. Copy MSI to guest over `scp`.
