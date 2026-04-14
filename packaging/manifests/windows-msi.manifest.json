@@ -157,6 +157,16 @@
       "portableArtifactNamePattern": "{name}-{version}-win64-portable.zip",
       "fallbackRuntimeRoot": "C:\\clang64",
       "unresolvedDependencyPolicy": "fail",
+      "ignoredRuntimeDependencies": [
+        "DWrite.dll",
+        "gdiplus.dll",
+        "MSIMG32.dll",
+        "OPENGL32.dll",
+        "USP10.dll",
+        "WINHTTP.dll",
+        "WINSPOOL.DRV",
+        "WSOCK32.dll"
+      ],
       "updates": {
         "feedUrl": "https://danjboyd.github.io/ObjcMarkdown/updates/windows/stable.json"
       },
