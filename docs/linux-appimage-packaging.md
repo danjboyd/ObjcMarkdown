@@ -13,7 +13,7 @@ That workflow now:
 
 1. Resolves the release version from the dispatch input or pushed tag.
 2. Calls the reusable `gnustep-packager` workflow pinned to commit
-   `f1e33da8dfe07be9f8d408cfd79c779f7777b068`.
+   `bca864ff163e129100881145e017429fed155bf7`.
 3. Runs repo-owned Linux preflight from
    [packaging/ci/preflight-appimage.sh](../packaging/ci/preflight-appimage.sh)
    on the self-hosted GNUstep runner.

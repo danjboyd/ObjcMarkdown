@@ -81,7 +81,7 @@ Goal:
 
 Scope:
 - add downstream packaging manifests for Linux AppImage and Windows MSI rather than relying on backend-specific scripts as the contract
-- pin the initial integration to the currently audited `gnustep-packager` baseline (`f1e33da8dfe07be9f8d408cfd79c779f7777b068`) until an explicit upstream release tag is chosen
+- pin the initial integration to the currently audited `gnustep-packager` baseline (`bca864ff163e129100881145e017429fed155bf7`) until an explicit upstream release tag is chosen
 - define the normalized staged payload shape for this repo:
   - `app/`
   - `runtime/`
@@ -167,7 +167,7 @@ Immediate next steps:
 - `Phase 8A`: implemented on `2026-04-01` with downstream Linux and Windows manifests under `packaging/`, normalized `app/` + `runtime/` + `metadata/` staging, and manifest-driven theme defaults
 - `Phase 8B`: verified on `2026-04-01` by building and validating `dist/packaging/linux/packages/ObjcMarkdown-0.1.1-rc2-linux-x86_64.AppImage` through `gnustep-packager` with smoke launch enabled
 - `Phase 8C`: repo cutover completed on `2026-04-01`; Windows manifest, staging, workflow, and OCI validation now target `gnustep-packager`, with the next Windows-host MSI build plus OCI run serving as the parity reconfirmation pass
-- `Phase 8D`: implemented on `2026-04-01` by replacing repo-local backend assembly in `linux-appimage.yml` and `windows-packaging.yml` with reusable `gnustep-packager` workflow calls pinned to `f1e33da8dfe07be9f8d408cfd79c779f7777b068`
+- `Phase 8D`: implemented on `2026-04-01` by replacing repo-local backend assembly in `linux-appimage.yml` and `windows-packaging.yml` with reusable `gnustep-packager` workflow calls pinned to `bca864ff163e129100881145e017429fed155bf7`
 - `Phase 8E`: implemented on `2026-04-01` by deleting legacy backend assembly code and keeping only manifests, build/stage scripts, preflight helpers, and app-specific validation glue in this repo
 
 Acceptance criteria:

@@ -33,13 +33,13 @@ jobs:
 
   build-appimage:
     needs: resolve-version
-    uses: danjboyd/gnustep-packager/.github/workflows/package-gnustep-app.yml@f1e33da8dfe07be9f8d408cfd79c779f7777b068
+    uses: danjboyd/gnustep-packager/.github/workflows/package-gnustep-app.yml@bca864ff163e129100881145e017429fed155bf7
     with:
       manifest-path: packaging/manifests/linux-appimage.manifest.json
       backend: appimage
       package-version: ${{ needs.resolve-version.outputs.package_version }}
       packager-repository: danjboyd/gnustep-packager
-      packager-ref: f1e33da8dfe07be9f8d408cfd79c779f7777b068
+      packager-ref: bca864ff163e129100881145e017429fed155bf7
       runs-on-appimage: '["self-hosted","linux","gnustep-clang"]'
       skip-default-host-setup: true
       preflight-shell: bash
