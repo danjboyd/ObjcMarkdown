@@ -47,6 +47,7 @@ typedef unsigned short mode_t;
     NSMutableArray *_documentTabs;
     NSInteger _selectedDocumentTabIndex;
     OMDGitHubClient *_gitHubClient;
+    id _updaterController;
     NSMenu *_fileOpenRecentMenu;
     NSMenuItem *_viewShowExplorerMenuItem;
     NSControl *_explorerSourceModeControl;

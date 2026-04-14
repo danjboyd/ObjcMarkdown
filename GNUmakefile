@@ -1,6 +1,6 @@
 include $(GNUSTEP_MAKEFILES)/common.make
 
-SUBPROJECTS = third_party/libs-OpenSave/Source third_party/TextViewVimKitBuild ObjcMarkdown ObjcMarkdownViewer ObjcMarkdownTests
+SUBPROJECTS = third_party/libs-OpenSave/Source third_party/TextViewVimKitBuild third_party/GPUpdaterCore third_party/GPUpdaterUI third_party/gp-update-helper ObjcMarkdown ObjcMarkdownViewer ObjcMarkdownTests
 ifneq ($(OMD_SKIP_TESTS),)
   SUBPROJECTS := $(filter-out ObjcMarkdownTests,$(SUBPROJECTS))
 endif

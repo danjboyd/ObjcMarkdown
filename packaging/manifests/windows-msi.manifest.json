@@ -83,6 +83,7 @@
       "enabled": true,
       "kind": "staged-layout",
       "requiredPaths": [
+        "app/MarkdownViewer.app/gp-update-helper.exe",
         "app/MarkdownViewer.app/Resources/theme-github.toml",
         "metadata/icons/markdown_icon.ico",
         "metadata/icons/markdown_icon.png",

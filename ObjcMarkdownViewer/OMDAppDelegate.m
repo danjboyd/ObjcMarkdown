@@ -32,6 +32,13 @@
 #endif
 #include <math.h>
 
+@interface GPStandardUpdaterController : NSObject
+- (instancetype)initWithPackagedConfiguration:(NSError **)error;
+- (void)setParentWindow:(NSWindow *)parentWindow;
+- (void)start;
+- (void)checkForUpdates:(id)sender;
+@end
+
 static const CGFloat OMDPrintExportZoomScale = 0.8;
 static const NSTimeInterval OMDInteractiveRenderDebounceInterval = 0.15;
 static const NSTimeInterval OMDZoomAdaptiveSamplingWindow = 0.35;
@@ -2921,6 +2928,7 @@ static OMDRoundedCardView *OMDCreatePreferencesCard(NSRect frame, OMDLayoutMetri
 - (void)decreaseSourceEditorFontSize:(id)sender;
 - (void)resetSourceEditorFontSize:(id)sender;
 - (void)chooseSourceEditorFont:(id)sender;
+- (void)checkForUpdates:(id)sender;
 - (void)showAboutPanel:(id)sender;
 - (void)showPreferences:(id)sender;
 - (void)releasePreferencesPanelControls;
@@ -3098,6 +3106,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [_currentSuppressedDiskFingerprint release];
     [_documentTabs release];
     [_gitHubClient release];
+    [_updaterController release];
     if (_fileOpenRecentMenu != nil) {
         [_fileOpenRecentMenu setDelegate:nil];
         [_fileOpenRecentMenu release];
@@ -3226,6 +3235,19 @@ static NSMutableArray *OMDSecondaryWindows(void)
     }
 
     [self presentWindowIfNeeded];
+    if (_updaterController == nil) {
+        NSError *updateError = nil;
+        GPStandardUpdaterController *controller = [[GPStandardUpdaterController alloc] initWithPackagedConfiguration:&updateError];
+        if (controller == nil) {
+            NSLog(@"Updater disabled: %@", [updateError localizedDescription]);
+        } else {
+            [controller setParentWindow:_window];
+            [controller start];
+            _updaterController = controller;
+        }
+    } else {
+        [(GPStandardUpdaterController *)_updaterController setParentWindow:_window];
+    }
     if ([startupPath length] > 0 || shouldCheckRecovery) {
         _launchWorkScheduled = YES;
         [self performSelector:@selector(performDeferredInitialLaunchWork)
@@ -3328,6 +3350,11 @@ static NSMutableArray *OMDSecondaryWindows(void)
                                                   keyEquivalent:@""] autorelease];
     [aboutItem setTarget:self];
     [appMenu addItem:aboutItem];
+
+    NSMenuItem *updatesItem = (NSMenuItem *)[appMenu addItemWithTitle:@"Check for Updates..."
+                                                               action:@selector(checkForUpdates:)
+                                                        keyEquivalent:@""];
+    [updatesItem setTarget:self];
 
     NSMenuItem *preferencesItem = (NSMenuItem *)[appMenu addItemWithTitle:@"Preferences..."
                                                                     action:@selector(showPreferences:)
@@ -4865,6 +4892,10 @@ static NSMutableArray *OMDSecondaryWindows(void)
     if (action == @selector(toggleExplorerSidebar:)) {
         [menuItem setState:(_explorerSidebarVisible ? NSOnState : NSOffState)];
         return YES;
+    }
+
+    if (action == @selector(checkForUpdates:)) {
+        return _updaterController != nil;
     }
 
     if (action == @selector(undo:)) {
@@ -13084,6 +13115,15 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
     [self syncPreferencesPanelFromSettings];
     [_preferencesPanel makeKeyAndOrderFront:nil];
     [NSApp activateIgnoringOtherApps:YES];
+}
+
+- (void)checkForUpdates:(id)sender
+{
+    if (_updaterController == nil) {
+        NSBeep();
+        return;
+    }
+    [(GPStandardUpdaterController *)_updaterController checkForUpdates:sender];
 }
 
 - (void)showAboutPanel:(id)sender

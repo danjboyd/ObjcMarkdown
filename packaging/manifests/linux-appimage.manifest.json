@@ -105,6 +105,7 @@
       "kind": "staged-layout",
       "requiredPaths": [
         "app/MarkdownViewer.app/Resources/theme-github.toml",
+        "app/MarkdownViewer.app/gp-update-helper",
         "metadata/icons/markdown_icon.png",
         "metadata/smoke/sample-commonmark.md",
         "runtime/etc/GNUstep/GNUstep.conf",
