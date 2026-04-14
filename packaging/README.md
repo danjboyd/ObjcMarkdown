@@ -9,7 +9,7 @@ This repo now owns only:
 - downstream manifests
 - update-feed metadata and publication policy
 - Linux runner preflight
-- OCI clean-machine MSI validation hooks
+- libvirt-first `OracleTestVMs` clean-machine validation hooks
 - OracleTestVMs validation handoff scripts
 
 Current manifests:
@@ -99,6 +99,9 @@ When updates are enabled, the Windows package output should also include:
 
 Windows packaging input expectations:
 
+- the staged/installable runtime must include `WinUITheme`
+- the packaged Windows default theme must be `WinUITheme`
+
 - `plugins-themes-winuitheme`
 - `plugins-themes-win11theme`
 
@@ -118,6 +121,7 @@ For the Phase 9C Linux handoff path, use:
 That script:
 
 - creates a fresh `debian-13-gnome-wayland` lease through `OracleTestVMs`
+- expects `OracleTestVMs` to be configured for libvirt-backed Debian leases going forward
 - uploads the latest built AppImage
 - uploads a small validation document set
 - writes a handoff file under `dist/otvm/linux/<lease-id>/handoff.txt`
@@ -141,6 +145,7 @@ For the Phase 9D and 9E Windows handoff path, use:
 That script:
 
 - creates a separate Windows build lease and Windows clean-test lease through `OracleTestVMs`
+- expects `OracleTestVMs` to be configured for libvirt-backed Windows leases going forward
 - uploads a source snapshot and build instructions to the build VM
 - uploads the MSI, optional portable ZIP, validator, and sample Markdown fixtures to the clean-test VM
 - runs unattended MSI install/smoke/uninstall once on the clean-test VM

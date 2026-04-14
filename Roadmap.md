@@ -32,16 +32,16 @@ The following are valuable, but they are not required to satisfy the current rel
   - release parity maintenance for AppImage and MSI packaging through `gnustep-packager`
 - keep CommonMark behavior strong before going deeper on GitHub-flavored extensions
 
-## Phase 7: Windows Release Packaging and OCI Validation
+## Phase 7: Windows Release Packaging and Clean-Machine Validation
 
 Goal:
-- make tagged releases produce installable Windows artifacts, publish them to GitHub Releases, and validate them on a fresh OCI Windows environment
+- make tagged releases produce installable Windows artifacts, publish them to GitHub Releases, and validate them on a fresh `OracleTestVMs` Windows environment, with libvirt-backed leases as the default backend
 
 ### Phase 7A: Stabilize And Commit The Release Baseline
 
 Scope:
-- commit the current local Windows/MSI/OCI workflow, script, and documentation changes before cutting any release tag
-- reconcile docs and issue tracking so the OCI golden-image validation path is the documented source of truth
+- commit the current local Windows/MSI validation workflow, script, and documentation changes before cutting any release tag
+- reconcile docs and issue tracking so the `OracleTestVMs` validation path is the documented source of truth
 - make sure the release process is understandable from repo docs rather than session memory
 
 ### Phase 7B: Tagged CI Artifact Production
@@ -52,12 +52,13 @@ Scope:
 - publish the MSI and portable ZIP to the matching GitHub Release page, not only as Actions artifacts
 - document the exact tag-push workflow for creating a release build
 
-### Phase 7C: OCI Clean-Machine Validation Automation
+### Phase 7C: Clean-Machine Validation Automation
 
 Scope:
-- use the OCI golden-image workflow for clean-machine validation rather than depending on one long-lived mutable VM
+- use `OracleTestVMs` for clean-machine validation rather than depending on one long-lived mutable VM
+- prefer libvirt-backed Windows leases for reproducible build/test handoff
 - use helper scripts under `scripts/windows/` for VM launch, artifact copy, MSI install/smoke test, log collection, and VM teardown
-- run the full tagged-release flow against a fresh OCI VM from the golden image
+- run the full tagged-release flow against a fresh Windows VM from the supported `OracleTestVMs` backend
 - collect validation logs and track any installer/runtime defects explicitly
 
 Immediate next steps:
@@ -67,9 +68,9 @@ Immediate next steps:
 - optional release follow-up: do a short kept-VM manual visual pass when shortcut/icon/file-association polish needs explicit confirmation
 
 Acceptance criteria:
-- `Phase 7A`: the current Windows/MSI/OCI process is committed and documented coherently
+- `Phase 7A`: the current Windows/MSI validation process is committed and documented coherently
 - `Phase 7B`: pushing a tag such as `v0.1.0` produces a Windows MSI and portable ZIP in CI and publishes them to the corresponding GitHub Release
-- `Phase 7C`: the MSI is validated on a fresh OCI Windows VM launched from the golden image, with logs collected and follow-up defects tracked explicitly
+- `Phase 7C`: the MSI is validated on a fresh `OracleTestVMs` Windows VM, with libvirt-backed leases preferred, logs collected, and follow-up defects tracked explicitly
 - release tagging and validation are repeatable without ad hoc manual recovery steps
 
 ## Phase 8: Externalize Linux and Windows Packaging Through gnustep-packager
@@ -124,7 +125,7 @@ Scope:
   - installer icons and notices
 - use the packager launcher contract rather than the repo-local launcher as the startup path
 - pass MSI runtime closure under the new default failure policy so unresolved non-system DLLs stop packaging instead of leaking into release artifacts
-- validate the packager-produced MSI against the existing clean-machine OCI path before removing the old implementation
+- validate the packager-produced MSI against the existing clean-machine validation path before removing the old implementation
 
 ### Phase 8D: GitHub Actions Cutover
 
@@ -166,7 +167,7 @@ Scope:
 Immediate next steps:
 - `Phase 8A`: implemented on `2026-04-01` with downstream Linux and Windows manifests under `packaging/`, normalized `app/` + `runtime/` + `metadata/` staging, and manifest-driven theme defaults
 - `Phase 8B`: verified on `2026-04-01` by building and validating `dist/packaging/linux/packages/ObjcMarkdown-0.1.1-rc2-linux-x86_64.AppImage` through `gnustep-packager` with smoke launch enabled
-- `Phase 8C`: repo cutover completed on `2026-04-01`; Windows manifest, staging, workflow, and OCI validation now target `gnustep-packager`, with the next Windows-host MSI build plus OCI run serving as the parity reconfirmation pass
+- `Phase 8C`: repo cutover completed on `2026-04-01`; Windows manifest, staging, workflow, and clean-machine validation now target `gnustep-packager`, with the next Windows-host MSI build plus `OracleTestVMs` run serving as the parity reconfirmation pass
 - `Phase 8D`: implemented on `2026-04-01` by replacing repo-local backend assembly in `linux-appimage.yml` and `windows-packaging.yml` with reusable `gnustep-packager` workflow calls pinned to `bca864ff163e129100881145e017429fed155bf7`
 - `Phase 8E`: implemented on `2026-04-01` by deleting legacy backend assembly code and keeping only manifests, build/stage scripts, preflight helpers, and app-specific validation glue in this repo
 
@@ -180,7 +181,7 @@ Acceptance criteria:
 ## Phase 9: Post-Release Hardening For Auto-Update And OracleTestVMs
 
 Goal:
-- extend the `gnustep-packager` integration to cover auto-update delivery and validation for Linux AppImage and Windows MSI releases, then use `OracleTestVMs` to stand up reproducible test machines with preloaded sample Markdown content for manual verification after the core tag-to-GitHub-Release packaging flow is complete
+- extend the `gnustep-packager` integration to cover auto-update delivery and validation for Linux AppImage and Windows MSI releases, then use libvirt-backed `OracleTestVMs` leases to stand up reproducible test machines with preloaded sample Markdown content for manual verification after the core tag-to-GitHub-Release packaging flow is complete
 
 ### Phase 9A: Define Auto-Update Release Policy
 
@@ -202,7 +203,7 @@ Scope:
 ### Phase 9C: OracleTestVMs Linux Validation Environment
 
 Scope:
-- use the `OracleTestVMs` sister repo to provision a fresh Linux test VM for AppImage validation
+- use the `OracleTestVMs` sister repo to provision a fresh Linux test VM for AppImage validation, preferring libvirt-backed Debian leases
 - preload the Linux VM with a small set of sample Markdown documents that exercise headings, lists, links, code blocks, tables if supported, and larger scrolling documents
 - copy in the produced AppImage plus any update-related artifacts needed to validate first install and follow-up update behavior
 - automate enough VM setup that the Linux machine can be handed off for manual testing with predictable connection instructions
@@ -213,6 +214,7 @@ Scope:
 - use the `OracleTestVMs` sister repo to provision two separate Windows VMs:
   - a Windows build VM for producing or reproducing the MSI in a packaging-capable environment
   - a clean Windows test VM for validating first install, upgrade behavior, and runtime launch on a machine that does not share the build environment
+- prefer libvirt-backed Windows leases for both machines when available
 - preload the Windows test VM with the MSI under test and a matching set of sample Markdown documents
 - keep the clean Windows test VM isolated from build-tool contamination so MSI validation remains meaningful
 - automate enough VM setup that the Windows test machine can be handed off for manual testing with predictable connection instructions

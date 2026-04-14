@@ -98,3 +98,28 @@
   - prevents `Phase 7B` / `Phase 8D` acceptance from going green for Linux
 - **Next Step**:
   - register or restore the expected self-hosted GNUstep runner for this repository, or deliberately redesign the Linux packaging lane to run on a GitHub-hosted image with equivalent toolchain guarantees
+
+## 11) Windows MSI rebuild handoff after WinUITheme/default-theme work
+
+- **Status**: Open
+- **Opened On**: 2026-04-14
+- **Area**: Release engineering / Windows packaging / `gnustep-packager` integration
+- **Description**: Repo-local packaging changes now require the Windows MSI to bundle `WinUITheme` and default to `WinUITheme`, but the ad hoc OCI remote rebuild path has not yet produced a fresh validated MSI carrying those changes.
+- **Current State**:
+  - `ObjcMarkdown` repo changes are in place to require `WinUITheme` in the staged payload and set `GSTheme=WinUITheme` with `policy: ifUnset` in [packaging/manifests/windows-msi.manifest.json](/home/danboyd/git/ObjcMarkdown/packaging/manifests/windows-msi.manifest.json).
+  - Repo-local Windows theme input prep was updated to work with the managed MSYS2 `clang64` toolchain in [packaging/scripts/ensure-windows-theme-inputs.ps1](/home/danboyd/git/ObjcMarkdown/packaging/scripts/ensure-windows-theme-inputs.ps1).
+  - Local Linux/dev launch regressions caused by the new updater libraries are fixed in [GNUmakefile](/home/danboyd/git/ObjcMarkdown/GNUmakefile) and [scripts/omd-viewer.sh](/home/danboyd/git/ObjcMarkdown/scripts/omd-viewer.sh).
+  - An ad hoc remote Windows rebuild bundle exists on the OCI build VM under `C:\\Users\\otvmbootstrap\\omd-winremote`, but no fresh MSI has been copied back or pushed to the test VM yet.
+- **External Findings**:
+  - `gnustep-packager` implemented manifest-driven host dependency provisioning in commit `576a020`, including `hostDependencies.windows.msys2Packages` and reusable-workflow support.
+  - `gnustep-packager` also fixed the Windows native-stderr warning handling issue.
+  - Remaining best-practice upstream request is to strengthen declarative packaged content contracts / installed-package assertions so packaging correctness lives more fully in the packager boundary.
+- **Last Known Remote Build Blocker**:
+  - The remote Windows build reached the `ObjcMarkdown` compile and failed on missing `cmark.h`.
+  - The immediate local fix was to update the ad hoc remote build script to install `mingw-w64-clang-x86_64-cmark` before invoking the packaging pipeline.
+  - The long-term fix should be to declare `cmark` in the manifest under `hostDependencies.windows.msys2Packages` and then repin/use the updated `gnustep-packager` commit so host dependency realization happens systematically.
+- **Next Step**:
+  - Update `ObjcMarkdown`’s Windows packaging manifest to declare `mingw-w64-clang-x86_64-cmark` under `hostDependencies.windows.msys2Packages`.
+  - Repin the repo to the new `gnustep-packager` commit that includes host dependency provisioning.
+  - Rebuild the MSI through the normal packaging path instead of the increasingly patched ad hoc OCI remote bundle.
+  - Once a fresh MSI is produced, push the `.msi` and portable `.zip` to a Windows validation VM and re-run manual/UAT verification.

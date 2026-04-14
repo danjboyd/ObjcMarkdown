@@ -60,6 +60,16 @@ resolve_otvm_bin() {
   exit 1
 }
 
+otvm_invoke() {
+  local otvm_bin="$1"
+  shift
+  if [[ -n "${OTVM_CONFIG:-}" ]]; then
+    "$otvm_bin" --config "$OTVM_CONFIG" "$@"
+  else
+    "$otvm_bin" "$@"
+  fi
+}
+
 resolve_otvm_private_key() {
   local config_path="${OTVM_CONFIG:-${ORACLETESTVMS_CONFIG:-$HOME/.config/oracletestvms/config.toml}}"
   if [[ ! -f "$config_path" ]]; then
@@ -180,7 +190,7 @@ refresh_status() {
   local otvm_bin="$1"
   local lease_id="$2"
   local output_path="$3"
-  "$otvm_bin" status "$lease_id" > "$output_path"
+  otvm_invoke "$otvm_bin" status "$lease_id" > "$output_path"
 }
 
 create_cmd() {
@@ -237,9 +247,9 @@ create_cmd() {
     idempotency_key="objcmarkdown-linux-validation-$(date -u +%Y%m%d%H%M%S)"
     lease_json="$(mktemp)"
     if [[ -n "$ttl_hours" ]]; then
-      "$otvm_bin" create debian-13-gnome-wayland --progress human --ttl-hours "$ttl_hours" --idempotency-key "$idempotency_key" --metadata app=ObjcMarkdown --metadata purpose=appimage-validation > "$lease_json"
+      otvm_invoke "$otvm_bin" create debian-13-gnome-wayland --progress human --ttl-hours "$ttl_hours" --idempotency-key "$idempotency_key" --metadata app=ObjcMarkdown --metadata purpose=appimage-validation > "$lease_json"
     else
-      "$otvm_bin" create debian-13-gnome-wayland --progress human --idempotency-key "$idempotency_key" --metadata app=ObjcMarkdown --metadata purpose=appimage-validation > "$lease_json"
+      otvm_invoke "$otvm_bin" create debian-13-gnome-wayland --progress human --idempotency-key "$idempotency_key" --metadata app=ObjcMarkdown --metadata purpose=appimage-validation > "$lease_json"
     fi
     lease_id="$(json_field '.lease.lease_id' "$lease_json")"
   else
@@ -298,7 +308,7 @@ destroy_cmd() {
     exit 1
   fi
   otvm_bin="$(resolve_otvm_bin)"
-  "$otvm_bin" destroy "$lease_id"
+  otvm_invoke "$otvm_bin" destroy "$lease_id"
 }
 
 status_cmd() {

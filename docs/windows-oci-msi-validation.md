@@ -12,6 +12,9 @@ That `OracleTestVMs` flow is the only supported path because it separates:
 - a Windows build VM for `msys2/clang64` packaging work
 - a separate clean Windows VM for first-install and manual validation
 
+Going forward, that `OracleTestVMs` path is expected to use libvirt-backed
+Windows leases by default rather than OCI-backed ones.
+
 ## Current Status
 
 As of `2026-04-14`:

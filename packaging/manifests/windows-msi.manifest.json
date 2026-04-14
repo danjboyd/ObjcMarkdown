@@ -55,7 +55,11 @@
       "metadata/icons"
     ],
     "env": {
-      "GNUSTEP_PATHPREFIX_LIST": "{@runtimeRoot}"
+      "GNUSTEP_PATHPREFIX_LIST": "{@runtimeRoot}",
+      "GSTheme": {
+        "value": "WinUITheme",
+        "policy": "ifUnset"
+      }
     }
   },
   "outputs": {
@@ -94,6 +98,7 @@
         "runtime/bin/libfontconfig-1.dll",
         "runtime/bin/libfreetype-6.dll",
         "runtime/lib/GNUstep/Bundles/libgnustep-back-032.bundle/libgnustep-back-032.dll",
+        "runtime/lib/GNUstep/Themes/WinUITheme.theme/WinUITheme.dll",
         "runtime/texlive/TinyTeX/bin/windows/latex.exe",
         "runtime/texlive/TinyTeX/bin/windows/dvisvgm.exe",
         "runtime/texlive/TinyTeX/bin/windows/dvipng.exe"

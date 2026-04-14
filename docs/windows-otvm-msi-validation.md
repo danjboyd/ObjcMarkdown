@@ -5,6 +5,10 @@ Phase `9D` and `9E` use two separate `OracleTestVMs` Windows leases:
 - a dedicated build VM for MSI reproduction work in an `msys2/clang64` environment
 - a separate clean test VM for first-install, launch, and manual GUI validation
 
+Going forward, the expected backend for these leases is libvirt. If a session uses
+OCI as a temporary fallback, it should document that explicitly rather than
+treating OCI as the default path.
+
 The helper script is:
 
 - [scripts/windows/otvm-msi-validation.sh](/home/danboyd/git/ObjcMarkdown/scripts/windows/otvm-msi-validation.sh)

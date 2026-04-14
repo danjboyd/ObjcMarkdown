@@ -37,6 +37,10 @@ Workflow:
 - Use git commit author `Daniel Boyd <danieljboyd@icloud.com>` for all commits in this repo.
 - Use the GitHub account `danjboyd` for commits, pushes, PRs, releases, and other GitHub-authenticated operations for this repo.
 - If `gh auth status` shows a different active account, switch with `gh auth switch -u danjboyd` before doing GitHub-authenticated work.
+- Going forward, use `OracleTestVMs` configured for libvirt-backed leases as the default VM path for Debian and Windows UAT/validation unless the user explicitly asks for a different backend.
+- Windows MSI release requirements:
+  - bundle `WinUITheme` with the installed runtime payload
+  - set `WinUITheme` as the default packaged Windows theme unless the user explicitly changes it
 
 ## Build (macOS)
 TBD: add separate build instructions when macOS target is set up.

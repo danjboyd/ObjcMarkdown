@@ -83,7 +83,9 @@ function Invoke-OmdMsysCommand {
   $bootstrapLines += $InnerCommand
   $bootstrap = ($bootstrapLines -join "; ")
 
-  & $envExe 'MSYSTEM=CLANG64' 'CHERE_INVOKING=1' '/usr/bin/bash' '-lc' $bootstrap
+  & $envExe 'MSYSTEM=CLANG64' 'CHERE_INVOKING=1' '/usr/bin/bash' '-lc' $bootstrap 2>&1 | ForEach-Object {
+    $_
+  }
   if ($LASTEXITCODE -ne 0) {
     throw "MSYS2 command failed with exit code $LASTEXITCODE"
   }
@@ -174,6 +176,29 @@ function Resolve-OmdUserThemeRoot {
   throw "Unable to resolve the GNUstep user theme root."
 }
 
+function New-OmdThemeCompatDirectory {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$ThemeRepository,
+    [Parameter(Mandatory = $true)]
+    [string]$MsysRoot
+  )
+
+  $compatCandidates = @(
+    (Join-Path $MsysRoot "clang64\lib\libgcc_s.a"),
+    (Join-Path $MsysRoot "mingw64\lib\libgcc_s.a")
+  )
+  $sourceLib = $compatCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+  if (-not $sourceLib) {
+    return $null
+  }
+
+  $compatDir = Join-Path $ThemeRepository "tmp\clang64-linker-compat"
+  New-Item -ItemType Directory -Force -Path $compatDir | Out-Null
+  Copy-Item $sourceLib (Join-Path $compatDir "libgcc_s.a") -Force
+  return $compatDir
+}
+
 $themeWorkspaceCandidates = [System.Collections.Generic.List[string]]::new()
 if (-not [string]::IsNullOrWhiteSpace($ThemeWorkspace)) {
   $themeWorkspaceCandidates.Add((Resolve-OmdPathCandidate -BasePath $repoRoot -Candidate $ThemeWorkspace)) | Out-Null
@@ -219,10 +244,16 @@ foreach ($themeSpec in $themeSpecs) {
     (Join-Path $resolvedThemeRepo "scripts\Prepare-GNUstepCompat.ps1")
   )
   $compatScript = $compatScriptCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+  $compatDir = $null
   if ($compatScript) {
-    $compatDir = & $compatScript
-    if ($LASTEXITCODE -ne 0) {
-      throw "Theme compatibility setup failed for $resolvedThemeRepo"
+    $compatDir = New-OmdThemeCompatDirectory -ThemeRepository $resolvedThemeRepo -MsysRoot $resolvedMsysRoot
+    if (-not $compatDir) {
+      Write-Verbose ("Skipping stale GNUstep compatibility shim for {0}; no libgcc_s.a was found in the active MSYS2 toolchain." -f $themeName)
+    } else {
+      $compatDir = & $compatScript
+      if ($LASTEXITCODE -ne 0) {
+        throw "Theme compatibility setup failed for $resolvedThemeRepo"
+      }
     }
     if (-not [string]::IsNullOrWhiteSpace([string]$compatDir)) {
       $extraEnvironment["LIBRARY_PATH"] = ((Convert-ToMsysPath -WindowsPath ([string]$compatDir)) + ":/clang64/lib")

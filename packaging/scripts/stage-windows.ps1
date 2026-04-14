@@ -49,8 +49,8 @@ if ($missingTinyTeXPaths.Count -gt 0) {
 
 Set-Content -Path (Join-Path $metadataDocs "BundledThemes.txt") -Value @(
   "Bundled GNUstep themes for ObjcMarkdown MSI:"
-  "No external Windows theme bundles are staged in this build."
-  "The launcher only sets GSTheme when a compatible bundled or system theme is present."
+  "Bundled themes include WinUXTheme, Win11Theme, and WinUITheme."
+  "Packaged Windows launches default to GSTheme=WinUITheme when the user has not already chosen a theme."
 )
 Set-Content -Path (Join-Path $metadataDocs "BundledLaTeXRuntime.txt") -Value @(
   "Bundled TinyTeX runtime for ObjcMarkdown MSI:"

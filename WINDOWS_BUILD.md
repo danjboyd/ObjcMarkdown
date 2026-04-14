@@ -238,6 +238,8 @@ Current packaging/runtime notes:
 
 - the staged runtime bundles `WinUXTheme`, `Win11Theme`, and `WinUITheme`
 - packaged Windows launches prefer `WinUITheme` by default
+- Windows MSI releases must keep `WinUITheme` bundled in the installed runtime payload
+- Windows MSI releases must keep `WinUITheme` as the default packaged theme unless a user overrides it after install
 - the staged runtime also bundles TinyTeX under `runtime\texlive\TinyTeX`
 - packaged Windows launches prepend `runtime\texlive\TinyTeX\bin\windows` to `PATH`
 - fresh installs can switch math rendering to external LaTeX when the bundled TinyTeX toolchain is present
@@ -294,6 +296,7 @@ Use the helper from the repo root on the Linux operator machine:
 Notes:
 
 - `OracleTestVMs` is now the only supported source of truth for Windows build/test VM provisioning and validation handoff.
+- The expected backend for those Windows leases is libvirt unless a session explicitly documents a temporary fallback.
 - The older direct-OCI helper `scripts/windows/oci-run-msi-validation.ps1` has been retired to prevent further contract drift.
 - Do not use `app\MarkdownViewer.app\MarkdownViewer.exe` directly for validation. The MSI ships a top-level `MarkdownViewer.exe` launcher that sets runtime state first; launching the inner app binary directly can still fail with missing DLL errors by design.
 

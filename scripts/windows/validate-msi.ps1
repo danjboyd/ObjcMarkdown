@@ -165,6 +165,7 @@ try {
   }
 
   $runtimeCandidates = @(
+    (Join-Path $InstallDir "runtime\\bin"),
     (Join-Path $InstallDir "clang64\\bin"),
     "C:\clang64\bin"
   )

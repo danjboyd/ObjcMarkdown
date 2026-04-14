@@ -2,10 +2,10 @@
 
 For Linux clean-machine validation, the preferred local path is a disposable Debian VM under `qemu/kvm`, not the long-lived host workstation and not a container.
 
-For `Phase 9C`, the preferred cloud handoff path is now `OracleTestVMs` with
-the `debian-13-gnome-wayland` profile. The local libvirt flow below remains
-useful when OCI access is unavailable or when you want a purely local smoke
-environment.
+For `Phase 9C`, the preferred handoff path is now `OracleTestVMs` with the
+`debian-13-gnome-wayland` profile backed by libvirt. The local standalone
+libvirt flow below remains useful when you want a purely local smoke
+environment outside the managed `OracleTestVMs` path.
 
 ## OracleTestVMs Preferred Flow
 
@@ -18,6 +18,7 @@ Use the repo-owned helper:
 That flow:
 
 - creates a fresh Debian 13 GNOME Wayland lease through `OracleTestVMs`
+- expects `OracleTestVMs` to be configured for libvirt-backed Debian leases
 - uploads the latest built `ObjcMarkdown` AppImage
 - uploads a small set of sample Markdown documents:
   - `Resources/sample-commonmark.md`

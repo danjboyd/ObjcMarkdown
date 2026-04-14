@@ -5,7 +5,7 @@ ifneq ($(OMD_SKIP_TESTS),)
   SUBPROJECTS := $(filter-out ObjcMarkdownTests,$(SUBPROJECTS))
 endif
 
-OMD_RUNTIME_LIB_DIRS = $(CURDIR)/ObjcMarkdown/$(GNUSTEP_OBJ_DIR):$(CURDIR)/third_party/libs-OpenSave/Source/$(GNUSTEP_OBJ_DIR):$(CURDIR)/third_party/TextViewVimKitBuild/$(GNUSTEP_OBJ_DIR)
+OMD_RUNTIME_LIB_DIRS = $(CURDIR)/ObjcMarkdown/$(GNUSTEP_OBJ_DIR):$(CURDIR)/third_party/libs-OpenSave/Source/$(GNUSTEP_OBJ_DIR):$(CURDIR)/third_party/TextViewVimKitBuild/$(GNUSTEP_OBJ_DIR):$(CURDIR)/third_party/GPUpdaterCore/$(GNUSTEP_OBJ_DIR):$(CURDIR)/third_party/GPUpdaterUI/$(GNUSTEP_OBJ_DIR)
 
 ifneq (,$(findstring mingw,$(GNUSTEP_HOST_OS)))
   export ADDITIONAL_OBJCFLAGS += -include sys/types.h -D__mode_t_defined -D_MODE_T_ -D_MODE_T_DEFINED

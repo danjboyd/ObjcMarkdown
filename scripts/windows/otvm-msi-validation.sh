@@ -86,6 +86,16 @@ resolve_otvm_bin() {
   exit 1
 }
 
+otvm_invoke() {
+  local otvm_bin="$1"
+  shift
+  if [[ -n "${OTVM_CONFIG:-}" ]]; then
+    "$otvm_bin" --config "$OTVM_CONFIG" "$@"
+  else
+    "$otvm_bin" "$@"
+  fi
+}
+
 resolve_otvm_private_key() {
   local config_path="${OTVM_CONFIG:-${ORACLETESTVMS_CONFIG:-$HOME/.config/oracletestvms/config.toml}}"
   if [[ ! -f "$config_path" ]]; then
@@ -401,7 +411,7 @@ refresh_status() {
   local otvm_bin="$1"
   local lease_id="$2"
   local output_path="$3"
-  "$otvm_bin" status "$lease_id" > "$output_path"
+  otvm_invoke "$otvm_bin" status "$lease_id" > "$output_path"
 }
 
 create_cmd() {
@@ -494,9 +504,9 @@ create_cmd() {
   if [[ -z "$build_lease_id" ]]; then
     build_json="$(mktemp)"
     if [[ -n "$ttl_hours" ]]; then
-      "$otvm_bin" create windows-2022 --progress human --ttl-hours "$ttl_hours" --idempotency-key "objcmarkdown-windows-build-$(date -u +%Y%m%d%H%M%S)" --metadata app=ObjcMarkdown --metadata purpose=msi-build --metadata role=build > "$build_json"
+      otvm_invoke "$otvm_bin" create windows-2022 --progress human --ttl-hours "$ttl_hours" --idempotency-key "objcmarkdown-windows-build-$(date -u +%Y%m%d%H%M%S)" --metadata app=ObjcMarkdown --metadata purpose=msi-build --metadata role=build > "$build_json"
     else
-      "$otvm_bin" create windows-2022 --progress human --idempotency-key "objcmarkdown-windows-build-$(date -u +%Y%m%d%H%M%S)" --metadata app=ObjcMarkdown --metadata purpose=msi-build --metadata role=build > "$build_json"
+      otvm_invoke "$otvm_bin" create windows-2022 --progress human --idempotency-key "objcmarkdown-windows-build-$(date -u +%Y%m%d%H%M%S)" --metadata app=ObjcMarkdown --metadata purpose=msi-build --metadata role=build > "$build_json"
     fi
     build_lease_id="$(json_field '.lease.lease_id' "$build_json")"
   else
@@ -507,9 +517,9 @@ create_cmd() {
   if [[ -z "$test_lease_id" ]]; then
     test_json="$(mktemp)"
     if [[ -n "$ttl_hours" ]]; then
-      "$otvm_bin" create windows-2022 --progress human --ttl-hours "$ttl_hours" --idempotency-key "objcmarkdown-windows-test-$(date -u +%Y%m%d%H%M%S)" --metadata app=ObjcMarkdown --metadata purpose=msi-validation --metadata role=test > "$test_json"
+      otvm_invoke "$otvm_bin" create windows-2022 --progress human --ttl-hours "$ttl_hours" --idempotency-key "objcmarkdown-windows-test-$(date -u +%Y%m%d%H%M%S)" --metadata app=ObjcMarkdown --metadata purpose=msi-validation --metadata role=test > "$test_json"
     else
-      "$otvm_bin" create windows-2022 --progress human --idempotency-key "objcmarkdown-windows-test-$(date -u +%Y%m%d%H%M%S)" --metadata app=ObjcMarkdown --metadata purpose=msi-validation --metadata role=test > "$test_json"
+      otvm_invoke "$otvm_bin" create windows-2022 --progress human --idempotency-key "objcmarkdown-windows-test-$(date -u +%Y%m%d%H%M%S)" --metadata app=ObjcMarkdown --metadata purpose=msi-validation --metadata role=test > "$test_json"
     fi
     test_lease_id="$(json_field '.lease.lease_id' "$test_json")"
   else
@@ -593,10 +603,10 @@ destroy_cmd() {
 
   otvm_bin="$(resolve_otvm_bin)"
   if [[ -n "$build_lease_id" ]]; then
-    "$otvm_bin" destroy "$build_lease_id"
+    otvm_invoke "$otvm_bin" destroy "$build_lease_id"
   fi
   if [[ -n "$test_lease_id" ]]; then
-    "$otvm_bin" destroy "$test_lease_id"
+    otvm_invoke "$otvm_bin" destroy "$test_lease_id"
   fi
 }
 
@@ -628,10 +638,10 @@ status_cmd() {
 
   otvm_bin="$(resolve_otvm_bin)"
   if [[ -n "$build_lease_id" ]]; then
-    "$otvm_bin" status "$build_lease_id"
+    otvm_invoke "$otvm_bin" status "$build_lease_id"
   fi
   if [[ -n "$test_lease_id" ]]; then
-    "$otvm_bin" status "$test_lease_id"
+    otvm_invoke "$otvm_bin" status "$test_lease_id"
   fi
 }
 
