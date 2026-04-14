@@ -2,6 +2,42 @@
 
 For Linux clean-machine validation, the preferred local path is a disposable Debian VM under `qemu/kvm`, not the long-lived host workstation and not a container.
 
+For `Phase 9C`, the preferred cloud handoff path is now `OracleTestVMs` with
+the `debian-13-gnome-wayland` profile. The local libvirt flow below remains
+useful when OCI access is unavailable or when you want a purely local smoke
+environment.
+
+## OracleTestVMs Preferred Flow
+
+Use the repo-owned helper:
+
+```bash
+./scripts/linux/otvm-appimage-validation.sh create
+```
+
+That flow:
+
+- creates a fresh Debian 13 GNOME Wayland lease through `OracleTestVMs`
+- uploads the latest built `ObjcMarkdown` AppImage
+- uploads a small set of sample Markdown documents:
+  - `Resources/sample-commonmark.md`
+  - `InlineStyleDemo.md`
+  - `TableRenderDemo.md`
+  - `README.md`
+- writes handoff instructions to `dist/otvm/linux/<lease-id>/handoff.txt`
+
+The handoff includes:
+
+- SSH connection command
+- RDP host, username, and password
+- the guest payload directory under `/home/tester/ObjcMarkdownValidation`
+
+Destroy a finished lease with:
+
+```bash
+./scripts/linux/otvm-appimage-validation.sh destroy <lease-id>
+```
+
 ## Practical Approach
 
 Two levels are useful:
@@ -56,7 +92,7 @@ Inside the guest, run:
 bash /run/media/$USER/OBJCMD_VALIDATION/validate-appimage-guest.sh --smoke-gui
 ```
 
-That performs the packaged runtime validation, launches the AppImage briefly, and captures a screenshot when a guest screenshot tool is available.
+That performs the repo-side packaged runtime inspection pass, then launches the AppImage briefly and captures a screenshot when a guest screenshot tool is available.
 
 ## Repeatable Overlay Flow
 

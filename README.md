@@ -166,9 +166,10 @@ Release flow:
 
 - Ensure the target commit has already passed the separate Linux CI workflow if you want a GNUstep/Linux gate before release tagging.
 - Push an annotated tag like `v0.1.0`.
-- GitHub Actions runs `linux-appimage` on the self-hosted GNUstep clang runner, stages the bundled GNUstep runtime plus the pinned Adwaita theme, builds an AppImage for that tag, and uploads the Linux artifact.
-- GitHub Actions runs `windows-packaging` through the reusable `gnustep-packager` workflow on `windows-latest`, bundles the GNUstep runtime plus `WinUXTheme`, `Win11Theme`, `WinUITheme`, and a pinned TinyTeX runtime under `clang64\texlive\TinyTeX` for external LaTeX math rendering, and uploads the Windows package, log, and validation artifacts.
-- Clean-machine validation is still done with the OCI Windows workflow in [docs/windows-oci-msi-validation.md](docs/windows-oci-msi-validation.md).
+- GitHub Actions runs `linux-appimage` as a thin caller to the reusable `gnustep-packager` workflow pinned to `fb29ee4ef61ecfcc8e7e0c8ee0b690883351324c`, using this repo's Linux manifest, stage script, and self-hosted GNUstep preflight.
+- GitHub Actions runs `windows-packaging` as a thin caller to the same pinned reusable workflow, using this repo's Windows MSI manifest and normalized Windows stage script. The staged Windows payload includes the GNUstep runtime, bundled Windows themes, and TinyTeX runtime for external LaTeX rendering.
+- Each tagged packaging workflow then downloads its `-packages` artifact and attaches the release files to the matching GitHub Release page. Linux publishes the `.AppImage` and `.zsync`; Windows publishes the `.msi` and portable ZIP, along with generated sidecars such as `.update-feed.json`.
+- Clean-machine Windows validation is documented in [docs/windows-otvm-msi-validation.md](docs/windows-otvm-msi-validation.md). The older direct-OCI helper has been retired; [docs/windows-oci-msi-validation.md](docs/windows-oci-msi-validation.md) is kept only as a retirement note.
 
 ## Public Docs
 
@@ -176,6 +177,7 @@ Release flow:
 - [OpenIssues.md](OpenIssues.md)
 - [ClosedIssues.md](ClosedIssues.md)
 - [WINDOWS_BUILD.md](WINDOWS_BUILD.md)
+- [packaging/README.md](packaging/README.md)
 - [docs/windows-oci-msi-validation.md](docs/windows-oci-msi-validation.md)
 - [docs/linux-clang-toolchain.md](docs/linux-clang-toolchain.md)
 - [docs/linux-appimage-packaging.md](docs/linux-appimage-packaging.md)

@@ -3,7 +3,7 @@ name: windows-packaging
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
   workflow_dispatch:
     inputs:
       version:
@@ -11,70 +11,73 @@ on:
         required: false
         type: string
 
+permissions:
+  contents: write
+
 jobs:
   resolve-version:
     runs-on: ubuntu-latest
     outputs:
-      version: ${{ steps.version.outputs.version }}
+      package_version: ${{ steps.version.outputs.package_version }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Resolve Version
-        id: version
-        shell: pwsh
+      - id: version
+        shell: bash
         run: |
-          $versionPattern = '^v?(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)$'
-          $inputVersion = "${{ github.event.inputs.version }}"
-          $refType = "${{ github.ref_type }}"
-          $refName = "${{ github.ref_name }}"
-
-          if ($inputVersion -match $versionPattern) {
-            $version = $Matches[1]
-          } elseif ($refType -eq "tag" -and $refName -match $versionPattern) {
-            $version = $Matches[1]
-          } else {
-            $tag = (git describe --tags --abbrev=0 2>$null)
-            if ($LASTEXITCODE -ne 0) {
-              $tag = ""
-              $global:LASTEXITCODE = 0
-            }
-            if ($tag -match $versionPattern) {
-              $version = $Matches[1]
-            } else {
-              $version = "0.0.0"
-            }
-          }
-
-          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          set -euo pipefail
+          version='${{ github.event.inputs.version }}'
+          if [[ -z "$version" && '${{ github.ref_type }}' == 'tag' ]]; then
+            version='${{ github.ref_name }}'
+          fi
+          version="${version#v}"
+          printf 'package_version=%s\n' "$version" >> "$GITHUB_OUTPUT"
 
   build-msi:
     needs: resolve-version
-    uses: danjboyd/gnustep-packager/.github/workflows/package-gnustep-app.yml@main
+    uses: danjboyd/gnustep-packager/.github/workflows/package-gnustep-app.yml@fb29ee4ef61ecfcc8e7e0c8ee0b690883351324c
     with:
-      manifest-path: packaging/package.manifest.json
+      manifest-path: packaging/manifests/windows-msi.manifest.json
       backend: msi
-      package-version: ${{ needs.resolve-version.outputs.version }}
+      package-version: ${{ needs.resolve-version.outputs.package_version }}
       msys2-packages: >-
         mingw-w64-clang-x86_64-cmark
-      preflight-shell: pwsh
-      preflight-command: |
-        git submodule update --init --recursive
-
-        $themeRoot = Join-Path $env:GITHUB_WORKSPACE ".omd-theme-inputs"
-        New-Item -ItemType Directory -Force -Path $themeRoot | Out-Null
-
-        foreach ($repo in @("plugins-themes-win11theme", "plugins-themes-winuitheme")) {
-          $target = Join-Path $themeRoot $repo
-          if (Test-Path $target) {
-            continue
-          }
-
-          git clone --depth 1 ("https://github.com/danjboyd/{0}.git" -f $repo) $target
-        }
       run-validation: true
       run-smoke: true
-      artifact-name: objcmarkdown-windows-${{ needs.resolve-version.outputs.version }}
+      upload-artifacts: true
+      artifact-name: objcmarkdown-windows
     secrets: inherit
+
+  publish-release-assets:
+    if: github.ref_type == 'tag'
+    needs:
+      - build-msi
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Windows Package Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: objcmarkdown-windows-packages
+          path: dist/windows
+
+      - name: Stage Windows Release Assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+          cp dist/windows/*.msi release-assets/
+          if compgen -G 'dist/windows/*-portable.zip' > /dev/null; then
+            cp dist/windows/*-portable.zip release-assets/
+          fi
+          if compgen -G 'dist/windows/*.update-feed.json' > /dev/null; then
+            cp dist/windows/*.update-feed.json release-assets/
+          fi
+          if compgen -G 'dist/windows/*.metadata.json' > /dev/null; then
+            cp dist/windows/*.metadata.json release-assets/
+          fi
+          if compgen -G 'dist/windows/*.diagnostics.txt' > /dev/null; then
+            cp dist/windows/*.diagnostics.txt release-assets/
+          fi
+
+      - name: Publish Windows Release Assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-assets/*

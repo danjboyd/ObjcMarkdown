@@ -3,153 +3,82 @@ name: linux-appimage
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
   workflow_dispatch:
     inputs:
       version:
-        description: Optional version to package (for example 0.1.0 or v0.1.0).
+        description: Optional version to package (for example 0.1.0 or 0.1.1-rc2).
         required: false
         type: string
 
-env:
-  ADWAITA_THEME_REPOSITORY: danjboyd/plugins-themes-Adwaita
-  ADWAITA_THEME_REF: 9d455f67587242400f6620a0e8884084850d1204
+permissions:
+  contents: write
 
 jobs:
-  build-appimage:
-    runs-on:
-      - self-hosted
-      - linux
-      - gnustep-clang
-    timeout-minutes: 45
-
+  resolve-version:
+    runs-on: ubuntu-latest
+    outputs:
+      package_version: ${{ steps.version.outputs.package_version }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version='${{ github.event.inputs.version }}'
+          if [[ -z "$version" && '${{ github.ref_type }}' == 'tag' ]]; then
+            version='${{ github.ref_name }}'
+          fi
+          version="${version#v}"
+          printf 'package_version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+
+  build-appimage:
+    needs: resolve-version
+    uses: danjboyd/gnustep-packager/.github/workflows/package-gnustep-app.yml@fb29ee4ef61ecfcc8e7e0c8ee0b690883351324c
+    with:
+      manifest-path: packaging/manifests/linux-appimage.manifest.json
+      backend: appimage
+      package-version: ${{ needs.resolve-version.outputs.package_version }}
+      runs-on-appimage: '["self-hosted","linux","gnustep-clang"]'
+      skip-default-host-setup: true
+      preflight-shell: bash
+      preflight-command: ./packaging/ci/preflight-appimage.sh
+      run-validation: true
+      run-smoke: true
+      upload-artifacts: true
+      artifact-name: objcmarkdown-linux
+
+  publish-release-assets:
+    if: github.ref_type == 'tag'
+    needs:
+      - build-appimage
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Linux Package Artifacts
+        uses: actions/download-artifact@v4
         with:
-          fetch-depth: 0
-          submodules: recursive
+          name: objcmarkdown-linux-packages
+          path: dist/linux
 
-      - name: Checkout Adwaita theme
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ env.ADWAITA_THEME_REPOSITORY }}
-          ref: ${{ env.ADWAITA_THEME_REF }}
-          path: third_party/plugins-themes-Adwaita
-          fetch-depth: 1
-
-      - name: Verify GNUstep clang environment
+      - name: Stage Linux Release Assets
         shell: bash
         run: |
           set -euo pipefail
-          test -f /usr/GNUstep/System/Library/Makefiles/GNUstep.sh
-          set +u
-          source /usr/GNUstep/System/Library/Makefiles/GNUstep.sh
-          set -u
-          command -v clang
-          command -v gmake
-          command -v curl
-          command -v pandoc
-          command -v magick || command -v convert
-
-      - name: Build (GNUstep clang)
-        shell: bash
-        run: |
-          set -euo pipefail
-          set +u
-          source /usr/GNUstep/System/Library/Makefiles/GNUstep.sh
-          set -u
-          gmake OMD_SKIP_TESTS=1
-
-      - name: Stage AppDir
-        shell: bash
-        run: |
-          set -euo pipefail
-          ./scripts/linux/stage-appimage-runtime.sh dist/ObjcMarkdown.AppDir third_party/plugins-themes-Adwaita
-
-      - name: Validate staged AppDir
-        shell: bash
-        run: |
-          set -euo pipefail
-          ./scripts/linux/validate-appimage.sh dist/ObjcMarkdown.AppDir
-
-      - name: Resolve Version
-        id: version
-        shell: bash
-        run: |
-          set -euo pipefail
-          version_pattern='^v?([0-9]+\.[0-9]+\.[0-9]+)([-+].*)?$'
-          input_version='${{ github.event.inputs.version }}'
-          ref_type='${{ github.ref_type }}'
-          ref_name='${{ github.ref_name }}'
-
-          if [[ "$input_version" =~ $version_pattern ]]; then
-            version="${BASH_REMATCH[1]}"
-          elif [[ "$ref_type" == "tag" && "$ref_name" =~ $version_pattern ]]; then
-            version="${BASH_REMATCH[1]}"
-          else
-            tag="$(git describe --tags --abbrev=0 2>/dev/null || true)"
-            if [[ "$tag" =~ $version_pattern ]]; then
-              version="${BASH_REMATCH[1]}"
-            else
-              version="0.0.0"
-            fi
+          mkdir -p release-assets
+          cp dist/linux/*.AppImage release-assets/
+          if compgen -G 'dist/linux/*.AppImage.zsync' > /dev/null; then
+            cp dist/linux/*.AppImage.zsync release-assets/
+          fi
+          if compgen -G 'dist/linux/*.update-feed.json' > /dev/null; then
+            cp dist/linux/*.update-feed.json release-assets/
+          fi
+          if compgen -G 'dist/linux/*.metadata.json' > /dev/null; then
+            cp dist/linux/*.metadata.json release-assets/
+          fi
+          if compgen -G 'dist/linux/*.diagnostics.txt' > /dev/null; then
+            cp dist/linux/*.diagnostics.txt release-assets/
           fi
 
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-
-      - name: Download linuxdeploy
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p tools/linuxdeploy
-          curl -L -o tools/linuxdeploy/linuxdeploy-x86_64.AppImage \
-            https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
-          curl -L -o tools/linuxdeploy/linuxdeploy-plugin-appimage-x86_64.AppImage \
-            https://github.com/linuxdeploy/linuxdeploy-plugin-appimage/releases/download/continuous/linuxdeploy-plugin-appimage-x86_64.AppImage
-          chmod +x tools/linuxdeploy/linuxdeploy-x86_64.AppImage
-          chmod +x tools/linuxdeploy/linuxdeploy-plugin-appimage-x86_64.AppImage
-
-      - name: Build AppImage
-        shell: bash
-        env:
-          ARCH: x86_64
-          LINUXDEPLOY_OUTPUT_VERSION: ${{ steps.version.outputs.version }}
-        run: |
-          set -euo pipefail
-          source dist/ObjcMarkdown.AppDir/.omd-appdir-manifest
-          : "${APP_RUNTIME_LIB_DIR:=$APPDIR/usr/lib/ObjcMarkdownRuntime}"
-
-          export PATH="$PWD/tools/linuxdeploy:$PATH"
-          export LD_LIBRARY_PATH="$APP_RUNTIME_LIB_DIR:$APPDIR/usr/GNUstep/System/Library/Libraries${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-          ./tools/linuxdeploy/linuxdeploy-x86_64.AppImage \
-            --appdir "$APPDIR" \
-            --desktop-file "$DESKTOP_FILE" \
-            --icon-file "$ICON_FILE" \
-            --output appimage
-
-          generated="$(find . -maxdepth 1 -type f -name '*.AppImage' | head -n 1)"
-          if [[ -z "$generated" ]]; then
-            echo "ERROR: linuxdeploy did not produce an AppImage" >&2
-            exit 1
-          fi
-
-          mv "$generated" "dist/ObjcMarkdown-${LINUXDEPLOY_OUTPUT_VERSION}-linux-x86_64.AppImage"
-
-      - name: Validate AppImage
-        shell: bash
-        run: |
-          set -euo pipefail
-          appimage="$(find dist -maxdepth 1 -type f -name 'ObjcMarkdown-*-linux-x86_64.AppImage' | head -n 1)"
-          if [[ -z "$appimage" ]]; then
-            echo "ERROR: packaged AppImage not found" >&2
-            exit 1
-          fi
-          ./scripts/linux/validate-appimage.sh "$appimage"
-
-      - name: Upload Artifacts
-        uses: actions/upload-artifact@v4
+      - name: Publish Linux Release Assets
+        uses: softprops/action-gh-release@v2
         with:
-          name: objcmarkdown-linux-${{ steps.version.outputs.version }}
-          path: |
-            dist/*.AppImage
+          files: release-assets/*

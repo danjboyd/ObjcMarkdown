@@ -213,6 +213,7 @@ foreach ($themeSpec in $themeSpecs) {
   $resolvedThemeRepo = Resolve-OmdThemeRepo -RepoName $themeRepoName -Candidates @($repoCandidates | Select-Object -Unique)
 
   $extraEnvironment = @{}
+  $themeBuildFlags = "-DHAVE_MODE_T=1"
   $compatScriptCandidates = @(
     (Join-Path $resolvedThemeRepo "Scripts\Prepare-GNUstepCompat.ps1"),
     (Join-Path $resolvedThemeRepo "scripts\Prepare-GNUstepCompat.ps1")
@@ -231,7 +232,9 @@ foreach ($themeSpec in $themeSpecs) {
   Invoke-OmdMsysCommand `
     -MsysRoot $resolvedMsysRoot `
     -WorkingDirectory $resolvedThemeRepo `
-    -InnerCommand "make install GNUSTEP_INSTALLATION_DOMAIN=USER" `
+    -InnerCommand ("make install GNUSTEP_INSTALLATION_DOMAIN=USER " +
+      ("ADDITIONAL_CPPFLAGS=`"{0}`" " -f $themeBuildFlags) +
+      ("ADDITIONAL_OBJCFLAGS=`"{0}`"" -f $themeBuildFlags)) `
     -Environment $extraEnvironment
 
   $themeResults.Add([pscustomobject]@{

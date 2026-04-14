@@ -1,0 +1,171 @@
+{
+  "$schema": "../../../gnustep/gnustep-packager/schemas/gnustep-packager.schema.json",
+  "schemaVersion": 1,
+  "profiles": [
+    "gnustep-gui",
+    "gnustep-document-viewer"
+  ],
+  "package": {
+    "id": "org.objcmarkdown.MarkdownViewer",
+    "name": "ObjcMarkdown",
+    "displayName": "Markdown Viewer",
+    "version": "0.1.1-rc2",
+    "manufacturer": "ObjcMarkdown",
+    "summary": "GNUstep Markdown viewer packaged through gnustep-packager.",
+    "license": "MIT",
+    "homepage": "https://github.com/danjboyd/ObjcMarkdown"
+  },
+  "pipeline": {
+    "workingDirectory": "../..",
+    "shell": {
+      "kind": "pwsh",
+      "bootstrapCommands": [],
+      "environment": {}
+    },
+    "build": {
+      "command": "./packaging/scripts/build-windows.ps1"
+    },
+    "stage": {
+      "command": "./packaging/scripts/stage-windows.ps1 -StageRoot dist/packaging/windows/stage",
+      "outputRoot": "../../dist/packaging/windows/stage"
+    }
+  },
+  "payload": {
+    "layoutVersion": 1,
+    "stageRoot": "../../dist/packaging/windows/stage",
+    "appRoot": "app",
+    "runtimeRoot": "runtime",
+    "metadataRoot": "metadata",
+    "resourceRoots": [
+      "metadata/icons"
+    ],
+    "runtimeSeedPaths": [
+      "runtime/bin/defaults.exe"
+    ]
+  },
+  "launch": {
+    "entryRelativePath": "app/MarkdownViewer.app/MarkdownViewer.exe",
+    "workingDirectory": ".",
+    "arguments": [],
+    "pathPrepend": [
+      "runtime/bin",
+      "runtime/texlive/TinyTeX/bin/windows"
+    ],
+    "resourceRoots": [
+      "metadata/icons"
+    ],
+    "env": {
+      "GNUSTEP_PATHPREFIX_LIST": "{@runtimeRoot}"
+    }
+  },
+  "outputs": {
+    "root": "../../dist/packaging/windows",
+    "packageRoot": "../../dist/packaging/windows/packages",
+    "logRoot": "../../dist/packaging/windows/logs",
+    "tempRoot": "../../dist/packaging/windows/tmp",
+    "validationRoot": "../../dist/packaging/windows/validation"
+  },
+  "updates": {
+    "enabled": true,
+    "provider": "github-release-feed",
+    "channel": "stable",
+    "minimumCheckIntervalHours": 24,
+    "startupDelaySeconds": 15,
+    "github": {
+      "owner": "danjboyd",
+      "repo": "ObjcMarkdown",
+      "tagPattern": "v{version}",
+      "releaseNotesUrlPattern": "https://github.com/{owner}/{repo}/releases/tag/{tag}"
+    }
+  },
+  "validation": {
+    "smoke": {
+      "enabled": true,
+      "kind": "staged-layout",
+      "requiredPaths": [
+        "app/MarkdownViewer.app/Resources/theme-github.toml",
+        "metadata/icons/markdown_icon.ico",
+        "metadata/icons/markdown_icon.png",
+        "metadata/docs/BundledThemes.txt",
+        "metadata/docs/BundledLaTeXRuntime.txt",
+        "runtime/bin/defaults.exe",
+        "runtime/bin/libcairo-2.dll",
+        "runtime/bin/libfontconfig-1.dll",
+        "runtime/bin/libfreetype-6.dll",
+        "runtime/lib/GNUstep/Bundles/libgnustep-back-032.bundle/libgnustep-back-032.dll",
+        "runtime/texlive/TinyTeX/bin/windows/latex.exe",
+        "runtime/texlive/TinyTeX/bin/windows/dvisvgm.exe",
+        "runtime/texlive/TinyTeX/bin/windows/dvipng.exe"
+      ],
+      "timeoutSeconds": 30
+    },
+    "logs": {
+      "retainOnSuccess": true
+    }
+  },
+  "integrations": {
+    "shortcutName": "Markdown Viewer",
+    "categories": [
+      "Office",
+      "TextEditor",
+      "Utility"
+    ],
+    "fileAssociations": [
+      {
+        "kind": "extension",
+        "value": ".md",
+        "description": "Markdown document"
+      },
+      {
+        "kind": "extension",
+        "value": ".markdown",
+        "description": "Markdown document"
+      },
+      {
+        "kind": "extension",
+        "value": ".mdown",
+        "description": "Markdown document"
+      },
+      {
+        "kind": "extension",
+        "value": ".rtf",
+        "description": "Rich Text document"
+      },
+      {
+        "kind": "extension",
+        "value": ".docx",
+        "description": "Word document"
+      },
+      {
+        "kind": "extension",
+        "value": ".odt",
+        "description": "OpenDocument Text document"
+      }
+    ]
+  },
+  "backends": {
+    "msi": {
+      "enabled": true,
+      "upgradeCode": "ca1cb9b9-e6d5-41fd-bc64-a1782423500e",
+      "installScope": "perUser",
+      "productName": "ObjcMarkdown",
+      "shortcutName": "Markdown Viewer",
+      "installDirectoryName": "ObjcMarkdown",
+      "launcherFileName": "MarkdownViewer.exe",
+      "iconRelativePath": "metadata/icons/markdown_icon.ico",
+      "artifactNamePattern": "{name}-{version}-win64.msi",
+      "portableArtifactNamePattern": "{name}-{version}-win64-portable.zip",
+      "fallbackRuntimeRoot": "C:\\clang64",
+      "unresolvedDependencyPolicy": "fail",
+      "updates": {
+        "feedUrl": "https://danjboyd.github.io/ObjcMarkdown/updates/windows/stable.json"
+      },
+      "wix": {
+        "toolRoot": "../../dist/packaging/windows/tools/wix"
+      }
+    },
+    "appimage": {
+      "enabled": false
+    }
+  }
+}

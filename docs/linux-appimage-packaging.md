@@ -1,68 +1,85 @@
 # Linux AppImage Packaging
 
-`ObjcMarkdown` now has a release-oriented Linux packaging lane that mirrors the Windows MSI workflow: build the app on the supported toolchain, stage a self-contained runtime, then publish a tagged artifact.
+Linux release packaging now goes through the reusable
+`gnustep-packager` workflow and the downstream manifest at
+[packaging/manifests/linux-appimage.manifest.json](../packaging/manifests/linux-appimage.manifest.json).
 
-## Goals
+## Current Flow
 
-- Use the same self-hosted clang/libobjc2/libdispatch GNUstep environment as the main Linux CI lane.
-- Bundle the GNUstep runtime used by this project instead of relying on distro GNUstep packages.
-- Bundle the `Adwaita.theme` GNUstep theme and make it the packaged default theme.
-- Emit a release artifact on `v*` tags in GitHub Actions.
+The GitHub Actions entry point is
+[linux-appimage.yml](../.github/workflows/linux-appimage.yml).
 
-## Workflow
+That workflow now:
 
-The GitHub Actions entry point is:
+1. Resolves the release version from the dispatch input or pushed tag.
+2. Calls the reusable `gnustep-packager` workflow pinned to commit
+   `fb29ee4ef61ecfcc8e7e0c8ee0b690883351324c`.
+3. Runs repo-owned Linux preflight from
+   [packaging/ci/preflight-appimage.sh](../packaging/ci/preflight-appimage.sh)
+   on the self-hosted GNUstep runner.
+4. Builds with
+   [packaging/scripts/build-linux.sh](../packaging/scripts/build-linux.sh).
+5. Stages the normalized `app/`, `runtime/`, and `metadata/` payload with
+   [packaging/scripts/stage-linux-runtime.sh](../packaging/scripts/stage-linux-runtime.sh).
+6. Lets `gnustep-packager` render the AppDir, generate `AppRun`, package the
+   AppImage, run strict runtime-closure validation, and execute smoke launch.
+7. On pushed tags, downloads the uploaded `objcmarkdown-linux-packages`
+   artifact and publishes the `.AppImage`, `.AppImage.zsync`, and generated
+   sidecars to the matching GitHub Release.
 
-- [linux-appimage.yml](../.github/workflows/linux-appimage.yml)
+## Staged Layout
 
-That workflow:
+The repo-owned Linux stage root is:
 
-1. Checks out this repo and the pinned `plugins-themes-Adwaita` source tree.
-2. Builds `ObjcMarkdown` in the canonical Linux GNUstep clang environment.
-3. Runs [scripts/linux/stage-appimage-runtime.sh](../scripts/linux/stage-appimage-runtime.sh) to assemble `dist/ObjcMarkdown.AppDir`.
-4. Runs [scripts/linux/validate-appimage.sh](../scripts/linux/validate-appimage.sh) against the staged AppDir.
-5. Uses `linuxdeploy` plus the AppImage plugin to produce `ObjcMarkdown-<version>-linux-x86_64.AppImage`.
-6. Validates the generated AppImage with the same wrapper diagnostic.
+- `app/`
+  `MarkdownViewer.app` plus app-private project libraries under `app/lib`
+- `runtime/`
+  GNUstep libraries, bundles, tools, Adwaita theme payload, fontconfig data,
+  glib schemas, bundled `pandoc`, and native dependency closure
+- `metadata/`
+  icon assets, packaging docs, and the sample smoke document
 
-## Staged Runtime
+The launch policy is now manifest-driven instead of relying on a repo-local
+`AppRun` wrapper:
 
-The staging script creates an AppDir with:
-
-- `MarkdownViewer.app`
-- project shared libraries (`ObjcMarkdown`, `OpenSave`, `TextViewVimKit`)
-- bundled GNUstep libraries, bundles, color pickers, makefiles, and the `defaults` tool
-- copied fontconfig and GLib schema data used by the GTK-backed GNUstep runtime
-- the Adwaita GNUstep theme installed under the staged GNUstep `Themes` directory
-- a launcher wrapper that seeds `GSTheme=Adwaita` and writes that default into the AppImage-specific GNUstep defaults domain when no explicit override exists
+- `GSTheme=Adwaita` with `ifUnset`
+- GNUstep roots pointed at the packaged `runtime/`
+- `LD_LIBRARY_PATH` seeded from packaged app/runtime library roots
+- `PANDOC_DATA_DIR` and related app variables pointed at the bundled payload
 
 ## Theme Input
 
-The workflow treats the Adwaita theme as an explicit packaging input:
+The Linux preflight keeps the packaged Adwaita theme pinned to:
 
-- Repository: `danjboyd/plugins-themes-Adwaita`
-- Pinned ref: `9d455f67587242400f6620a0e8884084850d1204`
+- repository: `danjboyd/plugins-themes-Adwaita`
+- commit: `9d455f67587242400f6620a0e8884084850d1204`
 
-Update the workflow env if you want to move the packaged theme to a newer commit or tag.
+The stage script also supports a local fallback checkout at
+`../gnustep/plugins-themes-adwaita` when working outside CI.
 
-## Local Dry Run
+## Local Commands
 
-On a Linux machine with the supported GNUstep clang stack:
+Build and test the repo first:
 
 ```bash
-set +u
-source /usr/GNUstep/System/Library/Makefiles/GNUstep.sh
-set -u
-gmake OMD_SKIP_TESTS=1
-./scripts/linux/stage-appimage-runtime.sh dist/ObjcMarkdown.AppDir /path/to/plugins-themes-Adwaita
-./scripts/linux/validate-appimage.sh dist/ObjcMarkdown.AppDir
+scripts/ci/run-linux-ci.sh
 ```
 
-The validation script runs the launcher in diagnostic mode and checks that the staged runtime, backend bundle, defaults tool, and Adwaita theme are all visible from the packaged environment.
+Then run the packager pipeline locally:
 
-## Clean Debian Validation
+```bash
+pwsh ../gnustep/gnustep-packager/scripts/run-packaging-pipeline.ps1 \
+  -Manifest packaging/manifests/linux-appimage.manifest.json \
+  -Backend appimage \
+  -RunSmoke
+```
 
-For local clean-machine testing on this project, use a disposable Debian VM under `qemu/kvm` rather than relying on the host workstation state.
+For an extra repo-side inspection pass on the produced artifact:
 
-The local runbook is:
+```bash
+./scripts/linux/validate-appimage.sh \
+  dist/packaging/linux/packages/ObjcMarkdown-0.1.1-rc2-linux-x86_64.AppImage
+```
 
-- [linux-debian-vm-validation.md](linux-debian-vm-validation.md)
+For clean-machine checks on Debian, use
+[linux-debian-vm-validation.md](linux-debian-vm-validation.md).

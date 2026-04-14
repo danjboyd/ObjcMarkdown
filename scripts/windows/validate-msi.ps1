@@ -173,17 +173,14 @@ try {
     throw "Expected runtime not found in any of: $($runtimeCandidates -join ', ')"
   }
 
-  $requiredThemePaths = @(
-    (Join-Path $InstallDir "clang64\\lib\\GNUstep\\Themes\\WinUXTheme.theme\\WinUXTheme.dll"),
-    (Join-Path $InstallDir "clang64\\lib\\GNUstep\\Themes\\Win11Theme.theme\\Win11Theme.dll"),
-    (Join-Path $InstallDir "clang64\\lib\\GNUstep\\Themes\\WinUITheme.theme\\WinUITheme.dll")
+  $bundledTeXBinCandidates = @(
+    (Join-Path $InstallDir "runtime\\texlive\\TinyTeX\\bin\\windows"),
+    (Join-Path $InstallDir "clang64\\texlive\\TinyTeX\\bin\\windows")
   )
-  $missingThemePaths = @($requiredThemePaths | Where-Object { -not (Test-Path $_) })
-  if ($missingThemePaths.Count -gt 0) {
-    throw "Expected bundled themes were not found: $($missingThemePaths -join ', ')"
+  $bundledTeXBin = $bundledTeXBinCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+  if (-not $bundledTeXBin) {
+    throw "Expected bundled TinyTeX runtime root not found in any of: $($bundledTeXBinCandidates -join ', ')"
   }
-
-  $bundledTeXBin = Join-Path $InstallDir "clang64\\texlive\\TinyTeX\\bin\\windows"
   $requiredTeXPaths = @(
     (Join-Path $bundledTeXBin "latex.exe"),
     (Join-Path $bundledTeXBin "dvisvgm.exe"),

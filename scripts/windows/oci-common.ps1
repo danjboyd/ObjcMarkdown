@@ -8,7 +8,7 @@ $script:OmdOciDefaults = [ordered]@{
   Shape        = "VM.Standard.E5.Flex"
   Ocpus        = 1
   MemoryInGBs  = 12
-  SshUser      = "opc"
+  SshUser      = "otvmbootstrap"
   StateFile    = "dist/oci/last-validation-vm.json"
   LogRoot      = "dist/oci-logs"
 }
@@ -537,24 +537,38 @@ function Resolve-OmdVersionFromGit {
   try {
     $tag = Invoke-NativeCapture -FilePath "git" -Arguments @("describe", "--tags", "--abbrev=0")
   } catch {
-    return "0.0.0"
+    return $null
   }
 
-  if ($tag -match "v?(\d+\.\d+\.\d+)") {
+  if ($tag -match "^v?([0-9]+\.[0-9]+\.[0-9]+(?:[-+].*)?)$") {
     return $Matches[1]
   }
 
-  return "0.0.0"
+  return $null
 }
 
 function Resolve-OmdGnustepPackagerRoot {
   param([string]$PackagerRoot = "..\gnustep-packager")
 
-  return (Resolve-OmdPath -Path $PackagerRoot)
+  if (-not [string]::IsNullOrWhiteSpace($PackagerRoot)) {
+    $resolvedRequestedPath = Resolve-OmdPath -Path $PackagerRoot -AllowMissing
+    if (Test-Path $resolvedRequestedPath) {
+      return $resolvedRequestedPath
+    }
+  }
+
+  foreach ($candidate in @("..\gnustep-packager", "..\gnustep\gnustep-packager")) {
+    $resolvedCandidate = Resolve-OmdPath -Path $candidate -AllowMissing
+    if (Test-Path $resolvedCandidate) {
+      return $resolvedCandidate
+    }
+  }
+
+  throw "Unable to locate gnustep-packager. Checked ..\\gnustep-packager and ..\\gnustep\\gnustep-packager."
 }
 
 function Resolve-OmdGnustepPackagerManifestPath {
-  param([string]$ManifestPath = "packaging/package.manifest.json")
+  param([string]$ManifestPath = "packaging/manifests/windows-msi.manifest.json")
 
   return (Resolve-OmdPath -Path $ManifestPath)
 }
@@ -562,7 +576,7 @@ function Resolve-OmdGnustepPackagerManifestPath {
 function Get-OmdGnustepPackagerArtifactPlan {
   param(
     [string]$PackagerRoot = "..\gnustep-packager",
-    [string]$ManifestPath = "packaging/package.manifest.json",
+    [string]$ManifestPath = "packaging/manifests/windows-msi.manifest.json",
     [string]$Backend = "msi",
     [string]$PackageVersion
   )

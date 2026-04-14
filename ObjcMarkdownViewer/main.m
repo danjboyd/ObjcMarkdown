@@ -5,6 +5,26 @@
 
 static NSString * const OMDMathRenderingPolicyDefaultsKey = @"ObjcMarkdownMathRenderingPolicy";
 static NSInteger const OMDMathRenderingPolicyExternalToolsValue = 2;
+static NSString * const OMDMenuInterfaceStyleDefaultsKey = @"NSMenuInterfaceStyle";
+static NSString * const OMDWindowDecorationDefaultsKey = @"GSWindowDecoration";
+static NSString * const OMDBackChecksOffsetsWithoutNetRequestsDefaultsKey = @"GSBackChecksOffsetsWithoutNetRequests";
+static NSString * const OMDBackChecksOffsetsOnScreenDefaultsKey = @"GSBackChecksOffsetsOnScreen";
+static NSString * const OMDSuppressAppIconDefaultsKey = @"GSSuppressAppIcon";
+static NSString * const OMDThemeDefaultsKey = @"GSTheme";
+
+static NSString *OMDApplicationName(void)
+{
+    NSBundle *bundle = [NSBundle mainBundle];
+    NSString *appName = [bundle objectForInfoDictionaryKey:@"ApplicationName"];
+    if (![appName isKindOfClass:[NSString class]] || [appName length] == 0) {
+        NSDictionary *info = [bundle infoDictionary];
+        appName = [info objectForKey:@"ApplicationName"];
+    }
+    if (![appName isKindOfClass:[NSString class]] || [appName length] == 0) {
+        return nil;
+    }
+    return appName;
+}
 
 static void OMDStartupTrace(NSString *message)
 {
@@ -100,36 +120,53 @@ static BOOL OMDWindowsBundledExecutableExists(NSString *relativePath)
 static NSString *OMDWindowsPreferredThemeName(void)
 {
 #if defined(_WIN32)
-    NSString *preferredTheme = @"WinUITheme";
     NSString *bundleRoot = OMDWindowsInstallRoot();
     NSString *bundledThemesRoot = nil;
     NSString *userThemesRoot = [[[NSHomeDirectory() stringByAppendingPathComponent:@"GNUstep"]
         stringByAppendingPathComponent:@"Library"] stringByAppendingPathComponent:@"Themes"];
     NSString *systemThemesRoot = [[[@"C:\\clang64" stringByAppendingPathComponent:@"lib"]
         stringByAppendingPathComponent:@"GNUstep"] stringByAppendingPathComponent:@"Themes"];
+    NSArray *preferredThemes = [NSArray arrayWithObjects:@"WinUITheme", @"WinUXTheme", nil];
+    NSString *themeName = nil;
 
     if (bundleRoot != nil && [bundleRoot length] > 0) {
         bundledThemesRoot = [[[[bundleRoot stringByAppendingPathComponent:@"clang64"]
             stringByAppendingPathComponent:@"lib"] stringByAppendingPathComponent:@"GNUstep"]
             stringByAppendingPathComponent:@"Themes"];
-        if (OMDWindowsThemeBundleExistsInDirectory(bundledThemesRoot, preferredTheme)) {
-            return preferredTheme;
+        for (themeName in preferredThemes) {
+            if (OMDWindowsThemeBundleExistsInDirectory(bundledThemesRoot, themeName)) {
+                return themeName;
+            }
         }
     }
 
-    if (OMDWindowsThemeBundleExistsInDirectory(userThemesRoot, preferredTheme) ||
-        OMDWindowsThemeBundleExistsInDirectory(systemThemesRoot, preferredTheme)) {
-        return preferredTheme;
+    for (themeName in preferredThemes) {
+        if (OMDWindowsThemeBundleExistsInDirectory(userThemesRoot, themeName) ||
+            OMDWindowsThemeBundleExistsInDirectory(systemThemesRoot, themeName)) {
+            return themeName;
+        }
     }
+    return nil;
 #endif
-    return @"WinUXTheme";
+    return nil;
+}
+
+static NSString *OMDPreferredThemeName(void)
+{
+#if defined(_WIN32)
+    return OMDWindowsPreferredThemeName();
+#else
+    return @"Adwaita";
+#endif
 }
 
 static BOOL OMDWindowsBundledExternalMathToolchainAvailable(void)
 {
 #if defined(_WIN32)
-    return OMDWindowsBundledExecutableExists(@"clang64\\texlive\\TinyTeX\\bin\\windows\\latex.exe") &&
-           OMDWindowsBundledExecutableExists(@"clang64\\texlive\\TinyTeX\\bin\\windows\\dvipng.exe");
+    return (OMDWindowsBundledExecutableExists(@"runtime\\texlive\\TinyTeX\\bin\\windows\\latex.exe") ||
+            OMDWindowsBundledExecutableExists(@"clang64\\texlive\\TinyTeX\\bin\\windows\\latex.exe")) &&
+           (OMDWindowsBundledExecutableExists(@"runtime\\texlive\\TinyTeX\\bin\\windows\\dvipng.exe") ||
+            OMDWindowsBundledExecutableExists(@"clang64\\texlive\\TinyTeX\\bin\\windows\\dvipng.exe"));
 #else
     return NO;
 #endif
@@ -173,10 +210,13 @@ static void OMDEnsureWindowsDefaultPreferences(void)
         updatedGlobalDomain = [NSMutableDictionary dictionary];
     }
 
-    value = [globalDomain objectForKey:@"GSTheme"];
+    value = [globalDomain objectForKey:OMDThemeDefaultsKey];
     if (![value isKindOfClass:[NSString class]] || [(NSString *)value length] == 0) {
-        [updatedGlobalDomain setObject:OMDWindowsPreferredThemeName() forKey:@"GSTheme"];
-        changed = YES;
+        NSString *preferredTheme = OMDPreferredThemeName();
+        if (preferredTheme != nil && [preferredTheme length] > 0) {
+            [updatedGlobalDomain setObject:preferredTheme forKey:OMDThemeDefaultsKey];
+            changed = YES;
+        }
     }
 
     value = [defaults objectForKey:OMDMathRenderingPolicyDefaultsKey];
@@ -187,10 +227,10 @@ static void OMDEnsureWindowsDefaultPreferences(void)
         changed = YES;
     }
 
-    value = [globalDomain objectForKey:@"NSMenuInterfaceStyle"];
+    value = [globalDomain objectForKey:OMDMenuInterfaceStyleDefaultsKey];
     if (![value isKindOfClass:[NSString class]] || [(NSString *)value length] == 0) {
         [updatedGlobalDomain setObject:@"NSWindows95InterfaceStyle"
-                                forKey:@"NSMenuInterfaceStyle"];
+                                forKey:OMDMenuInterfaceStyleDefaultsKey];
         changed = YES;
     }
 
@@ -198,9 +238,9 @@ static void OMDEnsureWindowsDefaultPreferences(void)
         [defaults setPersistentDomain:updatedGlobalDomain forName:NSGlobalDomain];
     }
 
-    value = [defaults objectForKey:@"NSMenuInterfaceStyle"];
+    value = [defaults objectForKey:OMDMenuInterfaceStyleDefaultsKey];
     if (![value isKindOfClass:[NSString class]] || [(NSString *)value length] == 0) {
-        [defaults setObject:@"NSWindows95InterfaceStyle" forKey:@"NSMenuInterfaceStyle"];
+        [defaults setObject:@"NSWindows95InterfaceStyle" forKey:OMDMenuInterfaceStyleDefaultsKey];
         changed = YES;
     }
 
@@ -208,7 +248,7 @@ static void OMDEnsureWindowsDefaultPreferences(void)
         [defaults synchronize];
     }
 
-    value = [[defaults persistentDomainForName:NSGlobalDomain] objectForKey:@"NSMenuInterfaceStyle"];
+    value = [[defaults persistentDomainForName:NSGlobalDomain] objectForKey:OMDMenuInterfaceStyleDefaultsKey];
     if (![value isKindOfClass:[NSString class]] || [(NSString *)value length] == 0) {
         OMDEnsureWindowsMenuInterfaceStyle();
         [defaults synchronize];
@@ -220,6 +260,73 @@ static void OMDEnsureWindowsDefaultPreferences(void)
         [defaults synchronize];
         OMDStartupTrace(@"main: cleared stale NSMenuLocations");
     }
+#endif
+}
+
+static void OMDEnsureDefaultPreferences(void)
+{
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    NSDictionary *globalDomain = [defaults persistentDomainForName:NSGlobalDomain];
+    NSMutableDictionary *updatedGlobalDomain = nil;
+    BOOL changed = NO;
+    id value = nil;
+
+    if (globalDomain != nil) {
+        updatedGlobalDomain = [[globalDomain mutableCopy] autorelease];
+    } else {
+        updatedGlobalDomain = [NSMutableDictionary dictionary];
+    }
+
+    value = [globalDomain objectForKey:OMDThemeDefaultsKey];
+    if (![value isKindOfClass:[NSString class]] || [(NSString *)value length] == 0) {
+        NSString *preferredTheme = OMDPreferredThemeName();
+        if (preferredTheme != nil && [preferredTheme length] > 0) {
+            [updatedGlobalDomain setObject:preferredTheme forKey:OMDThemeDefaultsKey];
+            changed = YES;
+        }
+    }
+
+    value = [globalDomain objectForKey:OMDMenuInterfaceStyleDefaultsKey];
+    if (![value isKindOfClass:[NSString class]] || [(NSString *)value length] == 0) {
+        [updatedGlobalDomain setObject:@"NSWindows95InterfaceStyle"
+                                forKey:OMDMenuInterfaceStyleDefaultsKey];
+        changed = YES;
+    }
+
+    value = [globalDomain objectForKey:OMDWindowDecorationDefaultsKey];
+    if (![value isKindOfClass:[NSString class]] || [(NSString *)value length] == 0) {
+        [updatedGlobalDomain setObject:@"Default" forKey:OMDWindowDecorationDefaultsKey];
+        changed = YES;
+    }
+
+    value = [globalDomain objectForKey:OMDBackChecksOffsetsWithoutNetRequestsDefaultsKey];
+    if (![value isKindOfClass:[NSNumber class]]) {
+        [updatedGlobalDomain setObject:[NSNumber numberWithBool:YES]
+                                forKey:OMDBackChecksOffsetsWithoutNetRequestsDefaultsKey];
+        changed = YES;
+    }
+
+    value = [globalDomain objectForKey:OMDBackChecksOffsetsOnScreenDefaultsKey];
+    if (![value isKindOfClass:[NSNumber class]]) {
+        [updatedGlobalDomain setObject:[NSNumber numberWithBool:YES]
+                                forKey:OMDBackChecksOffsetsOnScreenDefaultsKey];
+        changed = YES;
+    }
+
+    value = [globalDomain objectForKey:OMDSuppressAppIconDefaultsKey];
+    if (![value isKindOfClass:[NSNumber class]]) {
+        [updatedGlobalDomain setObject:[NSNumber numberWithInt:1]
+                                forKey:OMDSuppressAppIconDefaultsKey];
+        changed = YES;
+    }
+
+    if (changed) {
+        [defaults setPersistentDomain:updatedGlobalDomain forName:NSGlobalDomain];
+        [defaults synchronize];
+    }
+
+#if defined(_WIN32)
+    OMDEnsureWindowsDefaultPreferences();
 #endif
 }
 
@@ -249,8 +356,12 @@ int main(int argc, char *argv[])
     OMDStartupTrace(@"main: pool created");
     NSSetUncaughtExceptionHandler(&OMDUncaughtExceptionHandler);
     OMDStartupTrace(@"main: exception handler set");
-    OMDEnsureWindowsDefaultPreferences();
-    OMDStartupTrace(@"main: windows defaults ensured");
+    NSString *applicationName = OMDApplicationName();
+    if (applicationName != nil && [applicationName length] > 0) {
+        [[NSProcessInfo processInfo] setProcessName:applicationName];
+    }
+    OMDEnsureDefaultPreferences();
+    OMDStartupTrace(@"main: default preferences ensured");
     NSApplication *app = nil;
     @try {
         app = [NSApplication sharedApplication];

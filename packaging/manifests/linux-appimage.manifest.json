@@ -1,0 +1,189 @@
+{
+  "$schema": "../../../gnustep/gnustep-packager/schemas/gnustep-packager.schema.json",
+  "schemaVersion": 1,
+  "profiles": [
+    "gnustep-gui",
+    "gnustep-document-viewer"
+  ],
+  "package": {
+    "id": "org.objcmarkdown.MarkdownViewer",
+    "name": "ObjcMarkdown",
+    "displayName": "Markdown Viewer",
+    "version": "0.1.1-rc2",
+    "manufacturer": "ObjcMarkdown",
+    "summary": "GNUstep Markdown viewer packaged through gnustep-packager.",
+    "license": "MIT",
+    "homepage": "https://github.com/danjboyd/ObjcMarkdown"
+  },
+  "pipeline": {
+    "workingDirectory": "../..",
+    "shell": {
+      "kind": "bash",
+      "bootstrapCommands": [],
+      "environment": {}
+    },
+    "build": {
+      "command": "./packaging/scripts/build-linux.sh"
+    },
+    "stage": {
+      "command": "./packaging/scripts/stage-linux-runtime.sh dist/packaging/linux/stage",
+      "outputRoot": "../../dist/packaging/linux/stage"
+    }
+  },
+  "payload": {
+    "layoutVersion": 1,
+    "stageRoot": "../../dist/packaging/linux/stage",
+    "appRoot": "app",
+    "runtimeRoot": "runtime",
+    "metadataRoot": "metadata",
+    "resourceRoots": [
+      "metadata/icons"
+    ]
+  },
+  "launch": {
+    "entryRelativePath": "app/MarkdownViewer.app/MarkdownViewer",
+    "workingDirectory": "app/MarkdownViewer.app",
+    "arguments": [],
+    "pathPrepend": [
+      "runtime/bin",
+      "runtime/System/Tools"
+    ],
+    "resourceRoots": [
+      "metadata/icons"
+    ],
+    "env": {
+      "GNUSTEP_PATHPREFIX_LIST": "{@runtimeRoot}",
+      "GNUSTEP_SYSTEM_ROOT": "{@runtimeRoot}/System",
+      "GNUSTEP_LOCAL_ROOT": "{@runtimeRoot}/Local",
+      "GNUSTEP_NETWORK_ROOT": "{@runtimeRoot}/Network",
+      "GNUSTEP_PATHLIST": "{@runtimeRoot}/Local:{@runtimeRoot}/Network:{@runtimeRoot}/System",
+      "GNUSTEP_SYSTEM_LIBRARY": "{@runtimeRoot}/System/Library",
+      "GNUSTEP_SYSTEM_LIBRARIES": "{@runtimeRoot}/System/Library/Libraries",
+      "GNUSTEP_SYSTEM_TOOLS": "{@runtimeRoot}/System/Tools",
+      "GNUSTEP_CONFIG_FILE": "{@runtimeRoot}/etc/GNUstep/GNUstep.conf",
+      "GNUSTEP_LOCAL_LIBRARY": "{@runtimeRoot}/Local/Library",
+      "GNUSTEP_LOCAL_LIBRARIES": "{@runtimeRoot}/Local/Library/Libraries",
+      "GNUSTEP_LOCAL_TOOLS": "{@runtimeRoot}/Local/Tools",
+      "GNUSTEP_NETWORK_LIBRARY": "{@runtimeRoot}/Network/Library",
+      "GNUSTEP_NETWORK_LIBRARIES": "{@runtimeRoot}/Network/Library/Libraries",
+      "GNUSTEP_NETWORK_TOOLS": "{@runtimeRoot}/Network/Tools",
+      "LD_LIBRARY_PATH": "{@appRoot}/lib:{@runtimeRoot}/System/Library/Libraries:{@runtimeRoot}/lib",
+      "XDG_DATA_DIRS": "{@runtimeRoot}/share",
+      "GSETTINGS_SCHEMA_DIR": "{@runtimeRoot}/share/glib-2.0/schemas",
+      "OMD_PANDOC_PATH": "{@runtimeRoot}/bin/pandoc",
+      "OMD_PANDOC_DATA_DIR": "{@runtimeRoot}/share/pandoc",
+      "PANDOC_DATA_DIR": "{@runtimeRoot}/share/pandoc",
+      "GSTheme": {
+        "value": "Adwaita",
+        "policy": "ifUnset"
+      }
+    }
+  },
+  "outputs": {
+    "root": "../../dist/packaging/linux",
+    "packageRoot": "../../dist/packaging/linux/packages",
+    "logRoot": "../../dist/packaging/linux/logs",
+    "tempRoot": "../../dist/packaging/linux/tmp",
+    "validationRoot": "../../dist/packaging/linux/validation"
+  },
+  "updates": {
+    "enabled": true,
+    "provider": "github-release-feed",
+    "channel": "stable",
+    "minimumCheckIntervalHours": 24,
+    "startupDelaySeconds": 15,
+    "github": {
+      "owner": "danjboyd",
+      "repo": "ObjcMarkdown",
+      "tagPattern": "v{version}",
+      "releaseNotesUrlPattern": "https://github.com/{owner}/{repo}/releases/tag/{tag}"
+    }
+  },
+  "validation": {
+    "smoke": {
+      "enabled": true,
+      "kind": "staged-layout",
+      "requiredPaths": [
+        "app/MarkdownViewer.app/Resources/theme-github.toml",
+        "metadata/icons/markdown_icon.png",
+        "metadata/smoke/sample-commonmark.md",
+        "runtime/etc/GNUstep/GNUstep.conf",
+        "runtime/System/Library/Themes/Adwaita.theme",
+        "runtime/System/Tools/defaults",
+        "runtime/bin/pandoc",
+        "runtime/share/pandoc"
+      ],
+      "timeoutSeconds": 30
+    },
+    "logs": {
+      "retainOnSuccess": true
+    }
+  },
+  "integrations": {
+    "shortcutName": "Markdown Viewer",
+    "categories": [
+      "Office",
+      "TextEditor",
+      "Utility"
+    ],
+    "fileAssociations": [
+      {
+        "kind": "extension",
+        "value": ".md",
+        "description": "Markdown document"
+      },
+      {
+        "kind": "extension",
+        "value": ".markdown",
+        "description": "Markdown document"
+      },
+      {
+        "kind": "extension",
+        "value": ".mdown",
+        "description": "Markdown document"
+      },
+      {
+        "kind": "extension",
+        "value": ".rtf",
+        "description": "Rich Text document"
+      },
+      {
+        "kind": "extension",
+        "value": ".docx",
+        "description": "Word document"
+      },
+      {
+        "kind": "extension",
+        "value": ".odt",
+        "description": "OpenDocument Text document"
+      }
+    ]
+  },
+  "backends": {
+    "msi": {
+      "enabled": false
+    },
+    "appimage": {
+      "enabled": true,
+      "appDirName": "ObjcMarkdown.AppDir",
+      "desktopEntryName": "objcmarkdown.desktop",
+      "iconRelativePath": "metadata/icons/markdown_icon.png",
+      "updates": {
+        "feedUrl": "https://danjboyd.github.io/ObjcMarkdown/updates/linux/stable.json",
+        "embedUpdateInformation": true,
+        "releaseSelector": "latest",
+        "zsyncArtifactNamePattern": "{name}-{version}-linux-x86_64.AppImage.zsync"
+      },
+      "artifactNamePattern": "{name}-{version}-linux-x86_64.AppImage",
+      "toolRoot": "../../dist/packaging/linux/tools/appimage",
+      "validation": {
+        "runtimeClosure": "strict"
+      },
+      "smoke": {
+        "mode": "open-file",
+        "documentStageRelativePath": "metadata/smoke/sample-commonmark.md",
+        "startupSeconds": 8
+      }
+    }
+  }
+}

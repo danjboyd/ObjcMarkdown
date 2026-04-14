@@ -195,8 +195,10 @@ static BOOL OMDWindowsBundledExecutableExists(NSString *relativePath)
 
 static BOOL OMDWindowsBundledExternalMathToolchainAvailable(void)
 {
-    return OMDWindowsBundledExecutableExists(@"clang64\\texlive\\TinyTeX\\bin\\windows\\latex.exe") &&
-           OMDWindowsBundledExecutableExists(@"clang64\\texlive\\TinyTeX\\bin\\windows\\dvipng.exe");
+    return (OMDWindowsBundledExecutableExists(@"runtime\\texlive\\TinyTeX\\bin\\windows\\latex.exe") ||
+            OMDWindowsBundledExecutableExists(@"clang64\\texlive\\TinyTeX\\bin\\windows\\latex.exe")) &&
+           (OMDWindowsBundledExecutableExists(@"runtime\\texlive\\TinyTeX\\bin\\windows\\dvipng.exe") ||
+            OMDWindowsBundledExecutableExists(@"clang64\\texlive\\TinyTeX\\bin\\windows\\dvipng.exe"));
 }
 #endif
 
@@ -3309,7 +3311,10 @@ static NSMutableArray *OMDSecondaryWindows(void)
     OMDStartupTrace(@"setupMainMenu: enter");
     NSMenu *menubar = [[[NSMenu alloc] initWithTitle:@"GSMainMenu"] autorelease];
 
-    NSString *appName = [[NSProcessInfo processInfo] processName];
+    NSString *appName = OMDInfoStringForKey(@"ApplicationName");
+    if (appName == nil || [appName length] == 0) {
+        appName = [[NSProcessInfo processInfo] processName];
+    }
     NSMenuItem *appMenuItem = [[[NSMenuItem alloc] initWithTitle:appName
                                                           action:NULL
                                                    keyEquivalent:@""] autorelease];

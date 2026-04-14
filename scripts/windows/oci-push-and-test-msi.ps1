@@ -31,7 +31,7 @@ if (-not $GuestHost) {
   $GuestHost = $state.publicIp
 }
 if (-not $SshUser) {
-  $SshUser = if ($state.sshUser) { $state.sshUser } else { "opc" }
+  $SshUser = if ($state.sshUser) { $state.sshUser } else { "otvmbootstrap" }
 }
 if (-not $IdentityFile) {
   $IdentityFile = if ($state.identityFile) {

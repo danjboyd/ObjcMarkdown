@@ -11,7 +11,7 @@ param(
   [string]$SshPublicKeyPath,
   [string]$IdentityFile,
   [string]$JumpHost,
-  [string]$SshUser = "opc",
+  [string]$SshUser = "otvmbootstrap",
   [string]$StateFile = "dist/oci/last-validation-vm.json",
   [int]$PublicIpTimeoutSeconds = 900,
   [int]$SshWaitTimeoutSeconds = 900,

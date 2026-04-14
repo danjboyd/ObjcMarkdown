@@ -3,7 +3,7 @@ param(
   [string]$Task = "build",
   [string]$Command,
   [string]$RunTarget = "TableRenderDemo.md",
-  [string]$StageDir = "dist/ObjcMarkdown",
+  [string]$StageDir = "dist/packaging/windows/stage",
   [string]$RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path,
   [string]$MsysRoot = "C:\msys64"
 )
@@ -52,7 +52,7 @@ xctest ObjcMarkdownTests/ObjcMarkdownTests.bundle
     }
     "stage" {
       $escapedStageDir = $SelectedStageDir.Replace("'", "'\''")
-      return "./scripts/windows/stage-runtime.sh '$escapedStageDir'"
+      return "./packaging/scripts/stage-windows-runtime.sh '$escapedStageDir'"
     }
     "command" {
       if ([string]::IsNullOrWhiteSpace($CustomCommand)) {

@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "description": "Pinned external packaging inputs for ObjcMarkdown. These are fetched into a packaging workspace as needed and are not git submodules of the main repo.",
+  "inputs": [
+    {
+      "id": "linux-adwaita-theme",
+      "kind": "git",
+      "repo": "https://github.com/gnustep/plugins-themes-adwaita.git",
+      "workspacePath": "../gnustep/plugins-themes-adwaita",
+      "platforms": [
+        "linux"
+      ],
+      "purpose": "Bundle the Adwaita GNUstep theme for Linux/AppImage packaging.",
+      "required": true,
+      "notes": [
+        "Treat this as a packaging-time workspace dependency, not a source submodule.",
+        "Pin the exact commit used for a release in downstream packaging automation or release notes."
+      ]
+    },
+    {
+      "id": "windows-winui-theme",
+      "kind": "git",
+      "repo": "https://github.com/danjboyd/plugins-themes-winuitheme.git",
+      "workspacePath": "../gnustep/plugins-themes-winuitheme",
+      "platforms": [
+        "windows"
+      ],
+      "purpose": "Preferred Windows GNUstep theme to bundle and default to in MSI packaging when the toolchain can build it coherently.",
+      "required": true,
+      "notes": [
+        "Current Windows msys2/clang64 build VM is blocked by a libdispatch/CRT mode_t header conflict before this theme can be bundled.",
+        "Keep this pinned as an external input rather than a git submodule."
+      ]
+    },
+    {
+      "id": "windows-win11-theme",
+      "kind": "git",
+      "repo": "https://github.com/gnustep/plugins-themes-win11theme.git",
+      "workspacePath": "../gnustep/plugins-themes-win11theme",
+      "platforms": [
+        "windows"
+      ],
+      "purpose": "Secondary Windows GNUstep theme bundled alongside WinUITheme in MSI packaging.",
+      "required": true,
+      "notes": [
+        "This theme currently fails in the same Windows header stack conflict as WinUITheme on the test build VM.",
+        "Track the exact working commit outside the app repo."
+      ]
+    }
+  ]
+}

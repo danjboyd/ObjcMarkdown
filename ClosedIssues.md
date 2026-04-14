@@ -917,3 +917,15 @@
   - Moved explorer population and related nonessential window startup work out of the initial first-paint path so the window becomes visible sooner.
   - Preserved secondary-window behavior by presenting empty windows immediately and scheduling deferred post-presentation explorer setup separately.
   - Rebuilt the GNUstep app and test bundle after the launch-presentation change.
+
+## 74) Lower-level OCI Windows validation script drifted from the supported OracleTestVMs contract
+
+- **Status**: Closed
+- **Closed On**: 2026-04-14
+- **Area**: Windows release validation / OCI automation
+- **Description**: The repo still exposed a lower-level direct-OCI Windows validation path that had drifted from the supported `OracleTestVMs` bootstrap and access model, encouraging stale SSH assumptions and duplicate validation contracts.
+- **Resolution**:
+  - Retired [oci-run-msi-validation.ps1](/home/danboyd/git/ObjcMarkdown/scripts/windows/oci-run-msi-validation.ps1) as a supported path and changed it to fail fast with a redirect to the `OracleTestVMs` helper.
+  - Updated Windows validation docs to make [windows-otvm-msi-validation.md](/home/danboyd/git/ObjcMarkdown/docs/windows-otvm-msi-validation.md) the only supported clean-machine Windows validation workflow.
+  - Reframed [windows-oci-msi-validation.md](/home/danboyd/git/ObjcMarkdown/docs/windows-oci-msi-validation.md) as a retirement note rather than an active operator guide.
+  - Updated repo docs so Windows clean-machine validation consistently points at [otvm-msi-validation.sh](/home/danboyd/git/ObjcMarkdown/scripts/windows/otvm-msi-validation.sh) instead of the old direct-OCI helper.

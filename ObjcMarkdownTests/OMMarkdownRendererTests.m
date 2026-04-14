@@ -464,7 +464,8 @@ static BOOL OMDMathToolchainAvailable(void)
             }
         }
     } else {
-        NSRange formulaRange = [text rangeOfString:@"\\int_0^1 x^2 dx"];
+        XCTAssertTrue([text rangeOfString:@"\\int_0^1 x^2 dx"].location == NSNotFound);
+        NSRange formulaRange = [text rangeOfString:@"\u222b_0^1 x^2 dx"];
         XCTAssertTrue(formulaRange.location != NSNotFound);
         if (formulaRange.location != NSNotFound) {
             NSDictionary *formulaAttrs = [rendered attributesAtIndex:formulaRange.location effectiveRange:NULL];
@@ -513,7 +514,8 @@ static BOOL OMDMathToolchainAvailable(void)
             }
         }
     } else {
-        NSRange formulaRange = [text rangeOfString:@"\\int_0^1 x^2 dx"];
+        XCTAssertTrue([text rangeOfString:@"\\int_0^1 x^2 dx"].location == NSNotFound);
+        NSRange formulaRange = [text rangeOfString:@"\u222b_0^1 x^2 dx"];
         XCTAssertTrue(formulaRange.location != NSNotFound);
         if (formulaRange.location != NSNotFound) {
             NSDictionary *formulaAttrs = [rendered attributesAtIndex:formulaRange.location effectiveRange:NULL];

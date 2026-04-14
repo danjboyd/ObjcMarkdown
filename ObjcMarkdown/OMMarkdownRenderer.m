@@ -3890,21 +3890,25 @@ static NSString *OMWindowsKnownExecutablePathNamed(NSString *name)
 
     if ([lowercase isEqualToString:@"latex"] || [lowercase isEqualToString:@"latex.exe"]) {
         candidatePaths = [NSArray arrayWithObjects:
+            @"runtime\\texlive\\TinyTeX\\bin\\windows\\latex.exe",
             @"clang64\\texlive\\TinyTeX\\bin\\windows\\latex.exe",
             @"C:\\clang64\\texlive\\TinyTeX\\bin\\windows\\latex.exe",
             nil];
     } else if ([lowercase isEqualToString:@"tex"] || [lowercase isEqualToString:@"tex.exe"]) {
         candidatePaths = [NSArray arrayWithObjects:
+            @"runtime\\texlive\\TinyTeX\\bin\\windows\\tex.exe",
             @"clang64\\texlive\\TinyTeX\\bin\\windows\\tex.exe",
             @"C:\\clang64\\texlive\\TinyTeX\\bin\\windows\\tex.exe",
             nil];
     } else if ([lowercase isEqualToString:@"dvipng"] || [lowercase isEqualToString:@"dvipng.exe"]) {
         candidatePaths = [NSArray arrayWithObjects:
+            @"runtime\\texlive\\TinyTeX\\bin\\windows\\dvipng.exe",
             @"clang64\\texlive\\TinyTeX\\bin\\windows\\dvipng.exe",
             @"C:\\clang64\\texlive\\TinyTeX\\bin\\windows\\dvipng.exe",
             nil];
     } else if ([lowercase isEqualToString:@"dvisvgm"] || [lowercase isEqualToString:@"dvisvgm.exe"]) {
         candidatePaths = [NSArray arrayWithObjects:
+            @"runtime\\texlive\\TinyTeX\\bin\\windows\\dvisvgm.exe",
             @"clang64\\texlive\\TinyTeX\\bin\\windows\\dvisvgm.exe",
             @"C:\\clang64\\texlive\\TinyTeX\\bin\\windows\\dvisvgm.exe",
             nil];
