@@ -5,7 +5,7 @@ param(
   [string]$RunTarget = "TableRenderDemo.md",
   [string]$StageDir = "dist/packaging/windows/stage",
   [string]$RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path,
-  [string]$MsysRoot = "C:\msys64"
+  [string]$MsysRoot = $(if (-not [string]::IsNullOrWhiteSpace($env:MSYS2_LOCATION)) { $env:MSYS2_LOCATION } else { "C:\msys64" })
 )
 
 Set-StrictMode -Version Latest
@@ -65,12 +65,14 @@ xctest ObjcMarkdownTests/ObjcMarkdownTests.bundle
   throw "Unhandled task: $SelectedTask"
 }
 
-$envExe = Join-Path $MsysRoot "usr\bin\env.exe"
+$resolvedMsysRoot = [System.IO.Path]::GetFullPath($MsysRoot)
+
+$envExe = Join-Path $resolvedMsysRoot "usr\bin\env.exe"
 if (-not (Test-Path $envExe)) {
   throw "MSYS2 env.exe not found at $envExe"
 }
 
-$gnuStepSh = Join-Path $MsysRoot "clang64\share\GNUstep\Makefiles\GNUstep.sh"
+$gnuStepSh = Join-Path $resolvedMsysRoot "clang64\share\GNUstep\Makefiles\GNUstep.sh"
 if (-not (Test-Path $gnuStepSh)) {
   throw "GNUstep.sh not found at $gnuStepSh"
 }
@@ -82,7 +84,7 @@ $bootstrap = "source /etc/profile; source /clang64/share/GNUstep/Makefiles/GNUst
 
 Write-Host "Task: $Task"
 Write-Host "Repo: $resolvedRepoRoot"
-Write-Host "MSYS2: $MsysRoot"
+Write-Host "MSYS2: $resolvedMsysRoot"
 
 & $envExe 'MSYSTEM=CLANG64' 'CHERE_INVOKING=1' '/usr/bin/bash' '-lc' $bootstrap
 exit $LASTEXITCODE
