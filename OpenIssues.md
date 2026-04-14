@@ -82,3 +82,19 @@
   - Validate installation and launch on a clean Linux box with no preinstalled GNUstep toolchain.
 - **Notes**:
   - Target reproducible builds with pinned versions and explicit dependency provenance.
+
+## 10) Tagged Linux AppImage release flow blocked by missing self-hosted GitHub runner
+
+- **Status**: Open
+- **Opened On**: 2026-04-14
+- **Area**: Release engineering / GitHub Actions / Linux packaging
+- **Description**: The tagged Linux AppImage workflow is intentionally configured to run on the self-hosted GNUstep runner label set `["self-hosted","linux","gnustep-clang"]`, but there are currently no registered runners in the repository, so the AppImage packaging job never starts.
+- **Current State**:
+  - `linux-appimage` resolves the package version successfully on tag push.
+  - the reusable packaging job remains queued indefinitely on the self-hosted label set
+  - `gh api repos/danjboyd/ObjcMarkdown/actions/runners` currently reports `total_count: 0`
+- **Impact**:
+  - blocks end-to-end confirmation that a release tag produces and publishes the Linux AppImage and `.zsync`
+  - prevents `Phase 7B` / `Phase 8D` acceptance from going green for Linux
+- **Next Step**:
+  - register or restore the expected self-hosted GNUstep runner for this repository, or deliberately redesign the Linux packaging lane to run on a GitHub-hosted image with equivalent toolchain guarantees

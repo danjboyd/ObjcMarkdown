@@ -38,6 +38,8 @@ jobs:
       manifest-path: packaging/manifests/windows-msi.manifest.json
       backend: msi
       package-version: ${{ needs.resolve-version.outputs.package_version }}
+      packager-repository: danjboyd/gnustep-packager
+      packager-ref: f1e33da8dfe07be9f8d408cfd79c779f7777b068
       msys2-packages: >-
         mingw-w64-clang-x86_64-cmark
       run-validation: true
