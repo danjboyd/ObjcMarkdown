@@ -277,6 +277,8 @@ cp -a "$ROOT/ObjcMarkdownViewer/MarkdownViewer.app" "$APP_ROOT/"
 copy_glob "$ROOT/ObjcMarkdown/obj/libObjcMarkdown.so*" "$APP_LIB_DIR"
 copy_glob "$ROOT/third_party/libs-OpenSave/Source/obj/libOpenSave.so*" "$APP_LIB_DIR"
 copy_glob "$ROOT/third_party/TextViewVimKitBuild/obj/libTextViewVimKit.so*" "$APP_LIB_DIR"
+copy_glob "$ROOT/third_party/GPUpdaterCore/obj/libGPUpdaterCore.so*" "$APP_LIB_DIR"
+copy_glob "$ROOT/third_party/GPUpdaterUI/obj/libGPUpdaterUI.so*" "$APP_LIB_DIR"
 copy_shared_by_soname "libicns.so.1" "$RUNTIME_LIB_DIR"
 
 copy_glob "/usr/GNUstep/System/Library/Libraries/libgnustep-base.so*" "$GNUSTEP_LIB_DIR"
