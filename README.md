@@ -166,7 +166,7 @@ Release flow:
 
 - Ensure the target commit has already passed the separate Linux CI workflow if you want a GNUstep/Linux gate before release tagging.
 - Push an annotated tag like `v0.1.0`.
-- GitHub Actions runs `linux-appimage` as a thin caller to the reusable `gnustep-packager` workflow pinned to `fb29ee4ef61ecfcc8e7e0c8ee0b690883351324c`, using this repo's Linux manifest, stage script, and self-hosted GNUstep preflight.
+- GitHub Actions runs `linux-appimage` as a thin caller to the reusable `gnustep-packager` workflow pinned to `f1e33da8dfe07be9f8d408cfd79c779f7777b068`, using this repo's Linux manifest, stage script, and self-hosted GNUstep preflight.
 - GitHub Actions runs `windows-packaging` as a thin caller to the same pinned reusable workflow, using this repo's Windows MSI manifest and normalized Windows stage script. The staged Windows payload includes the GNUstep runtime, bundled Windows themes, and TinyTeX runtime for external LaTeX rendering.
 - Each tagged packaging workflow then downloads its `-packages` artifact and attaches the release files to the matching GitHub Release page. Linux publishes the `.AppImage` and `.zsync`; Windows publishes the `.msi` and portable ZIP, along with generated sidecars such as `.update-feed.json`.
 - Clean-machine Windows validation is documented in [docs/windows-otvm-msi-validation.md](docs/windows-otvm-msi-validation.md). The older direct-OCI helper has been retired; [docs/windows-oci-msi-validation.md](docs/windows-oci-msi-validation.md) is kept only as a retirement note.

@@ -33,7 +33,7 @@ jobs:
 
   build-msi:
     needs: resolve-version
-    uses: danjboyd/gnustep-packager/.github/workflows/package-gnustep-app.yml@fb29ee4ef61ecfcc8e7e0c8ee0b690883351324c
+    uses: danjboyd/gnustep-packager/.github/workflows/package-gnustep-app.yml@f1e33da8dfe07be9f8d408cfd79c779f7777b068
     with:
       manifest-path: packaging/manifests/windows-msi.manifest.json
       backend: msi
