@@ -99,6 +99,24 @@
 - **Next Step**:
   - register or restore the expected self-hosted GNUstep runner for this repository, or deliberately redesign the Linux packaging lane to run on a GitHub-hosted image with equivalent toolchain guarantees
 
+## 10A) `gnustep-cli-new` completion is a blocker for the GitHub runner/toolchain path
+
+- **Status**: Open
+- **Opened On**: 2026-04-15
+- **Area**: Release engineering / runner infrastructure / toolchain provisioning
+- **Description**: The MSI/AppImage/GitHub runner process now depends on having a reliable way to provision or validate the required GNUstep libraries and the correct clang-oriented toolchain flavor on disposable runners. `gnustep-cli-new` is the intended system for solving that runner contract, so its documented completion is now an explicit blocker for finishing the GitHub-based release path.
+- **Current State**:
+  - `gnustep-packager` is now the packaging boundary, but it does not by itself solve base runner toolchain provisioning.
+  - The Linux packaging lane still depends on a missing self-hosted GNUstep runner.
+  - The Windows packaging lane can run on GitHub-hosted Windows, but it still assumes a reliable GNUstep/MSYS2 toolchain installation story.
+  - `gnustep-cli-new` is intended to provide the runner-facing install/doctor/validation contract for those toolchains, but its own docs still describe Windows managed-toolchain support as incomplete.
+- **Impact**:
+  - blocks treating either GitHub-hosted Windows runners or any replacement Linux runner path as operationally complete
+  - blocks closing the MSI/AppImage/GitHub runner process as a reproducible release system
+- **Next Step**:
+  - finish `gnustep-cli-new` to the point where it can provision or validate the exact GNUstep/clang toolchain contract required by `ObjcMarkdown` packaging runners
+  - then rebase `Phase 8I` runner work on that contract instead of ad hoc runner preparation
+
 ## 11) Windows MSI rebuild handoff after WinUITheme/default-theme work
 
 - **Status**: Open

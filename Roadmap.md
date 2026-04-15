@@ -185,7 +185,8 @@ Immediate next steps:
 - remaining execution gap:
   - repin to the newer `gnustep-packager` baseline and migrate manifests/workflows to the newer contract
   - complete one fresh validated Windows MSI rebuild through the normal reusable workflow path
-  - restore the Linux self-hosted runner or intentionally replace that dependency
+  - treat `gnustep-cli-new` runner/toolchain completion as an explicit blocker for both the GitHub-hosted Windows packaging lane and any replacement for the Linux self-hosted runner lane
+  - restore the Linux self-hosted runner or intentionally replace that dependency only after `gnustep-cli-new` can provision and validate the required GNUstep/clang toolchain contract on disposable runners
   - confirm a release tag now produces and publishes both artifacts end-to-end
 
 Acceptance criteria:
@@ -238,16 +239,20 @@ Acceptance criteria:
 - a fresh MSI and portable ZIP are produced from the normal reusable workflow path
 - clean-machine validation passes against those artifacts
 
-### Phase 8I: Restore Or Replace The Linux GitHub Runner Path
+### Phase 8I: Runner Toolchain Readiness Through gnustep-cli-new
 
 Scope:
-- register or restore the expected self-hosted GNUstep runner for the repository
-  or
-- deliberately redesign the AppImage lane to use a supported GitHub-hosted environment with equivalent guarantees
-- keep the chosen host path documented so Linux release builds do not depend on session memory
+- treat `gnustep-cli-new` reaching its documented runner/toolchain goals as a release blocker for the GitHub-based AppImage/MSI path
+- require `gnustep-cli-new` to provide a reliable install-and-validate story for the GNUstep/clang toolchain contract needed by `ObjcMarkdown` runners
+- use that contract to decide the eventual runner shape:
+  - restore/register a self-hosted Linux runner only if `gnustep-cli-new` can keep its GNUstep/clang stack reproducible
+  - or redesign Linux and/or Windows packaging lanes around GitHub-hosted runners once `gnustep-cli-new` can provision and validate them noninteractively
+- keep the chosen host path documented so release builds do not depend on session memory or hand-maintained runner state
 
 Acceptance criteria:
-- the Linux AppImage workflow can actually start and finish on tag push
+- `gnustep-cli-new` can provision or validate the required GNUstep/clang runner contract for the packaging lanes we intend to use
+- the Linux AppImage workflow can actually start and finish on tag push using that contract
+- the Windows MSI workflow can rely on the same documented runner/toolchain contract rather than ad hoc machine preparation
 - the chosen runner model is documented and repeatable
 
 ### Phase 8J: End-To-End Tagged Release Confirmation
