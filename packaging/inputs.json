@@ -40,8 +40,8 @@
       "platforms": [
         "windows"
       ],
-      "purpose": "Secondary Windows GNUstep theme bundled alongside WinUITheme in MSI packaging.",
-      "required": true,
+      "purpose": "Secondary Windows GNUstep theme bundled alongside WinUITheme in MSI packaging when the repo is available.",
+      "required": false,
       "notes": [
         "This theme currently fails in the same Windows header stack conflict as WinUITheme on the test build VM.",
         "Track the exact working commit outside the app repo."

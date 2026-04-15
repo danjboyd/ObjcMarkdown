@@ -102,13 +102,13 @@ Windows packaging input expectations:
 - the staged/installable runtime must include `WinUITheme`
 - the packaged Windows default theme must be `WinUITheme`
 
-- `plugins-themes-winuitheme`
-- `plugins-themes-win11theme`
+- `plugins-themes-winuitheme` is required
+- `plugins-themes-win11theme` is optional
 
 Those should be fetched into the packaging workspace at pinned commits rather
 than added as submodules of this repo. If a Windows build VM cannot compile
-those theme repos cleanly, treat that as an environment/toolchain issue first,
-not as a reason to convert the app repo to submodules.
+`plugins-themes-winuitheme` cleanly, treat that as an environment/toolchain
+issue first, not as a reason to convert the app repo to submodules.
 
 ## OracleTestVMs Linux Validation
 

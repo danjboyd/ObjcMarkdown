@@ -47,9 +47,24 @@ if ($missingTinyTeXPaths.Count -gt 0) {
   throw "Required TinyTeX runtime files were not staged: $($missingTinyTeXPaths -join ', ')"
 }
 
+$bundledThemeNames = @()
+$themeRoot = Join-Path $runtimeRoot "lib\GNUstep\Themes"
+if (Test-Path $themeRoot) {
+  $bundledThemeNames = @(
+    Get-ChildItem -Path $themeRoot -Directory -ErrorAction SilentlyContinue |
+      Where-Object { $_.Name -like "*.theme" } |
+      ForEach-Object { [System.IO.Path]::GetFileNameWithoutExtension($_.Name) } |
+      Sort-Object -Unique
+  )
+}
+$bundledThemeSummary = if ($bundledThemeNames.Count -gt 0) {
+  "Bundled themes include {0}." -f ($bundledThemeNames -join ", ")
+} else {
+  "No additional GNUstep themes were bundled."
+}
 Set-Content -Path (Join-Path $metadataDocs "BundledThemes.txt") -Value @(
   "Bundled GNUstep themes for ObjcMarkdown MSI:"
-  "Bundled themes include WinUXTheme, Win11Theme, and WinUITheme."
+  $bundledThemeSummary
   "Packaged Windows launches default to GSTheme=WinUITheme when the user has not already chosen a theme."
 )
 Set-Content -Path (Join-Path $metadataDocs "BundledLaTeXRuntime.txt") -Value @(

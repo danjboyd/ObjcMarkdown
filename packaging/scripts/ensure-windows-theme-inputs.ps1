@@ -96,7 +96,8 @@ function Resolve-OmdThemeRepo {
     [Parameter(Mandatory = $true)]
     [string]$RepoName,
     [Parameter(Mandatory = $true)]
-    [string[]]$Candidates
+    [string[]]$Candidates,
+    [bool]$Required = $true
   )
 
   foreach ($candidate in $Candidates) {
@@ -109,7 +110,11 @@ function Resolve-OmdThemeRepo {
     }
   }
 
-  throw "Required theme repository '$RepoName' was not found. Checked: $($Candidates -join ', ')"
+  if ($Required) {
+    throw "Required theme repository '$RepoName' was not found. Checked: $($Candidates -join ', ')"
+  }
+
+  return $null
 }
 
 function Resolve-OmdUserThemeRoot {
@@ -211,11 +216,13 @@ $themeSpecs = @(
     Name = "Win11Theme"
     RepoName = "plugins-themes-win11theme"
     RepoOverride = $env:OMD_WIN11_THEME_REPO
+    Required = $false
   },
   @{
     Name = "WinUITheme"
     RepoName = "plugins-themes-winuitheme"
     RepoOverride = $env:OMD_WINUI_THEME_REPO
+    Required = $true
   }
 )
 
@@ -226,6 +233,7 @@ foreach ($themeSpec in $themeSpecs) {
   $themeRepoOverride = [string]$themeSpec["RepoOverride"]
   $themeRepoName = [string]$themeSpec["RepoName"]
   $themeName = [string]$themeSpec["Name"]
+  $themeRequired = [bool]$themeSpec["Required"]
 
   if (-not [string]::IsNullOrWhiteSpace($themeRepoOverride)) {
     $repoCandidates.Add([System.IO.Path]::GetFullPath($themeRepoOverride)) | Out-Null
@@ -235,7 +243,11 @@ foreach ($themeSpec in $themeSpecs) {
     $repoCandidates.Add([System.IO.Path]::GetFullPath((Join-Path $workspacePath $themeRepoName))) | Out-Null
   }
 
-  $resolvedThemeRepo = Resolve-OmdThemeRepo -RepoName $themeRepoName -Candidates @($repoCandidates | Select-Object -Unique)
+  $resolvedThemeRepo = Resolve-OmdThemeRepo -RepoName $themeRepoName -Candidates @($repoCandidates | Select-Object -Unique) -Required:$themeRequired
+  if (-not $resolvedThemeRepo) {
+    Write-Host ("Skipping optional theme input '{0}' because its repository is not present." -f $themeName)
+    continue
+  }
 
   $extraEnvironment = @{}
   $themeBuildFlags = "-DHAVE_MODE_T=1"
@@ -274,7 +286,7 @@ foreach ($themeSpec in $themeSpecs) {
   }) | Out-Null
 }
 
-$resolvedUserThemeRoot = Resolve-OmdUserThemeRoot -MsysRoot $resolvedMsysRoot -ThemeNames @($themeSpecs | ForEach-Object { [string]$_["Name"] })
+$resolvedUserThemeRoot = Resolve-OmdUserThemeRoot -MsysRoot $resolvedMsysRoot -ThemeNames @($themeResults | ForEach-Object { [string]$_.name })
 $resolvedThemeResults = foreach ($themeResult in $themeResults) {
   $installedBundle = Join-Path $resolvedUserThemeRoot ($themeResult.name + ".theme")
   if (-not (Test-Path $installedBundle)) {
