@@ -3,7 +3,8 @@
   "schemaVersion": 1,
   "profiles": [
     "gnustep-gui",
-    "gnustep-document-viewer"
+    "gnustep-document-viewer",
+    "gnustep-cmark"
   ],
   "package": {
     "id": "org.objcmarkdown.MarkdownViewer",
@@ -55,11 +56,7 @@
       "metadata/icons"
     ],
     "env": {
-      "GNUSTEP_PATHPREFIX_LIST": "{@runtimeRoot}",
-      "GSTheme": {
-        "value": "WinUITheme",
-        "policy": "ifUnset"
-      }
+      "GNUSTEP_PATHPREFIX_LIST": "{@runtimeRoot}"
     }
   },
   "outputs": {
@@ -107,6 +104,50 @@
     },
     "logs": {
       "retainOnSuccess": true
+    },
+    "packageContract": {
+      "requiredContent": [
+        {
+          "kind": "update-runtime-config"
+        },
+        {
+          "kind": "updater-helper"
+        },
+        {
+          "kind": "bundled-theme",
+          "name": "WinUITheme"
+        },
+        {
+          "kind": "metadata-file",
+          "path": "metadata/icons/markdown_icon.ico"
+        },
+        {
+          "kind": "metadata-file",
+          "path": "metadata/icons/markdown_icon.png"
+        }
+      ]
+    },
+    "installedResult": {
+      "requiredContent": [
+        {
+          "kind": "update-runtime-config"
+        },
+        {
+          "kind": "updater-helper"
+        },
+        {
+          "kind": "bundled-theme",
+          "name": "WinUITheme"
+        },
+        {
+          "kind": "metadata-file",
+          "path": "metadata/icons/markdown_icon.ico"
+        },
+        {
+          "kind": "metadata-file",
+          "path": "metadata/icons/markdown_icon.png"
+        }
+      ]
     }
   },
   "integrations": {
@@ -183,5 +224,8 @@
     "appimage": {
       "enabled": false
     }
+  },
+  "packagedDefaults": {
+    "defaultTheme": "WinUITheme"
   }
 }

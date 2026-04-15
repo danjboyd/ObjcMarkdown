@@ -82,7 +82,11 @@ Goal:
 
 Scope:
 - add downstream packaging manifests for Linux AppImage and Windows MSI rather than relying on backend-specific scripts as the contract
-- pin the initial integration to the currently audited `gnustep-packager` baseline (`bca864ff163e129100881145e017429fed155bf7`) until an explicit upstream release tag is chosen
+- repin the initial integration from the earlier audited `gnustep-packager` baseline (`bca864ff163e129100881145e017429fed155bf7`) to a current upstream commit that includes:
+  - manifest-driven host dependency provisioning
+  - reusable dependency profiles such as `gnustep-cmark`
+  - declarative packaged defaults
+  - semantic packaged/install-result assertions including `bundled-theme`
 - define the normalized staged payload shape for this repo:
   - `app/`
   - `runtime/`
@@ -92,10 +96,14 @@ Scope:
   - runtime notices
   - sample smoke documents if needed
   - Linux Adwaita theme input
-  - Windows WinUX theme input
+  - Windows WinUI theme input
+- move app-specific packaging intent into the manifest rather than workflow-only overrides:
+  - add `gnustep-cmark` to the manifest profile stack where appropriate
+  - declare default themes through `packagedDefaults.defaultTheme`
+  - use semantic package/install assertions where they reduce repo-local path coupling
 - express GNUstep theme defaults through manifest-driven launch policy instead of custom backend launchers:
   - Linux `GSTheme=Adwaita` with `ifUnset`
-  - Windows `GSTheme=WinUXTheme` with `ifUnset`
+  - Windows `GSTheme=WinUITheme` with `ifUnset`
 
 ### Phase 8B: Normalize Linux Staging And AppImage Parity
 
@@ -120,11 +128,12 @@ Scope:
   - project DLLs
   - `defaults.exe`
   - GNUstep bundles and support resources
-  - WinUX theme payload
+  - WinUI theme payload
   - fontconfig data
   - installer icons and notices
 - use the packager launcher contract rather than the repo-local launcher as the startup path
 - pass MSI runtime closure under the new default failure policy so unresolved non-system DLLs stop packaging instead of leaking into release artifacts
+- declare app-specific MSYS2 host dependencies in the manifest instead of relying on workflow-only package inputs
 - validate the packager-produced MSI against the existing clean-machine validation path before removing the old implementation
 
 ### Phase 8D: GitHub Actions Cutover
@@ -143,7 +152,10 @@ Scope:
 - configure the Windows caller to use:
   - `windows-latest`
   - the packager MSI baseline
-  - `msys2-packages` for app-specific dependencies such as `mingw-w64-clang-x86_64-cmark`
+- make the Linux runner dependency explicit:
+  - either restore/register the expected self-hosted GNUstep runner for the repository
+  - or deliberately redesign the AppImage lane to run on a supported GitHub-hosted image with equivalent toolchain guarantees
+- remove workflow-only Windows package overrides once the manifest carries the same contract
 - keep CI validation enabled for both backends and preserve any extra app-specific smoke we still need beyond the shared packager validation
 
 ### Phase 8E: External-Only Backend Packaging Cleanup
@@ -170,13 +182,84 @@ Immediate next steps:
 - `Phase 8C`: repo cutover completed on `2026-04-01`; Windows manifest, staging, workflow, and clean-machine validation now target `gnustep-packager`, with the next Windows-host MSI build plus `OracleTestVMs` run serving as the parity reconfirmation pass
 - `Phase 8D`: implemented on `2026-04-01` by replacing repo-local backend assembly in `linux-appimage.yml` and `windows-packaging.yml` with reusable `gnustep-packager` workflow calls pinned to `bca864ff163e129100881145e017429fed155bf7`
 - `Phase 8E`: implemented on `2026-04-01` by deleting legacy backend assembly code and keeping only manifests, build/stage scripts, preflight helpers, and app-specific validation glue in this repo
+- remaining execution gap:
+  - repin to the newer `gnustep-packager` baseline and migrate manifests/workflows to the newer contract
+  - complete one fresh validated Windows MSI rebuild through the normal reusable workflow path
+  - restore the Linux self-hosted runner or intentionally replace that dependency
+  - confirm a release tag now produces and publishes both artifacts end-to-end
 
 Acceptance criteria:
 - `Phase 8A`: the repo contains committed downstream manifests and a documented normalized staging contract for both target platforms
 - `Phase 8B`: the Linux AppImage is built by `gnustep-packager`, includes the private GNUstep runtime plus Adwaita theming, and passes strict runtime-closure validation without depending on host GNUstep libraries
-- `Phase 8C`: the Windows MSI is built by `gnustep-packager`, includes the private GNUstep runtime plus WinUX theming, and passes clean-machine validation without relying on a shared preinstalled `C:\\clang64` runtime
+- `Phase 8C`: the Windows MSI is built by `gnustep-packager`, includes the private GNUstep runtime plus WinUI theming, and passes clean-machine validation without relying on a shared preinstalled `C:\\clang64` runtime
 - `Phase 8D`: pushing a release tag produces the AppImage and MSI through the reusable `gnustep-packager` workflow and publishes them to the matching GitHub Release rather than only to workflow artifacts
 - `Phase 8E`: backend packaging implementation is externalized; this repo retains only consumer build/stage/manifests and any genuinely app-specific validation hooks
+
+## Remaining Release Subphases
+
+These are the remaining execution subphases required to satisfy the current
+release gate with the newer `gnustep-packager` contract.
+
+### Phase 8F: Repin To The Current gnustep-packager Contract
+
+Scope:
+- update both reusable workflow callers to a current audited `gnustep-packager` commit beyond `bca864ff163e129100881145e017429fed155bf7`
+- consume the newer upstream contract for:
+  - host dependency provisioning
+  - `gnustep-cmark`
+  - `packagedDefaults.defaultTheme`
+  - semantic packaged/install-result assertions including `bundled-theme`
+- keep the pin explicit in repo docs so release builds remain reproducible
+
+Acceptance criteria:
+- both packaging workflows are pinned to the newer upstream commit
+- the repo no longer depends on obsolete workflow assumptions from the older baseline
+
+### Phase 8G: Manifest Contract Migration
+
+Scope:
+- update the Windows and Linux manifests to move app-specific packaging intent into the manifest
+- add reusable host dependency profiles and/or explicit host dependency declarations where still needed
+- remove Windows workflow-level package overrides once the manifest owns the same dependency contract
+- adopt declarative packaged defaults and semantic package/install assertions where they reduce repo-local path coupling
+
+Acceptance criteria:
+- the manifests, not the workflows, carry app-specific packaging requirements such as `cmark` and default theme intent
+- downstream packaging correctness lives primarily in the packager contract rather than repo-local workflow overrides
+
+### Phase 8H: Fresh Windows MSI Rebuild And Validation On The Normal Path
+
+Scope:
+- rebuild the MSI and portable ZIP through the normal reusable workflow path after the manifest/workflow migration
+- confirm the packaged payload includes the expected WinUI theme/default-theme behavior and required runtime closure
+- rerun clean-machine validation against the fresh artifacts and capture any remaining defects explicitly
+
+Acceptance criteria:
+- a fresh MSI and portable ZIP are produced from the normal reusable workflow path
+- clean-machine validation passes against those artifacts
+
+### Phase 8I: Restore Or Replace The Linux GitHub Runner Path
+
+Scope:
+- register or restore the expected self-hosted GNUstep runner for the repository
+  or
+- deliberately redesign the AppImage lane to use a supported GitHub-hosted environment with equivalent guarantees
+- keep the chosen host path documented so Linux release builds do not depend on session memory
+
+Acceptance criteria:
+- the Linux AppImage workflow can actually start and finish on tag push
+- the chosen runner model is documented and repeatable
+
+### Phase 8J: End-To-End Tagged Release Confirmation
+
+Scope:
+- push a release tag through the updated Windows and Linux packaging workflows
+- confirm both artifacts are built, uploaded, and published to the matching GitHub Release
+- verify that the release flow is repeatable without ad hoc operator recovery
+
+Acceptance criteria:
+- one real tag produces and publishes both the AppImage and MSI successfully
+- the documented release gate is satisfied end-to-end
 
 ## Phase 9: Post-Release Hardening For Auto-Update And OracleTestVMs
 

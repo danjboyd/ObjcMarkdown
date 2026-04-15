@@ -3,7 +3,8 @@
   "schemaVersion": 1,
   "profiles": [
     "gnustep-gui",
-    "gnustep-document-viewer"
+    "gnustep-document-viewer",
+    "gnustep-cmark"
   ],
   "package": {
     "id": "org.objcmarkdown.MarkdownViewer",
@@ -72,11 +73,7 @@
       "GSETTINGS_SCHEMA_DIR": "{@runtimeRoot}/share/glib-2.0/schemas",
       "OMD_PANDOC_PATH": "{@runtimeRoot}/bin/pandoc",
       "OMD_PANDOC_DATA_DIR": "{@runtimeRoot}/share/pandoc",
-      "PANDOC_DATA_DIR": "{@runtimeRoot}/share/pandoc",
-      "GSTheme": {
-        "value": "Adwaita",
-        "policy": "ifUnset"
-      }
+      "PANDOC_DATA_DIR": "{@runtimeRoot}/share/pandoc"
     }
   },
   "outputs": {
@@ -118,6 +115,42 @@
     },
     "logs": {
       "retainOnSuccess": true
+    },
+    "packageContract": {
+      "requiredContent": [
+        {
+          "kind": "update-runtime-config"
+        },
+        {
+          "kind": "updater-helper"
+        },
+        {
+          "kind": "bundled-theme",
+          "name": "Adwaita"
+        },
+        {
+          "kind": "metadata-file",
+          "path": "metadata/icons/markdown_icon.png"
+        }
+      ]
+    },
+    "installedResult": {
+      "requiredContent": [
+        {
+          "kind": "update-runtime-config"
+        },
+        {
+          "kind": "updater-helper"
+        },
+        {
+          "kind": "bundled-theme",
+          "name": "Adwaita"
+        },
+        {
+          "kind": "metadata-file",
+          "path": "metadata/icons/markdown_icon.png"
+        }
+      ]
     }
   },
   "integrations": {
@@ -186,5 +219,8 @@
         "startupSeconds": 8
       }
     }
+  },
+  "packagedDefaults": {
+    "defaultTheme": "Adwaita"
   }
 }
