@@ -185,7 +185,7 @@ Immediate next steps:
 - `Phase 8I`: first hosted runner/toolchain adoption pass implemented locally on `2026-04-21`; ObjcMarkdown now expects `gnustep-packager` to consume the published `gnustep-cli-new` release manifest/artifacts rather than depending on repo-local runner preparation
 - `Phase 8B/8I`: hosted Linux AppImage packaging passed on `2026-04-21` in GitHub Actions run `24743212445` after adapting Linux staging to the managed `gnustep-cli-new` `Local/Library` runtime layout, treating absent PreferencePanes payloads as optional, and switching AppImage smoke validation to the packager-supported marker-file mode for headless CI
 - `Phase 8J`: upstream bounded Windows bootstrap diagnostics were added to `gnustep-packager` commit `3c10f1a2c8f976cc30aaaa4f85f6a14b74ebb562` and consumed by the ObjcMarkdown packaging workflows on `2026-04-21`; hosted run `24746538617` proved the diagnostics path by uploading setup/build/run logs instead of hanging, and hosted run `24747049925` then passed the MSI bootstrap step with the direct `HelloPackager.exe` smoke
-- `Phase 8H`: Windows hosted MSI validation is now past bootstrap as of `2026-04-21`; run `24747049925` failed in app packaging because the hosted workspace lacked `plugins-themes-winuitheme`, and the next run should consume the new `packaging/inputs.json` theme-input fetch path
+- `Phase 8H`: Windows hosted MSI validation is now past bootstrap as of `2026-04-21`; run `24747049925` failed in app packaging because the hosted workspace lacked `plugins-themes-winuitheme`, and run `24747383333` confirmed the required WinUITheme input is now fetched before failing inside theme/app packaging with insufficient hidden command output; the current app-side pass keeps theme build output in the workflow log, skips optional theme fetches unless explicitly enabled, and carries the prepared user theme root into both build and stage steps
 - remaining execution gap:
   - complete one fresh validated Windows MSI rebuild through the normal reusable workflow path now that the bootstrap diagnostics gap is patched upstream
   - rerun clean-machine Windows validation through `OracleTestVMs` against the fresh MSI and portable ZIP artifacts
@@ -272,7 +272,7 @@ Scope:
 
 Current status:
 - upstream `gnustep-packager` commit `3c10f1a2c8f976cc30aaaa4f85f6a14b74ebb562` bounds the hosted Windows bootstrap step, captures stdout/stderr into diagnostics, kills the bootstrap process tree on timeout, and smokes the generated Windows `HelloPackager.exe` directly until the published `gnustep-cli-new` Windows CLI artifact is refreshed
-- ObjcMarkdown's Linux and Windows packaging workflows are pinned to that commit; hosted run `24747049925` passed the Windows bootstrap gate and moved the active blocker to app-side hosted theme input preparation
+- ObjcMarkdown's Linux and Windows packaging workflows are pinned to that commit; hosted runs `24747049925` and `24747383333` passed the Windows bootstrap gate and moved the active blocker to app-side hosted theme packaging and staging
 
 Acceptance criteria:
 - a hosted Windows bootstrap failure produces uploaded diagnostics and a bounded failure instead of an indefinite in-progress workflow step

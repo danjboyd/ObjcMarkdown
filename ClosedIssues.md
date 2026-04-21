@@ -946,3 +946,15 @@
     - workflow run: `24743212445`
     - commit: `96cd011f1f024c47ba26bda9724dad9ffd3421cb`
     - result: build, stage, package, runtime-closure validation, and smoke validation passed
+
+## 76) Hosted Windows `gnustep-cli-new` MSI bootstrap hung before diagnostics
+
+- **Status**: Closed
+- **Closed On**: 2026-04-21
+- **Area**: Release engineering / Windows packaging / `gnustep-packager` / `gnustep-cli-new`
+- **Description**: The reusable Windows MSI workflow could remain indefinitely in `Bootstrap And Smoke Test gnustep-cli-new For MSI` before ObjcMarkdown build/stage started, and GitHub did not expose live logs for that active step.
+- **Resolution**:
+  - Patched upstream `gnustep-packager` through commit `3c10f1a2c8f976cc30aaaa4f85f6a14b74ebb562` so the hosted Windows bootstrap runs through bounded native processes, collects stdout/stderr logs, kills the bootstrap process tree on timeout, and smokes the generated `HelloPackager.exe` directly until the public `gnustep-cli-new` Windows CLI artifact is refreshed.
+  - Pinned ObjcMarkdown's Linux and Windows packaging workflows to that packager commit.
+  - Verified the diagnostic path in hosted Windows run `24746538617`, which uploaded setup/build/run logs and isolated the stale published CLI artifact's `.exe` lookup issue.
+  - Verified the bootstrap gate passed in hosted Windows runs `24747049925` and `24747383333`; the remaining Windows MSI blocker has moved to app-side WinUITheme/build/stage packaging and remains tracked under the Windows MSI rebuild handoff issue.

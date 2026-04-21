@@ -117,10 +117,10 @@ function Invoke-OmdMsysCommand {
   $bootstrap = ($bootstrapLines -join "; ")
 
   & $envExe 'MSYSTEM=CLANG64' 'CHERE_INVOKING=1' '/usr/bin/bash' '-lc' $bootstrap 2>&1 | ForEach-Object {
-    $_
+    Write-Host $_
   }
   if ($LASTEXITCODE -ne 0) {
-    throw "MSYS2 command failed with exit code $LASTEXITCODE"
+    throw "MSYS2 command failed with exit code $LASTEXITCODE while running: $InnerCommand"
   }
 }
 
@@ -234,6 +234,11 @@ function Initialize-OmdThemeInputs {
     }
 
     $required = [bool](Get-OmdPropertyValue -Object $input -Name "required")
+    if (-not $required -and $env:OMD_FETCH_OPTIONAL_WINDOWS_THEME_INPUTS -ne "1") {
+      Write-Host ("Skipping optional Windows theme input '{0}' because optional input fetching is not enabled." -f $repoDirectory)
+      continue
+    }
+
     Write-Host ("Fetching Windows theme input '{0}' from {1}" -f $repoDirectory, $repoUrl)
     $cloneArgs = @("clone", "--depth", "1", "--filter=blob:none", $repoUrl, $destination)
     $ref = [string](Get-OmdPropertyValue -Object $input -Name "ref")
@@ -241,7 +246,16 @@ function Initialize-OmdThemeInputs {
       $cloneArgs = @("clone", "--depth", "1", "--filter=blob:none", "--branch", $ref, $repoUrl, $destination)
     }
 
-    & git @cloneArgs
+    $previousGitTerminalPrompt = $env:GIT_TERMINAL_PROMPT
+    $env:GIT_TERMINAL_PROMPT = "0"
+    & git @cloneArgs 2>&1 | ForEach-Object {
+      Write-Host $_
+    }
+    if ($null -eq $previousGitTerminalPrompt) {
+      Remove-Item Env:\GIT_TERMINAL_PROMPT -ErrorAction SilentlyContinue
+    } else {
+      $env:GIT_TERMINAL_PROMPT = $previousGitTerminalPrompt
+    }
     if ($LASTEXITCODE -ne 0) {
       if ($required) {
         throw "Failed to fetch required Windows theme input '$repoDirectory' from $repoUrl"
@@ -411,6 +425,7 @@ foreach ($themeSpec in $themeSpecs) {
     }
   }
 
+  Write-Host ("Building and installing Windows theme '{0}' from {1}" -f $themeName, $resolvedThemeRepo)
   Invoke-OmdMsysCommand `
     -MsysRoot $resolvedMsysRoot `
     -WorkingDirectory $resolvedThemeRepo `
