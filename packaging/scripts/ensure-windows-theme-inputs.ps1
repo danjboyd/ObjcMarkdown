@@ -39,15 +39,49 @@ function Resolve-OmdMsysRoot {
   throw "Unable to resolve MSYS2 clang64 root. Checked: $($candidates -join ', ')"
 }
 
+function Resolve-OmdMsysShellRoot {
+  param([Parameter(Mandatory = $true)][string]$MsysRoot)
+
+  $candidates = [System.Collections.Generic.List[string]]::new()
+  if (-not [string]::IsNullOrWhiteSpace($env:MSYS2_LOCATION)) {
+    $candidates.Add($env:MSYS2_LOCATION) | Out-Null
+  }
+  $candidates.Add($MsysRoot) | Out-Null
+
+  foreach ($candidate in @($candidates | Select-Object -Unique)) {
+    if ([string]::IsNullOrWhiteSpace($candidate)) {
+      continue
+    }
+    $resolved = [System.IO.Path]::GetFullPath($candidate)
+    if (Test-Path (Join-Path $resolved "usr\bin\env.exe")) {
+      return $resolved
+    }
+  }
+
+  throw "Unable to resolve an MSYS2 shell root. Checked: $($candidates -join ', ')"
+}
+
 $resolvedMsysRoot = Resolve-OmdMsysRoot -RequestedRoot $MsysRoot
+$resolvedMsysShellRoot = Resolve-OmdMsysShellRoot -MsysRoot $resolvedMsysRoot
 
 function Convert-ToMsysPath {
   param(
     [Parameter(Mandatory = $true)]
-    [string]$WindowsPath
+    [string]$WindowsPath,
+    [string]$MsysShellRoot = ""
   )
 
   $fullPath = [System.IO.Path]::GetFullPath($WindowsPath)
+  if (-not [string]::IsNullOrWhiteSpace($MsysShellRoot)) {
+    $cygpathExe = Join-Path $MsysShellRoot "usr\bin\cygpath.exe"
+    if (Test-Path $cygpathExe) {
+      $converted = & $cygpathExe '-u' $fullPath
+      if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($converted)) {
+        return [string]$converted
+      }
+    }
+  }
+
   $normalized = $fullPath -replace "\\", "/"
   if ($normalized -match "^([A-Za-z]):(/.*)?$") {
     $drive = $Matches[1].ToLowerInvariant()
@@ -82,13 +116,15 @@ function Invoke-OmdMsysCommand {
     [Parameter(Mandatory = $true)]
     [string]$MsysRoot,
     [Parameter(Mandatory = $true)]
+    [string]$MsysShellRoot,
+    [Parameter(Mandatory = $true)]
     [string]$WorkingDirectory,
     [Parameter(Mandatory = $true)]
     [string]$InnerCommand,
     [hashtable]$Environment = @{}
   )
 
-  $envExe = Join-Path $MsysRoot "usr\bin\env.exe"
+  $envExe = Join-Path $MsysShellRoot "usr\bin\env.exe"
   if (-not (Test-Path $envExe)) {
     throw "MSYS2 env.exe not found at $envExe"
   }
@@ -98,10 +134,10 @@ function Invoke-OmdMsysCommand {
     throw "GNUstep.sh not found at $gnuStepSh"
   }
 
-  $workingDirectoryMsys = Convert-ToMsysPath -WindowsPath $WorkingDirectory
-  $clangPrefixMsys = Convert-ToMsysPath -WindowsPath (Join-Path $MsysRoot "clang64")
+  $workingDirectoryMsys = Convert-ToMsysPath -WindowsPath $WorkingDirectory -MsysShellRoot $MsysShellRoot
+  $clangPrefixMsys = Convert-ToMsysPath -WindowsPath (Join-Path $MsysRoot "clang64") -MsysShellRoot $MsysShellRoot
   $bootstrapLines = @(
-    "source /etc/profile",
+    "if [ -f /etc/profile ]; then source /etc/profile; fi",
     "source '$clangPrefixMsys/share/GNUstep/Makefiles/GNUstep.sh'",
     "export PATH=/usr/bin:'$clangPrefixMsys/bin':/mingw64/bin:`$PATH",
     "export OMD_MSYS_CLANG_PREFIX='$clangPrefixMsys'"
@@ -420,14 +456,15 @@ foreach ($themeSpec in $themeSpecs) {
       }
     }
     if (-not [string]::IsNullOrWhiteSpace([string]$compatDir)) {
-      $clangLibPath = Convert-ToMsysPath -WindowsPath (Join-Path $resolvedMsysRoot "clang64\lib")
-      $extraEnvironment["LIBRARY_PATH"] = ((Convert-ToMsysPath -WindowsPath ([string]$compatDir)) + ":$clangLibPath")
+      $clangLibPath = Convert-ToMsysPath -WindowsPath (Join-Path $resolvedMsysRoot "clang64\lib") -MsysShellRoot $resolvedMsysShellRoot
+      $extraEnvironment["LIBRARY_PATH"] = ((Convert-ToMsysPath -WindowsPath ([string]$compatDir) -MsysShellRoot $resolvedMsysShellRoot) + ":$clangLibPath")
     }
   }
 
   Write-Host ("Building and installing Windows theme '{0}' from {1}" -f $themeName, $resolvedThemeRepo)
   Invoke-OmdMsysCommand `
     -MsysRoot $resolvedMsysRoot `
+    -MsysShellRoot $resolvedMsysShellRoot `
     -WorkingDirectory $resolvedThemeRepo `
     -InnerCommand ("make install GNUSTEP_INSTALLATION_DOMAIN=USER " +
       ("ADDITIONAL_CPPFLAGS=`"{0}`" " -f $themeBuildFlags) +

@@ -12,9 +12,23 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 function Convert-ToMsysPath {
-  param([Parameter(Mandatory = $true)][string]$WindowsPath)
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$WindowsPath,
+    [string]$MsysShellRoot = ""
+  )
 
   $fullPath = [System.IO.Path]::GetFullPath($WindowsPath)
+  if (-not [string]::IsNullOrWhiteSpace($MsysShellRoot)) {
+    $cygpathExe = Join-Path $MsysShellRoot "usr\bin\cygpath.exe"
+    if (Test-Path $cygpathExe) {
+      $converted = & $cygpathExe '-u' $fullPath
+      if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($converted)) {
+        return [string]$converted
+      }
+    }
+  }
+
   $normalized = $fullPath -replace "\\", "/"
   if ($normalized -match "^([A-Za-z]):(/.*)?$") {
     $drive = $Matches[1].ToLowerInvariant()
@@ -23,6 +37,28 @@ function Convert-ToMsysPath {
   }
 
   throw "Unable to convert Windows path to MSYS2 path: $WindowsPath"
+}
+
+function Resolve-MsysShellRoot {
+  param([Parameter(Mandatory = $true)][string]$MsysRoot)
+
+  $candidates = [System.Collections.Generic.List[string]]::new()
+  if (-not [string]::IsNullOrWhiteSpace($env:MSYS2_LOCATION)) {
+    $candidates.Add($env:MSYS2_LOCATION) | Out-Null
+  }
+  $candidates.Add($MsysRoot) | Out-Null
+
+  foreach ($candidate in @($candidates | Select-Object -Unique)) {
+    if ([string]::IsNullOrWhiteSpace($candidate)) {
+      continue
+    }
+    $resolved = [System.IO.Path]::GetFullPath($candidate)
+    if (Test-Path (Join-Path $resolved "usr\bin\env.exe")) {
+      return $resolved
+    }
+  }
+
+  throw "Unable to resolve an MSYS2 shell root. Checked: $($candidates -join ', ')"
 }
 
 function Resolve-MsysRoot {
@@ -75,7 +111,7 @@ xctest ObjcMarkdownTests/ObjcMarkdownTests.bundle
     "run" {
       $runTargetPath = $SelectedRunTarget
       if (-not [string]::IsNullOrWhiteSpace($runTargetPath) -and (Test-Path $runTargetPath)) {
-        $runTargetPath = Convert-ToMsysPath -WindowsPath ((Resolve-Path $runTargetPath).Path)
+        $runTargetPath = Convert-ToMsysPath -WindowsPath ((Resolve-Path $runTargetPath).Path) -MsysShellRoot $resolvedMsysShellRoot
       }
       $escapedTarget = $runTargetPath.Replace("'", "'\''")
       return "make run '$escapedTarget'"
@@ -96,8 +132,9 @@ xctest ObjcMarkdownTests/ObjcMarkdownTests.bundle
 }
 
 $resolvedMsysRoot = Resolve-MsysRoot -RequestedRoot $MsysRoot
+$resolvedMsysShellRoot = Resolve-MsysShellRoot -MsysRoot $resolvedMsysRoot
 
-$envExe = Join-Path $resolvedMsysRoot "usr\bin\env.exe"
+$envExe = Join-Path $resolvedMsysShellRoot "usr\bin\env.exe"
 if (-not (Test-Path $envExe)) {
   throw "MSYS2 env.exe not found at $envExe"
 }
@@ -108,14 +145,15 @@ if (-not (Test-Path $gnuStepSh)) {
 }
 
 $resolvedRepoRoot = (Resolve-Path $RepoRoot).Path
-$RepoRootMsys = Convert-ToMsysPath -WindowsPath $resolvedRepoRoot
-$clangPrefixMsys = Convert-ToMsysPath -WindowsPath (Join-Path $resolvedMsysRoot "clang64")
+$RepoRootMsys = Convert-ToMsysPath -WindowsPath $resolvedRepoRoot -MsysShellRoot $resolvedMsysShellRoot
+$clangPrefixMsys = Convert-ToMsysPath -WindowsPath (Join-Path $resolvedMsysRoot "clang64") -MsysShellRoot $resolvedMsysShellRoot
 $msysCommand = Get-MsysCommand -SelectedTask $Task -CustomCommand $Command -SelectedRunTarget $RunTarget -SelectedStageDir $StageDir
-$bootstrap = "source /etc/profile; source '$clangPrefixMsys/share/GNUstep/Makefiles/GNUstep.sh'; export PATH='$clangPrefixMsys/bin':`$PATH; export OMD_MSYS_CLANG_PREFIX='$clangPrefixMsys'; cd '$RepoRootMsys'; $msysCommand"
+$bootstrap = "if [ -f /etc/profile ]; then source /etc/profile; fi; source '$clangPrefixMsys/share/GNUstep/Makefiles/GNUstep.sh'; export PATH='$clangPrefixMsys/bin':`$PATH; export OMD_MSYS_CLANG_PREFIX='$clangPrefixMsys'; cd '$RepoRootMsys'; $msysCommand"
 
 Write-Host "Task: $Task"
 Write-Host "Repo: $resolvedRepoRoot"
 Write-Host "MSYS2: $resolvedMsysRoot"
+Write-Host "MSYS2 Shell: $resolvedMsysShellRoot"
 
 & $envExe 'MSYSTEM=CLANG64' 'CHERE_INVOKING=1' '/usr/bin/bash' '-lc' $bootstrap
 exit $LASTEXITCODE

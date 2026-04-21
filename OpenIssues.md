@@ -102,6 +102,8 @@
   - `ensure-windows-theme-inputs.ps1` now consumes `packaging/inputs.json` and fetches declared Windows git theme inputs into `.omd-theme-inputs` when hosted CI does not already have sibling theme checkouts.
   - Hosted Windows run `24747383333` passed bootstrap and fetched the required `plugins-themes-winuitheme` input, then failed inside app packaging while theme command output was still hidden by the repo-local build wrapper.
   - The Windows theme prep wrapper now leaves theme build output visible, skips optional theme fetches unless `OMD_FETCH_OPTIONAL_WINDOWS_THEME_INPUTS=1`, and exports the prepared GNUstep user theme root into both build and stage steps.
+  - Hosted Windows run `24747752773` passed bootstrap and exposed the next app-side failure: the repo-local MSYS bridge converted `D:\...` paths to `/d/...` while running the managed `gnustep-cli-new` shell, so GNUstep makefiles and cloned theme paths were not found.
+  - The Windows MSYS bridge now separates the GNUstep install root from the setup-msys2 shell root and asks the active shell's `cygpath` to translate Windows paths before invoking theme builds or app build/stage commands.
 - **Impact**:
   - Linux is aligned with the hosted packager/CLI boundary.
   - Windows now has a diagnosable hosted bootstrap path, and the next hosted run should expose any remaining app-side theme/build/stage failure directly in the uploaded build log.
@@ -123,6 +125,7 @@
   - ObjcMarkdown now fetches declared Windows theme inputs from `packaging/inputs.json` during hosted packaging when they are absent from the workspace.
   - Hosted Windows run `24747383333` confirmed bootstrap and required theme fetch success, but failed before MSI output while repo-local theme build output was still suppressed.
   - The repo-local Windows build/stage wrappers now preserve theme build logs and pass `OMD_GNUSTEP_USER_THEME_ROOT` through the build and stage steps.
+  - Hosted Windows run `24747752773` exposed the managed-toolchain path translation problem; the repo-local MSYS bridge now uses the selected MSYS2 shell root for `cygpath` conversion while sourcing GNUstep from the managed `gnustep-cli-new` root.
 - **External Findings**:
   - `gnustep-packager` now provides manifest-driven host dependency provisioning, reusable dependency profiles such as `gnustep-cmark`, declarative packaged defaults, semantic package/install assertions, and the hosted `gnustep-cli-new` bootstrap gate.
   - `gnustep-cli-new` now publishes the Windows MSYS2 clang64 artifacts that the packager bootstrap path is expected to consume.
