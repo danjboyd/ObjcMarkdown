@@ -107,6 +107,8 @@
   - Hosted Windows run `24748075413` proved the converted `/d/...` workspace paths were now visible from setup-msys2, but GNUstep itself still expected an active `/clang64` root and the shell did not have `make` on `PATH`.
   - Hosted Windows run `24748308894` showed setup-msys2 already has its own `/clang64`, so the app bridge cannot treat `/clang64` as the managed payload path.
   - The Windows MSYS bridge now exports `GNUSTEP_MAKEFILES` to the managed `gnustep-cli-new` makefile path and prepends the managed `usr/bin` tools before invoking theme builds or app build/stage commands.
+  - Hosted Windows run `24748570291` reached actual WinUITheme compilation and then failed because GNUstep make invoked its baked `/clang64/bin/clang` path instead of the managed compiler location.
+  - The Windows MSYS bridge now exports `CC`, `OBJC_CC`, `CXX`, and `OBJCXX` to the managed clang/clang++ binaries before invoking theme builds or app build/stage commands.
 - **Impact**:
   - Linux is aligned with the hosted packager/CLI boundary.
   - Windows now has a diagnosable hosted bootstrap path, and the next hosted run should expose any remaining app-side theme/build/stage failure directly in the uploaded build log.
@@ -130,6 +132,7 @@
   - The repo-local Windows build/stage wrappers now preserve theme build logs and pass `OMD_GNUSTEP_USER_THEME_ROOT` through the build and stage steps.
   - Hosted Windows run `24747752773` exposed the managed-toolchain path translation problem; the repo-local MSYS bridge now uses the selected MSYS2 shell root for `cygpath` conversion while sourcing GNUstep from the managed `gnustep-cli-new` root.
   - Hosted Windows runs `24748075413` and `24748308894` then exposed GNUstep makefile-root assumptions under the setup-msys2 shell; the repo-local bridge now exports `GNUSTEP_MAKEFILES` to the managed makefiles directory and prepends the managed tools directory.
+  - Hosted Windows run `24748570291` reached WinUITheme compilation and exposed the baked compiler path; the repo-local bridge now overrides compiler variables to the managed clang toolchain.
 - **External Findings**:
   - `gnustep-packager` now provides manifest-driven host dependency provisioning, reusable dependency profiles such as `gnustep-cmark`, declarative packaged defaults, semantic package/install assertions, and the hosted `gnustep-cli-new` bootstrap gate.
   - `gnustep-cli-new` now publishes the Windows MSYS2 clang64 artifacts that the packager bootstrap path is expected to consume.

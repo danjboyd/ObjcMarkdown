@@ -141,6 +141,10 @@ function Invoke-OmdMsysCommand {
     "if [ -f /etc/profile ]; then source /etc/profile; fi",
     "export GNUSTEP_MAKEFILES='$clangPrefixMsys/share/GNUstep/Makefiles'",
     "source `$GNUSTEP_MAKEFILES/GNUstep.sh",
+    "export CC='$clangPrefixMsys/bin/clang'",
+    "export OBJC_CC='$clangPrefixMsys/bin/clang'",
+    "export CXX='$clangPrefixMsys/bin/clang++'",
+    "export OBJCXX='$clangPrefixMsys/bin/clang++'",
     "export PATH='$toolsBinMsys':/usr/bin:'$clangPrefixMsys/bin':/mingw64/bin:`$PATH",
     "export OMD_MSYS_CLANG_PREFIX='$clangPrefixMsys'"
   )
