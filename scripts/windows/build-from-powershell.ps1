@@ -147,8 +147,9 @@ if (-not (Test-Path $gnuStepSh)) {
 $resolvedRepoRoot = (Resolve-Path $RepoRoot).Path
 $RepoRootMsys = Convert-ToMsysPath -WindowsPath $resolvedRepoRoot -MsysShellRoot $resolvedMsysShellRoot
 $clangPrefixMsys = Convert-ToMsysPath -WindowsPath (Join-Path $resolvedMsysRoot "clang64") -MsysShellRoot $resolvedMsysShellRoot
+$toolsBinMsys = Convert-ToMsysPath -WindowsPath (Join-Path $resolvedMsysRoot "usr\bin") -MsysShellRoot $resolvedMsysShellRoot
 $msysCommand = Get-MsysCommand -SelectedTask $Task -CustomCommand $Command -SelectedRunTarget $RunTarget -SelectedStageDir $StageDir
-$bootstrap = "if [ -f /etc/profile ]; then source /etc/profile; fi; source '$clangPrefixMsys/share/GNUstep/Makefiles/GNUstep.sh'; export PATH='$clangPrefixMsys/bin':`$PATH; export OMD_MSYS_CLANG_PREFIX='$clangPrefixMsys'; cd '$RepoRootMsys'; $msysCommand"
+$bootstrap = "if [ -f /etc/profile ]; then source /etc/profile; fi; if [ '$clangPrefixMsys' != '/clang64' ] && [ ! -e /clang64 ]; then ln -s '$clangPrefixMsys' /clang64; fi; source /clang64/share/GNUstep/Makefiles/GNUstep.sh; export PATH='$toolsBinMsys':/usr/bin:/clang64/bin:`$PATH; export OMD_MSYS_CLANG_PREFIX=/clang64; cd '$RepoRootMsys'; $msysCommand"
 
 Write-Host "Task: $Task"
 Write-Host "Repo: $resolvedRepoRoot"
