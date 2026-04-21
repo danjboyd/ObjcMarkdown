@@ -180,11 +180,11 @@ Immediate next steps:
 - `Phase 8C`: repo cutover completed on `2026-04-01`; Windows manifest, staging, workflow, and clean-machine validation now target `gnustep-packager`, with the next Windows-host MSI build plus `OracleTestVMs` run serving as the parity reconfirmation pass
 - `Phase 8D`: implemented on `2026-04-01` by replacing repo-local backend assembly in `linux-appimage.yml` and `windows-packaging.yml` with reusable `gnustep-packager` workflow calls pinned to `bca864ff163e129100881145e017429fed155bf7`
 - `Phase 8E`: implemented on `2026-04-01` by deleting legacy backend assembly code and keeping only manifests, build/stage scripts, preflight helpers, and app-specific validation glue in this repo
-- `Phase 8F`: second repin pass implemented locally on `2026-04-21` by moving both reusable workflow callers to audited `gnustep-packager` commit `6bd7fe8b4f53a445308534ab3ef31763cf4b2e08` and passing explicit `packager-repository`/`packager-ref` checkout inputs required by the current reusable workflow
+- `Phase 8F`: second repin pass implemented locally on `2026-04-21` by moving both reusable workflow callers to audited `gnustep-packager` commit `3c10f1a6e8f7f25fb2fa84e19f9519ed830ee919` and passing explicit `packager-repository`/`packager-ref` checkout inputs required by the current reusable workflow
 - `Phase 8G`: first manifest/consumer-contract pass implemented locally on `2026-04-21`; Linux host dependencies are manifest-owned, Windows/Linux scripts resolve GNUstep/MSYS2 locations from the packager-provided environment, and app-specific preflight no longer validates the host GNUstep installation
 - `Phase 8I`: first hosted runner/toolchain adoption pass implemented locally on `2026-04-21`; ObjcMarkdown now expects `gnustep-packager` to consume the published `gnustep-cli-new` release manifest/artifacts rather than depending on repo-local runner preparation
 - `Phase 8B/8I`: hosted Linux AppImage packaging passed on `2026-04-21` in GitHub Actions run `24743212445` after adapting Linux staging to the managed `gnustep-cli-new` `Local/Library` runtime layout, treating absent PreferencePanes payloads as optional, and switching AppImage smoke validation to the packager-supported marker-file mode for headless CI
-- `Phase 8J`: upstream bounded Windows bootstrap diagnostics were added to `gnustep-packager` commit `6bd7fe8b4f53a445308534ab3ef31763cf4b2e08` and consumed by the ObjcMarkdown packaging workflows on `2026-04-21`; the next validation step is a fresh hosted Windows MSI run using that pin
+- `Phase 8J`: upstream bounded Windows bootstrap diagnostics were added to `gnustep-packager` commit `3c10f1a6e8f7f25fb2fa84e19f9519ed830ee919` and consumed by the ObjcMarkdown packaging workflows on `2026-04-21`; hosted run `24746538617` proved the diagnostics path by uploading setup/build/run logs instead of hanging, and exposed a stale published `gnustep-cli-new` Windows `gnustep run` executable-suffix bug
 - `Phase 8H`: Windows hosted MSI validation is still blocked as of `2026-04-21`; the last run before the diagnostics fix, `24743299242` on commit `96cd011f1f024c47ba26bda9724dad9ffd3421cb`, remained in `Bootstrap And Smoke Test gnustep-cli-new For MSI` long enough to be canceled, and GitHub did not expose live logs for that active step
 - remaining execution gap:
   - complete one fresh validated Windows MSI rebuild through the normal reusable workflow path now that the bootstrap diagnostics gap is patched upstream
@@ -206,7 +206,7 @@ release gate with the newer `gnustep-packager` contract.
 ### Phase 8F: Repin To The Current gnustep-packager Contract
 
 Scope:
-- update both reusable workflow callers to the current audited `gnustep-packager` commit `6bd7fe8b4f53a445308534ab3ef31763cf4b2e08`
+- update both reusable workflow callers to the current audited `gnustep-packager` commit `3c10f1a6e8f7f25fb2fa84e19f9519ed830ee919`
 - consume the newer upstream contract for:
   - host dependency provisioning
   - `gnustep-cmark`
@@ -271,8 +271,8 @@ Scope:
 - rerun the Windows MSI workflow on the current ObjcMarkdown branch and classify the first actionable failure after bootstrap, if any
 
 Current status:
-- upstream `gnustep-packager` commit `6bd7fe8b4f53a445308534ab3ef31763cf4b2e08` bounds the hosted Windows bootstrap step, captures stdout/stderr into diagnostics, and kills the bootstrap process tree on timeout
-- ObjcMarkdown's Linux and Windows packaging workflows are pinned to that commit; a fresh hosted Windows run is required to confirm whether bootstrap now reaches app preflight/build/stage or fails with actionable diagnostics
+- upstream `gnustep-packager` commit `3c10f1a6e8f7f25fb2fa84e19f9519ed830ee919` bounds the hosted Windows bootstrap step, captures stdout/stderr into diagnostics, kills the bootstrap process tree on timeout, and smokes the generated Windows `HelloPackager.exe` directly until the published `gnustep-cli-new` Windows CLI artifact is refreshed
+- ObjcMarkdown's Linux and Windows packaging workflows are pinned to that commit; hosted run `24746538617` confirmed actionable diagnostics and the next hosted Windows run should determine whether the MSI path reaches app preflight/build/stage
 
 Acceptance criteria:
 - a hosted Windows bootstrap failure produces uploaded diagnostics and a bounded failure instead of an indefinite in-progress workflow step

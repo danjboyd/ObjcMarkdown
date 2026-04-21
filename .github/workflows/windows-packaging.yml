@@ -33,13 +33,13 @@ jobs:
 
   build-msi:
     needs: resolve-version
-    uses: danjboyd/gnustep-packager/.github/workflows/package-gnustep-app.yml@6bd7fe8b4f53a445308534ab3ef31763cf4b2e08
+    uses: danjboyd/gnustep-packager/.github/workflows/package-gnustep-app.yml@3c10f1a6e8f7f25fb2fa84e19f9519ed830ee919
     with:
       manifest-path: packaging/manifests/windows-msi.manifest.json
       backend: msi
       package-version: ${{ needs.resolve-version.outputs.package_version }}
       packager-repository: danjboyd/gnustep-packager
-      packager-ref: 6bd7fe8b4f53a445308534ab3ef31763cf4b2e08
+      packager-ref: 3c10f1a6e8f7f25fb2fa84e19f9519ed830ee919
       run-validation: true
       run-smoke: true
       upload-artifacts: true

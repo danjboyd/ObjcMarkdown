@@ -96,7 +96,8 @@
   - Repo-local build/stage scripts now prefer `GNUSTEP_MAKEFILES`, `GP_GNUSTEP_CLI_ROOT`, `MSYS2_LOCATION`, and the active managed clang64 prefix before falling back to legacy local paths.
   - Hosted Linux AppImage packaging passed in GitHub Actions run `24743212445` on `2026-04-21`.
   - Hosted Windows MSI packaging is not yet proven because run `24743299242` remained in `Bootstrap And Smoke Test gnustep-cli-new For MSI` until canceled, with no live logs exposed by GitHub for that step.
-  - Upstream `gnustep-packager` commit `6bd7fe8b4f53a445308534ab3ef31763cf4b2e08` now bounds the Windows bootstrap step, records stdout/stderr into diagnostics, and terminates the bootstrap process tree on timeout.
+  - Upstream `gnustep-packager` commit `3c10f1a6e8f7f25fb2fa84e19f9519ed830ee919` now bounds the Windows bootstrap step, records stdout/stderr into diagnostics, terminates the bootstrap process tree on timeout, and smokes the generated Windows `HelloPackager.exe` directly until the public `gnustep-cli-new` Windows CLI artifact is refreshed.
+  - Hosted Windows run `24746538617` proved the diagnostics path and isolated the stale published CLI artifact issue: setup/build succeeded, but the older `gnustep run` looked for `./obj/HelloPackager` instead of the built `HelloPackager.exe`.
 - **Impact**:
   - Linux is aligned with the hosted packager/CLI boundary.
   - Windows now has a diagnosable hosted bootstrap path, but ObjcMarkdown MSI build/stage behavior still needs a fresh hosted run before it can be evaluated.
@@ -115,7 +116,7 @@
   - Local Linux/dev launch regressions caused by the new updater libraries are fixed in [GNUmakefile](/home/danboyd/git/ObjcMarkdown/GNUmakefile) and [scripts/omd-viewer.sh](/home/danboyd/git/ObjcMarkdown/scripts/omd-viewer.sh).
   - The packaging workflows are now pinned to the current `gnustep-packager` integration commit and should use the normal reusable path instead of the ad hoc OCI remote rebuild bundle.
   - Hosted Windows MSI run `24743299242` on `2026-04-21` did not reach ObjcMarkdown build/stage; it remained in the reusable workflow's `gnustep-cli-new` MSI bootstrap step until canceled.
-  - The current packager pin includes bounded hosted Windows bootstrap diagnostics, so the next hosted run should either reach ObjcMarkdown build/stage or upload actionable bootstrap logs.
+  - The current packager pin includes bounded hosted Windows bootstrap diagnostics and a direct generated-`.exe` smoke for the stale published CLI artifact, so the next hosted run should reach ObjcMarkdown build/stage unless a new packaging blocker appears.
 - **External Findings**:
   - `gnustep-packager` now provides manifest-driven host dependency provisioning, reusable dependency profiles such as `gnustep-cmark`, declarative packaged defaults, semantic package/install assertions, and the hosted `gnustep-cli-new` bootstrap gate.
   - `gnustep-cli-new` now publishes the Windows MSYS2 clang64 artifacts that the packager bootstrap path is expected to consume.
@@ -131,8 +132,9 @@
 - **Description**: The reusable Windows MSI workflow can remain indefinitely in `Bootstrap And Smoke Test gnustep-cli-new For MSI` before ObjcMarkdown build/stage starts, and GitHub does not expose live logs for that active step.
 - **Current State**:
   - Upstream `gnustep-packager` was patched to run the Windows bootstrap through `gnustep-bootstrap.ps1` instead of the POSIX MSYS2 bootstrap path.
-  - Upstream `gnustep-packager` was then patched again in commit `6bd7fe8b4f53a445308534ab3ef31763cf4b2e08` to run the hosted Windows bootstrap through bounded native processes, collect stdout/stderr logs, and kill the process tree on timeout.
+  - Upstream `gnustep-packager` was then patched again in commit `3c10f1a6e8f7f25fb2fa84e19f9519ed830ee919` to run the hosted Windows bootstrap through bounded native processes, collect stdout/stderr logs, kill the process tree on timeout, and run the generated `HelloPackager.exe` directly after build.
   - ObjcMarkdown workflows are pinned to that bounded-diagnostics packager commit.
+  - Hosted Windows run `24746538617` uploaded the expected diagnostic artifacts and failed specifically because the published `gnustep-cli-new` Windows CLI artifact still resolved `gnustep run` to `./obj/HelloPackager` instead of `./obj/HelloPackager.exe`; `gnustep-cli-new` source has been patched upstream for the next artifact refresh.
   - Fresh hosted Windows run `24743299242` on commit `96cd011f1f024c47ba26bda9724dad9ffd3421cb` stayed in the MSI bootstrap step for several minutes and was canceled after no progress or logs were available.
   - The older run `24742522851` showed the same stationary bootstrap behavior on an earlier SHA and was also canceled as obsolete.
 - **Impact**:
@@ -140,4 +142,4 @@
   - Blocks Windows parity validation in `OracleTestVMs` because there are no fresh artifacts to install.
   - Clean triage is now possible after a fresh hosted run because bootstrap timeout and partial diagnostics are available through the current packager pin.
 - **Next Step**:
-  - Rerun `windows-packaging` and classify the next failure once bootstrap diagnostics or MSI artifacts are available.
+  - Rerun `windows-packaging` using the direct-`.exe` smoke packager pin and classify the next failure once MSI artifacts or app-side diagnostics are available.
