@@ -222,8 +222,7 @@
         "runtimeClosure": "strict"
       },
       "smoke": {
-        "mode": "open-file",
-        "documentStageRelativePath": "metadata/smoke/sample-commonmark.md",
+        "mode": "marker-file",
         "startupSeconds": 8
       }
     }

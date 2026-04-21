@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #import "OMDAppDelegate.h"
+#import <unistd.h>
 
 static NSString * const OMDMathRenderingPolicyDefaultsKey = @"ObjcMarkdownMathRenderingPolicy";
 static NSInteger const OMDMathRenderingPolicyExternalToolsValue = 2;
@@ -350,12 +351,51 @@ static void OMDUncaughtExceptionHandler(NSException *exception)
     }
 }
 
+static BOOL OMDRunPackagerSmokeMarkerIfRequested(void)
+{
+    NSDictionary *environment = [[NSProcessInfo processInfo] environment];
+    NSString *markerPath = [environment objectForKey:@"GP_APPIMAGE_SMOKE_MARKER_PATH"];
+    if (![markerPath isKindOfClass:[NSString class]] || [markerPath length] == 0) {
+        return NO;
+    }
+
+    NSString *markerDirectory = [markerPath stringByDeletingLastPathComponent];
+    if ([markerDirectory length] > 0) {
+        NSError *directoryError = nil;
+        if (![[NSFileManager defaultManager] createDirectoryAtPath:markerDirectory
+                                       withIntermediateDirectories:YES
+                                                        attributes:nil
+                                                             error:&directoryError]) {
+            NSLog(@"Could not create smoke marker directory %@: %@", markerDirectory, directoryError);
+            exit(1);
+        }
+    }
+
+    NSString *marker = [NSString stringWithFormat:@"ObjcMarkdown smoke marker\npid=%d\n",
+                                                  (int)getpid()];
+    NSData *markerData = [marker dataUsingEncoding:NSUTF8StringEncoding];
+    if (markerData == nil || ![markerData writeToFile:markerPath atomically:YES]) {
+        NSLog(@"Could not write smoke marker %@", markerPath);
+        exit(1);
+    }
+
+    return YES;
+}
+
 int main(int argc, char *argv[])
 {
+    (void)argc;
+    (void)argv;
+
     NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
     OMDStartupTrace(@"main: pool created");
     NSSetUncaughtExceptionHandler(&OMDUncaughtExceptionHandler);
     OMDStartupTrace(@"main: exception handler set");
+    if (OMDRunPackagerSmokeMarkerIfRequested()) {
+        OMDStartupTrace(@"main: packager smoke marker completed");
+        [pool drain];
+        return 0;
+    }
     NSString *applicationName = OMDApplicationName();
     if (applicationName != nil && [applicationName length] > 0) {
         [[NSProcessInfo processInfo] setProcessName:applicationName];
