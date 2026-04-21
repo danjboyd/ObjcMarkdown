@@ -150,6 +150,108 @@ function Resolve-OmdThemeRepo {
   return $null
 }
 
+function Get-OmdPropertyValue {
+  param(
+    [Parameter(Mandatory = $true)]
+    [object]$Object,
+    [Parameter(Mandatory = $true)]
+    [string]$Name
+  )
+
+  if ($null -eq $Object) {
+    return $null
+  }
+
+  $property = $Object.PSObject.Properties[$Name]
+  if ($null -eq $property) {
+    return $null
+  }
+
+  return $property.Value
+}
+
+function Get-OmdRepoDirectoryName {
+  param(
+    [string]$RepoUrl,
+    [string]$WorkspacePath
+  )
+
+  if (-not [string]::IsNullOrWhiteSpace($WorkspacePath)) {
+    return [System.IO.Path]::GetFileName($WorkspacePath.TrimEnd([char[]]@("\", "/")))
+  }
+
+  $repoName = [System.IO.Path]::GetFileName($RepoUrl.TrimEnd([char[]]@("\", "/")))
+  if ($repoName.EndsWith(".git", [System.StringComparison]::OrdinalIgnoreCase)) {
+    return $repoName.Substring(0, $repoName.Length - 4)
+  }
+
+  return $repoName
+}
+
+function Initialize-OmdThemeInputs {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$WorkspaceRoot
+  )
+
+  $inputsPath = Join-Path $repoRoot "packaging\inputs.json"
+  if (-not (Test-Path $inputsPath)) {
+    return
+  }
+
+  $inputsDocument = Get-Content -Raw -Path $inputsPath | ConvertFrom-Json
+  $inputs = @(Get-OmdPropertyValue -Object $inputsDocument -Name "inputs")
+  if ($inputs.Count -eq 0) {
+    return
+  }
+
+  New-Item -ItemType Directory -Force -Path $WorkspaceRoot | Out-Null
+
+  foreach ($input in $inputs) {
+    if ([string](Get-OmdPropertyValue -Object $input -Name "kind") -ne "git") {
+      continue
+    }
+
+    $platforms = @(Get-OmdPropertyValue -Object $input -Name "platforms")
+    if ($platforms -notcontains "windows") {
+      continue
+    }
+
+    $repoUrl = [string](Get-OmdPropertyValue -Object $input -Name "repo")
+    if ([string]::IsNullOrWhiteSpace($repoUrl)) {
+      continue
+    }
+
+    $workspacePath = [string](Get-OmdPropertyValue -Object $input -Name "workspacePath")
+    $repoDirectory = Get-OmdRepoDirectoryName -RepoUrl $repoUrl -WorkspacePath $workspacePath
+    if ([string]::IsNullOrWhiteSpace($repoDirectory)) {
+      continue
+    }
+
+    $destination = Join-Path $WorkspaceRoot $repoDirectory
+    if (Test-Path (Join-Path $destination "GNUmakefile")) {
+      continue
+    }
+
+    $required = [bool](Get-OmdPropertyValue -Object $input -Name "required")
+    Write-Host ("Fetching Windows theme input '{0}' from {1}" -f $repoDirectory, $repoUrl)
+    $cloneArgs = @("clone", "--depth", "1", "--filter=blob:none", $repoUrl, $destination)
+    $ref = [string](Get-OmdPropertyValue -Object $input -Name "ref")
+    if (-not [string]::IsNullOrWhiteSpace($ref)) {
+      $cloneArgs = @("clone", "--depth", "1", "--filter=blob:none", "--branch", $ref, $repoUrl, $destination)
+    }
+
+    & git @cloneArgs
+    if ($LASTEXITCODE -ne 0) {
+      if ($required) {
+        throw "Failed to fetch required Windows theme input '$repoDirectory' from $repoUrl"
+      }
+      Write-Host ("Skipping optional Windows theme input '{0}' because git clone failed." -f $repoDirectory)
+      Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $destination
+    }
+  }
+}
+
 function Resolve-OmdUserThemeRoot {
   param(
     [Parameter(Mandatory = $true)]
@@ -241,7 +343,8 @@ $themeWorkspaceCandidates = [System.Collections.Generic.List[string]]::new()
 if (-not [string]::IsNullOrWhiteSpace($ThemeWorkspace)) {
   $themeWorkspaceCandidates.Add((Resolve-OmdPathCandidate -BasePath $repoRoot -Candidate $ThemeWorkspace)) | Out-Null
 }
-$themeWorkspaceCandidates.Add([System.IO.Path]::GetFullPath((Join-Path $repoRoot ".omd-theme-inputs"))) | Out-Null
+$defaultThemeWorkspace = [System.IO.Path]::GetFullPath((Join-Path $repoRoot ".omd-theme-inputs"))
+$themeWorkspaceCandidates.Add($defaultThemeWorkspace) | Out-Null
 $themeWorkspaceCandidates.Add([System.IO.Path]::GetFullPath((Join-Path $repoRoot ".."))) | Out-Null
 
 $themeSpecs = @(
@@ -258,6 +361,8 @@ $themeSpecs = @(
     Required = $true
   }
 )
+
+Initialize-OmdThemeInputs -WorkspaceRoot $defaultThemeWorkspace
 
 $themeResults = [System.Collections.Generic.List[object]]::new()
 
