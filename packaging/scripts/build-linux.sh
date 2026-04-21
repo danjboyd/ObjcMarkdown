@@ -20,8 +20,20 @@ resolve_gnustep_makefiles() {
 }
 
 set +u
-. "$(resolve_gnustep_makefiles)/GNUstep.sh"
+resolved_makefiles="$(resolve_gnustep_makefiles)"
+. "$resolved_makefiles/GNUstep.sh"
 set -u
+
+resolved_prefix="$(cd "$resolved_makefiles/../../.." && pwd)"
+for lib_dir in \
+  "$resolved_prefix/System/Library/Libraries" \
+  "$resolved_prefix/Local/Library/Libraries" \
+  "$resolved_prefix/lib" \
+  "$resolved_prefix/lib64"; do
+  if [[ -d "$lib_dir" ]]; then
+    export LD_LIBRARY_PATH="$lib_dir${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+  fi
+done
 
 if command -v gmake >/dev/null 2>&1; then
   gmake OMD_SKIP_TESTS=1
