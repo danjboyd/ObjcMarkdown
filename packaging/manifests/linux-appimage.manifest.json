@@ -96,6 +96,14 @@
       "releaseNotesUrlPattern": "https://github.com/{owner}/{repo}/releases/tag/{tag}"
     }
   },
+  "hostDependencies": {
+    "linux": {
+      "aptPackages": [
+        "libcmark-dev",
+        "pandoc"
+      ]
+    }
+  },
   "validation": {
     "smoke": {
       "enabled": true,

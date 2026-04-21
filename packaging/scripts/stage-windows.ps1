@@ -11,12 +11,6 @@ if ($LASTEXITCODE -ne 0) {
   throw "ObjcMarkdown Windows staging failed."
 }
 
-$msysRoot = if (-not [string]::IsNullOrWhiteSpace($env:MSYS2_LOCATION)) {
-  $env:MSYS2_LOCATION
-} else {
-  "C:\msys64"
-}
-
 $tinyTeXInputs = & .\packaging\scripts\ensure-tinytex-runtime.ps1
 if (-not $tinyTeXInputs -or -not $tinyTeXInputs.root -or -not $tinyTeXInputs.bin) {
   throw "TinyTeX preparation did not return a structured runtime payload."

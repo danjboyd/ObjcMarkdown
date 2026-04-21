@@ -88,34 +88,34 @@
 - **Status**: Open
 - **Opened On**: 2026-04-14
 - **Area**: Release engineering / GitHub Actions / Linux packaging
-- **Description**: The tagged Linux AppImage workflow is intentionally configured to run on the self-hosted GNUstep runner label set `["self-hosted","linux","gnustep-clang"]`, but there are currently no registered runners in the repository, so the AppImage packaging job never starts.
+- **Description**: The tagged Linux AppImage workflow was intentionally configured to run on the self-hosted GNUstep runner label set `["self-hosted","linux","gnustep-clang"]`, but there were no registered runners in the repository, so the AppImage packaging job could not start.
 - **Current State**:
-  - `linux-appimage` resolves the package version successfully on tag push.
-  - the reusable packaging job remains queued indefinitely on the self-hosted label set
-  - `gh api repos/danjboyd/ObjcMarkdown/actions/runners` currently reports `total_count: 0`
+  - `linux-appimage` has been moved back to the reusable `gnustep-packager` default hosted AppImage path.
+  - The reusable workflow now owns hosted GNUstep toolchain bootstrap and smoke validation through `gnustep-cli-new`.
+  - The ObjcMarkdown Linux preflight now prepares only app-specific packaging inputs, such as the Adwaita theme checkout.
 - **Impact**:
-  - blocks end-to-end confirmation that a release tag produces and publishes the Linux AppImage and `.zsync`
-  - prevents `Phase 7B` / `Phase 8D` acceptance from going green for Linux
+  - no longer blocks job scheduling on missing self-hosted runners
+  - still requires a fresh hosted AppImage packaging run before the GitHub release path can be considered validated
 - **Next Step**:
-  - register or restore the expected self-hosted GNUstep runner for this repository, or deliberately redesign the Linux packaging lane to run on a GitHub-hosted image with equivalent toolchain guarantees
+  - run the normal `linux-appimage` workflow and classify any failure as an ObjcMarkdown build/stage issue, a packager issue, or a `gnustep-cli-new` bootstrap issue based on the uploaded diagnostics
 
-## 10A) `gnustep-cli-new` completion is a blocker for the GitHub runner/toolchain path
+## 10A) Adopt the `gnustep-cli-new` runner/toolchain contract in ObjcMarkdown packaging
 
 - **Status**: Open
 - **Opened On**: 2026-04-15
 - **Area**: Release engineering / runner infrastructure / toolchain provisioning
-- **Description**: The MSI/AppImage/GitHub runner process now depends on having a reliable way to provision or validate the required GNUstep libraries and the correct clang-oriented toolchain flavor on disposable runners. `gnustep-cli-new` is the intended system for solving that runner contract, so its documented completion is now an explicit blocker for finishing the GitHub-based release path.
+- **Description**: The MSI/AppImage/GitHub runner process depends on having a reliable way to provision or validate the required GNUstep libraries and the correct clang-oriented toolchain flavor on disposable runners. `gnustep-packager` now uses `gnustep-cli-new` as the hosted runner bootstrap and smoke-validation path, so ObjcMarkdown needs to consume that contract instead of carrying ad hoc runner preparation.
 - **Current State**:
-  - `gnustep-packager` is now the packaging boundary, but it does not by itself solve base runner toolchain provisioning.
-  - The Linux packaging lane still depends on a missing self-hosted GNUstep runner.
-  - The Windows packaging lane can run on GitHub-hosted Windows, but it still assumes a reliable GNUstep/MSYS2 toolchain installation story.
-  - `gnustep-cli-new` is intended to provide the runner-facing install/doctor/validation contract for those toolchains, but its own docs still describe Windows managed-toolchain support as incomplete.
+  - `gnustep-packager` is the packaging boundary and owns the reusable MSI/AppImage workflows.
+  - `gnustep-cli-new` now publishes the Linux and Windows artifacts consumed by the packager bootstrap path.
+  - The ObjcMarkdown packaging workflows are pinned to the current packager integration commit and use the hosted default bootstrap path.
+  - Repo-local build/stage scripts now prefer `GNUSTEP_MAKEFILES`, `GP_GNUSTEP_CLI_ROOT`, `MSYS2_LOCATION`, and the active managed clang64 prefix before falling back to legacy local paths.
 - **Impact**:
-  - blocks treating either GitHub-hosted Windows runners or any replacement Linux runner path as operationally complete
-  - blocks closing the MSI/AppImage/GitHub runner process as a reproducible release system
+  - blocks treating ObjcMarkdown as fully aligned with the current packager/CLI boundary until hosted packaging is rerun and the uploaded diagnostics are reviewed
+  - any remaining failure should now be attributable to the app build/stage commands, the packager transform/validation layer, or the `gnustep-cli-new` bootstrap diagnostics rather than missing runner setup
 - **Next Step**:
-  - finish `gnustep-cli-new` to the point where it can provision or validate the exact GNUstep/clang toolchain contract required by `ObjcMarkdown` packaging runners
-  - then rebase `Phase 8I` runner work on that contract instead of ad hoc runner preparation
+  - rerun hosted Linux AppImage and Windows MSI packaging through the normal reusable workflow path
+  - review the uploaded `*-gnustep-cli-new`, logs, and validation artifacts for any remaining failures
 
 ## 11) Windows MSI rebuild handoff after WinUITheme/default-theme work
 
@@ -127,17 +127,10 @@
   - `ObjcMarkdown` repo changes are in place to require `WinUITheme` in the staged payload and set `GSTheme=WinUITheme` with `policy: ifUnset` in [packaging/manifests/windows-msi.manifest.json](/home/danboyd/git/ObjcMarkdown/packaging/manifests/windows-msi.manifest.json).
   - Repo-local Windows theme input prep was updated to work with the managed MSYS2 `clang64` toolchain in [packaging/scripts/ensure-windows-theme-inputs.ps1](/home/danboyd/git/ObjcMarkdown/packaging/scripts/ensure-windows-theme-inputs.ps1).
   - Local Linux/dev launch regressions caused by the new updater libraries are fixed in [GNUmakefile](/home/danboyd/git/ObjcMarkdown/GNUmakefile) and [scripts/omd-viewer.sh](/home/danboyd/git/ObjcMarkdown/scripts/omd-viewer.sh).
-  - An ad hoc remote Windows rebuild bundle exists on the OCI build VM under `C:\\Users\\otvmbootstrap\\omd-winremote`, but no fresh MSI has been copied back or pushed to the test VM yet.
+  - The packaging workflows are now pinned to the current `gnustep-packager` integration commit and should use the normal reusable path instead of the ad hoc OCI remote rebuild bundle.
 - **External Findings**:
-  - `gnustep-packager` implemented manifest-driven host dependency provisioning in commit `576a020`, including `hostDependencies.windows.msys2Packages` and reusable-workflow support.
-  - `gnustep-packager` also fixed the Windows native-stderr warning handling issue.
-  - Remaining best-practice upstream request is to strengthen declarative packaged content contracts / installed-package assertions so packaging correctness lives more fully in the packager boundary.
-- **Last Known Remote Build Blocker**:
-  - The remote Windows build reached the `ObjcMarkdown` compile and failed on missing `cmark.h`.
-  - The immediate local fix was to update the ad hoc remote build script to install `mingw-w64-clang-x86_64-cmark` before invoking the packaging pipeline.
-  - The long-term fix should be to declare `cmark` in the manifest under `hostDependencies.windows.msys2Packages` and then repin/use the updated `gnustep-packager` commit so host dependency realization happens systematically.
+  - `gnustep-packager` now provides manifest-driven host dependency provisioning, reusable dependency profiles such as `gnustep-cmark`, declarative packaged defaults, semantic package/install assertions, and the hosted `gnustep-cli-new` bootstrap gate.
+  - `gnustep-cli-new` now publishes the Windows MSYS2 clang64 artifacts that the packager bootstrap path is expected to consume.
 - **Next Step**:
-  - Update `ObjcMarkdown`’s Windows packaging manifest to declare `mingw-w64-clang-x86_64-cmark` under `hostDependencies.windows.msys2Packages`.
-  - Repin the repo to the new `gnustep-packager` commit that includes host dependency provisioning.
   - Rebuild the MSI through the normal packaging path instead of the increasingly patched ad hoc OCI remote bundle.
   - Once a fresh MSI is produced, push the `.msi` and portable `.zip` to a Windows validation VM and re-run manual/UAT verification.

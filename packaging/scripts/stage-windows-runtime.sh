@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 STAGE_ROOT="${1:-$ROOT/dist/packaging/windows/stage}"
+CLANG_PREFIX="${OMD_MSYS_CLANG_PREFIX:-/clang64}"
 
 APP_ROOT="$STAGE_ROOT/app"
 APP_BUNDLE_DIR="$APP_ROOT/MarkdownViewer.app"
@@ -52,18 +53,18 @@ copy_required "$ROOT/third_party/libs-OpenSave/Source/obj/OpenSave-0.dll" "$RUNT
 copy_required "$ROOT/third_party/TextViewVimKitBuild/obj/TextViewVimKit-0.dll" "$RUNTIME_BIN_DIR/"
 copy_required "$ROOT/third_party/GPUpdaterCore/obj/GPUpdaterCore-0.dll" "$RUNTIME_BIN_DIR/"
 copy_required "$ROOT/third_party/GPUpdaterUI/obj/GPUpdaterUI-0.dll" "$RUNTIME_BIN_DIR/"
-copy_required /clang64/bin/defaults.exe "$RUNTIME_BIN_DIR/"
+copy_required "$CLANG_PREFIX/bin/defaults.exe" "$RUNTIME_BIN_DIR/"
 
-copy_optional /clang64/bin/libgcc_s_seh-1.dll "$RUNTIME_BIN_DIR/"
-copy_optional /clang64/bin/libstdc++-6.dll "$RUNTIME_BIN_DIR/"
-copy_optional /clang64/bin/libwinpthread-1.dll "$RUNTIME_BIN_DIR/"
-copy_optional /clang64/bin/libc++.dll "$RUNTIME_BIN_DIR/"
-copy_optional /clang64/bin/libc++abi.dll "$RUNTIME_BIN_DIR/"
-copy_optional /clang64/bin/libunwind.dll "$RUNTIME_BIN_DIR/"
+copy_optional "$CLANG_PREFIX/bin/libgcc_s_seh-1.dll" "$RUNTIME_BIN_DIR/"
+copy_optional "$CLANG_PREFIX/bin/libstdc++-6.dll" "$RUNTIME_BIN_DIR/"
+copy_optional "$CLANG_PREFIX/bin/libwinpthread-1.dll" "$RUNTIME_BIN_DIR/"
+copy_optional "$CLANG_PREFIX/bin/libc++.dll" "$RUNTIME_BIN_DIR/"
+copy_optional "$CLANG_PREFIX/bin/libc++abi.dll" "$RUNTIME_BIN_DIR/"
+copy_optional "$CLANG_PREFIX/bin/libunwind.dll" "$RUNTIME_BIN_DIR/"
 
-cp -R /clang64/lib/GNUstep/* "$RUNTIME_GNUSTEP_DIR/"
-cp -R /clang64/etc/fonts "$RUNTIME_ETC_DIR/"
-cp -R /clang64/share/fontconfig "$RUNTIME_SHARE_DIR/"
+cp -R "$CLANG_PREFIX/lib/GNUstep/"* "$RUNTIME_GNUSTEP_DIR/"
+cp -R "$CLANG_PREFIX/etc/fonts" "$RUNTIME_ETC_DIR/"
+cp -R "$CLANG_PREFIX/share/fontconfig" "$RUNTIME_SHARE_DIR/"
 
 copy_user_theme_if_present() {
   local theme_name="$1"
@@ -118,7 +119,7 @@ is_system_dll() {
 find_dll() {
   local name="$1"
   local path=""
-  for base in /clang64/bin /clang64/lib /clang64/lib/GNUstep/Libraries/gnustep-base /clang64/lib/GNUstep/Libraries/gnustep-gui; do
+  for base in "$CLANG_PREFIX/bin" "$CLANG_PREFIX/lib" "$CLANG_PREFIX/lib/GNUstep/Libraries/gnustep-base" "$CLANG_PREFIX/lib/GNUstep/Libraries/gnustep-gui"; do
     if [[ -f "$base/$name" ]]; then
       path="$base/$name"
       break

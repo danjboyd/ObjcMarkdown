@@ -14,12 +14,7 @@ require_command() {
   fi
 }
 
-test -f /usr/GNUstep/System/Library/Makefiles/GNUstep.sh
 require_command git
-require_command clang
-require_command gmake
-require_command pandoc
-require_command pwsh
 
 mkdir -p "$ROOT/third_party"
 if [[ ! -d "$THEME_DIR/.git" ]]; then

@@ -5,7 +5,7 @@ param(
   [string]$RunTarget = "TableRenderDemo.md",
   [string]$StageDir = "dist/packaging/windows/stage",
   [string]$RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path,
-  [string]$MsysRoot = $(if (-not [string]::IsNullOrWhiteSpace($env:MSYS2_LOCATION)) { $env:MSYS2_LOCATION } else { "C:\msys64" })
+  [string]$MsysRoot = ""
 )
 
 Set-StrictMode -Version Latest
@@ -23,6 +23,36 @@ function Convert-ToMsysPath {
   }
 
   throw "Unable to convert Windows path to MSYS2 path: $WindowsPath"
+}
+
+function Resolve-MsysRoot {
+  param([string]$RequestedRoot)
+
+  $candidates = [System.Collections.Generic.List[string]]::new()
+  if (-not [string]::IsNullOrWhiteSpace($RequestedRoot)) {
+    $candidates.Add($RequestedRoot) | Out-Null
+  }
+  if (-not [string]::IsNullOrWhiteSpace($env:MSYS2_LOCATION)) {
+    $candidates.Add($env:MSYS2_LOCATION) | Out-Null
+  }
+  if (-not [string]::IsNullOrWhiteSpace($env:GP_GNUSTEP_CLI_ROOT)) {
+    $candidates.Add($env:GP_GNUSTEP_CLI_ROOT) | Out-Null
+    $candidates.Add((Join-Path $env:GP_GNUSTEP_CLI_ROOT "msys64")) | Out-Null
+  }
+  $candidates.Add("C:\msys64") | Out-Null
+
+  foreach ($candidate in @($candidates | Select-Object -Unique)) {
+    if ([string]::IsNullOrWhiteSpace($candidate)) {
+      continue
+    }
+    $resolved = [System.IO.Path]::GetFullPath($candidate)
+    if ((Test-Path (Join-Path $resolved "usr\bin\env.exe")) -and
+        (Test-Path (Join-Path $resolved "clang64\share\GNUstep\Makefiles\GNUstep.sh"))) {
+      return $resolved
+    }
+  }
+
+  throw "Unable to resolve MSYS2 clang64 root. Checked: $($candidates -join ', ')"
 }
 
 function Get-MsysCommand {
@@ -65,7 +95,7 @@ xctest ObjcMarkdownTests/ObjcMarkdownTests.bundle
   throw "Unhandled task: $SelectedTask"
 }
 
-$resolvedMsysRoot = [System.IO.Path]::GetFullPath($MsysRoot)
+$resolvedMsysRoot = Resolve-MsysRoot -RequestedRoot $MsysRoot
 
 $envExe = Join-Path $resolvedMsysRoot "usr\bin\env.exe"
 if (-not (Test-Path $envExe)) {
@@ -79,8 +109,9 @@ if (-not (Test-Path $gnuStepSh)) {
 
 $resolvedRepoRoot = (Resolve-Path $RepoRoot).Path
 $RepoRootMsys = Convert-ToMsysPath -WindowsPath $resolvedRepoRoot
+$clangPrefixMsys = Convert-ToMsysPath -WindowsPath (Join-Path $resolvedMsysRoot "clang64")
 $msysCommand = Get-MsysCommand -SelectedTask $Task -CustomCommand $Command -SelectedRunTarget $RunTarget -SelectedStageDir $StageDir
-$bootstrap = "source /etc/profile; source /clang64/share/GNUstep/Makefiles/GNUstep.sh; cd '$RepoRootMsys'; $msysCommand"
+$bootstrap = "source /etc/profile; source '$clangPrefixMsys/share/GNUstep/Makefiles/GNUstep.sh'; export PATH='$clangPrefixMsys/bin':`$PATH; export OMD_MSYS_CLANG_PREFIX='$clangPrefixMsys'; cd '$RepoRootMsys'; $msysCommand"
 
 Write-Host "Task: $Task"
 Write-Host "Repo: $resolvedRepoRoot"

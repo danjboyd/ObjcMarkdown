@@ -13,9 +13,42 @@ fi
 THEME_BUILD_SOURCE="${2:-${OMD_ADWAITA_THEME_SOURCE:-$DEFAULT_THEME_BUILD_SOURCE}}"
 THEME_BUNDLE_SOURCE="${OMD_ADWAITA_THEME_BUNDLE_SOURCE:-}"
 
+resolve_host_gnustep_makefiles() {
+  local candidate=""
+  for candidate in \
+    "${GNUSTEP_MAKEFILES:-}" \
+    "${GP_GNUSTEP_CLI_ROOT:-}/System/Library/Makefiles" \
+    "${GP_GNUSTEP_CLI_ROOT:-}/Local/Library/Makefiles" \
+    "/usr/GNUstep/System/Library/Makefiles" \
+    "/usr/share/GNUstep/Makefiles"; do
+    if [[ -n "$candidate" && -f "$candidate/GNUstep.sh" ]]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+
+  echo "ERROR: GNUstep.sh was not found. Expected GNUSTEP_MAKEFILES, GP_GNUSTEP_CLI_ROOT, or a legacy GNUstep install." >&2
+  return 1
+}
+
+HOST_GNUSTEP_MAKEFILES="${OMD_GNUSTEP_MAKEFILES:-$(resolve_host_gnustep_makefiles)}"
+HOST_GNUSTEP_PREFIX="${OMD_GNUSTEP_PREFIX:-$(cd "$HOST_GNUSTEP_MAKEFILES/../../.." && pwd)}"
+HOST_GNUSTEP_SYSTEM_ROOT="${OMD_GNUSTEP_SYSTEM_ROOT:-$HOST_GNUSTEP_PREFIX/System}"
+HOST_GNUSTEP_LIBRARY_ROOT="$HOST_GNUSTEP_SYSTEM_ROOT/Library"
+HOST_GNUSTEP_LIB_DIR="$HOST_GNUSTEP_LIBRARY_ROOT/Libraries"
+HOST_GNUSTEP_RUNTIME_LIB_DIR="$HOST_GNUSTEP_PREFIX/lib"
+HOST_GNUSTEP_RUNTIME_LIB64_DIR="$HOST_GNUSTEP_PREFIX/lib64"
+HOST_GNUSTEP_BUNDLE_ROOT="$HOST_GNUSTEP_LIBRARY_ROOT/Bundles"
+HOST_GNUSTEP_COLORPICKER_ROOT="$HOST_GNUSTEP_LIBRARY_ROOT/ColorPickers"
+HOST_GNUSTEP_FRAMEWORK_ROOT="$HOST_GNUSTEP_LIBRARY_ROOT/Frameworks"
+HOST_GNUSTEP_IMAGES_ROOT="$HOST_GNUSTEP_LIBRARY_ROOT/Images"
+HOST_GNUSTEP_TOOLS_ROOT="$HOST_GNUSTEP_SYSTEM_ROOT/Tools"
+
 if [[ -z "$THEME_BUNDLE_SOURCE" ]]; then
   for candidate in \
     "$HOME/GNUstep/Library/Themes/Adwaita.theme" \
+    "${GP_GNUSTEP_CLI_ROOT:-}/System/Library/Themes/Adwaita.theme" \
+    "$HOST_GNUSTEP_LIBRARY_ROOT/Themes/Adwaita.theme" \
     "/usr/GNUstep/Local/Library/Themes/Adwaita.theme" \
     "/usr/GNUstep/System/Library/Themes/Adwaita.theme"; do
     if [[ -e "$candidate/Adwaita" ]]; then
@@ -87,6 +120,25 @@ copy_glob() {
   cp -a "${matches[@]}" "$dest"/
 }
 
+copy_first_glob() {
+  local dest="$1"
+  shift
+  local pattern=""
+
+  for pattern in "$@"; do
+    shopt -s nullglob
+    local matches=($pattern)
+    shopt -u nullglob
+    if [[ "${#matches[@]}" -gt 0 ]]; then
+      cp -a "${matches[@]}" "$dest"/
+      return 0
+    fi
+  done
+
+  echo "ERROR: no files matched any required pattern: $*" >&2
+  exit 1
+}
+
 is_elf_binary() {
   local path="$1"
   readelf -h "$path" >/dev/null 2>&1
@@ -98,7 +150,7 @@ should_copy_dependency() {
   name="$(basename "$path")"
 
   case "$path" in
-    "$ROOT"/*|"$STAGE_ROOT"/*|/usr/GNUstep/System/Library/Libraries/*)
+    "$ROOT"/*|"$STAGE_ROOT"/*|"$HOST_GNUSTEP_LIB_DIR"/*|"$HOST_GNUSTEP_RUNTIME_LIB_DIR"/*|"$HOST_GNUSTEP_RUNTIME_LIB64_DIR"/*)
       return 1
       ;;
   esac
@@ -200,7 +252,7 @@ copy_tree_elf_dependencies() {
 
 source_host_gnustep() {
   set +u
-  . /usr/GNUstep/System/Library/Makefiles/GNUstep.sh
+  . "$HOST_GNUSTEP_MAKEFILES/GNUstep.sh"
   set -u
 }
 
@@ -218,9 +270,14 @@ install_adwaita_theme() {
   local temp_install_root
   temp_install_root="$(mktemp -d)"
 
-  gmake -C "$THEME_BUILD_SOURCE" clean >/dev/null
-  gmake -C "$THEME_BUILD_SOURCE"
-  gmake -C "$THEME_BUILD_SOURCE" install \
+  local make_cmd="make"
+  if command -v gmake >/dev/null 2>&1; then
+    make_cmd="gmake"
+  fi
+
+  "$make_cmd" -C "$THEME_BUILD_SOURCE" clean >/dev/null
+  "$make_cmd" -C "$THEME_BUILD_SOURCE"
+  "$make_cmd" -C "$THEME_BUILD_SOURCE" install \
     DESTDIR="$temp_install_root" \
     GNUSTEP_INSTALLATION_DOMAIN=SYSTEM >/dev/null
 
@@ -236,7 +293,7 @@ install_adwaita_theme() {
   rm -rf "$temp_install_root"
 }
 
-require_path /usr/GNUstep/System/Library/Makefiles/GNUstep.sh
+require_path "$HOST_GNUSTEP_MAKEFILES/GNUstep.sh"
 require_path "$ROOT/ObjcMarkdownViewer/MarkdownViewer.app/MarkdownViewer"
 require_path "$ROOT/ObjcMarkdown/obj/libObjcMarkdown.so"
 require_path "$ROOT/third_party/libs-OpenSave/Source/obj/libOpenSave.so"
@@ -281,36 +338,36 @@ copy_glob "$ROOT/third_party/GPUpdaterCore/obj/libGPUpdaterCore.so*" "$APP_LIB_D
 copy_glob "$ROOT/third_party/GPUpdaterUI/obj/libGPUpdaterUI.so*" "$APP_LIB_DIR"
 copy_shared_by_soname "libicns.so.1" "$RUNTIME_LIB_DIR"
 
-copy_glob "/usr/GNUstep/System/Library/Libraries/libgnustep-base.so*" "$GNUSTEP_LIB_DIR"
-copy_glob "/usr/GNUstep/System/Library/Libraries/libgnustep-gui.so*" "$GNUSTEP_LIB_DIR"
-copy_glob "/usr/GNUstep/System/Library/Libraries/libgnustep-corebase.so*" "$GNUSTEP_LIB_DIR"
-copy_glob "/usr/GNUstep/System/Library/Libraries/libdispatch.so*" "$GNUSTEP_LIB_DIR"
-copy_glob "/usr/GNUstep/System/Library/Libraries/libobjc.so*" "$GNUSTEP_LIB_DIR"
-copy_glob "/usr/GNUstep/System/Library/Libraries/libBlocksRuntime.so*" "$GNUSTEP_LIB_DIR"
-copy_glob "/usr/GNUstep/System/Library/Libraries/libPreferencePanes.so*" "$GNUSTEP_LIB_DIR"
+copy_first_glob "$GNUSTEP_LIB_DIR" "$HOST_GNUSTEP_LIB_DIR/libgnustep-base.so*"
+copy_first_glob "$GNUSTEP_LIB_DIR" "$HOST_GNUSTEP_LIB_DIR/libgnustep-gui.so*"
+copy_first_glob "$GNUSTEP_LIB_DIR" "$HOST_GNUSTEP_LIB_DIR/libgnustep-corebase.so*"
+copy_first_glob "$GNUSTEP_LIB_DIR" "$HOST_GNUSTEP_LIB_DIR/libdispatch.so*" "$HOST_GNUSTEP_RUNTIME_LIB_DIR/libdispatch.so*" "$HOST_GNUSTEP_RUNTIME_LIB64_DIR/libdispatch.so*"
+copy_first_glob "$GNUSTEP_LIB_DIR" "$HOST_GNUSTEP_LIB_DIR/libobjc.so*" "$HOST_GNUSTEP_RUNTIME_LIB_DIR/libobjc.so*" "$HOST_GNUSTEP_RUNTIME_LIB64_DIR/libobjc.so*"
+copy_first_glob "$GNUSTEP_LIB_DIR" "$HOST_GNUSTEP_LIB_DIR/libBlocksRuntime.so*" "$HOST_GNUSTEP_RUNTIME_LIB_DIR/libBlocksRuntime.so*" "$HOST_GNUSTEP_RUNTIME_LIB64_DIR/libBlocksRuntime.so*"
+copy_first_glob "$GNUSTEP_LIB_DIR" "$HOST_GNUSTEP_LIB_DIR/libPreferencePanes.so*"
 
-copy_dir_contents "/usr/GNUstep/System/Library/Bundles" "$GNUSTEP_BUNDLE_DIR"
-copy_dir_contents "/usr/GNUstep/System/Library/ColorPickers" "$GNUSTEP_COLORPICKER_DIR"
-copy_dir_contents "/usr/GNUstep/System/Library/Frameworks/PreferencePanes.framework" "$GNUSTEP_FRAMEWORKS_DIR/PreferencePanes.framework"
-copy_dir_contents "/usr/GNUstep/System/Library/Images" "$GNUSTEP_IMAGES_DIR"
-copy_dir_contents "/usr/GNUstep/System/Library/Makefiles" "$GNUSTEP_MAKEFILES_DIR"
+copy_dir_contents "$HOST_GNUSTEP_BUNDLE_ROOT" "$GNUSTEP_BUNDLE_DIR"
+copy_dir_contents "$HOST_GNUSTEP_COLORPICKER_ROOT" "$GNUSTEP_COLORPICKER_DIR"
+copy_dir_contents "$HOST_GNUSTEP_FRAMEWORK_ROOT/PreferencePanes.framework" "$GNUSTEP_FRAMEWORKS_DIR/PreferencePanes.framework"
+copy_dir_contents "$HOST_GNUSTEP_IMAGES_ROOT" "$GNUSTEP_IMAGES_DIR"
+copy_dir_contents "$HOST_GNUSTEP_MAKEFILES" "$GNUSTEP_MAKEFILES_DIR"
 
-if [[ -d /usr/GNUstep/System/Library/Libraries/gnustep-base ]]; then
+if [[ -d "$HOST_GNUSTEP_LIB_DIR/gnustep-base" ]]; then
   mkdir -p "$GNUSTEP_LIB_DIR/gnustep-base"
-  copy_dir_contents "/usr/GNUstep/System/Library/Libraries/gnustep-base" "$GNUSTEP_LIB_DIR/gnustep-base"
+  copy_dir_contents "$HOST_GNUSTEP_LIB_DIR/gnustep-base" "$GNUSTEP_LIB_DIR/gnustep-base"
 fi
 
-if [[ -d /usr/GNUstep/System/Library/Libraries/gnustep-gui ]]; then
+if [[ -d "$HOST_GNUSTEP_LIB_DIR/gnustep-gui" ]]; then
   mkdir -p "$GNUSTEP_LIB_DIR/gnustep-gui"
-  copy_dir_contents "/usr/GNUstep/System/Library/Libraries/gnustep-gui" "$GNUSTEP_LIB_DIR/gnustep-gui"
+  copy_dir_contents "$HOST_GNUSTEP_LIB_DIR/gnustep-gui" "$GNUSTEP_LIB_DIR/gnustep-gui"
 fi
 
 if [[ -d "$GNUSTEP_BUNDLE_DIR/libgnustep-back-032.bundle" && ! -e "$GNUSTEP_BUNDLE_DIR/libgnustep-back.bundle" ]]; then
   ln -s libgnustep-back-032.bundle "$GNUSTEP_BUNDLE_DIR/libgnustep-back.bundle"
 fi
 
-if [[ -x /usr/GNUstep/System/Tools/defaults ]]; then
-  cp -a /usr/GNUstep/System/Tools/defaults "$GNUSTEP_TOOLS_DIR/"
+if [[ -x "$HOST_GNUSTEP_TOOLS_ROOT/defaults" ]]; then
+  cp -a "$HOST_GNUSTEP_TOOLS_ROOT/defaults" "$GNUSTEP_TOOLS_DIR/"
 fi
 
 if [[ -x "$PANDOC_BINARY" ]]; then

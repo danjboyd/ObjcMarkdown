@@ -8,9 +8,16 @@ This repo now owns only:
 - normalized stage scripts
 - downstream manifests
 - update-feed metadata and publication policy
-- Linux runner preflight
+- app-specific packaging input preflight
 - libvirt-first `OracleTestVMs` clean-machine validation hooks
 - OracleTestVMs validation handoff scripts
+
+`gnustep-packager` owns the installer/AppImage backends, package transforms,
+launcher generation, package validation, and reusable GitHub Actions entry
+point. Its hosted workflows bootstrap and smoke-test the GNUstep toolchain
+through `gnustep-cli-new` before running this repo's build and stage commands.
+ObjcMarkdown should not carry release-workflow steps that directly install the
+default GNUstep toolchain on hosted runners.
 
 Current manifests:
 
@@ -73,6 +80,10 @@ Linux packaging input expectations:
 
 - `plugins-themes-adwaita` should be present in the sibling packaging workspace
   at the pinned commit chosen for the release.
+- Hosted release packaging lets the reusable `gnustep-packager` workflow
+  provision and verify the GNUstep toolchain through `gnustep-cli-new`; the
+  ObjcMarkdown preflight only prepares app-specific inputs such as the Adwaita
+  theme checkout.
 
 ## Local Windows MSI
 
@@ -101,6 +112,8 @@ Windows packaging input expectations:
 
 - the staged/installable runtime must include `WinUITheme`
 - the packaged Windows default theme must be `WinUITheme`
+- hosted release packaging lets the reusable `gnustep-packager` workflow
+  provision and verify the MSYS2/GNUstep toolchain through `gnustep-cli-new`
 
 - `plugins-themes-winuitheme` is required
 - `plugins-themes-win11theme` is optional

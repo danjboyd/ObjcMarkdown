@@ -117,7 +117,7 @@ Scope:
   - glib schemas required by the packaged theme/runtime path
   - bundled `pandoc` payload if release behavior still requires built-in document conversion on end-user systems
 - validate Linux packaging through `gnustep-packager` strict AppImage runtime-closure checks and smoke launch rather than `linuxdeploy`-specific logic
-- keep Linux-specific preflight limited to host verification and preparing pinned theme input on the self-hosted GNUstep runner
+- keep Linux-specific preflight limited to app-owned setup, primarily preparing the pinned Adwaita theme input, while `gnustep-packager` owns hosted GNUstep toolchain bootstrap through `gnustep-cli-new`
 
 ### Phase 8C: Normalize Windows Staging And MSI Parity
 
@@ -146,15 +146,13 @@ Scope:
 - keep release version/tag behavior in this repo but pass the resolved version into the reusable workflow through `package-version`
 - publish the resulting AppImage, `.zsync`, MSI, and any release-sidecar metadata to the matching GitHub Release as part of the tagged flow
 - configure the Linux caller to use:
-  - the existing self-hosted GNUstep runner labels
-  - `skip-default-host-setup: true`
-  - a repo-owned preflight command for GNUstep host verification and Adwaita theme checkout
+  - GitHub-hosted execution through the reusable `gnustep-packager` workflow
+  - the packager-owned `gnustep-cli-new` bootstrap and smoke-validation path
+  - a repo-owned preflight command only for app-specific setup such as Adwaita theme checkout
 - configure the Windows caller to use:
   - `windows-latest`
-  - the packager MSI baseline
-- make the Linux runner dependency explicit:
-  - either restore/register the expected self-hosted GNUstep runner for the repository
-  - or deliberately redesign the AppImage lane to run on a supported GitHub-hosted image with equivalent toolchain guarantees
+  - the packager MSI baseline and hosted `gnustep-cli-new` MSYS2/clang64 toolchain contract
+- keep the hosted runner/toolchain dependency explicit through manifest inputs, workflow pins, and uploaded `gnustep-cli-new` diagnostics rather than relying on a hand-maintained self-hosted runner
 - remove workflow-only Windows package overrides once the manifest carries the same contract
 - keep CI validation enabled for both backends and preserve any extra app-specific smoke we still need beyond the shared packager validation
 
@@ -182,11 +180,14 @@ Immediate next steps:
 - `Phase 8C`: repo cutover completed on `2026-04-01`; Windows manifest, staging, workflow, and clean-machine validation now target `gnustep-packager`, with the next Windows-host MSI build plus `OracleTestVMs` run serving as the parity reconfirmation pass
 - `Phase 8D`: implemented on `2026-04-01` by replacing repo-local backend assembly in `linux-appimage.yml` and `windows-packaging.yml` with reusable `gnustep-packager` workflow calls pinned to `bca864ff163e129100881145e017429fed155bf7`
 - `Phase 8E`: implemented on `2026-04-01` by deleting legacy backend assembly code and keeping only manifests, build/stage scripts, preflight helpers, and app-specific validation glue in this repo
+- `Phase 8F`: first repin pass implemented locally on `2026-04-21` by moving both reusable workflow callers to audited `gnustep-packager` commit `334c61d4c093531308a20c91559414553eb86946`
+- `Phase 8G`: first manifest/consumer-contract pass implemented locally on `2026-04-21`; Linux host dependencies are manifest-owned, Windows/Linux scripts resolve GNUstep/MSYS2 locations from the packager-provided environment, and app-specific preflight no longer validates the host GNUstep installation
+- `Phase 8I`: first hosted runner/toolchain adoption pass implemented locally on `2026-04-21`; ObjcMarkdown now expects `gnustep-packager` to consume the published `gnustep-cli-new` release manifest/artifacts rather than depending on repo-local runner preparation
 - remaining execution gap:
-  - repin to the newer `gnustep-packager` baseline and migrate manifests/workflows to the newer contract
+  - commit the local repin, manifest, script, and documentation changes after review
+  - run the hosted Linux AppImage workflow and classify any failures using the uploaded packager and `gnustep-cli-new` diagnostics
   - complete one fresh validated Windows MSI rebuild through the normal reusable workflow path
-  - treat `gnustep-cli-new` runner/toolchain completion as an explicit blocker for both the GitHub-hosted Windows packaging lane and any replacement for the Linux self-hosted runner lane
-  - restore the Linux self-hosted runner or intentionally replace that dependency only after `gnustep-cli-new` can provision and validate the required GNUstep/clang toolchain contract on disposable runners
+  - rerun clean-machine Windows validation through `OracleTestVMs` against the fresh MSI and portable ZIP artifacts
   - confirm a release tag now produces and publishes both artifacts end-to-end
 
 Acceptance criteria:
@@ -204,7 +205,7 @@ release gate with the newer `gnustep-packager` contract.
 ### Phase 8F: Repin To The Current gnustep-packager Contract
 
 Scope:
-- update both reusable workflow callers to a current audited `gnustep-packager` commit beyond `bca864ff163e129100881145e017429fed155bf7`
+- update both reusable workflow callers to the current audited `gnustep-packager` commit `334c61d4c093531308a20c91559414553eb86946`
 - consume the newer upstream contract for:
   - host dependency provisioning
   - `gnustep-cmark`
@@ -215,6 +216,7 @@ Scope:
 Acceptance criteria:
 - both packaging workflows are pinned to the newer upstream commit
 - the repo no longer depends on obsolete workflow assumptions from the older baseline
+- local build, test, manifest resolution, and host setup-plan checks pass before hosted workflow validation
 
 ### Phase 8G: Manifest Contract Migration
 
@@ -223,10 +225,12 @@ Scope:
 - add reusable host dependency profiles and/or explicit host dependency declarations where still needed
 - remove Windows workflow-level package overrides once the manifest owns the same dependency contract
 - adopt declarative packaged defaults and semantic package/install assertions where they reduce repo-local path coupling
+- keep build and stage scripts toolchain-location aware so they work with the packager-provided GNUstep/MSYS2 roots instead of hardcoded `/usr/GNUstep` or `C:\msys64` assumptions
 
 Acceptance criteria:
 - the manifests, not the workflows, carry app-specific packaging requirements such as `cmark` and default theme intent
 - downstream packaging correctness lives primarily in the packager contract rather than repo-local workflow overrides
+- app-owned scripts source GNUstep from `GNUSTEP_MAKEFILES`/`GP_GNUSTEP_CLI_ROOT` or equivalent packager-provided roots before falling back to developer-machine defaults
 
 ### Phase 8H: Fresh Windows MSI Rebuild And Validation On The Normal Path
 
@@ -239,21 +243,19 @@ Acceptance criteria:
 - a fresh MSI and portable ZIP are produced from the normal reusable workflow path
 - clean-machine validation passes against those artifacts
 
-### Phase 8I: Runner Toolchain Readiness Through gnustep-cli-new
+### Phase 8I: Hosted Runner Toolchain Adoption Through gnustep-cli-new
 
 Scope:
-- treat `gnustep-cli-new` reaching its documented runner/toolchain goals as a release blocker for the GitHub-based AppImage/MSI path
-- require `gnustep-cli-new` to provide a reliable install-and-validate story for the GNUstep/clang toolchain contract needed by `ObjcMarkdown` runners
-- use that contract to decide the eventual runner shape:
-  - restore/register a self-hosted Linux runner only if `gnustep-cli-new` can keep its GNUstep/clang stack reproducible
-  - or redesign Linux and/or Windows packaging lanes around GitHub-hosted runners once `gnustep-cli-new` can provision and validate them noninteractively
-- keep the chosen host path documented so release builds do not depend on session memory or hand-maintained runner state
+- consume `gnustep-cli-new` through the `gnustep-packager` hosted bootstrap path rather than through ObjcMarkdown-owned runner preparation
+- keep ObjcMarkdown build, stage, and theme-preparation scripts compatible with the toolchain locations exposed by that bootstrap path
+- require hosted workflow logs to upload enough `gnustep-cli-new` diagnostics to distinguish app build/stage failures from bootstrap/toolchain failures
+- keep the chosen hosted runner path documented so release builds do not depend on session memory or hand-maintained runner state
 
 Acceptance criteria:
-- `gnustep-cli-new` can provision or validate the required GNUstep/clang runner contract for the packaging lanes we intend to use
-- the Linux AppImage workflow can actually start and finish on tag push using that contract
-- the Windows MSI workflow can rely on the same documented runner/toolchain contract rather than ad hoc machine preparation
-- the chosen runner model is documented and repeatable
+- the Linux AppImage workflow starts and finishes on GitHub-hosted infrastructure using the packager-owned `gnustep-cli-new` contract
+- the Windows MSI workflow relies on the same documented bootstrap contract rather than ad hoc machine preparation
+- uploaded diagnostics make the toolchain provenance and validation result reviewable after each hosted run
+- the hosted runner model is documented and repeatable
 
 ### Phase 8J: End-To-End Tagged Release Confirmation
 

@@ -1,14 +1,45 @@
 [CmdletBinding()]
 param(
   [string]$ThemeWorkspace,
-  [string]$MsysRoot = $(if (-not [string]::IsNullOrWhiteSpace($env:MSYS2_LOCATION)) { $env:MSYS2_LOCATION } else { "C:\msys64" })
+  [string]$MsysRoot = ""
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\.."))
-$resolvedMsysRoot = [System.IO.Path]::GetFullPath($MsysRoot)
+
+function Resolve-OmdMsysRoot {
+  param([string]$RequestedRoot)
+
+  $candidates = [System.Collections.Generic.List[string]]::new()
+  if (-not [string]::IsNullOrWhiteSpace($RequestedRoot)) {
+    $candidates.Add($RequestedRoot) | Out-Null
+  }
+  if (-not [string]::IsNullOrWhiteSpace($env:MSYS2_LOCATION)) {
+    $candidates.Add($env:MSYS2_LOCATION) | Out-Null
+  }
+  if (-not [string]::IsNullOrWhiteSpace($env:GP_GNUSTEP_CLI_ROOT)) {
+    $candidates.Add($env:GP_GNUSTEP_CLI_ROOT) | Out-Null
+    $candidates.Add((Join-Path $env:GP_GNUSTEP_CLI_ROOT "msys64")) | Out-Null
+  }
+  $candidates.Add("C:\msys64") | Out-Null
+
+  foreach ($candidate in @($candidates | Select-Object -Unique)) {
+    if ([string]::IsNullOrWhiteSpace($candidate)) {
+      continue
+    }
+    $resolved = [System.IO.Path]::GetFullPath($candidate)
+    if ((Test-Path (Join-Path $resolved "usr\bin\env.exe")) -and
+        (Test-Path (Join-Path $resolved "clang64\share\GNUstep\Makefiles\GNUstep.sh"))) {
+      return $resolved
+    }
+  }
+
+  throw "Unable to resolve MSYS2 clang64 root. Checked: $($candidates -join ', ')"
+}
+
+$resolvedMsysRoot = Resolve-OmdMsysRoot -RequestedRoot $MsysRoot
 
 function Convert-ToMsysPath {
   param(
@@ -68,10 +99,12 @@ function Invoke-OmdMsysCommand {
   }
 
   $workingDirectoryMsys = Convert-ToMsysPath -WindowsPath $WorkingDirectory
+  $clangPrefixMsys = Convert-ToMsysPath -WindowsPath (Join-Path $MsysRoot "clang64")
   $bootstrapLines = @(
     "source /etc/profile",
-    "source /clang64/share/GNUstep/Makefiles/GNUstep.sh",
-    "export PATH=/usr/bin:/clang64/bin:/mingw64/bin:`$PATH"
+    "source '$clangPrefixMsys/share/GNUstep/Makefiles/GNUstep.sh'",
+    "export PATH=/usr/bin:'$clangPrefixMsys/bin':/mingw64/bin:`$PATH",
+    "export OMD_MSYS_CLANG_PREFIX='$clangPrefixMsys'"
   )
 
   foreach ($entry in $Environment.GetEnumerator()) {
@@ -268,7 +301,8 @@ foreach ($themeSpec in $themeSpecs) {
       }
     }
     if (-not [string]::IsNullOrWhiteSpace([string]$compatDir)) {
-      $extraEnvironment["LIBRARY_PATH"] = ((Convert-ToMsysPath -WindowsPath ([string]$compatDir)) + ":/clang64/lib")
+      $clangLibPath = Convert-ToMsysPath -WindowsPath (Join-Path $resolvedMsysRoot "clang64\lib")
+      $extraEnvironment["LIBRARY_PATH"] = ((Convert-ToMsysPath -WindowsPath ([string]$compatDir)) + ":$clangLibPath")
     }
   }
 
