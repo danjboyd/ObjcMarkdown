@@ -108,7 +108,7 @@
 - **Current State**:
   - `gnustep-packager` is the packaging boundary and owns the reusable MSI/AppImage workflows.
   - `gnustep-cli-new` now publishes the Linux and Windows artifacts consumed by the packager bootstrap path.
-  - The ObjcMarkdown packaging workflows are pinned to the current packager integration commit and use the hosted default bootstrap path.
+  - The ObjcMarkdown packaging workflows are pinned to the current packager integration commit, pass explicit packager checkout inputs, and use the hosted default bootstrap path.
   - Repo-local build/stage scripts now prefer `GNUSTEP_MAKEFILES`, `GP_GNUSTEP_CLI_ROOT`, `MSYS2_LOCATION`, and the active managed clang64 prefix before falling back to legacy local paths.
 - **Impact**:
   - blocks treating ObjcMarkdown as fully aligned with the current packager/CLI boundary until hosted packaging is rerun and the uploaded diagnostics are reviewed
