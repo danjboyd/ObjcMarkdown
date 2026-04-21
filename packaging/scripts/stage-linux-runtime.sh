@@ -173,6 +173,22 @@ copy_first_glob() {
   exit 1
 }
 
+copy_optional_first_glob() {
+  local dest="$1"
+  shift
+  local pattern=""
+
+  for pattern in "$@"; do
+    shopt -s nullglob
+    local matches=($pattern)
+    shopt -u nullglob
+    if [[ "${#matches[@]}" -gt 0 ]]; then
+      cp -a "${matches[@]}" "$dest"/
+      return 0
+    fi
+  done
+}
+
 is_elf_binary() {
   local path="$1"
   readelf -h "$path" >/dev/null 2>&1
@@ -378,7 +394,7 @@ copy_first_glob "$GNUSTEP_LIB_DIR" "$HOST_GNUSTEP_LIB_DIR/libgnustep-corebase.so
 copy_first_glob "$GNUSTEP_LIB_DIR" "$HOST_GNUSTEP_LIB_DIR/libdispatch.so*" "$HOST_GNUSTEP_LOCAL_LIB_DIR/libdispatch.so*" "$HOST_GNUSTEP_RUNTIME_LIB_DIR/libdispatch.so*" "$HOST_GNUSTEP_RUNTIME_LIB64_DIR/libdispatch.so*"
 copy_first_glob "$GNUSTEP_LIB_DIR" "$HOST_GNUSTEP_LIB_DIR/libobjc.so*" "$HOST_GNUSTEP_LOCAL_LIB_DIR/libobjc.so*" "$HOST_GNUSTEP_RUNTIME_LIB_DIR/libobjc.so*" "$HOST_GNUSTEP_RUNTIME_LIB64_DIR/libobjc.so*"
 copy_first_glob "$GNUSTEP_LIB_DIR" "$HOST_GNUSTEP_LIB_DIR/libBlocksRuntime.so*" "$HOST_GNUSTEP_LOCAL_LIB_DIR/libBlocksRuntime.so*" "$HOST_GNUSTEP_RUNTIME_LIB_DIR/libBlocksRuntime.so*" "$HOST_GNUSTEP_RUNTIME_LIB64_DIR/libBlocksRuntime.so*"
-copy_first_glob "$GNUSTEP_LIB_DIR" "$HOST_GNUSTEP_LIB_DIR/libPreferencePanes.so*" "$HOST_GNUSTEP_LOCAL_LIB_DIR/libPreferencePanes.so*"
+copy_optional_first_glob "$GNUSTEP_LIB_DIR" "$HOST_GNUSTEP_LIB_DIR/libPreferencePanes.so*" "$HOST_GNUSTEP_LOCAL_LIB_DIR/libPreferencePanes.so*"
 
 copy_dir_contents "$HOST_GNUSTEP_BUNDLE_ROOT" "$GNUSTEP_BUNDLE_DIR"
 copy_dir_contents "$HOST_GNUSTEP_LOCAL_BUNDLE_ROOT" "$GNUSTEP_BUNDLE_DIR"
