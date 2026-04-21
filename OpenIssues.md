@@ -83,22 +83,6 @@
 - **Notes**:
   - Target reproducible builds with pinned versions and explicit dependency provenance.
 
-## 10) Tagged Linux AppImage release flow blocked by missing self-hosted GitHub runner
-
-- **Status**: Open
-- **Opened On**: 2026-04-14
-- **Area**: Release engineering / GitHub Actions / Linux packaging
-- **Description**: The tagged Linux AppImage workflow was intentionally configured to run on the self-hosted GNUstep runner label set `["self-hosted","linux","gnustep-clang"]`, but there were no registered runners in the repository, so the AppImage packaging job could not start.
-- **Current State**:
-  - `linux-appimage` has been moved back to the reusable `gnustep-packager` default hosted AppImage path.
-  - The reusable workflow now owns hosted GNUstep toolchain bootstrap and smoke validation through `gnustep-cli-new`.
-  - The ObjcMarkdown Linux preflight now prepares only app-specific packaging inputs, such as the Adwaita theme checkout.
-- **Impact**:
-  - no longer blocks job scheduling on missing self-hosted runners
-  - still requires a fresh hosted AppImage packaging run before the GitHub release path can be considered validated
-- **Next Step**:
-  - run the normal `linux-appimage` workflow and classify any failure as an ObjcMarkdown build/stage issue, a packager issue, or a `gnustep-cli-new` bootstrap issue based on the uploaded diagnostics
-
 ## 10A) Adopt the `gnustep-cli-new` runner/toolchain contract in ObjcMarkdown packaging
 
 - **Status**: Open
@@ -110,12 +94,14 @@
   - `gnustep-cli-new` now publishes the Linux and Windows artifacts consumed by the packager bootstrap path.
   - The ObjcMarkdown packaging workflows are pinned to the current packager integration commit, pass explicit packager checkout inputs, and use the hosted default bootstrap path.
   - Repo-local build/stage scripts now prefer `GNUSTEP_MAKEFILES`, `GP_GNUSTEP_CLI_ROOT`, `MSYS2_LOCATION`, and the active managed clang64 prefix before falling back to legacy local paths.
+  - Hosted Linux AppImage packaging passed in GitHub Actions run `24743212445` on `2026-04-21`.
+  - Hosted Windows MSI packaging is not yet proven because run `24743299242` remained in `Bootstrap And Smoke Test gnustep-cli-new For MSI` until canceled, with no live logs exposed by GitHub for that step.
 - **Impact**:
-  - blocks treating ObjcMarkdown as fully aligned with the current packager/CLI boundary until hosted packaging is rerun and the uploaded diagnostics are reviewed
-  - any remaining failure should now be attributable to the app build/stage commands, the packager transform/validation layer, or the `gnustep-cli-new` bootstrap diagnostics rather than missing runner setup
+  - Linux is aligned with the hosted packager/CLI boundary.
+  - Windows remains blocked on a packager/CLI bootstrap diagnostics gap before ObjcMarkdown MSI build/stage behavior can be evaluated.
 - **Next Step**:
-  - rerun hosted Linux AppImage and Windows MSI packaging through the normal reusable workflow path
-  - review the uploaded `*-gnustep-cli-new`, logs, and validation artifacts for any remaining failures
+  - add or consume an upstream Windows bootstrap timeout/diagnostics fix in `gnustep-packager`/`gnustep-cli-new`
+  - rerun hosted Windows MSI packaging through the normal reusable workflow path and review uploaded diagnostics or package artifacts
 
 ## 11) Windows MSI rebuild handoff after WinUITheme/default-theme work
 
@@ -128,9 +114,30 @@
   - Repo-local Windows theme input prep was updated to work with the managed MSYS2 `clang64` toolchain in [packaging/scripts/ensure-windows-theme-inputs.ps1](/home/danboyd/git/ObjcMarkdown/packaging/scripts/ensure-windows-theme-inputs.ps1).
   - Local Linux/dev launch regressions caused by the new updater libraries are fixed in [GNUmakefile](/home/danboyd/git/ObjcMarkdown/GNUmakefile) and [scripts/omd-viewer.sh](/home/danboyd/git/ObjcMarkdown/scripts/omd-viewer.sh).
   - The packaging workflows are now pinned to the current `gnustep-packager` integration commit and should use the normal reusable path instead of the ad hoc OCI remote rebuild bundle.
+  - Hosted Windows MSI run `24743299242` on `2026-04-21` did not reach ObjcMarkdown build/stage; it remained in the reusable workflow's `gnustep-cli-new` MSI bootstrap step until canceled.
 - **External Findings**:
   - `gnustep-packager` now provides manifest-driven host dependency provisioning, reusable dependency profiles such as `gnustep-cmark`, declarative packaged defaults, semantic package/install assertions, and the hosted `gnustep-cli-new` bootstrap gate.
   - `gnustep-cli-new` now publishes the Windows MSYS2 clang64 artifacts that the packager bootstrap path is expected to consume.
 - **Next Step**:
+  - Fix or consume a fix for the hosted Windows bootstrap diagnostics/timeout gap.
   - Rebuild the MSI through the normal packaging path instead of the increasingly patched ad hoc OCI remote bundle.
   - Once a fresh MSI is produced, push the `.msi` and portable `.zip` to a Windows validation VM and re-run manual/UAT verification.
+
+## 12) Hosted Windows `gnustep-cli-new` MSI bootstrap hangs before diagnostics
+
+- **Status**: Open
+- **Opened On**: 2026-04-21
+- **Area**: Release engineering / Windows packaging / `gnustep-packager` / `gnustep-cli-new`
+- **Description**: The reusable Windows MSI workflow can remain indefinitely in `Bootstrap And Smoke Test gnustep-cli-new For MSI` before ObjcMarkdown build/stage starts, and GitHub does not expose live logs for that active step.
+- **Current State**:
+  - Upstream `gnustep-packager` was patched to run the Windows bootstrap through `gnustep-bootstrap.ps1` instead of the POSIX MSYS2 bootstrap path.
+  - ObjcMarkdown workflows are pinned to that patched packager commit.
+  - Fresh hosted Windows run `24743299242` on commit `96cd011f1f024c47ba26bda9724dad9ffd3421cb` stayed in the MSI bootstrap step for several minutes and was canceled after no progress or logs were available.
+  - The older run `24742522851` showed the same stationary bootstrap behavior on an earlier SHA and was also canceled as obsolete.
+- **Impact**:
+  - Blocks Phase 8H because no fresh MSI or portable ZIP is produced through the normal reusable workflow path.
+  - Blocks Windows parity validation in `OracleTestVMs` because there are no fresh artifacts to install.
+  - Prevents clean triage because the failing/hanging step does not upload partial `gnustep-cli-new` diagnostics.
+- **Next Step**:
+  - Add or consume an upstream bounded timeout plus partial diagnostic upload around Windows bootstrap download/extract/smoke.
+  - Rerun `windows-packaging` and classify the next failure once bootstrap diagnostics or MSI artifacts are available.

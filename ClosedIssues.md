@@ -929,3 +929,20 @@
   - Updated Windows validation docs to make [windows-otvm-msi-validation.md](/home/danboyd/git/ObjcMarkdown/docs/windows-otvm-msi-validation.md) the only supported clean-machine Windows validation workflow.
   - Reframed [windows-oci-msi-validation.md](/home/danboyd/git/ObjcMarkdown/docs/windows-oci-msi-validation.md) as a retirement note rather than an active operator guide.
   - Updated repo docs so Windows clean-machine validation consistently points at [otvm-msi-validation.sh](/home/danboyd/git/ObjcMarkdown/scripts/windows/otvm-msi-validation.sh) instead of the old direct-OCI helper.
+
+## 75) Tagged Linux AppImage release flow blocked by missing self-hosted GitHub runner
+
+- **Status**: Closed
+- **Closed On**: 2026-04-21
+- **Area**: Release engineering / GitHub Actions / Linux packaging
+- **Description**: The tagged Linux AppImage workflow was configured for a self-hosted GNUstep runner label set, but no matching runner was registered, so hosted release packaging could not start.
+- **Resolution**:
+  - Moved `linux-appimage` back to the reusable `gnustep-packager` hosted AppImage workflow path.
+  - Kept ObjcMarkdown's Linux preflight limited to app-owned setup such as preparing the Adwaita theme checkout.
+  - Updated Linux staging to consume the managed `gnustep-cli-new` runtime layout, including GNUstep libraries and resources under `Local/Library`.
+  - Treated absent PreferencePanes runtime payloads as optional because the managed Linux toolchain does not ship them and ObjcMarkdown does not require them.
+  - Switched hosted AppImage smoke validation to `marker-file` mode and added an app-side smoke marker hook so GitHub-hosted headless validation does not require an X display.
+  - Verified the normal hosted Linux AppImage workflow on `2026-04-21`:
+    - workflow run: `24743212445`
+    - commit: `96cd011f1f024c47ba26bda9724dad9ffd3421cb`
+    - result: build, stage, package, runtime-closure validation, and smoke validation passed

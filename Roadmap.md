@@ -183,10 +183,11 @@ Immediate next steps:
 - `Phase 8F`: first repin pass implemented locally on `2026-04-21` by moving both reusable workflow callers to audited `gnustep-packager` commit `2903b82e33ae3d219ba3857250be4fe3f798a64d` and passing explicit `packager-repository`/`packager-ref` checkout inputs required by the current reusable workflow
 - `Phase 8G`: first manifest/consumer-contract pass implemented locally on `2026-04-21`; Linux host dependencies are manifest-owned, Windows/Linux scripts resolve GNUstep/MSYS2 locations from the packager-provided environment, and app-specific preflight no longer validates the host GNUstep installation
 - `Phase 8I`: first hosted runner/toolchain adoption pass implemented locally on `2026-04-21`; ObjcMarkdown now expects `gnustep-packager` to consume the published `gnustep-cli-new` release manifest/artifacts rather than depending on repo-local runner preparation
+- `Phase 8B/8I`: hosted Linux AppImage packaging passed on `2026-04-21` in GitHub Actions run `24743212445` after adapting Linux staging to the managed `gnustep-cli-new` `Local/Library` runtime layout, treating absent PreferencePanes payloads as optional, and switching AppImage smoke validation to the packager-supported marker-file mode for headless CI
+- `Phase 8H`: Windows hosted MSI validation is still blocked as of `2026-04-21`; fresh run `24743299242` on commit `96cd011f1f024c47ba26bda9724dad9ffd3421cb` remained in `Bootstrap And Smoke Test gnustep-cli-new For MSI` long enough to be canceled, and GitHub did not expose live logs for that active step
 - remaining execution gap:
-  - commit the local repin, manifest, script, and documentation changes after review
-  - run the hosted Linux AppImage workflow and classify any failures using the uploaded packager and `gnustep-cli-new` diagnostics
-  - complete one fresh validated Windows MSI rebuild through the normal reusable workflow path
+  - add or consume upstream `gnustep-packager`/`gnustep-cli-new` Windows bootstrap timeout and diagnostics so hosted Windows failures produce actionable logs instead of hanging inside the bootstrap step
+  - complete one fresh validated Windows MSI rebuild through the normal reusable workflow path after the bootstrap diagnostics gap is fixed
   - rerun clean-machine Windows validation through `OracleTestVMs` against the fresh MSI and portable ZIP artifacts
   - confirm a release tag now produces and publishes both artifacts end-to-end
 
@@ -258,7 +259,23 @@ Acceptance criteria:
 - uploaded diagnostics make the toolchain provenance and validation result reviewable after each hosted run
 - the hosted runner model is documented and repeatable
 
-### Phase 8J: End-To-End Tagged Release Confirmation
+Current status:
+- Linux satisfies this phase as of run `24743212445`.
+- Windows does not yet satisfy this phase because the hosted MSI bootstrap can hang before diagnostics are uploaded.
+
+### Phase 8J: Windows Hosted Bootstrap Diagnostics And Timeout
+
+Scope:
+- update or consume an upstream `gnustep-packager`/`gnustep-cli-new` change that makes the Windows MSI bootstrap step bounded and diagnosable
+- ensure the reusable workflow uploads partial `gnustep-cli-new` host context, selection, download, extraction, and smoke logs even when the bootstrap does not complete
+- rerun the Windows MSI workflow on the current ObjcMarkdown branch and classify the first actionable failure after bootstrap, if any
+
+Acceptance criteria:
+- a hosted Windows bootstrap failure produces uploaded diagnostics and a bounded failure instead of an indefinite in-progress workflow step
+- a successful hosted Windows bootstrap proceeds into ObjcMarkdown preflight, build, stage, MSI package, and smoke validation
+- the resulting evidence is enough to either close Phase 8H or create a precise app-side packaging defect
+
+### Phase 8K: End-To-End Tagged Release Confirmation
 
 Scope:
 - push a release tag through the updated Windows and Linux packaging workflows
