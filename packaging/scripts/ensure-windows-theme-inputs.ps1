@@ -139,10 +139,10 @@ function Invoke-OmdMsysCommand {
   $toolsBinMsys = Convert-ToMsysPath -WindowsPath (Join-Path $MsysRoot "usr\bin") -MsysShellRoot $MsysShellRoot
   $bootstrapLines = @(
     "if [ -f /etc/profile ]; then source /etc/profile; fi",
-    "if [ '$clangPrefixMsys' != '/clang64' ] && [ ! -e /clang64 ]; then ln -s '$clangPrefixMsys' /clang64; fi",
-    "source /clang64/share/GNUstep/Makefiles/GNUstep.sh",
-    "export PATH='$toolsBinMsys':/usr/bin:/clang64/bin:/mingw64/bin:`$PATH",
-    "export OMD_MSYS_CLANG_PREFIX=/clang64"
+    "export GNUSTEP_MAKEFILES='$clangPrefixMsys/share/GNUstep/Makefiles'",
+    "source `$GNUSTEP_MAKEFILES/GNUstep.sh",
+    "export PATH='$toolsBinMsys':/usr/bin:'$clangPrefixMsys/bin':/mingw64/bin:`$PATH",
+    "export OMD_MSYS_CLANG_PREFIX='$clangPrefixMsys'"
   )
 
   foreach ($entry in $Environment.GetEnumerator()) {
