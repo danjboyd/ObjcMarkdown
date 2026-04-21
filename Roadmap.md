@@ -180,7 +180,7 @@ Immediate next steps:
 - `Phase 8C`: repo cutover completed on `2026-04-01`; Windows manifest, staging, workflow, and clean-machine validation now target `gnustep-packager`, with the next Windows-host MSI build plus `OracleTestVMs` run serving as the parity reconfirmation pass
 - `Phase 8D`: implemented on `2026-04-01` by replacing repo-local backend assembly in `linux-appimage.yml` and `windows-packaging.yml` with reusable `gnustep-packager` workflow calls pinned to `bca864ff163e129100881145e017429fed155bf7`
 - `Phase 8E`: implemented on `2026-04-01` by deleting legacy backend assembly code and keeping only manifests, build/stage scripts, preflight helpers, and app-specific validation glue in this repo
-- `Phase 8F`: first repin pass implemented locally on `2026-04-21` by moving both reusable workflow callers to audited `gnustep-packager` commit `334c61d4c093531308a20c91559414553eb86946` and passing explicit `packager-repository`/`packager-ref` checkout inputs required by the current reusable workflow
+- `Phase 8F`: first repin pass implemented locally on `2026-04-21` by moving both reusable workflow callers to audited `gnustep-packager` commit `2903b82e33ae3d219ba3857250be4fe3f798a64d` and passing explicit `packager-repository`/`packager-ref` checkout inputs required by the current reusable workflow
 - `Phase 8G`: first manifest/consumer-contract pass implemented locally on `2026-04-21`; Linux host dependencies are manifest-owned, Windows/Linux scripts resolve GNUstep/MSYS2 locations from the packager-provided environment, and app-specific preflight no longer validates the host GNUstep installation
 - `Phase 8I`: first hosted runner/toolchain adoption pass implemented locally on `2026-04-21`; ObjcMarkdown now expects `gnustep-packager` to consume the published `gnustep-cli-new` release manifest/artifacts rather than depending on repo-local runner preparation
 - remaining execution gap:
@@ -205,7 +205,7 @@ release gate with the newer `gnustep-packager` contract.
 ### Phase 8F: Repin To The Current gnustep-packager Contract
 
 Scope:
-- update both reusable workflow callers to the current audited `gnustep-packager` commit `334c61d4c093531308a20c91559414553eb86946`
+- update both reusable workflow callers to the current audited `gnustep-packager` commit `2903b82e33ae3d219ba3857250be4fe3f798a64d`
 - consume the newer upstream contract for:
   - host dependency provisioning
   - `gnustep-cmark`
