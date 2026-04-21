@@ -31,24 +31,58 @@ resolve_host_gnustep_makefiles() {
   return 1
 }
 
+resolve_host_gnustep_prefix() {
+  if [[ -n "${OMD_GNUSTEP_PREFIX:-}" ]]; then
+    printf '%s\n' "$OMD_GNUSTEP_PREFIX"
+    return 0
+  fi
+
+  if [[ -n "${GP_GNUSTEP_CLI_ROOT:-}" && "$HOST_GNUSTEP_MAKEFILES" == "$GP_GNUSTEP_CLI_ROOT"/* ]]; then
+    printf '%s\n' "$GP_GNUSTEP_CLI_ROOT"
+    return 0
+  fi
+
+  case "$HOST_GNUSTEP_MAKEFILES" in
+    */System/Library/Makefiles)
+      cd "$HOST_GNUSTEP_MAKEFILES/../../.." && pwd
+      ;;
+    */Local/Library/Makefiles)
+      cd "$HOST_GNUSTEP_MAKEFILES/../../../.." && pwd
+      ;;
+    *)
+      cd "$HOST_GNUSTEP_MAKEFILES/../../.." && pwd
+      ;;
+  esac
+}
+
 HOST_GNUSTEP_MAKEFILES="${OMD_GNUSTEP_MAKEFILES:-$(resolve_host_gnustep_makefiles)}"
-HOST_GNUSTEP_PREFIX="${OMD_GNUSTEP_PREFIX:-$(cd "$HOST_GNUSTEP_MAKEFILES/../../.." && pwd)}"
+HOST_GNUSTEP_PREFIX="$(resolve_host_gnustep_prefix)"
 HOST_GNUSTEP_SYSTEM_ROOT="${OMD_GNUSTEP_SYSTEM_ROOT:-$HOST_GNUSTEP_PREFIX/System}"
+HOST_GNUSTEP_LOCAL_ROOT="${OMD_GNUSTEP_LOCAL_ROOT:-$HOST_GNUSTEP_PREFIX/Local}"
 HOST_GNUSTEP_LIBRARY_ROOT="$HOST_GNUSTEP_SYSTEM_ROOT/Library"
+HOST_GNUSTEP_LOCAL_LIBRARY_ROOT="$HOST_GNUSTEP_LOCAL_ROOT/Library"
 HOST_GNUSTEP_LIB_DIR="$HOST_GNUSTEP_LIBRARY_ROOT/Libraries"
+HOST_GNUSTEP_LOCAL_LIB_DIR="$HOST_GNUSTEP_LOCAL_LIBRARY_ROOT/Libraries"
 HOST_GNUSTEP_RUNTIME_LIB_DIR="$HOST_GNUSTEP_PREFIX/lib"
 HOST_GNUSTEP_RUNTIME_LIB64_DIR="$HOST_GNUSTEP_PREFIX/lib64"
 HOST_GNUSTEP_BUNDLE_ROOT="$HOST_GNUSTEP_LIBRARY_ROOT/Bundles"
+HOST_GNUSTEP_LOCAL_BUNDLE_ROOT="$HOST_GNUSTEP_LOCAL_LIBRARY_ROOT/Bundles"
 HOST_GNUSTEP_COLORPICKER_ROOT="$HOST_GNUSTEP_LIBRARY_ROOT/ColorPickers"
+HOST_GNUSTEP_LOCAL_COLORPICKER_ROOT="$HOST_GNUSTEP_LOCAL_LIBRARY_ROOT/ColorPickers"
 HOST_GNUSTEP_FRAMEWORK_ROOT="$HOST_GNUSTEP_LIBRARY_ROOT/Frameworks"
+HOST_GNUSTEP_LOCAL_FRAMEWORK_ROOT="$HOST_GNUSTEP_LOCAL_LIBRARY_ROOT/Frameworks"
 HOST_GNUSTEP_IMAGES_ROOT="$HOST_GNUSTEP_LIBRARY_ROOT/Images"
+HOST_GNUSTEP_LOCAL_IMAGES_ROOT="$HOST_GNUSTEP_LOCAL_LIBRARY_ROOT/Images"
 HOST_GNUSTEP_TOOLS_ROOT="$HOST_GNUSTEP_SYSTEM_ROOT/Tools"
+HOST_GNUSTEP_LOCAL_TOOLS_ROOT="$HOST_GNUSTEP_LOCAL_ROOT/Tools"
 
 if [[ -z "$THEME_BUNDLE_SOURCE" ]]; then
   for candidate in \
     "$HOME/GNUstep/Library/Themes/Adwaita.theme" \
     "${GP_GNUSTEP_CLI_ROOT:-}/System/Library/Themes/Adwaita.theme" \
+    "${GP_GNUSTEP_CLI_ROOT:-}/Local/Library/Themes/Adwaita.theme" \
     "$HOST_GNUSTEP_LIBRARY_ROOT/Themes/Adwaita.theme" \
+    "$HOST_GNUSTEP_LOCAL_LIBRARY_ROOT/Themes/Adwaita.theme" \
     "/usr/GNUstep/Local/Library/Themes/Adwaita.theme" \
     "/usr/GNUstep/System/Library/Themes/Adwaita.theme"; do
     if [[ -e "$candidate/Adwaita" ]]; then
@@ -150,7 +184,7 @@ should_copy_dependency() {
   name="$(basename "$path")"
 
   case "$path" in
-    "$ROOT"/*|"$STAGE_ROOT"/*|"$HOST_GNUSTEP_LIB_DIR"/*|"$HOST_GNUSTEP_RUNTIME_LIB_DIR"/*|"$HOST_GNUSTEP_RUNTIME_LIB64_DIR"/*)
+    "$ROOT"/*|"$STAGE_ROOT"/*|"$HOST_GNUSTEP_LIB_DIR"/*|"$HOST_GNUSTEP_LOCAL_LIB_DIR"/*|"$HOST_GNUSTEP_RUNTIME_LIB_DIR"/*|"$HOST_GNUSTEP_RUNTIME_LIB64_DIR"/*)
       return 1
       ;;
   esac
@@ -338,29 +372,35 @@ copy_glob "$ROOT/third_party/GPUpdaterCore/obj/libGPUpdaterCore.so*" "$APP_LIB_D
 copy_glob "$ROOT/third_party/GPUpdaterUI/obj/libGPUpdaterUI.so*" "$APP_LIB_DIR"
 copy_shared_by_soname "libicns.so.1" "$RUNTIME_LIB_DIR"
 
-copy_first_glob "$GNUSTEP_LIB_DIR" "$HOST_GNUSTEP_LIB_DIR/libgnustep-base.so*"
-copy_first_glob "$GNUSTEP_LIB_DIR" "$HOST_GNUSTEP_LIB_DIR/libgnustep-gui.so*"
-copy_first_glob "$GNUSTEP_LIB_DIR" "$HOST_GNUSTEP_LIB_DIR/libgnustep-corebase.so*"
-copy_first_glob "$GNUSTEP_LIB_DIR" "$HOST_GNUSTEP_LIB_DIR/libdispatch.so*" "$HOST_GNUSTEP_RUNTIME_LIB_DIR/libdispatch.so*" "$HOST_GNUSTEP_RUNTIME_LIB64_DIR/libdispatch.so*"
-copy_first_glob "$GNUSTEP_LIB_DIR" "$HOST_GNUSTEP_LIB_DIR/libobjc.so*" "$HOST_GNUSTEP_RUNTIME_LIB_DIR/libobjc.so*" "$HOST_GNUSTEP_RUNTIME_LIB64_DIR/libobjc.so*"
-copy_first_glob "$GNUSTEP_LIB_DIR" "$HOST_GNUSTEP_LIB_DIR/libBlocksRuntime.so*" "$HOST_GNUSTEP_RUNTIME_LIB_DIR/libBlocksRuntime.so*" "$HOST_GNUSTEP_RUNTIME_LIB64_DIR/libBlocksRuntime.so*"
-copy_first_glob "$GNUSTEP_LIB_DIR" "$HOST_GNUSTEP_LIB_DIR/libPreferencePanes.so*"
+copy_first_glob "$GNUSTEP_LIB_DIR" "$HOST_GNUSTEP_LIB_DIR/libgnustep-base.so*" "$HOST_GNUSTEP_LOCAL_LIB_DIR/libgnustep-base.so*"
+copy_first_glob "$GNUSTEP_LIB_DIR" "$HOST_GNUSTEP_LIB_DIR/libgnustep-gui.so*" "$HOST_GNUSTEP_LOCAL_LIB_DIR/libgnustep-gui.so*"
+copy_first_glob "$GNUSTEP_LIB_DIR" "$HOST_GNUSTEP_LIB_DIR/libgnustep-corebase.so*" "$HOST_GNUSTEP_LOCAL_LIB_DIR/libgnustep-corebase.so*"
+copy_first_glob "$GNUSTEP_LIB_DIR" "$HOST_GNUSTEP_LIB_DIR/libdispatch.so*" "$HOST_GNUSTEP_LOCAL_LIB_DIR/libdispatch.so*" "$HOST_GNUSTEP_RUNTIME_LIB_DIR/libdispatch.so*" "$HOST_GNUSTEP_RUNTIME_LIB64_DIR/libdispatch.so*"
+copy_first_glob "$GNUSTEP_LIB_DIR" "$HOST_GNUSTEP_LIB_DIR/libobjc.so*" "$HOST_GNUSTEP_LOCAL_LIB_DIR/libobjc.so*" "$HOST_GNUSTEP_RUNTIME_LIB_DIR/libobjc.so*" "$HOST_GNUSTEP_RUNTIME_LIB64_DIR/libobjc.so*"
+copy_first_glob "$GNUSTEP_LIB_DIR" "$HOST_GNUSTEP_LIB_DIR/libBlocksRuntime.so*" "$HOST_GNUSTEP_LOCAL_LIB_DIR/libBlocksRuntime.so*" "$HOST_GNUSTEP_RUNTIME_LIB_DIR/libBlocksRuntime.so*" "$HOST_GNUSTEP_RUNTIME_LIB64_DIR/libBlocksRuntime.so*"
+copy_first_glob "$GNUSTEP_LIB_DIR" "$HOST_GNUSTEP_LIB_DIR/libPreferencePanes.so*" "$HOST_GNUSTEP_LOCAL_LIB_DIR/libPreferencePanes.so*"
 
 copy_dir_contents "$HOST_GNUSTEP_BUNDLE_ROOT" "$GNUSTEP_BUNDLE_DIR"
+copy_dir_contents "$HOST_GNUSTEP_LOCAL_BUNDLE_ROOT" "$GNUSTEP_BUNDLE_DIR"
 copy_dir_contents "$HOST_GNUSTEP_COLORPICKER_ROOT" "$GNUSTEP_COLORPICKER_DIR"
+copy_dir_contents "$HOST_GNUSTEP_LOCAL_COLORPICKER_ROOT" "$GNUSTEP_COLORPICKER_DIR"
 copy_dir_contents "$HOST_GNUSTEP_FRAMEWORK_ROOT/PreferencePanes.framework" "$GNUSTEP_FRAMEWORKS_DIR/PreferencePanes.framework"
+copy_dir_contents "$HOST_GNUSTEP_LOCAL_FRAMEWORK_ROOT/PreferencePanes.framework" "$GNUSTEP_FRAMEWORKS_DIR/PreferencePanes.framework"
 copy_dir_contents "$HOST_GNUSTEP_IMAGES_ROOT" "$GNUSTEP_IMAGES_DIR"
+copy_dir_contents "$HOST_GNUSTEP_LOCAL_IMAGES_ROOT" "$GNUSTEP_IMAGES_DIR"
 copy_dir_contents "$HOST_GNUSTEP_MAKEFILES" "$GNUSTEP_MAKEFILES_DIR"
 
-if [[ -d "$HOST_GNUSTEP_LIB_DIR/gnustep-base" ]]; then
-  mkdir -p "$GNUSTEP_LIB_DIR/gnustep-base"
-  copy_dir_contents "$HOST_GNUSTEP_LIB_DIR/gnustep-base" "$GNUSTEP_LIB_DIR/gnustep-base"
-fi
+for host_lib_dir in "$HOST_GNUSTEP_LIB_DIR" "$HOST_GNUSTEP_LOCAL_LIB_DIR"; do
+  if [[ -d "$host_lib_dir/gnustep-base" ]]; then
+    mkdir -p "$GNUSTEP_LIB_DIR/gnustep-base"
+    copy_dir_contents "$host_lib_dir/gnustep-base" "$GNUSTEP_LIB_DIR/gnustep-base"
+  fi
 
-if [[ -d "$HOST_GNUSTEP_LIB_DIR/gnustep-gui" ]]; then
-  mkdir -p "$GNUSTEP_LIB_DIR/gnustep-gui"
-  copy_dir_contents "$HOST_GNUSTEP_LIB_DIR/gnustep-gui" "$GNUSTEP_LIB_DIR/gnustep-gui"
-fi
+  if [[ -d "$host_lib_dir/gnustep-gui" ]]; then
+    mkdir -p "$GNUSTEP_LIB_DIR/gnustep-gui"
+    copy_dir_contents "$host_lib_dir/gnustep-gui" "$GNUSTEP_LIB_DIR/gnustep-gui"
+  fi
+done
 
 if [[ -d "$GNUSTEP_BUNDLE_DIR/libgnustep-back-032.bundle" && ! -e "$GNUSTEP_BUNDLE_DIR/libgnustep-back.bundle" ]]; then
   ln -s libgnustep-back-032.bundle "$GNUSTEP_BUNDLE_DIR/libgnustep-back.bundle"
@@ -368,6 +408,8 @@ fi
 
 if [[ -x "$HOST_GNUSTEP_TOOLS_ROOT/defaults" ]]; then
   cp -a "$HOST_GNUSTEP_TOOLS_ROOT/defaults" "$GNUSTEP_TOOLS_DIR/"
+elif [[ -x "$HOST_GNUSTEP_LOCAL_TOOLS_ROOT/defaults" ]]; then
+  cp -a "$HOST_GNUSTEP_LOCAL_TOOLS_ROOT/defaults" "$GNUSTEP_TOOLS_DIR/"
 fi
 
 if [[ -x "$PANDOC_BINARY" ]]; then
