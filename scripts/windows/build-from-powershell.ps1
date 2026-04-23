@@ -131,8 +131,69 @@ xctest ObjcMarkdownTests/ObjcMarkdownTests.bundle
   throw "Unhandled task: $SelectedTask"
 }
 
+function Sync-ManagedCmarkPackage {
+  param(
+    [Parameter(Mandatory = $true)][string]$ManagedRoot,
+    [Parameter(Mandatory = $true)][string]$ShellRoot
+  )
+
+  $managedFullRoot = [System.IO.Path]::GetFullPath($ManagedRoot)
+  $shellFullRoot = [System.IO.Path]::GetFullPath($ShellRoot)
+  if ($managedFullRoot -eq $shellFullRoot) {
+    return
+  }
+
+  $managedClangRoot = Join-Path $managedFullRoot "clang64"
+  $shellClangRoot = Join-Path $shellFullRoot "clang64"
+  $managedHasHeaders =
+    (Test-Path (Join-Path $managedClangRoot "include\cmark.h")) -or
+    (Test-Path (Join-Path $managedClangRoot "include\cmark\cmark.h"))
+  if ($managedHasHeaders) {
+    return
+  }
+
+  $shellHasHeaders =
+    (Test-Path (Join-Path $shellClangRoot "include\cmark.h")) -or
+    (Test-Path (Join-Path $shellClangRoot "include\cmark\cmark.h"))
+  if (-not $shellHasHeaders) {
+    return
+  }
+
+  Write-Host "Mirroring cmark package from bootstrap shell into managed GNUstep root"
+
+  $copySpecs = @(
+    @{ Source = (Join-Path $shellClangRoot "include\cmark.h"); Destination = (Join-Path $managedClangRoot "include"); Wildcard = $false },
+    @{ Source = (Join-Path $shellClangRoot "include\cmark"); Destination = (Join-Path $managedClangRoot "include\cmark"); Wildcard = $false },
+    @{ Source = (Join-Path $shellClangRoot "include\*cmark*.h"); Destination = (Join-Path $managedClangRoot "include"); Wildcard = $true },
+    @{ Source = (Join-Path $shellClangRoot "lib\libcmark*"); Destination = (Join-Path $managedClangRoot "lib"); Wildcard = $true },
+    @{ Source = (Join-Path $shellClangRoot "bin\libcmark*.dll"); Destination = (Join-Path $managedClangRoot "bin"); Wildcard = $true },
+    @{ Source = (Join-Path $shellClangRoot "lib\pkgconfig\cmark.pc"); Destination = (Join-Path $managedClangRoot "lib\pkgconfig"); Wildcard = $false },
+    @{ Source = (Join-Path $shellClangRoot "lib\pkgconfig\libcmark.pc"); Destination = (Join-Path $managedClangRoot "lib\pkgconfig"); Wildcard = $false }
+  )
+
+  foreach ($spec in $copySpecs) {
+    New-Item -ItemType Directory -Force -Path $spec.Destination | Out-Null
+    if ($spec.Wildcard) {
+      $items = @(Get-ChildItem -Path $spec.Source -Force -ErrorAction SilentlyContinue)
+      foreach ($item in $items) {
+        if ($item.PSIsContainer) {
+          Copy-Item -Path $item.FullName -Destination (Join-Path $spec.Destination $item.Name) -Recurse -Force
+        } else {
+          Copy-Item -Path $item.FullName -Destination $spec.Destination -Force
+        }
+      }
+      continue
+    }
+
+    if (Test-Path $spec.Source) {
+      Copy-Item -Path $spec.Source -Destination $spec.Destination -Recurse -Force
+    }
+  }
+}
+
 $resolvedMsysRoot = Resolve-MsysRoot -RequestedRoot $MsysRoot
 $resolvedMsysShellRoot = Resolve-MsysShellRoot -MsysRoot $resolvedMsysRoot
+Sync-ManagedCmarkPackage -ManagedRoot $resolvedMsysRoot -ShellRoot $resolvedMsysShellRoot
 
 $envExe = Join-Path $resolvedMsysShellRoot "usr\bin\env.exe"
 if (-not (Test-Path $envExe)) {
