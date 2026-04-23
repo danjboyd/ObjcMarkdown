@@ -14,7 +14,7 @@ if (-not $themeInputs -or -not $themeInputs.userThemeRoot) {
 $env:OMD_GNUSTEP_USER_THEME_ROOT = [string]$themeInputs.userThemeRoot
 Write-Host ("Prepared Windows GNUstep themes in {0}" -f $env:OMD_GNUSTEP_USER_THEME_ROOT)
 
-& .\scripts\windows\build-from-powershell.ps1 -Task command -Command "make OMD_SKIP_TESTS=1"
+& .\scripts\windows\build-from-powershell.ps1 -Task command -Command "make GNUSTEP_MAKEFILES=`$GNUSTEP_MAKEFILES OMD_SKIP_TESTS=1"
 if ($LASTEXITCODE -ne 0) {
   throw "ObjcMarkdown Windows build failed."
 }

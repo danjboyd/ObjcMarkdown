@@ -100,7 +100,7 @@ function Get-MsysCommand {
   )
 
   switch ($SelectedTask) {
-    "build" { return "make" }
+    "build" { return "make GNUSTEP_MAKEFILES=`$GNUSTEP_MAKEFILES" }
     "test" {
       return @"
 mkdir -p ~/GNUstep/Defaults/.lck
@@ -114,7 +114,7 @@ xctest ObjcMarkdownTests/ObjcMarkdownTests.bundle
         $runTargetPath = Convert-ToMsysPath -WindowsPath ((Resolve-Path $runTargetPath).Path) -MsysShellRoot $resolvedMsysShellRoot
       }
       $escapedTarget = $runTargetPath.Replace("'", "'\''")
-      return "make run '$escapedTarget'"
+      return "make GNUSTEP_MAKEFILES=`$GNUSTEP_MAKEFILES run '$escapedTarget'"
     }
     "stage" {
       $escapedStageDir = $SelectedStageDir.Replace("'", "'\''")
