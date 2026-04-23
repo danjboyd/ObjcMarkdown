@@ -122,6 +122,8 @@
 - **Area**: Release engineering / Windows packaging / `gnustep-packager` integration
 - **Description**: Repo-local packaging changes now require the Windows MSI to bundle `WinUITheme` and default to `WinUITheme`, but the ad hoc OCI remote rebuild path has not yet produced a fresh validated MSI carrying those changes.
 - **Current State**:
+  - Hosted Windows packaging succeeded at tag `v0.1.1-rc29`, producing `ObjcMarkdown-0.1.1-rc29-win64.msi` and the matching portable zip from GitHub Actions run `24852317387`.
+  - The `rc29` MSI was installed, smoke-launched, and uninstalled successfully on a fresh OracleTestVM libvirt Windows lease during direct validation; the packaged installer is now provably buildable and installable on a clean Windows VM.
   - `ObjcMarkdown` repo changes are in place to require `WinUITheme` in the staged payload and set `GSTheme=WinUITheme` with `policy: ifUnset` in [packaging/manifests/windows-msi.manifest.json](/home/danboyd/git/ObjcMarkdown/packaging/manifests/windows-msi.manifest.json).
   - Repo-local Windows theme input prep was updated to work with the managed MSYS2 `clang64` toolchain in [packaging/scripts/ensure-windows-theme-inputs.ps1](/home/danboyd/git/ObjcMarkdown/packaging/scripts/ensure-windows-theme-inputs.ps1).
   - Local Linux/dev launch regressions caused by the new updater libraries are fixed in [GNUmakefile](/home/danboyd/git/ObjcMarkdown/GNUmakefile) and [scripts/omd-viewer.sh](/home/danboyd/git/ObjcMarkdown/scripts/omd-viewer.sh).
@@ -133,9 +135,16 @@
   - Hosted Windows run `24747752773` exposed the managed-toolchain path translation problem; the repo-local MSYS bridge now uses the selected MSYS2 shell root for `cygpath` conversion while sourcing GNUstep from the managed `gnustep-cli-new` root.
   - Hosted Windows runs `24748075413` and `24748308894` then exposed GNUstep makefile-root assumptions under the setup-msys2 shell; the repo-local bridge now exports `GNUSTEP_MAKEFILES` to the managed makefiles directory and prepends the managed tools directory.
   - Hosted Windows run `24748570291` reached WinUITheme compilation and exposed the baked compiler path; the repo-local bridge now overrides compiler variables to the managed clang toolchain.
+  - The successful MSI path also required mirroring `cmark` into the managed Windows runtime search layout, adding source-side `cmark` include compatibility in [ObjcMarkdown/GNUmakefile](/home/danboyd/git/ObjcMarkdown/ObjcMarkdown/GNUmakefile), and making Windows staging tolerate an unset `USER`.
+  - Fresh UAT on a new OracleTestVM lease after install showed two remaining product issues: first launch still came up in the stock GNUstep theme instead of `WinUITheme`, and forcing `WinUITheme` exposed malformed menu/controls rendering in the viewer and Preferences UI.
+- **Current Analysis**:
+  - The first-launch default-theme miss appears primarily upstream at the `gnustep-packager` launcher/defaults-contract layer, with a secondary repo-local fallback bug in [ObjcMarkdownViewer/main.m](/home/danboyd/git/ObjcMarkdown/ObjcMarkdownViewer/main.m) because the Windows bundled-theme probe still assumes a `clang64\\lib\\GNUstep\\Themes` install layout instead of the packaged `runtime\\lib\\GNUstep\\Themes` layout.
+  - The WinUITheme rendering corruption does not currently look like a packager orchestration failure; it is either incomplete WinUITheme runtime payload composition or a runtime/theme implementation issue exposed by this app on Windows.
+  - Upstream `gnustep-packager` commit `e17683e27748484999c74a8b95f00163d4e97dc1` added `packagedDefaults.appDomain` seeding for MSI/AppImage, but code and tests still keep `GSTheme` on the old semantic `packagedDefaults.defaultTheme -> launch.env.GSTheme (ifUnset)` path. That commit substantially addresses the generalized app-domain `NSUserDefaults` request, but it does not yet prove or implement a fix for the first-launch `defaultTheme` bug.
 - **External Findings**:
   - `gnustep-packager` now provides manifest-driven host dependency provisioning, reusable dependency profiles such as `gnustep-cmark`, declarative packaged defaults, semantic package/install assertions, and the hosted `gnustep-cli-new` bootstrap gate.
   - `gnustep-cli-new` now publishes the Windows MSYS2 clang64 artifacts that the packager bootstrap path is expected to consume.
 - **Next Step**:
-  - Rebuild the MSI through the normal packaging path instead of the increasingly patched ad hoc OCI remote bundle.
-  - Once a fresh MSI is produced, push the `.msi` and portable `.zip` to a Windows validation VM and re-run manual/UAT verification.
+  - Carry the first-launch default-theme bug upstream in `gnustep-packager` until the packaged `defaultTheme` contract is actually honored on first launch, or until upstream broadens packaged defaults to cover the needed GNUstep domain behavior cleanly.
+  - Audit the installed `WinUITheme.theme` payload against the built theme output before blaming theme code, then decide whether the malformed Windows widgets are a packaging omission or an upstream theme/runtime rendering defect.
+  - After upstream/default-theme work lands, rebuild the MSI through the normal reusable packaging path and re-run OracleTestVM manual/UAT verification against the corrected installer.
