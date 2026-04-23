@@ -3,7 +3,7 @@
 
 #import "OMMarkdownParsingOptions.h"
 
-#include <cmark.h>
+#include "OMCmarkCompat.h"
 
 @implementation OMMarkdownParsingOptions
 

@@ -6,7 +6,7 @@
 
 #import <dispatch/dispatch.h>
 
-#include <cmark.h>
+#include "OMCmarkCompat.h"
 #if defined(_WIN32)
 #include <windows.h>
 #include <gdiplus/gdiplus.h>
