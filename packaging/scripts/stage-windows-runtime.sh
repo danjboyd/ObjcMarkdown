@@ -70,10 +70,11 @@ copy_user_theme_if_present() {
   local theme_name="$1"
   local source=""
   local candidate=""
+  local login_name="${USER:-${USERNAME:-}}"
   for candidate in \
     "${OMD_GNUSTEP_USER_THEME_ROOT:-}" \
     "$HOME/GNUstep/Library/Themes" \
-    "/home/$USER/GNUstep/Library/Themes"
+    "${login_name:+/home/$login_name/GNUstep/Library/Themes}"
   do
     if [[ -z "$candidate" ]]; then
       continue
