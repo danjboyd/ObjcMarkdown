@@ -139,8 +139,8 @@ function Invoke-OmdMsysCommand {
   $toolsBinMsys = Convert-ToMsysPath -WindowsPath (Join-Path $MsysRoot "usr\bin") -MsysShellRoot $MsysShellRoot
   $bootstrapLines = @(
     "if [ -f /etc/profile ]; then source /etc/profile; fi",
+    "source '$clangPrefixMsys/share/GNUstep/Makefiles/GNUstep.sh'",
     "export GNUSTEP_MAKEFILES='$clangPrefixMsys/share/GNUstep/Makefiles'",
-    "source `$GNUSTEP_MAKEFILES/GNUstep.sh",
     "export CC='$clangPrefixMsys/bin/clang'",
     "export OBJC_CC='$clangPrefixMsys/bin/clang'",
     "export CXX='$clangPrefixMsys/bin/clang++'",

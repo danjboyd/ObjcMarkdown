@@ -149,7 +149,7 @@ $RepoRootMsys = Convert-ToMsysPath -WindowsPath $resolvedRepoRoot -MsysShellRoot
 $clangPrefixMsys = Convert-ToMsysPath -WindowsPath (Join-Path $resolvedMsysRoot "clang64") -MsysShellRoot $resolvedMsysShellRoot
 $toolsBinMsys = Convert-ToMsysPath -WindowsPath (Join-Path $resolvedMsysRoot "usr\bin") -MsysShellRoot $resolvedMsysShellRoot
 $msysCommand = Get-MsysCommand -SelectedTask $Task -CustomCommand $Command -SelectedRunTarget $RunTarget -SelectedStageDir $StageDir
-$bootstrap = "if [ -f /etc/profile ]; then source /etc/profile; fi; export GNUSTEP_MAKEFILES='$clangPrefixMsys/share/GNUstep/Makefiles'; source `$GNUSTEP_MAKEFILES/GNUstep.sh; export CC='$clangPrefixMsys/bin/clang'; export OBJC_CC='$clangPrefixMsys/bin/clang'; export CXX='$clangPrefixMsys/bin/clang++'; export OBJCXX='$clangPrefixMsys/bin/clang++'; export PATH='$toolsBinMsys':/usr/bin:'$clangPrefixMsys/bin':`$PATH; export OMD_MSYS_CLANG_PREFIX='$clangPrefixMsys'; cd '$RepoRootMsys'; $msysCommand"
+$bootstrap = "if [ -f /etc/profile ]; then source /etc/profile; fi; source '$clangPrefixMsys/share/GNUstep/Makefiles/GNUstep.sh'; export GNUSTEP_MAKEFILES='$clangPrefixMsys/share/GNUstep/Makefiles'; export CC='$clangPrefixMsys/bin/clang'; export OBJC_CC='$clangPrefixMsys/bin/clang'; export CXX='$clangPrefixMsys/bin/clang++'; export OBJCXX='$clangPrefixMsys/bin/clang++'; export PATH='$toolsBinMsys':/usr/bin:'$clangPrefixMsys/bin':`$PATH; export OMD_MSYS_CLANG_PREFIX='$clangPrefixMsys'; cd '$RepoRootMsys'; $msysCommand"
 
 Write-Host "Task: $Task"
 Write-Host "Repo: $resolvedRepoRoot"
