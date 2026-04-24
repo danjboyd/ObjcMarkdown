@@ -72,11 +72,16 @@ static NSString *OMDWindowsBundledDefaultsToolPath(void)
 {
 #if defined(_WIN32)
     NSString *bundleRoot = OMDWindowsInstallRoot();
-    NSString *defaultsPath = [[bundleRoot stringByAppendingPathComponent:@"clang64"]
-        stringByAppendingPathComponent:@"bin\\defaults.exe"];
+    NSArray *runtimeRoots = [NSArray arrayWithObjects:@"runtime", @"clang64", nil];
+    NSString *runtimeRoot = nil;
 
-    if ([[NSFileManager defaultManager] isExecutableFileAtPath:defaultsPath]) {
-        return defaultsPath;
+    for (runtimeRoot in runtimeRoots) {
+        NSString *defaultsPath = [[bundleRoot stringByAppendingPathComponent:runtimeRoot]
+            stringByAppendingPathComponent:@"bin\\defaults.exe"];
+
+        if ([[NSFileManager defaultManager] isExecutableFileAtPath:defaultsPath]) {
+            return defaultsPath;
+        }
     }
 #endif
     return @"defaults.exe";
@@ -122,20 +127,27 @@ static NSString *OMDWindowsPreferredThemeName(void)
 {
 #if defined(_WIN32)
     NSString *bundleRoot = OMDWindowsInstallRoot();
-    NSString *bundledThemesRoot = nil;
+    NSMutableArray *themeRoots = [NSMutableArray array];
     NSString *userThemesRoot = [[[NSHomeDirectory() stringByAppendingPathComponent:@"GNUstep"]
         stringByAppendingPathComponent:@"Library"] stringByAppendingPathComponent:@"Themes"];
     NSString *systemThemesRoot = [[[@"C:\\clang64" stringByAppendingPathComponent:@"lib"]
         stringByAppendingPathComponent:@"GNUstep"] stringByAppendingPathComponent:@"Themes"];
     NSArray *preferredThemes = [NSArray arrayWithObjects:@"WinUITheme", @"WinUXTheme", nil];
+    NSString *themesRoot = nil;
     NSString *themeName = nil;
 
     if (bundleRoot != nil && [bundleRoot length] > 0) {
-        bundledThemesRoot = [[[[bundleRoot stringByAppendingPathComponent:@"clang64"]
+        [themeRoots addObject:[[[[bundleRoot stringByAppendingPathComponent:@"runtime"]
             stringByAppendingPathComponent:@"lib"] stringByAppendingPathComponent:@"GNUstep"]
-            stringByAppendingPathComponent:@"Themes"];
+            stringByAppendingPathComponent:@"Themes"]];
+        [themeRoots addObject:[[[[bundleRoot stringByAppendingPathComponent:@"clang64"]
+            stringByAppendingPathComponent:@"lib"] stringByAppendingPathComponent:@"GNUstep"]
+            stringByAppendingPathComponent:@"Themes"]];
+    }
+
+    for (themesRoot in themeRoots) {
         for (themeName in preferredThemes) {
-            if (OMDWindowsThemeBundleExistsInDirectory(bundledThemesRoot, themeName)) {
+            if (OMDWindowsThemeBundleExistsInDirectory(themesRoot, themeName)) {
                 return themeName;
             }
         }

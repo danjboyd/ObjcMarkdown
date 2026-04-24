@@ -146,6 +146,7 @@ make_source_archive() {
     git ls-files -z --cached --others --exclude-standard \
       | while IFS= read -r -d '' path; do
           [[ "$path" == dist/* ]] && continue
+          [[ -f "$path" || -d "$path" ]] || continue
           printf '%s\n' "$path"
         done \
       | sort -u \

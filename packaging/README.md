@@ -8,7 +8,7 @@ This repo now owns only:
 - normalized stage scripts
 - downstream manifests
 - update-feed metadata and publication policy
-- app-specific packaging input preflight
+- app-specific packaging input preflight only where `gnustep-packager` does not yet provide a backend-owned input mechanism
 - libvirt-first `OracleTestVMs` clean-machine validation hooks
 - OracleTestVMs validation handoff scripts
 
@@ -29,9 +29,11 @@ Pinned external packaging inputs:
 - `packaging/inputs.json`
 
 Those inputs are intentionally tracked as external packaging workspace
-dependencies rather than git submodules. The main app repo should stay light for
-normal development, while release packaging can materialize the exact theme
-repos it needs at pinned commits in a sibling workspace.
+dependencies rather than git submodules. Windows GNUstep theme inputs are
+declared through `gnustep-packager` `themeInputs` so the packager owns
+fetch/build/install/stage/validation. The main app repo should stay light for
+normal development, while release packaging can materialize the exact external
+repos it needs at pinned commits.
 
 ## Update Policy
 
@@ -79,7 +81,8 @@ When updates are enabled, the Linux package output should also include:
 Linux packaging input expectations:
 
 - `plugins-themes-adwaita` should be present in the sibling packaging workspace
-  at the pinned commit chosen for the release.
+  at the pinned commit chosen for the release until `gnustep-packager` supports
+  AppImage theme provisioning.
 - Hosted release packaging lets the reusable `gnustep-packager` workflow
   provision and verify the GNUstep toolchain through `gnustep-cli-new`; the
   ObjcMarkdown preflight only prepares app-specific inputs such as the Adwaita
@@ -112,16 +115,16 @@ Windows packaging input expectations:
 
 - the staged/installable runtime must include `WinUITheme`
 - the packaged Windows default theme must be `WinUITheme`
+- `plugins-themes-winuitheme` should be declared as a required/default
+  `themeInputs` entry in the Windows MSI manifest
+- optional secondary themes such as `Win11Theme` should also be manifest
+  `themeInputs` entries, not submodules
 - hosted release packaging lets the reusable `gnustep-packager` workflow
   provision and verify the MSYS2/GNUstep toolchain through `gnustep-cli-new`
 
-- `plugins-themes-winuitheme` is required
-- `plugins-themes-win11theme` is optional
-
-Those should be fetched into the packaging workspace at pinned commits rather
-than added as submodules of this repo. If a Windows build VM cannot compile
-`plugins-themes-winuitheme` cleanly, treat that as an environment/toolchain
-issue first, not as a reason to convert the app repo to submodules.
+If a Windows build VM cannot compile `plugins-themes-winuitheme` cleanly, treat
+that as a packager/toolchain/theme-input issue first, not as a reason to convert
+the app repo to submodules or permanent repo-local theme build scripts.
 
 ## OracleTestVMs Linux Validation
 

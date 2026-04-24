@@ -66,35 +66,8 @@ cp -R "$CLANG_PREFIX/lib/GNUstep/"* "$RUNTIME_GNUSTEP_DIR/"
 cp -R "$CLANG_PREFIX/etc/fonts" "$RUNTIME_ETC_DIR/"
 cp -R "$CLANG_PREFIX/share/fontconfig" "$RUNTIME_SHARE_DIR/"
 
-copy_user_theme_if_present() {
-  local theme_name="$1"
-  local source=""
-  local candidate=""
-  local login_name="${USER:-${USERNAME:-}}"
-  for candidate in \
-    "${OMD_GNUSTEP_USER_THEME_ROOT:-}" \
-    "$HOME/GNUstep/Library/Themes" \
-    "${login_name:+/home/$login_name/GNUstep/Library/Themes}"
-  do
-    if [[ -z "$candidate" ]]; then
-      continue
-    fi
-    if [[ -d "$candidate/$theme_name.theme" ]]; then
-      source="$candidate/$theme_name.theme"
-      break
-    fi
-  done
-
-  if [[ -n "$source" ]]; then
-    mkdir -p "$RUNTIME_GNUSTEP_DIR/Themes"
-    rm -rf "$RUNTIME_GNUSTEP_DIR/Themes/$theme_name.theme"
-    cp -R "$source" "$RUNTIME_GNUSTEP_DIR/Themes/"
-  fi
-}
-
-copy_user_theme_if_present "WinUXTheme"
-copy_user_theme_if_present "Win11Theme"
-copy_user_theme_if_present "WinUITheme"
+# Windows theme inputs such as WinUITheme are provisioned by gnustep-packager
+# after app staging. This script only carries app-owned runtime payloads.
 
 cp -f "$ROOT/Resources/markdown_icon.ico" "$METADATA_ICONS_DIR/"
 cp -f "$ROOT/Resources/markdown_icon.png" "$METADATA_ICONS_DIR/"

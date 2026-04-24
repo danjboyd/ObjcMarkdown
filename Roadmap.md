@@ -95,8 +95,9 @@ Scope:
   - icons
   - runtime notices
   - sample smoke documents if needed
-  - Linux Adwaita theme input
-  - Windows WinUI theme input
+- decide which packaging-owned assets are expressed through the manifest rather than staged directly by app scripts:
+  - Linux Adwaita theme input until `gnustep-packager` AppImage theme provisioning is implemented
+  - Windows WinUI theme input through `gnustep-packager` `themeInputs`
 - move app-specific packaging intent into the manifest rather than workflow-only overrides:
   - add `gnustep-cmark` to the manifest profile stack where appropriate
   - declare default themes through `packagedDefaults.defaultTheme`
@@ -117,7 +118,7 @@ Scope:
   - glib schemas required by the packaged theme/runtime path
   - bundled `pandoc` payload if release behavior still requires built-in document conversion on end-user systems
 - validate Linux packaging through `gnustep-packager` strict AppImage runtime-closure checks and smoke launch rather than `linuxdeploy`-specific logic
-- keep Linux-specific preflight limited to app-owned setup, primarily preparing the pinned Adwaita theme input, while `gnustep-packager` owns hosted GNUstep toolchain bootstrap through `gnustep-cli-new`
+- keep Linux-specific preflight limited to app-owned setup, primarily preparing the pinned Adwaita theme input until upstream AppImage theme provisioning lands, while `gnustep-packager` owns hosted GNUstep toolchain bootstrap through `gnustep-cli-new`
 
 ### Phase 8C: Normalize Windows Staging And MSI Parity
 
@@ -134,6 +135,7 @@ Scope:
 - use the packager launcher contract rather than the repo-local launcher as the startup path
 - pass MSI runtime closure under the new default failure policy so unresolved non-system DLLs stop packaging instead of leaking into release artifacts
 - declare app-specific MSYS2 host dependencies in the manifest instead of relying on workflow-only package inputs
+- declare Windows `WinUITheme` as a required/default `themeInputs` entry so `gnustep-packager` owns fetching, building, staging, structural validation, and theme payload reporting
 - validate the packager-produced MSI against the existing clean-machine validation path before removing the old implementation
 
 ### Phase 8D: GitHub Actions Cutover
@@ -186,10 +188,14 @@ Immediate next steps:
 - `Phase 8B/8I`: hosted Linux AppImage packaging passed on `2026-04-21` in GitHub Actions run `24743212445` after adapting Linux staging to the managed `gnustep-cli-new` `Local/Library` runtime layout, treating absent PreferencePanes payloads as optional, and switching AppImage smoke validation to the packager-supported marker-file mode for headless CI
 - `Phase 8J`: upstream bounded Windows bootstrap diagnostics were added to `gnustep-packager` commit `3c10f1a2c8f976cc30aaaa4f85f6a14b74ebb562` and consumed by the ObjcMarkdown packaging workflows on `2026-04-21`; hosted run `24746538617` proved the diagnostics path by uploading setup/build/run logs instead of hanging, and hosted run `24747049925` then passed the MSI bootstrap step with the direct `HelloPackager.exe` smoke
 - `Phase 8H`: Windows hosted MSI validation is now past bootstrap as of `2026-04-21`; run `24747049925` failed in app packaging because the hosted workspace lacked `plugins-themes-winuitheme`, run `24747383333` confirmed the required WinUITheme input is fetched, run `24747752773` exposed an app-side MSYS path conversion bug, run `24748075413`/`24748308894` exposed GNUstep makefile-root assumptions, and run `24748570291` reached real WinUITheme compilation before hitting GNUstep's baked `/clang64/bin/clang` compiler path; the current app-side pass keeps theme build output in the workflow log, skips optional theme fetches unless explicitly enabled, carries the prepared user theme root into both build and stage steps, resolves Windows paths through the active MSYS2 shell's `cygpath`, exports `GNUSTEP_MAKEFILES` to the managed `gnustep-cli-new` makefile path, and overrides compiler variables to the managed clang/clang++ binaries
+- `Phase 8K`: implemented locally on `2026-04-24` against `gnustep-packager` commit `4fc362a`. The Windows MSI manifest now declares `WinUITheme` as a required/default `themeInputs` entry and `Win11Theme` as an optional theme input, while repo-local Windows build/stage scripts no longer fetch, build, or copy Windows GNUstep themes. Linux/AppImage theme provisioning remains upstream-future work, so Linux Adwaita input preparation can stay downstream until `gnustep-packager` implements that backend.
 - remaining execution gap:
-  - complete one fresh validated Windows MSI rebuild through the normal reusable workflow path now that the bootstrap diagnostics gap is patched upstream
-  - rerun clean-machine Windows validation through `OracleTestVMs` against the fresh MSI and portable ZIP artifacts
+  - complete one fresh validated Windows MSI rebuild through the normal reusable workflow path with the workflow pinned to `gnustep-packager` commit `4fc362a`
+  - rerun clean-machine Windows validation through `OracleTestVMs` against that fresh MSI and portable ZIP
   - confirm a release tag now produces and publishes both artifacts end-to-end
+- current handoff:
+  - continue from [docs/windows-msi-winui-handoff-2026-04-24.md](/home/danboyd/git/ObjcMarkdown/docs/windows-msi-winui-handoff-2026-04-24.md)
+  - validate and publish local `WinUITheme` fix commit `ab1ac8f`, repin the Windows MSI `themeInputs` entry to that fixed commit, then build and validate a fresh MSI rather than retesting stale `rc29`
 
 Acceptance criteria:
 - `Phase 8A`: the repo contains committed downstream manifests and a documented normalized staging contract for both target platforms

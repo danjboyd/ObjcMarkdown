@@ -96,6 +96,13 @@
         "runtime/bin/libfreetype-6.dll",
         "runtime/lib/GNUstep/Bundles/libgnustep-back-032.bundle/libgnustep-back-032.dll",
         "runtime/lib/GNUstep/Themes/WinUITheme.theme/WinUITheme.dll",
+        "runtime/lib/GNUstep/Themes/WinUITheme.theme/Resources/Info-gnustep.plist",
+        "runtime/lib/GNUstep/Themes/WinUITheme.theme/Resources/ThemeImages/GSSwitch.png",
+        "runtime/lib/GNUstep/Themes/WinUITheme.theme/Resources/ThemeImages/GSSwitchSelected.png",
+        "runtime/lib/GNUstep/Themes/WinUITheme.theme/Resources/ThemeImages/GSSwitchMixed.png",
+        "runtime/lib/GNUstep/Themes/WinUITheme.theme/Resources/ThemeImages/GSRadio.png",
+        "runtime/lib/GNUstep/Themes/WinUITheme.theme/Resources/ThemeImages/GSRadioSelected.png",
+        "runtime/lib/GNUstep/Themes/WinUITheme.theme/Resources/ThemeTiles",
         "runtime/texlive/TinyTeX/bin/windows/latex.exe",
         "runtime/texlive/TinyTeX/bin/windows/dvisvgm.exe",
         "runtime/texlive/TinyTeX/bin/windows/dvipng.exe"
@@ -119,6 +126,34 @@
         },
         {
           "kind": "metadata-file",
+          "path": "runtime/lib/GNUstep/Themes/WinUITheme.theme/Resources/Info-gnustep.plist"
+        },
+        {
+          "kind": "metadata-file",
+          "path": "runtime/lib/GNUstep/Themes/WinUITheme.theme/Resources/ThemeImages/GSSwitch.png"
+        },
+        {
+          "kind": "metadata-file",
+          "path": "runtime/lib/GNUstep/Themes/WinUITheme.theme/Resources/ThemeImages/GSSwitchSelected.png"
+        },
+        {
+          "kind": "metadata-file",
+          "path": "runtime/lib/GNUstep/Themes/WinUITheme.theme/Resources/ThemeImages/GSSwitchMixed.png"
+        },
+        {
+          "kind": "metadata-file",
+          "path": "runtime/lib/GNUstep/Themes/WinUITheme.theme/Resources/ThemeImages/GSRadio.png"
+        },
+        {
+          "kind": "metadata-file",
+          "path": "runtime/lib/GNUstep/Themes/WinUITheme.theme/Resources/ThemeImages/GSRadioSelected.png"
+        },
+        {
+          "kind": "metadata-file",
+          "path": "runtime/lib/GNUstep/Themes/WinUITheme.theme/Resources/ThemeTiles"
+        },
+        {
+          "kind": "metadata-file",
           "path": "metadata/icons/markdown_icon.ico"
         },
         {
@@ -138,6 +173,34 @@
         {
           "kind": "bundled-theme",
           "name": "WinUITheme"
+        },
+        {
+          "kind": "metadata-file",
+          "path": "runtime/lib/GNUstep/Themes/WinUITheme.theme/Resources/Info-gnustep.plist"
+        },
+        {
+          "kind": "metadata-file",
+          "path": "runtime/lib/GNUstep/Themes/WinUITheme.theme/Resources/ThemeImages/GSSwitch.png"
+        },
+        {
+          "kind": "metadata-file",
+          "path": "runtime/lib/GNUstep/Themes/WinUITheme.theme/Resources/ThemeImages/GSSwitchSelected.png"
+        },
+        {
+          "kind": "metadata-file",
+          "path": "runtime/lib/GNUstep/Themes/WinUITheme.theme/Resources/ThemeImages/GSSwitchMixed.png"
+        },
+        {
+          "kind": "metadata-file",
+          "path": "runtime/lib/GNUstep/Themes/WinUITheme.theme/Resources/ThemeImages/GSRadio.png"
+        },
+        {
+          "kind": "metadata-file",
+          "path": "runtime/lib/GNUstep/Themes/WinUITheme.theme/Resources/ThemeImages/GSRadioSelected.png"
+        },
+        {
+          "kind": "metadata-file",
+          "path": "runtime/lib/GNUstep/Themes/WinUITheme.theme/Resources/ThemeTiles"
         },
         {
           "kind": "metadata-file",
@@ -190,6 +253,27 @@
       }
     ]
   },
+  "themeInputs": [
+    {
+      "name": "WinUITheme",
+      "repo": "https://github.com/danjboyd/plugins-themes-winuitheme.git",
+      "ref": "914ee2d",
+      "platforms": [
+        "windows"
+      ],
+      "required": true,
+      "default": true
+    },
+    {
+      "name": "Win11Theme",
+      "repo": "https://github.com/gnustep/plugins-themes-win11theme.git",
+      "ref": "390db8f",
+      "platforms": [
+        "windows"
+      ],
+      "required": false
+    }
+  ],
   "backends": {
     "msi": {
       "enabled": true,

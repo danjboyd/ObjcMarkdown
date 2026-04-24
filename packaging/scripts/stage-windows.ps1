@@ -6,16 +6,6 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-$themeInputs = & .\packaging\scripts\ensure-windows-theme-inputs.ps1
-if ($LASTEXITCODE -ne 0) {
-  throw "ObjcMarkdown Windows theme preparation failed."
-}
-if (-not $themeInputs -or -not $themeInputs.userThemeRoot) {
-  throw "ObjcMarkdown Windows theme preparation did not return a theme root."
-}
-$env:OMD_GNUSTEP_USER_THEME_ROOT = [string]$themeInputs.userThemeRoot
-Write-Host ("Prepared Windows GNUstep themes in {0}" -f $env:OMD_GNUSTEP_USER_THEME_ROOT)
-
 & .\scripts\windows\build-from-powershell.ps1 -Task stage -StageDir $StageRoot
 if ($LASTEXITCODE -ne 0) {
   throw "ObjcMarkdown Windows staging failed."
@@ -64,11 +54,12 @@ if (Test-Path $themeRoot) {
 $bundledThemeSummary = if ($bundledThemeNames.Count -gt 0) {
   "Bundled themes include {0}." -f ($bundledThemeNames -join ", ")
 } else {
-  "No additional GNUstep themes were bundled."
+  "No additional GNUstep themes were bundled by the ObjcMarkdown stage step."
 }
 Set-Content -Path (Join-Path $metadataDocs "BundledThemes.txt") -Value @(
   "Bundled GNUstep themes for ObjcMarkdown MSI:"
   $bundledThemeSummary
+  "Windows GNUstep theme inputs are provisioned by gnustep-packager after app staging."
   "Packaged Windows launches default to GSTheme=WinUITheme when the user has not already chosen a theme."
 )
 Set-Content -Path (Join-Path $metadataDocs "BundledLaTeXRuntime.txt") -Value @(
