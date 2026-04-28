@@ -75,6 +75,7 @@ typedef unsigned short mode_t;
     BOOL _explorerSidebarVisible;
     CGFloat _explorerSidebarLastVisibleWidth;
     NSView *_toolbarPrimaryActionsContainer;
+    NSView *_toolbarActionGlyphOverlay;
     NSSegmentedControl *_toolbarFileActionsControl;
     NSSegmentedControl *_toolbarUtilityActionsControl;
     NSSlider *_zoomSlider;

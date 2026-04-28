@@ -32,6 +32,585 @@
 #endif
 #include <math.h>
 
+static void OMDStartupTrace(NSString *message);
+
+#if defined(_WIN32)
+typedef struct {
+    NSString *title;
+    NSMenuItem *item;
+    BOOL topLevel;
+    BOOL separator;
+    BOOL checked;
+    BOOL enabled;
+} OMDWindowsMenuItemData;
+
+static WNDPROC OMDOriginalWindowsMenuWndProc = NULL;
+static NSMutableArray *OMDWindowsMenuItemDataStorage = nil;
+static NSMutableDictionary *OMDWindowsMenuItemsByCommandID = nil;
+
+static const int OMDWinUIMenuTopHeight = 32;
+static const int OMDWinUIMenuItemHeight = 32;
+static const int OMDWinUIMenuSeparatorHeight = 8;
+static const int OMDWinUIMenuCheckColumnWidth = 28;
+static const int OMDWinUIMenuLeftTextPadding = 12;
+static const int OMDWinUIMenuRightPadding = 20;
+static const int OMDWinUIMenuSubmenuPadding = 32;
+static const int OMDWinUIMenuHoverInsetX = 4;
+static const int OMDWinUIMenuHoverInsetY = 2;
+static const int OMDWinUIMenuHoverRadius = 8;
+static const int OMDWinUIMenuTopTextYOffset = 3;
+static const int OMDWinUIMenuTopHoverInsetTop = 2;
+static const int OMDWinUIMenuTopHoverOutsetBottom = 4;
+static const int OMDWinUIMenuPopupYOffset = 6;
+static const UINT_PTR OMDWinUIMenuPopupAdjustTimer = 0x4F4D4455;
+static const int OMDWinUIMenuSubmenuChevronOffset = 14;
+static const UINT_PTR OMDWinUIMenuPopupChevronTimer = 0x4F4D4457;
+
+#define OMDWinUIMenuBarBackground RGB(243, 243, 243)
+#define OMDWinUIMenuFlyoutBackground RGB(255, 255, 255)
+#define OMDWinUIMenuTopHover RGB(229, 229, 229)
+#define OMDWinUIMenuItemHover RGB(243, 243, 243)
+#define OMDWinUIMenuSeparator RGB(224, 224, 224)
+#define OMDWinUIMenuText RGB(32, 32, 32)
+#define OMDWinUIMenuDisabledText RGB(150, 150, 150)
+
+static HFONT OMDWindowsMenuFont(void)
+{
+    static HFONT menuFont = NULL;
+    if (menuFont == NULL) {
+        menuFont = CreateFontW(-14, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+                               DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                               CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+    }
+    return menuFont;
+}
+
+static OMDWindowsMenuItemData *OMDCreateWindowsMenuItemData(NSMenuItem *item, BOOL topLevel, BOOL separator)
+{
+    OMDWindowsMenuItemData *data = (OMDWindowsMenuItemData *)calloc(1, sizeof(OMDWindowsMenuItemData));
+    if (data == NULL) {
+        return NULL;
+    }
+    data->title = separator ? [@"" copy] : [[item title] copy];
+    data->item = separator ? nil : [item retain];
+    data->topLevel = topLevel;
+    data->separator = separator;
+    data->checked = (separator || item == nil) ? NO : ([item state] == NSOnState);
+    data->enabled = separator ? NO : [item isEnabled];
+    if (OMDWindowsMenuItemDataStorage == nil) {
+        OMDWindowsMenuItemDataStorage = [[NSMutableArray alloc] init];
+    }
+    [OMDWindowsMenuItemDataStorage addObject:[NSValue valueWithPointer:data]];
+    return data;
+}
+
+static void OMDDrawWindowsMenuText(HDC hdc, NSString *title, RECT rect, COLORREF color, UINT format)
+{
+    NSUInteger length = [title length];
+    unichar *characters = NULL;
+
+    if (length == 0) {
+        return;
+    }
+
+    characters = (unichar *)calloc(length + 1, sizeof(unichar));
+    if (characters == NULL) {
+        return;
+    }
+
+    [title getCharacters:characters range:NSMakeRange(0, length)];
+    SetBkMode(hdc, TRANSPARENT);
+    SetTextColor(hdc, color);
+    DrawTextW(hdc, (LPCWSTR)characters, (int)length, &rect, format);
+    free(characters);
+}
+
+static void OMDDrawWindowsMenuTextCentered(HDC hdc, NSString *title, RECT rect, COLORREF color, UINT format, int yOffset)
+{
+    NSUInteger length = [title length];
+    unichar *characters = NULL;
+    SIZE textSize;
+    RECT textRect = rect;
+
+    if (length == 0) {
+        return;
+    }
+
+    characters = (unichar *)calloc(length + 1, sizeof(unichar));
+    if (characters == NULL) {
+        return;
+    }
+
+    memset(&textSize, 0, sizeof(textSize));
+    [title getCharacters:characters range:NSMakeRange(0, length)];
+    GetTextExtentPoint32W(hdc, (LPCWSTR)characters, (int)length, &textSize);
+    textRect.top = rect.top + (((rect.bottom - rect.top) - textSize.cy) / 2) + yOffset;
+    textRect.bottom = textRect.top + textSize.cy + 2;
+    SetBkMode(hdc, TRANSPARENT);
+    SetTextColor(hdc, color);
+    DrawTextW(hdc, (LPCWSTR)characters, (int)length, &textRect,
+              (format & ~DT_VCENTER) | DT_TOP);
+    free(characters);
+}
+
+static void OMDDrawWindowsMenuCheckmark(HDC hdc, RECT rect, COLORREF color)
+{
+    HPEN pen = CreatePen(PS_SOLID, 2, color);
+    HPEN oldPen = NULL;
+    int left = rect.left + 11;
+    int centerY = rect.top + ((rect.bottom - rect.top) / 2);
+
+    if (pen == NULL) {
+        return;
+    }
+
+    oldPen = (HPEN)SelectObject(hdc, pen);
+    MoveToEx(hdc, left, centerY, NULL);
+    LineTo(hdc, left + 4, centerY + 4);
+    LineTo(hdc, left + 12, centerY - 5);
+    if (oldPen != NULL) {
+        SelectObject(hdc, oldPen);
+    }
+    DeleteObject(pen);
+}
+
+static void OMDDrawWindowsMenuSubmenuChevronAt(HDC hdc, int centerX, int centerY, COLORREF color)
+{
+    HPEN pen = CreatePen(PS_SOLID, 1, color);
+    HPEN oldPen = NULL;
+
+    if (pen == NULL) {
+        return;
+    }
+
+    oldPen = (HPEN)SelectObject(hdc, pen);
+    MoveToEx(hdc, centerX - 2, centerY - 4, NULL);
+    LineTo(hdc, centerX + 2, centerY);
+    LineTo(hdc, centerX - 2, centerY + 4);
+    if (oldPen != NULL) {
+        SelectObject(hdc, oldPen);
+    }
+    DeleteObject(pen);
+}
+
+static void OMDRepaintWindowsMenuPopupChevronRow(HWND popupHwnd)
+{
+    HDC hdc = NULL;
+    RECT rect;
+    int width = 0;
+    int height = 0;
+    int centerY = 0;
+    int centerX = 0;
+    RECT coverRect;
+    COLORREF fillColor = OMDWinUIMenuFlyoutBackground;
+    HBRUSH coverBrush = NULL;
+
+    if (popupHwnd == NULL || GetWindowRect(popupHwnd, &rect) == 0) {
+        return;
+    }
+
+    width = rect.right - rect.left;
+    height = rect.bottom - rect.top;
+    if (width < 180 || height < 120) {
+        return;
+    }
+
+    hdc = GetWindowDC(popupHwnd);
+    if (hdc == NULL) {
+        return;
+    }
+
+    centerY = 1 + (OMDWinUIMenuItemHeight * 2) + (OMDWinUIMenuItemHeight / 2);
+    centerX = width - OMDWinUIMenuSubmenuChevronOffset;
+    fillColor = GetPixel(hdc, MAX(0, width - 42), centerY);
+    if (fillColor == CLR_INVALID) {
+        fillColor = OMDWinUIMenuFlyoutBackground;
+    }
+
+    coverRect.left = MAX(0, width - 36);
+    coverRect.right = width - 4;
+    coverRect.top = MAX(0, centerY - 13);
+    coverRect.bottom = MIN(height, centerY + 14);
+    coverBrush = CreateSolidBrush(fillColor);
+    if (coverBrush != NULL) {
+        FillRect(hdc, &coverRect, coverBrush);
+        DeleteObject(coverBrush);
+    }
+    OMDDrawWindowsMenuSubmenuChevronAt(hdc, centerX, centerY, OMDWinUIMenuText);
+
+    ReleaseDC(popupHwnd, hdc);
+}
+
+static LRESULT CALLBACK OMDWindowsMenuPopupWindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
+{
+    WNDPROC originalProc = (WNDPROC)GetPropW(hwnd, L"OMDWinUIMenuPopupOriginalProc");
+    LRESULT result = 0;
+
+    if (originalProc != NULL) {
+        result = CallWindowProcW(originalProc, hwnd, message, wParam, lParam);
+    } else {
+        result = DefWindowProcW(hwnd, message, wParam, lParam);
+    }
+
+    if (message == WM_PAINT || message == WM_NCPAINT || message == WM_MOUSEMOVE) {
+        OMDRepaintWindowsMenuPopupChevronRow(hwnd);
+        SetTimer(hwnd, OMDWinUIMenuPopupChevronTimer, 20, NULL);
+    } else if (message == WM_TIMER && (UINT_PTR)wParam == OMDWinUIMenuPopupChevronTimer) {
+        OMDRepaintWindowsMenuPopupChevronRow(hwnd);
+        return 0;
+    } else if (message == WM_NCDESTROY) {
+        KillTimer(hwnd, OMDWinUIMenuPopupChevronTimer);
+        RemovePropW(hwnd, L"OMDWinUIMenuPopupOriginalProc");
+    }
+
+    return result;
+}
+
+static void OMDDrawWindowsMenuItem(const DRAWITEMSTRUCT *drawItem)
+{
+    OMDWindowsMenuItemData *data = (OMDWindowsMenuItemData *)drawItem->itemData;
+    HDC hdc = drawItem->hDC;
+    RECT rect = drawItem->rcItem;
+    BOOL selected = ((drawItem->itemState & ODS_SELECTED) != 0);
+    BOOL disabled = ((drawItem->itemState & ODS_DISABLED) != 0) || !data->enabled;
+    BOOL active = selected && !disabled;
+    COLORREF background = data->topLevel ? OMDWinUIMenuBarBackground : OMDWinUIMenuFlyoutBackground;
+    COLORREF selection = data->topLevel ? OMDWinUIMenuTopHover : OMDWinUIMenuItemHover;
+    COLORREF text = disabled ? OMDWinUIMenuDisabledText : OMDWinUIMenuText;
+    HBRUSH brush = CreateSolidBrush(background);
+    HFONT oldFont = NULL;
+
+    FillRect(hdc, &rect, brush);
+    DeleteObject(brush);
+
+    if (data->separator) {
+        RECT separatorRect = rect;
+        HBRUSH separatorBrush = CreateSolidBrush(OMDWinUIMenuSeparator);
+        separatorRect.left += OMDWinUIMenuCheckColumnWidth + OMDWinUIMenuLeftTextPadding;
+        separatorRect.right -= 12;
+        separatorRect.top = rect.top + ((rect.bottom - rect.top) / 2);
+        separatorRect.bottom = separatorRect.top + 1;
+        FillRect(hdc, &separatorRect, separatorBrush);
+        DeleteObject(separatorBrush);
+        return;
+    }
+
+    oldFont = (HFONT)SelectObject(hdc, OMDWindowsMenuFont());
+
+    if (data->topLevel) {
+        RECT pillRect = rect;
+        RECT textRect = rect;
+        pillRect.left += OMDWinUIMenuHoverInsetX;
+        pillRect.right -= OMDWinUIMenuHoverInsetX;
+        pillRect.top += OMDWinUIMenuTopHoverInsetTop;
+        pillRect.bottom += OMDWinUIMenuTopHoverOutsetBottom;
+        if (active) {
+            HBRUSH selectionBrush = CreateSolidBrush(selection);
+            HPEN selectionPen = CreatePen(PS_SOLID, 1, selection);
+            HBRUSH oldBrush = (HBRUSH)SelectObject(hdc, selectionBrush);
+            HPEN oldPen = (HPEN)SelectObject(hdc, selectionPen);
+            RoundRect(hdc, pillRect.left, pillRect.top, pillRect.right, pillRect.bottom,
+                      OMDWinUIMenuHoverRadius, OMDWinUIMenuHoverRadius);
+            SelectObject(hdc, oldPen);
+            SelectObject(hdc, oldBrush);
+            DeleteObject(selectionPen);
+            DeleteObject(selectionBrush);
+        }
+        textRect.left += 12;
+        textRect.right -= 12;
+        OMDDrawWindowsMenuTextCentered(hdc, data->title, textRect, text,
+                                       DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_NOPREFIX,
+                                       OMDWinUIMenuTopTextYOffset);
+    } else {
+        RECT textRect = rect;
+        BOOL hasSubmenu = ([data->item submenu] != nil);
+        if (active) {
+            RECT selectionRect = rect;
+            HBRUSH selectionBrush = CreateSolidBrush(selection);
+            HPEN selectionPen = CreatePen(PS_SOLID, 1, selection);
+            HBRUSH oldBrush = (HBRUSH)SelectObject(hdc, selectionBrush);
+            HPEN oldPen = (HPEN)SelectObject(hdc, selectionPen);
+            selectionRect.left += OMDWinUIMenuHoverInsetX;
+            selectionRect.right -= OMDWinUIMenuHoverInsetX;
+            selectionRect.top += OMDWinUIMenuHoverInsetY;
+            selectionRect.bottom -= OMDWinUIMenuHoverInsetY;
+            RoundRect(hdc, selectionRect.left, selectionRect.top, selectionRect.right, selectionRect.bottom,
+                      OMDWinUIMenuHoverRadius, OMDWinUIMenuHoverRadius);
+            SelectObject(hdc, oldPen);
+            SelectObject(hdc, oldBrush);
+            DeleteObject(selectionPen);
+            DeleteObject(selectionBrush);
+        }
+        if (data->checked) {
+            OMDDrawWindowsMenuCheckmark(hdc, rect, text);
+        }
+        if (hasSubmenu) {
+            RECT nativeArrowCoverRect = rect;
+            HBRUSH coverBrush = CreateSolidBrush(active ? selection : background);
+            nativeArrowCoverRect.left = MAX(rect.left, rect.right - 36);
+            FillRect(hdc, &nativeArrowCoverRect, coverBrush);
+            DeleteObject(coverBrush);
+        }
+        textRect.left += OMDWinUIMenuCheckColumnWidth + OMDWinUIMenuLeftTextPadding;
+        textRect.right -= (hasSubmenu ? OMDWinUIMenuSubmenuPadding : OMDWinUIMenuRightPadding);
+        OMDDrawWindowsMenuText(hdc, data->title, textRect, text,
+                               DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
+        if (hasSubmenu) {
+            OMDDrawWindowsMenuSubmenuChevronAt(hdc,
+                                               rect.right - OMDWinUIMenuSubmenuChevronOffset,
+                                               rect.top + ((rect.bottom - rect.top) / 2),
+                                               OMDWinUIMenuText);
+        }
+    }
+
+    if (oldFont != NULL) {
+        SelectObject(hdc, oldFont);
+    }
+}
+
+static WINBOOL CALLBACK OMDAdjustWindowsMenuPopupWindow(HWND popupHwnd, LPARAM ownerParam)
+{
+    HWND ownerHwnd = (HWND)ownerParam;
+    DWORD popupProcessID = 0;
+    DWORD ownerProcessID = 0;
+    WCHAR className[64];
+    RECT popupRect;
+    RECT ownerRect;
+
+    if (popupHwnd == NULL || ownerHwnd == NULL || !IsWindowVisible(popupHwnd)) {
+        return TRUE;
+    }
+
+    GetWindowThreadProcessId(popupHwnd, &popupProcessID);
+    GetWindowThreadProcessId(ownerHwnd, &ownerProcessID);
+    if (popupProcessID != ownerProcessID) {
+        return TRUE;
+    }
+
+    memset(className, 0, sizeof(className));
+    GetClassNameW(popupHwnd, className, (int)(sizeof(className) / sizeof(className[0])));
+    if (wcscmp(className, L"#32768") != 0) {
+        return TRUE;
+    }
+
+    if (GetWindowRect(popupHwnd, &popupRect) == 0 || GetWindowRect(ownerHwnd, &ownerRect) == 0) {
+        return TRUE;
+    }
+
+    if (GetPropW(popupHwnd, L"OMDWinUIMenuPopupAdjusted") != NULL) {
+        return TRUE;
+    }
+
+    if (popupRect.left >= ownerRect.left - 4
+        && popupRect.left <= ownerRect.right
+        && popupRect.top >= ownerRect.top + 35
+        && popupRect.top <= ownerRect.top + 75) {
+        SetWindowPos(popupHwnd,
+                     NULL,
+                     popupRect.left,
+                     popupRect.top + OMDWinUIMenuPopupYOffset,
+                     0,
+                     0,
+                     SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+        SetPropW(popupHwnd, L"OMDWinUIMenuPopupAdjusted", (HANDLE)1);
+    }
+
+    if (GetPropW(popupHwnd, L"OMDWinUIMenuPopupOriginalProc") == NULL) {
+        WNDPROC originalProc = (WNDPROC)GetWindowLongPtrW(popupHwnd, GWLP_WNDPROC);
+        if (originalProc != NULL && originalProc != OMDWindowsMenuPopupWindowProc) {
+            SetPropW(popupHwnd, L"OMDWinUIMenuPopupOriginalProc", (HANDLE)originalProc);
+            SetWindowLongPtrW(popupHwnd, GWLP_WNDPROC, (LONG_PTR)OMDWindowsMenuPopupWindowProc);
+            SetTimer(popupHwnd, OMDWinUIMenuPopupChevronTimer, 20, NULL);
+        }
+    }
+    OMDRepaintWindowsMenuPopupChevronRow(popupHwnd);
+
+    return TRUE;
+}
+
+static void OMDAdjustWindowsMenuPopupWindows(HWND ownerHwnd)
+{
+    EnumWindows(OMDAdjustWindowsMenuPopupWindow, (LPARAM)ownerHwnd);
+}
+
+static LRESULT CALLBACK OMDWindowsMenuWindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
+{
+    if (message == WM_MEASUREITEM) {
+        MEASUREITEMSTRUCT *measure = (MEASUREITEMSTRUCT *)lParam;
+        OMDWindowsMenuItemData *data = (OMDWindowsMenuItemData *)measure->itemData;
+        if (measure != NULL && measure->CtlType == ODT_MENU && data != NULL) {
+            HDC hdc = GetDC(hwnd);
+            HFONT oldFont = NULL;
+            SIZE textSize;
+            NSUInteger length = [data->title length];
+            unichar *characters = (unichar *)calloc(length + 1, sizeof(unichar));
+            memset(&textSize, 0, sizeof(textSize));
+            if (hdc != NULL) {
+                oldFont = (HFONT)SelectObject(hdc, OMDWindowsMenuFont());
+            }
+            if (characters != NULL) {
+                [data->title getCharacters:characters range:NSMakeRange(0, length)];
+                GetTextExtentPoint32W(hdc, (LPCWSTR)characters, (int)length, &textSize);
+                free(characters);
+            }
+            if (oldFont != NULL) {
+                SelectObject(hdc, oldFont);
+            }
+            ReleaseDC(hwnd, hdc);
+            measure->itemWidth = (UINT)(data->separator
+                                        ? 240
+                                        : textSize.cx + (data->topLevel
+                                                         ? 32
+                                                         : OMDWinUIMenuCheckColumnWidth + OMDWinUIMenuLeftTextPadding + OMDWinUIMenuSubmenuPadding));
+            measure->itemHeight = (UINT)(data->separator
+                                         ? OMDWinUIMenuSeparatorHeight
+                                         : (data->topLevel ? OMDWinUIMenuTopHeight : OMDWinUIMenuItemHeight));
+            return TRUE;
+        }
+    } else if (message == WM_DRAWITEM) {
+        DRAWITEMSTRUCT *drawItem = (DRAWITEMSTRUCT *)lParam;
+        if (drawItem != NULL && drawItem->CtlType == ODT_MENU && drawItem->itemData != 0) {
+            OMDDrawWindowsMenuItem(drawItem);
+            return TRUE;
+        }
+    } else if (message == WM_INITMENUPOPUP) {
+        SetTimer(hwnd, OMDWinUIMenuPopupAdjustTimer, 1, NULL);
+    } else if (message == WM_TIMER) {
+        if ((UINT_PTR)wParam == OMDWinUIMenuPopupAdjustTimer) {
+            KillTimer(hwnd, OMDWinUIMenuPopupAdjustTimer);
+            OMDAdjustWindowsMenuPopupWindows(hwnd);
+            return 0;
+        }
+    } else if (message == WM_COMMAND) {
+        UINT commandID = LOWORD(wParam);
+        NSValue *itemValue = [OMDWindowsMenuItemsByCommandID objectForKey:[NSNumber numberWithUnsignedInt:commandID]];
+        NSMenuItem *item = [itemValue pointerValue];
+        if (item != nil && [item action] != NULL) {
+            [NSApp sendAction:[item action] to:[item target] from:item];
+            return 0;
+        }
+    }
+
+    if (OMDOriginalWindowsMenuWndProc != NULL) {
+        return CallWindowProcW(OMDOriginalWindowsMenuWndProc, hwnd, message, wParam, lParam);
+    }
+    return DefWindowProcW(hwnd, message, wParam, lParam);
+}
+
+static void OMDEnsureWindowsMenuSubclass(HWND hwnd)
+{
+    LONG_PTR currentProc = GetWindowLongPtrW(hwnd, GWLP_WNDPROC);
+    if ((WNDPROC)currentProc == OMDWindowsMenuWindowProc) {
+        return;
+    }
+    OMDOriginalWindowsMenuWndProc = (WNDPROC)currentProc;
+    SetWindowLongPtrW(hwnd, GWLP_WNDPROC, (LONG_PTR)OMDWindowsMenuWindowProc);
+}
+
+static void OMDAppendNativeWindowsMenuItems(HMENU nativeMenu, NSMenu *menu, UINT *nextCommandID, BOOL topLevel)
+{
+    NSUInteger count = [menu numberOfItems];
+    NSUInteger index = 0;
+
+    for (index = 0; index < count; index++) {
+        NSMenuItem *item = [menu itemAtIndex:index];
+        OMDWindowsMenuItemData *data = NULL;
+        UINT flags = MF_OWNERDRAW;
+
+        if (item == nil) {
+            continue;
+        }
+        if ([item respondsToSelector:@selector(isHidden)]) {
+            BOOL (*isHiddenImp)(id, SEL) = (BOOL (*)(id, SEL))[item methodForSelector:@selector(isHidden)];
+            if (isHiddenImp != NULL && isHiddenImp(item, @selector(isHidden))) {
+                continue;
+            }
+        }
+        if ([item isSeparatorItem]) {
+            data = OMDCreateWindowsMenuItemData(item, topLevel, YES);
+            if (data != NULL) {
+                AppendMenuW(nativeMenu, MF_OWNERDRAW | MF_GRAYED, 0, (LPCWSTR)data);
+            }
+            continue;
+        }
+        if (topLevel && index == 0) {
+            NSString *title = [item title];
+            NSString *processName = [[NSProcessInfo processInfo] processName];
+            if ([title isEqualToString:processName] || [title isEqualToString:@"MarkdownViewer"]) {
+                continue;
+            }
+        }
+
+        if ([item target] != nil
+            && [[item target] respondsToSelector:@selector(validateMenuItem:)]) {
+            BOOL valid = [(id)[item target] validateMenuItem:item];
+            if (!valid) {
+                [item setEnabled:NO];
+            }
+        }
+
+        data = OMDCreateWindowsMenuItemData(item, topLevel, NO);
+        if (data == NULL) {
+            continue;
+        }
+        if (![item isEnabled]) {
+            flags |= MF_GRAYED;
+        }
+
+        if ([item submenu] != nil) {
+            HMENU nativeSubmenu = CreatePopupMenu();
+            OMDAppendNativeWindowsMenuItems(nativeSubmenu, [item submenu], nextCommandID, NO);
+            AppendMenuW(nativeMenu, flags | MF_POPUP, (UINT_PTR)nativeSubmenu, (LPCWSTR)data);
+        } else {
+            UINT commandID = (*nextCommandID)++;
+            if (OMDWindowsMenuItemsByCommandID == nil) {
+                OMDWindowsMenuItemsByCommandID = [[NSMutableDictionary alloc] init];
+            }
+            [OMDWindowsMenuItemsByCommandID setObject:[NSValue valueWithPointer:item]
+                                               forKey:[NSNumber numberWithUnsignedInt:commandID]];
+            AppendMenuW(nativeMenu, flags, commandID, (LPCWSTR)data);
+        }
+    }
+}
+
+static void OMDInstallWinUIStyleWindowsMenuBar(NSWindow *window, NSMenu *menu)
+{
+    HWND hwnd = NULL;
+    HMENU nativeMenu = NULL;
+    MENUINFO menuInfo;
+    static HBRUSH menuBackgroundBrush = NULL;
+    UINT nextCommandID = 1000;
+
+    if (window == nil || menu == nil || ![window respondsToSelector:@selector(windowHandle)]) {
+        return;
+    }
+
+    hwnd = (HWND)[window windowHandle];
+    if (hwnd == NULL) {
+        return;
+    }
+
+    if (menuBackgroundBrush == NULL) {
+        menuBackgroundBrush = CreateSolidBrush(RGB(243, 243, 243));
+    }
+
+    [OMDWindowsMenuItemsByCommandID removeAllObjects];
+    nativeMenu = CreateMenu();
+    memset(&menuInfo, 0, sizeof(menuInfo));
+    menuInfo.cbSize = sizeof(menuInfo);
+    menuInfo.fMask = MIM_BACKGROUND;
+    menuInfo.hbrBack = menuBackgroundBrush;
+    SetMenuInfo(nativeMenu, &menuInfo);
+
+    OMDAppendNativeWindowsMenuItems(nativeMenu, menu, &nextCommandID, YES);
+    OMDEnsureWindowsMenuSubclass(hwnd);
+    if (SetMenu(hwnd, nativeMenu)) {
+        DrawMenuBar(hwnd);
+        OMDStartupTrace(@"WinUI-style Windows menu bar installed");
+    }
+}
+#endif
+
 @interface GPStandardUpdaterController : NSObject
 - (instancetype)initWithPackagedConfiguration:(NSError **)error;
 - (void)setParentWindow:(NSWindow *)parentWindow;
@@ -215,13 +794,25 @@ static void OMDApplyWindowsMenuToWindow(NSWindow *window)
         return;
     }
 
+#if defined(_WIN32)
+    if (YES) {
+#else
     if (NSInterfaceStyleForKey(@"NSMenuInterfaceStyle", nil) == NSWindows95InterfaceStyle) {
+#endif
         NSMenu *mainMenu = [NSApp mainMenu];
         if (mainMenu != nil) {
-            [window setMenu:mainMenu];
-            if ([[GSTheme theme] respondsToSelector:@selector(updateMenu:forWindow:)]) {
-                [[GSTheme theme] updateMenu:mainMenu forWindow:window];
+            GSTheme *theme = [GSTheme theme];
+            if ([theme respondsToSelector:@selector(setMenu:forWindow:)]) {
+                [theme setMenu:mainMenu forWindow:window];
+            } else {
+                [window setMenu:mainMenu];
             }
+            if ([theme respondsToSelector:@selector(updateMenu:forWindow:)]) {
+                [theme updateMenu:mainMenu forWindow:window];
+            }
+#if defined(_WIN32)
+            OMDInstallWinUIStyleWindowsMenuBar(window, mainMenu);
+#endif
             OMDStartupTrace(@"windows-style menu applied to window");
         }
     }
@@ -229,13 +820,22 @@ static void OMDApplyWindowsMenuToWindow(NSWindow *window)
 
 static void OMDRefreshWindowsMainMenu(void)
 {
+#if defined(_WIN32)
+    if (YES) {
+#else
     if (NSInterfaceStyleForKey(@"NSMenuInterfaceStyle", nil) == NSWindows95InterfaceStyle) {
+#endif
         NSMenu *mainMenu = [NSApp mainMenu];
         if (mainMenu != nil) {
             [mainMenu update];
             if ([[GSTheme theme] respondsToSelector:@selector(updateAllWindowsWithMenu:)]) {
                 [[GSTheme theme] updateAllWindowsWithMenu:mainMenu];
             }
+#if defined(_WIN32)
+            for (NSWindow *window in [NSApp windows]) {
+                OMDInstallWinUIStyleWindowsMenuBar(window, mainMenu);
+            }
+#endif
             OMDStartupTrace(@"windows-style main menu refreshed");
         }
     }
@@ -1473,6 +2073,20 @@ static NSTextField *OMDStaticTextField(NSRect frame,
     return field;
 }
 
+static void OMDConfigurePreferencesPopup(NSPopUpButton *popup, OMDLayoutMetrics metrics)
+{
+    if (popup == nil) {
+        return;
+    }
+    [popup setBordered:YES];
+    [popup setBezelStyle:NSRoundedBezelStyle];
+    [popup setFont:OMDPreferencesLabelFont(metrics)];
+    if ([[popup cell] respondsToSelector:@selector(setControlSize:)]) {
+        [[popup cell] setControlSize:NSRegularControlSize];
+    }
+    [popup setNeedsDisplay:YES];
+}
+
 static CGFloat OMDControlWidthForTitle(NSString *title,
                                        NSFont *font,
                                        CGFloat minWidth,
@@ -1645,16 +2259,51 @@ static NSImage *OMDToolbarTintedImage(NSImage *image, NSColor *tint)
         return image;
     }
 
+    NSData *tiffData = [image TIFFRepresentation];
+    NSBitmapImageRep *bitmap = (tiffData != nil
+                                ? [[[NSBitmapImageRep alloc] initWithData:tiffData] autorelease]
+                                : nil);
+    if (bitmap == nil) {
+        return image;
+    }
+
+    NSColor *rgbTint = [tint colorUsingColorSpaceName:NSCalibratedRGBColorSpace];
+    CGFloat red = 0.0;
+    CGFloat green = 0.0;
+    CGFloat blue = 0.0;
+    CGFloat tintAlpha = 1.0;
+    NSInteger width = [bitmap pixelsWide];
+    NSInteger height = [bitmap pixelsHigh];
+    NSInteger x = 0;
+    NSInteger y = 0;
+
+    if (rgbTint == nil) {
+        rgbTint = tint;
+    }
+    [rgbTint getRed:&red green:&green blue:&blue alpha:&tintAlpha];
+
+    for (y = 0; y < height; y++) {
+        for (x = 0; x < width; x++) {
+            NSColor *source = [bitmap colorAtX:x y:y];
+            CGFloat sourceAlpha = (source != nil ? [source alphaComponent] : 0.0);
+            if (sourceAlpha <= 0.01) {
+                [bitmap setColor:[NSColor clearColor] atX:x y:y];
+            } else {
+                [bitmap setColor:[NSColor colorWithCalibratedRed:red
+                                                           green:green
+                                                            blue:blue
+                                                           alpha:sourceAlpha * tintAlpha]
+                              atX:x
+                              y:y];
+            }
+        }
+    }
+
     NSImage *tinted = [[[NSImage alloc] initWithSize:size] autorelease];
     if (tinted == nil) {
         return image;
     }
-    NSRect rect = NSMakeRect(0.0, 0.0, size.width, size.height);
-    [tinted lockFocus];
-    [tint set];
-    NSRectFill(rect);
-    [image drawInRect:rect fromRect:NSZeroRect operation:NSCompositeDestinationIn fraction:1.0];
-    [tinted unlockFocus];
+    [tinted addRepresentation:bitmap];
     [tinted setSize:size];
     return tinted;
 }
@@ -2226,6 +2875,672 @@ static NSString *OMDDefaultCacheDirectory(void)
 }
 
 @end
+
+@interface OMDToolbarActionGlyphOverlayView : NSView
+{
+    NSSegmentedControl *_fileActionsControl;
+    NSSegmentedControl *_utilityActionsControl;
+}
+- (void)setFileActionsControl:(NSSegmentedControl *)fileControl
+        utilityActionsControl:(NSSegmentedControl *)utilityControl;
+@end
+
+@implementation OMDToolbarActionGlyphOverlayView
+
+- (BOOL)isFlipped
+{
+    return YES;
+}
+
+- (NSView *)hitTest:(NSPoint)point
+{
+    return nil;
+}
+
+- (void)setFileActionsControl:(NSSegmentedControl *)fileControl
+        utilityActionsControl:(NSSegmentedControl *)utilityControl
+{
+    _fileActionsControl = fileControl;
+    _utilityActionsControl = utilityControl;
+    [self setNeedsDisplay:YES];
+}
+
+- (void)drawGlyphAtIndex:(NSInteger)index inRect:(NSRect)rect enabled:(BOOL)enabled
+{
+    NSRect glyphRect = NSInsetRect(rect, 14.0, 6.0);
+    NSBezierPath *path = [NSBezierPath bezierPath];
+    NSColor *color = enabled ? OMDResolvedControlTextColor() : OMDResolvedMutedTextColor();
+    CGFloat midX = NSMidX(glyphRect);
+    CGFloat midY = NSMidY(glyphRect);
+
+    [color setStroke];
+    [color setFill];
+    [path setLineWidth:1.7];
+    [path setLineCapStyle:NSRoundLineCapStyle];
+    [path setLineJoinStyle:NSRoundLineJoinStyle];
+
+    switch (index) {
+        case 0:
+            [path appendBezierPathWithRect:NSMakeRect(NSMinX(glyphRect) + 1.0, NSMinY(glyphRect) + 2.0,
+                                                       NSWidth(glyphRect) - 2.0, NSHeight(glyphRect) - 4.0)];
+            [path moveToPoint:NSMakePoint(NSMinX(glyphRect) + 6.0, NSMinY(glyphRect) + 2.0)];
+            [path lineToPoint:NSMakePoint(NSMinX(glyphRect) + 6.0, NSMaxY(glyphRect) - 2.0)];
+            break;
+        case 1:
+            [path moveToPoint:NSMakePoint(NSMinX(glyphRect) + 1.0, midY - 3.0)];
+            [path lineToPoint:NSMakePoint(NSMinX(glyphRect) + 6.0, midY - 3.0)];
+            [path lineToPoint:NSMakePoint(NSMinX(glyphRect) + 8.5, midY - 6.0)];
+            [path lineToPoint:NSMakePoint(NSMaxX(glyphRect) - 1.0, midY - 6.0)];
+            [path lineToPoint:NSMakePoint(NSMaxX(glyphRect) - 1.0, NSMaxY(glyphRect) - 3.0)];
+            [path lineToPoint:NSMakePoint(NSMinX(glyphRect) + 1.0, NSMaxY(glyphRect) - 3.0)];
+            [path closePath];
+            break;
+        case 2:
+            [path appendBezierPathWithRect:NSInsetRect(glyphRect, 2.0, 1.0)];
+            [path moveToPoint:NSMakePoint(NSMinX(glyphRect) + 5.0, NSMinY(glyphRect) + 2.0)];
+            [path lineToPoint:NSMakePoint(NSMaxX(glyphRect) - 5.0, NSMinY(glyphRect) + 2.0)];
+            [path moveToPoint:NSMakePoint(NSMinX(glyphRect) + 5.0, NSMaxY(glyphRect) - 5.0)];
+            [path lineToPoint:NSMakePoint(NSMaxX(glyphRect) - 5.0, NSMaxY(glyphRect) - 5.0)];
+            break;
+        case 3:
+            [path appendBezierPathWithRect:NSMakeRect(NSMinX(glyphRect) + 2.0, midY,
+                                                       NSWidth(glyphRect) - 4.0, NSHeight(glyphRect) / 2.0 - 2.0)];
+            [path moveToPoint:NSMakePoint(midX, NSMinY(glyphRect) + 1.0)];
+            [path lineToPoint:NSMakePoint(midX, midY + 4.0)];
+            [path moveToPoint:NSMakePoint(midX, NSMinY(glyphRect) + 1.0)];
+            [path lineToPoint:NSMakePoint(midX - 4.0, NSMinY(glyphRect) + 5.0)];
+            [path moveToPoint:NSMakePoint(midX, NSMinY(glyphRect) + 1.0)];
+            [path lineToPoint:NSMakePoint(midX + 4.0, NSMinY(glyphRect) + 5.0)];
+            break;
+        case 4:
+            [path appendBezierPathWithRect:NSMakeRect(NSMinX(glyphRect) + 3.0, NSMinY(glyphRect) + 1.0,
+                                                       NSWidth(glyphRect) - 6.0, 5.0)];
+            [path appendBezierPathWithRect:NSMakeRect(NSMinX(glyphRect) + 1.0, midY - 2.0,
+                                                       NSWidth(glyphRect) - 2.0, 8.0)];
+            [path moveToPoint:NSMakePoint(NSMinX(glyphRect) + 5.0, NSMaxY(glyphRect) - 2.0)];
+            [path lineToPoint:NSMakePoint(NSMaxX(glyphRect) - 5.0, NSMaxY(glyphRect) - 2.0)];
+            break;
+        default:
+            [path appendBezierPathWithOvalInRect:NSInsetRect(glyphRect, 4.0, 4.0)];
+            [path moveToPoint:NSMakePoint(midX, NSMinY(glyphRect) + 1.0)];
+            [path lineToPoint:NSMakePoint(midX, NSMinY(glyphRect) + 4.0)];
+            [path moveToPoint:NSMakePoint(midX, NSMaxY(glyphRect) - 1.0)];
+            [path lineToPoint:NSMakePoint(midX, NSMaxY(glyphRect) - 4.0)];
+            [path moveToPoint:NSMakePoint(NSMinX(glyphRect) + 1.0, midY)];
+            [path lineToPoint:NSMakePoint(NSMinX(glyphRect) + 4.0, midY)];
+            [path moveToPoint:NSMakePoint(NSMaxX(glyphRect) - 1.0, midY)];
+            [path lineToPoint:NSMakePoint(NSMaxX(glyphRect) - 4.0, midY)];
+            break;
+    }
+
+    [path stroke];
+}
+
+- (void)drawRect:(NSRect)dirtyRect
+{
+    CGFloat groupGap = OMDToolbarActionGroupSpacing;
+    CGFloat segmentWidth = OMDToolbarActionSegmentWidth;
+    CGFloat controlY = floor((OMDToolbarItemHeight - OMDToolbarControlHeight) * 0.5);
+    NSInteger index = 0;
+
+    (void)dirtyRect;
+
+    for (index = 0; index < 3; index++) {
+        [self drawGlyphAtIndex:index
+                        inRect:NSMakeRect(segmentWidth * index, controlY, segmentWidth, OMDToolbarControlHeight)
+                       enabled:(_fileActionsControl == nil || [_fileActionsControl isEnabledForSegment:index])];
+    }
+    for (index = 0; index < 3; index++) {
+        [self drawGlyphAtIndex:index + 3
+                        inRect:NSMakeRect((segmentWidth * 3.0) + groupGap + (segmentWidth * index),
+                                          controlY,
+                                          segmentWidth,
+                                          OMDToolbarControlHeight)
+                       enabled:(_utilityActionsControl == nil || [_utilityActionsControl isEnabledForSegment:index])];
+    }
+}
+
+@end
+
+static NSPanel *OMDActivePreferencesPopupPanel = nil;
+#if defined(_WIN32)
+static WNDPROC OMDOriginalPreferencesPopupWndProc = NULL;
+#endif
+
+@interface OMDPreferencesPopupMenuView : NSView
+{
+    NSPopUpButton *_popupButton;
+    NSPanel *_panel;
+    CGFloat _rowHeight;
+    NSInteger _hoveredIndex;
+    BOOL _trackingMouseDown;
+}
+- (instancetype)initWithPopupButton:(NSPopUpButton *)popupButton
+                               size:(NSSize)size
+                              panel:(NSPanel *)panel;
+#if defined(_WIN32)
+- (void)updateHoverFromScreenX:(int)x y:(int)y;
+- (void)commitSelectionFromScreenX:(int)x y:(int)y;
+- (BOOL)screenPointIsInsideX:(int)x y:(int)y;
+- (void)dismissPopup;
+#endif
+@end
+
+@implementation OMDPreferencesPopupMenuView
+
+- (instancetype)initWithPopupButton:(NSPopUpButton *)popupButton
+                               size:(NSSize)size
+                              panel:(NSPanel *)panel
+{
+    self = [super initWithFrame:NSMakeRect(0.0, 0.0, size.width, size.height)];
+    if (self != nil) {
+        _popupButton = popupButton;
+        _panel = panel;
+        _rowHeight = 32.0;
+        _hoveredIndex = -1;
+        _trackingMouseDown = NO;
+    }
+    return self;
+}
+
+- (BOOL)isFlipped
+{
+    return YES;
+}
+
+- (NSInteger)itemIndexForPoint:(NSPoint)point
+{
+    NSInteger index = (NSInteger)floor(point.y / _rowHeight);
+    if (index < 0 || index >= [_popupButton numberOfItems]) {
+        return -1;
+    }
+    return index;
+}
+
+- (void)viewDidMoveToWindow
+{
+    [super viewDidMoveToWindow];
+    if ([self window] != nil) {
+        [[self window] setAcceptsMouseMovedEvents:YES];
+    }
+}
+
+- (void)updateHoverForEvent:(NSEvent *)event
+{
+    NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
+    NSInteger index = [self itemIndexForPoint:point];
+    if (index != _hoveredIndex) {
+        _hoveredIndex = index;
+        [self setNeedsDisplay:YES];
+    }
+}
+
+- (void)restoreOwnerWindow:(NSWindow *)ownerWindow
+{
+    if (ownerWindow == nil) {
+        return;
+    }
+
+    [ownerWindow makeKeyAndOrderFront:nil];
+    [NSApp activateIgnoringOtherApps:YES];
+#if defined(_WIN32)
+    if ([ownerWindow respondsToSelector:@selector(windowHandle)]) {
+        HWND ownerHwnd = (HWND)[ownerWindow windowHandle];
+        if (ownerHwnd != NULL) {
+            BringWindowToTop(ownerHwnd);
+            SetForegroundWindow(ownerHwnd);
+        }
+    }
+#endif
+}
+
+- (void)drawRect:(NSRect)dirtyRect
+{
+    NSRect bounds = [self bounds];
+    NSColor *background = OMDResolvedControlBackgroundColor();
+    NSColor *border = OMDResolvedPanelCardBorderColor();
+    NSColor *textColor = OMDResolvedControlTextColor();
+    NSColor *selection = OMDColorByBlending(OMDResolvedAccentColor(), background, 0.82);
+    NSColor *hover = OMDColorByBlending(OMDResolvedAccentColor(), background, 0.90);
+    NSFont *font = [_popupButton font];
+    NSInteger selectedIndex = [_popupButton indexOfSelectedItem];
+    NSInteger activeIndex = (_hoveredIndex >= 0 ? _hoveredIndex : selectedIndex);
+    NSInteger count = [_popupButton numberOfItems];
+    NSInteger index = 0;
+
+    (void)dirtyRect;
+
+    if (font == nil) {
+        font = [NSFont systemFontOfSize:[NSFont systemFontSize]];
+    }
+
+    [background setFill];
+    NSRectFill(bounds);
+    [border setStroke];
+    NSFrameRect(NSInsetRect(bounds, 0.5, 0.5));
+
+    for (index = 0; index < count; index++) {
+        NSRect rowRect = NSMakeRect(4.0,
+                                    4.0 + (_rowHeight * index),
+                                    MAX(0.0, NSWidth(bounds) - 8.0),
+                                    _rowHeight - 2.0);
+        NSString *title = [[_popupButton itemAtIndex:index] title];
+        NSDictionary *attributes = nil;
+        NSSize titleSize = NSZeroSize;
+        NSRect titleRect = rowRect;
+
+        if (index == activeIndex) {
+            NSColor *rowFill = (index == selectedIndex && _hoveredIndex < 0) ? selection : hover;
+            [rowFill setFill];
+            NSRectFill(rowRect);
+        }
+
+        attributes = [NSDictionary dictionaryWithObjectsAndKeys:
+                      font, NSFontAttributeName,
+                      textColor, NSForegroundColorAttributeName,
+                      nil];
+        titleSize = [title sizeWithAttributes:attributes];
+        titleRect.origin.x += 10.0;
+        titleRect.size.width = MAX(0.0, titleRect.size.width - 20.0);
+        titleRect.origin.y = floor(NSMidY(rowRect) - (titleSize.height / 2.0));
+        titleRect.size.height = ceil(titleSize.height) + 1.0;
+        [title drawInRect:titleRect withAttributes:attributes];
+    }
+}
+
+- (void)mouseMoved:(NSEvent *)event
+{
+    [self updateHoverForEvent:event];
+}
+
+- (void)mouseEntered:(NSEvent *)event
+{
+    [self updateHoverForEvent:event];
+}
+
+- (void)mouseExited:(NSEvent *)event
+{
+    (void)event;
+    if (_hoveredIndex != -1) {
+        _hoveredIndex = -1;
+        [self setNeedsDisplay:YES];
+    }
+}
+
+- (void)commitIndex:(NSInteger)index
+{
+    NSWindow *ownerWindow = [[_popupButton window] retain];
+    id target = [_popupButton target];
+    SEL action = [_popupButton action];
+    NSInteger oldIndex = [_popupButton indexOfSelectedItem];
+    BOOL changed = NO;
+
+    if (index >= 0) {
+        [_popupButton selectItemAtIndex:index];
+        [_popupButton setNeedsDisplay:YES];
+        changed = (index != oldIndex);
+    }
+
+    _trackingMouseDown = NO;
+    [_panel close];
+    OMDActivePreferencesPopupPanel = nil;
+
+    if (changed && target != nil && action != NULL) {
+        [NSApp sendAction:action to:target from:_popupButton];
+    }
+    [self restoreOwnerWindow:ownerWindow];
+    [ownerWindow release];
+}
+
+#if defined(_WIN32)
+- (NSInteger)itemIndexForScreenX:(int)x y:(int)y
+{
+    HWND hwnd = (_panel != nil && [_panel respondsToSelector:@selector(windowHandle)])
+        ? (HWND)[_panel windowHandle]
+        : NULL;
+    RECT windowRect;
+    NSInteger index = -1;
+
+    (void)x;
+
+    if (hwnd == NULL || GetWindowRect(hwnd, &windowRect) == 0) {
+        return -1;
+    }
+
+    index = (NSInteger)floor(((CGFloat)(y - windowRect.top)) / _rowHeight);
+    if (index < 0 || index >= [_popupButton numberOfItems]) {
+        return -1;
+    }
+    return index;
+}
+
+- (BOOL)screenPointIsInsideX:(int)x y:(int)y
+{
+    HWND hwnd = (_panel != nil && [_panel respondsToSelector:@selector(windowHandle)])
+        ? (HWND)[_panel windowHandle]
+        : NULL;
+    RECT windowRect;
+
+    if (hwnd == NULL || GetWindowRect(hwnd, &windowRect) == 0) {
+        return NO;
+    }
+
+    return (x >= windowRect.left
+            && x < windowRect.right
+            && y >= windowRect.top
+            && y < windowRect.bottom);
+}
+
+- (void)updateHoverFromScreenX:(int)x y:(int)y
+{
+    NSInteger index = [self itemIndexForScreenX:x y:y];
+    if (index != _hoveredIndex) {
+        _hoveredIndex = index;
+        [self setNeedsDisplay:YES];
+    }
+}
+
+- (void)commitSelectionFromScreenX:(int)x y:(int)y
+{
+    NSInteger index = [self itemIndexForScreenX:x y:y];
+    [self commitIndex:index];
+}
+
+- (void)dismissPopup
+{
+    NSWindow *ownerWindow = [[_popupButton window] retain];
+
+    _trackingMouseDown = NO;
+    [_panel close];
+    OMDActivePreferencesPopupPanel = nil;
+    [self restoreOwnerWindow:ownerWindow];
+    [ownerWindow release];
+}
+#endif
+
+- (void)mouseDown:(NSEvent *)event
+{
+    _trackingMouseDown = YES;
+    [self updateHoverForEvent:event];
+
+    while (_trackingMouseDown && [self window] != nil) {
+        NSEvent *nextEvent = [[self window] nextEventMatchingMask:(NSLeftMouseDraggedMask | NSLeftMouseUpMask)];
+        if (nextEvent == nil) {
+            break;
+        }
+        if ([nextEvent type] == NSLeftMouseDragged) {
+            [self updateHoverForEvent:nextEvent];
+        } else if ([nextEvent type] == NSLeftMouseUp) {
+            [self mouseUp:nextEvent];
+            break;
+        }
+    }
+}
+
+- (void)mouseDragged:(NSEvent *)event
+{
+    if (_trackingMouseDown) {
+        [self updateHoverForEvent:event];
+    }
+}
+
+- (void)mouseUp:(NSEvent *)event
+{
+    NSInteger index = -1;
+
+    [self updateHoverForEvent:event];
+    index = _hoveredIndex;
+    if (index < 0) {
+        NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
+        index = [self itemIndexForPoint:point];
+    }
+
+    [self commitIndex:index];
+}
+
+- (void)resetCursorRects
+{
+    [self addTrackingRect:[self bounds]
+                    owner:self
+                 userData:NULL
+             assumeInside:NO];
+}
+
+@end
+
+#if defined(_WIN32)
+static LRESULT CALLBACK OMDPreferencesPopupWindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
+{
+    id view = (id)GetPropW(hwnd, L"OMDPreferencesPopupView");
+    POINT cursorPoint;
+
+    (void)wParam;
+    (void)lParam;
+
+    if (view != nil) {
+        if (message == WM_ACTIVATE && LOWORD(wParam) == WA_INACTIVE) {
+            if (OMDActivePreferencesPopupPanel != nil) {
+                [OMDActivePreferencesPopupPanel close];
+                OMDActivePreferencesPopupPanel = nil;
+            }
+            return 0;
+        }
+        if (message == WM_KILLFOCUS) {
+            if (OMDActivePreferencesPopupPanel != nil) {
+                [OMDActivePreferencesPopupPanel close];
+                OMDActivePreferencesPopupPanel = nil;
+            }
+            return 0;
+        }
+        if (message == WM_LBUTTONDOWN) {
+            if (GetCursorPos(&cursorPoint)) {
+                if (![view screenPointIsInsideX:cursorPoint.x y:cursorPoint.y]) {
+                    ReleaseCapture();
+                    [view dismissPopup];
+                    return 0;
+                }
+                [view updateHoverFromScreenX:cursorPoint.x y:cursorPoint.y];
+            }
+            return 0;
+        }
+        if (message == WM_MOUSEMOVE) {
+            if (GetCursorPos(&cursorPoint)) {
+                [view updateHoverFromScreenX:cursorPoint.x y:cursorPoint.y];
+            }
+            return 0;
+        }
+        if (message == WM_LBUTTONUP) {
+            if (GetCursorPos(&cursorPoint)) {
+                if ([view screenPointIsInsideX:cursorPoint.x y:cursorPoint.y]) {
+                    ReleaseCapture();
+                    [view commitSelectionFromScreenX:cursorPoint.x y:cursorPoint.y];
+                }
+            }
+            return 0;
+        }
+    }
+
+    if (OMDOriginalPreferencesPopupWndProc != NULL) {
+        return CallWindowProcW(OMDOriginalPreferencesPopupWndProc, hwnd, message, wParam, lParam);
+    }
+    return DefWindowProcW(hwnd, message, wParam, lParam);
+}
+
+static void OMDInstallPreferencesPopupWindowProc(NSPanel *panel, NSView *view)
+{
+    HWND hwnd = NULL;
+    LONG_PTR currentProc = 0;
+
+    if (panel == nil || view == nil || ![panel respondsToSelector:@selector(windowHandle)]) {
+        return;
+    }
+
+    hwnd = (HWND)[panel windowHandle];
+    if (hwnd == NULL) {
+        return;
+    }
+
+    SetPropW(hwnd, L"OMDPreferencesPopupView", (HANDLE)view);
+    currentProc = GetWindowLongPtrW(hwnd, GWLP_WNDPROC);
+    if ((WNDPROC)currentProc != OMDPreferencesPopupWindowProc) {
+        OMDOriginalPreferencesPopupWndProc = (WNDPROC)currentProc;
+        SetWindowLongPtrW(hwnd, GWLP_WNDPROC, (LONG_PTR)OMDPreferencesPopupWindowProc);
+    }
+    SetCapture(hwnd);
+}
+#endif
+
+static OMDPreferencesPopupMenuView *OMDShowPreferencesPopupMenu(NSPopUpButton *popup)
+{
+    NSInteger itemCount = [popup numberOfItems];
+    CGFloat rowHeight = 32.0;
+    NSRect popupBounds = [popup bounds];
+    NSPoint screenPoint = NSZeroPoint;
+    NSRect panelFrame = NSZeroRect;
+    NSPanel *panel = nil;
+    OMDPreferencesPopupMenuView *menuView = nil;
+
+    if (popup == nil || [popup window] == nil || itemCount <= 0) {
+        return nil;
+    }
+
+    if (OMDActivePreferencesPopupPanel != nil) {
+        [OMDActivePreferencesPopupPanel close];
+        OMDActivePreferencesPopupPanel = nil;
+    }
+
+    screenPoint = [popup convertPoint:NSMakePoint(NSMinX(popupBounds), NSMaxY(popupBounds))
+                               toView:nil];
+    screenPoint = [[popup window] convertBaseToScreen:screenPoint];
+    panelFrame = NSMakeRect(screenPoint.x,
+                            screenPoint.y - (rowHeight * itemCount) - 4.0,
+                            NSWidth([popup frame]),
+                            (rowHeight * itemCount) + 8.0);
+    panel = [[NSPanel alloc] initWithContentRect:panelFrame
+                                       styleMask:NSBorderlessWindowMask
+                                         backing:NSBackingStoreBuffered
+                                           defer:NO];
+    [panel setReleasedWhenClosed:YES];
+    [panel setLevel:NSPopUpMenuWindowLevel];
+    [panel setBackgroundColor:OMDResolvedControlBackgroundColor()];
+    [panel setOpaque:YES];
+    [panel setAcceptsMouseMovedEvents:YES];
+    menuView = [[[OMDPreferencesPopupMenuView alloc] initWithPopupButton:popup
+                                                                    size:panelFrame.size
+                                                                   panel:panel] autorelease];
+    [panel setContentView:menuView];
+    OMDActivePreferencesPopupPanel = panel;
+    [panel makeKeyAndOrderFront:nil];
+#if defined(_WIN32)
+    OMDInstallPreferencesPopupWindowProc(panel, menuView);
+#endif
+    return menuView;
+}
+
+@interface OMDPreferencesPopupOverlayView : NSView
+{
+    NSPopUpButton *_popupButton;
+}
+- (instancetype)initWithFrame:(NSRect)frame popupButton:(NSPopUpButton *)popupButton;
+@end
+
+@implementation OMDPreferencesPopupOverlayView
+
+- (instancetype)initWithFrame:(NSRect)frame popupButton:(NSPopUpButton *)popupButton
+{
+    self = [super initWithFrame:frame];
+    if (self != nil) {
+        _popupButton = popupButton;
+        [self setAutoresizingMask:[popupButton autoresizingMask]];
+    }
+    return self;
+}
+
+- (BOOL)isFlipped
+{
+    return YES;
+}
+
+- (NSView *)hitTest:(NSPoint)point
+{
+    return [self isHidden] ? nil : self;
+}
+
+- (void)mouseDown:(NSEvent *)event
+{
+    (void)event;
+    OMDShowPreferencesPopupMenu(_popupButton);
+}
+
+- (void)drawRect:(NSRect)dirtyRect
+{
+    NSRect bounds = NSInsetRect([self bounds], 0.5, 0.5);
+    NSBezierPath *fieldPath = [NSBezierPath bezierPathWithRoundedRect:bounds xRadius:7.0 yRadius:7.0];
+    NSColor *background = OMDResolvedControlBackgroundColor();
+    NSColor *border = OMDResolvedPanelCardBorderColor();
+    NSColor *textColor = ([_popupButton isEnabled] ? OMDResolvedControlTextColor() : OMDResolvedMutedTextColor());
+    NSString *title = [[_popupButton selectedItem] title];
+    NSMutableDictionary *attributes = [NSMutableDictionary dictionary];
+    NSFont *font = [_popupButton font];
+    CGFloat arrowLaneWidth = 34.0;
+    NSRect titleRect = NSMakeRect(NSMinX(bounds) + 12.0,
+                                  NSMinY(bounds),
+                                  MAX(0.0, NSWidth(bounds) - arrowLaneWidth - 18.0),
+                                  NSHeight(bounds));
+    NSSize titleSize = NSZeroSize;
+    NSBezierPath *chevron = [NSBezierPath bezierPath];
+    CGFloat centerX = NSMaxX(bounds) - (arrowLaneWidth / 2.0);
+    CGFloat centerY = NSMidY(bounds);
+
+    (void)dirtyRect;
+
+    if (title == nil) {
+        title = @"";
+    }
+    if (font == nil) {
+        font = [NSFont systemFontOfSize:[NSFont systemFontSize]];
+    }
+
+    [background setFill];
+    [fieldPath fill];
+    [border setStroke];
+    [fieldPath setLineWidth:1.0];
+    [fieldPath stroke];
+
+    [attributes setObject:font forKey:NSFontAttributeName];
+    [attributes setObject:textColor forKey:NSForegroundColorAttributeName];
+    titleSize = [title sizeWithAttributes:attributes];
+    titleRect.origin.y = floor(NSMidY(bounds) - (titleSize.height / 2.0));
+    titleRect.size.height = ceil(titleSize.height) + 1.0;
+    [title drawInRect:titleRect withAttributes:attributes];
+
+    [border setStroke];
+    [NSBezierPath strokeLineFromPoint:NSMakePoint(NSMaxX(bounds) - arrowLaneWidth, NSMinY(bounds) + 7.0)
+                              toPoint:NSMakePoint(NSMaxX(bounds) - arrowLaneWidth, NSMaxY(bounds) - 7.0)];
+
+    [textColor setStroke];
+    [chevron setLineWidth:1.8];
+    [chevron setLineCapStyle:NSRoundLineCapStyle];
+    [chevron setLineJoinStyle:NSRoundLineJoinStyle];
+    [chevron moveToPoint:NSMakePoint(centerX - 4.0, centerY - 2.0)];
+    [chevron lineToPoint:NSMakePoint(centerX, centerY + 2.0)];
+    [chevron lineToPoint:NSMakePoint(centerX + 4.0, centerY - 2.0)];
+    [chevron stroke];
+}
+
+@end
+
+static void OMDAddPreferencesPopupOverlay(NSView *container, NSPopUpButton *popup)
+{
+    if (container == nil || popup == nil) {
+        return;
+    }
+    OMDPreferencesPopupOverlayView *overlay = [[[OMDPreferencesPopupOverlayView alloc] initWithFrame:[popup frame]
+                                                                                         popupButton:popup] autorelease];
+    [container addSubview:overlay
+               positioned:NSWindowAbove
+               relativeTo:popup];
+}
 
 @interface OMDRoundedCardView : OMDFlippedFillView
 {
@@ -3135,6 +4450,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [_toolbarFileActionsControl release];
     [_toolbarUtilityActionsControl release];
     [_toolbarPrimaryActionsContainer release];
+    [_toolbarActionGlyphOverlay release];
     [_zoomSlider release];
     [_zoomLabel release];
     [_zoomResetButton release];
@@ -4505,6 +5821,12 @@ static NSMutableArray *OMDSecondaryWindows(void)
             [_toolbarUtilityActionsControl setWidth:OMDToolbarActionSegmentWidth forSegment:2];
             [_toolbarPrimaryActionsContainer addSubview:_toolbarUtilityActionsControl];
 
+            _toolbarActionGlyphOverlay = [[OMDToolbarActionGlyphOverlayView alloc] initWithFrame:[_toolbarPrimaryActionsContainer bounds]];
+            [_toolbarActionGlyphOverlay setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable)];
+            [(OMDToolbarActionGlyphOverlayView *)_toolbarActionGlyphOverlay setFileActionsControl:_toolbarFileActionsControl
+                                                                             utilityActionsControl:_toolbarUtilityActionsControl];
+            [_toolbarPrimaryActionsContainer addSubview:_toolbarActionGlyphOverlay];
+
             [self updateToolbarActionControlsState];
         }
 
@@ -4827,6 +6149,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
         [_toolbarUtilityActionsControl setEnabled:hasDocument forSegment:1];
         [_toolbarUtilityActionsControl setEnabled:YES forSegment:2];
     }
+    [_toolbarActionGlyphOverlay setNeedsDisplay:YES];
 }
 
 - (void)zoomSliderChanged:(id)sender
@@ -12529,10 +13852,12 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
                                                                              controlWidth,
                                                                              metrics.preferencesControlHeight)
                                                          pullsDown:NO];
+    OMDConfigurePreferencesPopup(_preferencesThemePopup, metrics);
     [_preferencesThemePopup setTarget:self];
     [_preferencesThemePopup setAction:@selector(preferencesThemeChanged:)];
     [_preferencesThemePopup setToolTip:@"Theme changes apply after relaunch."];
     [card addSubview:_preferencesThemePopup];
+    OMDAddPreferencesPopupOverlay(card, _preferencesThemePopup);
 
     rowY += metrics.preferencesControlHeight + metrics.preferencesRowGap;
     [card addSubview:OMDStaticTextField(NSMakeRect(pad, rowY + 5.0, rowLabelWidth, 20.0),
@@ -12546,6 +13871,7 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
                                                                                   controlWidth,
                                                                                   metrics.preferencesControlHeight)
                                                               pullsDown:NO];
+    OMDConfigurePreferencesPopup(_preferencesLayoutModePopup, metrics);
     [_preferencesLayoutModePopup addItemWithTitle:@"Compact"];
     [[_preferencesLayoutModePopup itemAtIndex:0] setTag:OMDLayoutDensityModeCompact];
     [_preferencesLayoutModePopup addItemWithTitle:@"Balanced"];
@@ -12556,6 +13882,7 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
     [_preferencesLayoutModePopup setAction:@selector(preferencesLayoutModeChanged:)];
     [_preferencesLayoutModePopup setToolTip:@"Switch between compact, balanced, and roomier Adwaita-style spacing."];
     [card addSubview:_preferencesLayoutModePopup];
+    OMDAddPreferencesPopupOverlay(card, _preferencesLayoutModePopup);
 
     rowY += metrics.preferencesControlHeight + metrics.preferencesRowGap;
     [card addSubview:OMDStaticTextField(NSMakeRect(pad, rowY + 5.0, rowLabelWidth, 20.0),
@@ -12768,6 +14095,7 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
                                                                                       controlWidth,
                                                                                       metrics.preferencesControlHeight)
                                                                  pullsDown:NO];
+    OMDConfigurePreferencesPopup(_preferencesSplitSyncModePopup, metrics);
     [_preferencesSplitSyncModePopup addItemWithTitle:@"Independent"];
     [[_preferencesSplitSyncModePopup itemAtIndex:0] setTag:OMDSplitSyncModeUnlinked];
     [_preferencesSplitSyncModePopup addItemWithTitle:@"Linked Scrolling"];
@@ -12777,6 +14105,7 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
     [_preferencesSplitSyncModePopup setTarget:self];
     [_preferencesSplitSyncModePopup setAction:@selector(preferencesSplitSyncModeChanged:)];
     [card addSubview:_preferencesSplitSyncModePopup];
+    OMDAddPreferencesPopupOverlay(card, _preferencesSplitSyncModePopup);
 
     rowY += metrics.preferencesControlHeight + 8.0;
     [card addSubview:OMDStaticTextField(NSMakeRect(controlX,
@@ -12801,6 +14130,7 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
                                                                                    controlWidth,
                                                                                    metrics.preferencesControlHeight)
                                                               pullsDown:NO];
+    OMDConfigurePreferencesPopup(_preferencesMathPolicyPopup, metrics);
     [_preferencesMathPolicyPopup addItemWithTitle:@"Styled Text (Safe)"];
     [[_preferencesMathPolicyPopup itemAtIndex:0] setTag:OMMarkdownMathRenderingPolicyStyledText];
     [_preferencesMathPolicyPopup addItemWithTitle:@"Disabled (Literal $...$)"];
@@ -12810,6 +14140,7 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
     [_preferencesMathPolicyPopup setTarget:self];
     [_preferencesMathPolicyPopup setAction:@selector(preferencesMathPolicyChanged:)];
     [card addSubview:_preferencesMathPolicyPopup];
+    OMDAddPreferencesPopupOverlay(card, _preferencesMathPolicyPopup);
 
     rowY += metrics.preferencesControlHeight + metrics.preferencesRowGap;
     _preferencesAllowRemoteImagesButton = [[NSButton alloc] initWithFrame:NSMakeRect(pad,
