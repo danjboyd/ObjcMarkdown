@@ -3532,14 +3532,8 @@ static OMDPreferencesPopupMenuView *OMDShowPreferencesPopupMenu(NSPopUpButton *p
 
 static void OMDAddPreferencesPopupOverlay(NSView *container, NSPopUpButton *popup)
 {
-    if (container == nil || popup == nil) {
-        return;
-    }
-    OMDPreferencesPopupOverlayView *overlay = [[[OMDPreferencesPopupOverlayView alloc] initWithFrame:[popup frame]
-                                                                                         popupButton:popup] autorelease];
-    [container addSubview:overlay
-               positioned:NSWindowAbove
-               relativeTo:popup];
+    (void)container;
+    (void)popup;
 }
 
 @interface OMDRoundedCardView : OMDFlippedFillView

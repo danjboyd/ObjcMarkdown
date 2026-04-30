@@ -143,7 +143,7 @@ Scope:
 - configure the Windows caller to use:
   - `windows-latest`
   - the packager MSI baseline
-  - `msys2-packages` for app-specific dependencies such as `mingw-w64-clang-x86_64-cmark`
+  - manifest-declared host dependencies for app-specific packages such as `mingw-w64-clang-x86_64-cmark`
 - keep CI validation enabled for both backends and preserve any extra app-specific smoke we still need beyond the shared packager validation
 
 ### Phase 8E: External-Only Backend Packaging Cleanup
@@ -244,6 +244,108 @@ Acceptance criteria:
 - `Phase 9C`: a reproducible Linux VM can be launched from `OracleTestVMs`, contains sample Markdown files, and is ready for manual AppImage validation with documented connection steps
 - `Phase 9D`: separate Windows build and clean-test VMs can be launched from `OracleTestVMs`, the clean-test VM contains sample Markdown files, and the MSI can be validated there without relying on build-machine state
 - `Phase 9E`: the operator can follow repo-documented instructions to connect to the Linux VM and the Windows test VM and perform manual validation of AppImage and MSI behavior
+
+## Phase 10: Golden Windows MSI Reproduction Through gnustep-packager
+
+Goal:
+- use the known-good Windows build VM as a controlled reference point so `gnustep-packager` and `gnustep-cli-new` can reproduce a working MSI without relying on session memory, mutable machine state, or ad hoc repair scripts
+
+### Phase 10A: Snapshot The Known-Good Windows Build VM
+
+Scope:
+- connect to the known-good Windows VM through `OracleTestVMs`/libvirt SSH and record its exact build identity:
+  - `ObjcMarkdown` commit
+  - `plugins-themes-winuitheme` commit
+  - `plugins-themes-win11theme` commit
+  - `gnustep-packager` commit if present
+- export the Windows build environment facts needed for reproduction:
+  - MSYS2 package list
+  - `C:\\msys64\\clang64` GNUstep layout
+  - `GNUSTEP_*`, `PATH`, `MSYSTEM`, and `MSYS2_LOCATION`
+  - successful build, stage, and install/runtime tree locations
+- save the result as a committed diagnostic note or generated evidence bundle referenced from repo documentation
+
+### Phase 10B: Prove MSI Generation From The Known-Good Payload
+
+Scope:
+- add a temporary, explicitly marked payload-import workflow for recovery testing only
+- copy the VM's known-good app/runtime/theme payload into `dist/packaging/windows/stage`
+- run only the `gnustep-packager` MSI backend against that imported stage
+- validate the resulting MSI on a clean `OracleTestVMs` Windows VM
+- use the result to separate installer-generation defects from source-build/staging defects
+
+### Phase 10C: Diff Known-Good, Staged, And Installed Payloads
+
+Scope:
+- generate relative path, size, hash, and DLL dependency reports for:
+  - the known-good VM payload
+  - `packaging/scripts/stage-windows.ps1` output
+  - the tree installed by the MSI
+- identify meaningful differences rather than accepting broad directory drift
+- make validation fail for missing or incorrect release-critical content:
+  - `WinUITheme.theme/WinUITheme.dll`
+  - packaged default `GSTheme=WinUITheme`
+  - `cmark` runtime dependency coverage
+  - GNUstep backend bundle
+  - TinyTeX binaries
+  - unresolved non-system DLLs
+
+### Phase 10D: Move VM Facts Into Declarative Packager Inputs
+
+Scope:
+- declare app-specific Windows host dependencies directly in `packaging/manifests/windows-msi.manifest.json`
+- keep `mingw-w64-clang-x86_64-cmark` in the manifest rather than relying only on workflow inputs
+- add any additional MSYS2 packages proven necessary by the known-good VM snapshot
+- keep Windows theme requirements explicit through packaging inputs and validation rather than hand-prepared machine state
+
+### Phase 10E: Repin To The Required gnustep-packager Baseline
+
+Scope:
+- repin the Windows packaging workflow from the older reusable-workflow commit to the `gnustep-packager` commit that contains:
+  - host dependency provisioning
+  - first-class GNUstep theme input handling and validation
+  - packaged default-theme support
+  - Windows executable smoke validation
+- update packaging docs and release notes with the exact packager commit used for the next MSI recovery build
+- verify the repinned workflow still produces the expected MSI, portable ZIP, update feed, metadata, and diagnostics artifacts
+
+### Phase 10F: Harden gnustep-cli-new Against The Golden VM
+
+Scope:
+- treat the known-good VM's `C:\\msys64` state as the acceptance target for `gnustep-cli-new`
+- make `gnustep-cli-new` install or verify the same MSYS2/GNUstep prerequisites required by this app
+- add or update a `doctor`/probe output that reports the key differences between a fresh toolchain and the known-good build VM
+- remove recovery-only bootstrap steps once `gnustep-cli-new` can create an equivalent packaging-capable environment
+
+### Phase 10G: Retire The Temporary Payload Import Path
+
+Scope:
+- remove or quarantine the payload-import workflow after source-built staging matches the known-good payload and clean-machine MSI validation passes
+- keep the payload comparison and environment probe scripts as regression tools
+- document the final normal path as:
+  - `gnustep-cli-new` provisions or verifies the toolchain
+  - repo scripts build and stage the app
+  - `gnustep-packager` creates the MSI and portable ZIP
+  - `OracleTestVMs` validates the installer on a clean Windows VM
+
+Immediate next steps:
+- `Phase 10A`: completed on `2026-04-30` by exporting known-good VM evidence from `Administrator@172.17.2.148` on `OTVM-WIN-05SPHS`
+- `Phase 10B`: completed on `2026-04-30` enough to prove the MSI backend can package the imported known-good payload; clean install succeeded, but release validation failed because the imported payload lacks TinyTeX
+- `Phase 10C`: completed on `2026-04-30` with a payload comparison between the imported known-good stage, normal source stage, and MSI-installed tree
+- `Phase 10D`: completed on `2026-04-30` by moving `mingw-w64-clang-x86_64-cmark`, Windows theme inputs, packaged default theme, and confirmed system-DLL ignores into the Windows manifest
+- `Phase 10E`: completed on `2026-04-30` by repinning `.github/workflows/windows-packaging.yml` to `gnustep-packager` commit `4fc362a68b3e55191942c01a92cf2f8da82031bb`
+- `Phase 10F`: completed on `2026-04-30` for this repo's Windows build/theme scripts by resolving the active MSYS drive mount convention and making `/etc/profile` optional under `gnustep-cli-new`
+- `Phase 10G`: import-lane retirement started on `2026-04-30`; the imported MSI is retained only as ignored evidence under `dist/phase10-msi/`, and the release path is the normal source-built stage plus `gnustep-packager` MSI and clean `OracleTestVMs` validation
+- next verification gate: rebuild the MSI through the normal source-built path and validate that release artifact on a clean Windows VM
+
+Acceptance criteria:
+- `Phase 10A`: the known-good VM's build inputs, package inventory, environment, and payload locations are captured in a durable repo-referenced artifact
+- `Phase 10B`: `gnustep-packager` can create an MSI from the imported known-good payload and that MSI passes clean Windows validation
+- `Phase 10C`: validation reports clearly explain payload differences between the known-good VM, source-built stage, and MSI-installed tree
+- `Phase 10D`: app-specific Windows host dependencies and theme requirements are declared in manifests or packaging inputs, not hidden in VM state
+- `Phase 10E`: the Windows packaging workflow is pinned to a `gnustep-packager` baseline that includes the required MSI recovery features
+- `Phase 10F`: `gnustep-cli-new` can provision or verify a fresh Windows build environment equivalent to the known-good VM for this app's packaging needs
+- `Phase 10G`: the normal source-built `gnustep-packager` MSI path passes clean-machine validation without the temporary payload-import workflow
 
 ## Deferred Work
 

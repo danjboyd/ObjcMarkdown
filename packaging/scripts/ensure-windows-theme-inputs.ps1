@@ -13,7 +13,8 @@ $resolvedMsysRoot = [System.IO.Path]::GetFullPath($MsysRoot)
 function Convert-ToMsysPath {
   param(
     [Parameter(Mandatory = $true)]
-    [string]$WindowsPath
+    [string]$WindowsPath,
+    [string]$DrivePrefix = $script:OmdMsysDrivePrefix
   )
 
   $fullPath = [System.IO.Path]::GetFullPath($WindowsPath)
@@ -21,10 +22,48 @@ function Convert-ToMsysPath {
   if ($normalized -match "^([A-Za-z]):(/.*)?$") {
     $drive = $Matches[1].ToLowerInvariant()
     $rest = if ($Matches[2]) { $Matches[2] } else { "" }
-    return "/$drive$rest"
+    return "$DrivePrefix/$drive$rest"
   }
 
   throw "Unable to convert Windows path to MSYS2 path: $WindowsPath"
+}
+
+function Resolve-OmdMsysDrivePrefix {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$EnvExe
+  )
+
+  $prefix = Invoke-OmdMsysEnv -EnvExe $EnvExe -Arguments @(
+    'MSYSTEM=CLANG64',
+    'CHERE_INVOKING=1',
+    '/usr/bin/bash',
+    '-lc',
+    'cygpath -u C:/ 2>/dev/null | grep -q "^/cygdrive/" && printf "/cygdrive"; exit 0'
+  )
+  if ($LASTEXITCODE -ne 0) {
+    throw "Unable to resolve MSYS2 drive mount prefix."
+  }
+
+  return [string]$prefix
+}
+
+function Invoke-OmdMsysEnv {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$EnvExe,
+    [Parameter(Mandatory = $true)]
+    [string[]]$Arguments
+  )
+
+  $startDirectory = Split-Path -Parent $EnvExe
+  $previousLocation = (Get-Location).Path
+  Set-Location -LiteralPath $startDirectory
+  try {
+    & $EnvExe @Arguments
+  } finally {
+    Set-Location -LiteralPath $previousLocation
+  }
 }
 
 function Resolve-OmdPathCandidate {
@@ -67,9 +106,9 @@ function Invoke-OmdMsysCommand {
     throw "GNUstep.sh not found at $gnuStepSh"
   }
 
-  $workingDirectoryMsys = Convert-ToMsysPath -WindowsPath $WorkingDirectory
+  $drivePrefix = Resolve-OmdMsysDrivePrefix -EnvExe $envExe
   $bootstrapLines = @(
-    "source /etc/profile",
+    "if [ -f /etc/profile ]; then source /etc/profile; fi",
     "source /clang64/share/GNUstep/Makefiles/GNUstep.sh",
     "export PATH=/usr/bin:/clang64/bin:/mingw64/bin:`$PATH"
   )
@@ -79,11 +118,12 @@ function Invoke-OmdMsysCommand {
     $bootstrapLines += ("export {0}='{1}'" -f $entry.Key, $escapedValue)
   }
 
+  $workingDirectoryMsys = Convert-ToMsysPath -WindowsPath $WorkingDirectory -DrivePrefix $drivePrefix
   $bootstrapLines += ("cd '{0}'" -f $workingDirectoryMsys)
   $bootstrapLines += $InnerCommand
   $bootstrap = ($bootstrapLines -join "; ")
 
-  & $envExe 'MSYSTEM=CLANG64' 'CHERE_INVOKING=1' '/usr/bin/bash' '-lc' $bootstrap 2>&1 | ForEach-Object {
+  Invoke-OmdMsysEnv -EnvExe $envExe -Arguments @('MSYSTEM=CLANG64', 'CHERE_INVOKING=1', '/usr/bin/bash', '-lc', $bootstrap) 2>&1 | ForEach-Object {
     $_
   }
   if ($LASTEXITCODE -ne 0) {
@@ -197,6 +237,13 @@ function New-OmdThemeCompatDirectory {
   New-Item -ItemType Directory -Force -Path $compatDir | Out-Null
   Copy-Item $sourceLib (Join-Path $compatDir "libgcc_s.a") -Force
   return $compatDir
+}
+
+$resolvedEnvExe = Join-Path $resolvedMsysRoot "usr\bin\env.exe"
+if (Test-Path $resolvedEnvExe) {
+  $script:OmdMsysDrivePrefix = Resolve-OmdMsysDrivePrefix -EnvExe $resolvedEnvExe
+} else {
+  $script:OmdMsysDrivePrefix = ""
 }
 
 $themeWorkspaceCandidates = [System.Collections.Generic.List[string]]::new()

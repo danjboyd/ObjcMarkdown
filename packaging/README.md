@@ -99,6 +99,9 @@ When updates are enabled, the Windows package output should also include:
 
 Windows packaging input expectations:
 
+- app-specific Windows host packages are declared in
+  `packaging/manifests/windows-msi.manifest.json` under
+  `hostDependencies.windows.msys2Packages`
 - the staged/installable runtime must include `WinUITheme`
 - the packaged Windows default theme must be `WinUITheme`
 

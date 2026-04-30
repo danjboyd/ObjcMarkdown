@@ -19,10 +19,43 @@ function Convert-ToMsysPath {
   if ($normalized -match "^([A-Za-z]):(/.*)?$") {
     $drive = $Matches[1].ToLowerInvariant()
     $rest = if ($Matches[2]) { $Matches[2] } else { "" }
-    return "/$drive$rest"
+    return "$script:MsysDrivePrefix/$drive$rest"
   }
 
   throw "Unable to convert Windows path to MSYS2 path: $WindowsPath"
+}
+
+function Resolve-MsysDrivePrefix {
+  param([Parameter(Mandatory = $true)][string]$EnvExe)
+
+  $prefix = Invoke-MsysEnv -EnvExe $EnvExe -Arguments @(
+    'MSYSTEM=CLANG64',
+    'CHERE_INVOKING=1',
+    '/usr/bin/bash',
+    '-lc',
+    'cygpath -u C:/ 2>/dev/null | grep -q "^/cygdrive/" && printf "/cygdrive"; exit 0'
+  )
+  if ($LASTEXITCODE -ne 0) {
+    throw "Unable to resolve MSYS2 drive mount prefix."
+  }
+
+  return [string]$prefix
+}
+
+function Invoke-MsysEnv {
+  param(
+    [Parameter(Mandatory = $true)][string]$EnvExe,
+    [Parameter(Mandatory = $true)][string[]]$Arguments
+  )
+
+  $startDirectory = Split-Path -Parent $EnvExe
+  $previousLocation = (Get-Location).Path
+  Set-Location -LiteralPath $startDirectory
+  try {
+    & $EnvExe @Arguments
+  } finally {
+    Set-Location -LiteralPath $previousLocation
+  }
 }
 
 function Get-MsysCommand {
@@ -77,14 +110,15 @@ if (-not (Test-Path $gnuStepSh)) {
   throw "GNUstep.sh not found at $gnuStepSh"
 }
 
+$script:MsysDrivePrefix = Resolve-MsysDrivePrefix -EnvExe $envExe
 $resolvedRepoRoot = (Resolve-Path $RepoRoot).Path
 $RepoRootMsys = Convert-ToMsysPath -WindowsPath $resolvedRepoRoot
 $msysCommand = Get-MsysCommand -SelectedTask $Task -CustomCommand $Command -SelectedRunTarget $RunTarget -SelectedStageDir $StageDir
-$bootstrap = "source /etc/profile; source /clang64/share/GNUstep/Makefiles/GNUstep.sh; cd '$RepoRootMsys'; $msysCommand"
+$bootstrap = "if [ -f /etc/profile ]; then source /etc/profile; fi; source /clang64/share/GNUstep/Makefiles/GNUstep.sh; cd '$RepoRootMsys'; $msysCommand"
 
 Write-Host "Task: $Task"
 Write-Host "Repo: $resolvedRepoRoot"
 Write-Host "MSYS2: $resolvedMsysRoot"
 
-& $envExe 'MSYSTEM=CLANG64' 'CHERE_INVOKING=1' '/usr/bin/bash' '-lc' $bootstrap
+Invoke-MsysEnv -EnvExe $envExe -Arguments @('MSYSTEM=CLANG64', 'CHERE_INVOKING=1', '/usr/bin/bash', '-lc', $bootstrap)
 exit $LASTEXITCODE

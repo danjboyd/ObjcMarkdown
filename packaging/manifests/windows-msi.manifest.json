@@ -30,6 +30,42 @@
       "outputRoot": "../../dist/packaging/windows/stage"
     }
   },
+  "hostDependencies": {
+    "windows": {
+      "msys2Packages": [
+        "mingw-w64-clang-x86_64-cmark"
+      ]
+    }
+  },
+  "themeInputs": [
+    {
+      "name": "WinUITheme",
+      "repo": "https://github.com/danjboyd/plugins-themes-winuitheme.git",
+      "ref": "48d21f0a2ae97ca70a03197d93a305144635517f",
+      "platforms": [
+        "windows",
+        "msi"
+      ],
+      "required": true,
+      "default": true,
+      "workspacePath": "../../../gnustep/plugins-themes-winuitheme"
+    },
+    {
+      "name": "Win11Theme",
+      "repo": "https://github.com/gnustep/plugins-themes-win11theme.git",
+      "ref": "390db8f",
+      "platforms": [
+        "windows",
+        "msi"
+      ],
+      "required": true,
+      "default": false,
+      "workspacePath": "../../../gnustep/plugins-themes-win11theme"
+    }
+  ],
+  "packagedDefaults": {
+    "defaultTheme": "WinUITheme"
+  },
   "payload": {
     "layoutVersion": 1,
     "stageRoot": "../../dist/packaging/windows/stage",
@@ -171,7 +207,9 @@
         "USP10.dll",
         "WINHTTP.dll",
         "WINSPOOL.DRV",
-        "WSOCK32.dll"
+        "WSOCK32.dll",
+        "DNSAPI.dll",
+        "IPHLPAPI.DLL"
       ],
       "updates": {
         "feedUrl": "https://danjboyd.github.io/ObjcMarkdown/updates/windows/stable.json"

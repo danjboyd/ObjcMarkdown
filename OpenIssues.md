@@ -118,8 +118,27 @@
   - The remote Windows build reached the `ObjcMarkdown` compile and failed on missing `cmark.h`.
   - The immediate local fix was to update the ad hoc remote build script to install `mingw-w64-clang-x86_64-cmark` before invoking the packaging pipeline.
   - The long-term fix should be to declare `cmark` in the manifest under `hostDependencies.windows.msys2Packages` and then repin/use the updated `gnustep-packager` commit so host dependency realization happens systematically.
+- **Phase 10A-C Recovery Findings (2026-04-30)**:
+  - Connected to the known-good libvirt Windows VM at `172.17.2.148` as `Administrator`; hostname `OTVM-WIN-05SPHS`.
+  - Captured environment and payload evidence in `dist/phase10-msi/` and summarized it in [docs/windows-phase10-msi-recovery.md](/home/danboyd/git/ObjcMarkdown/docs/windows-phase10-msi-recovery.md).
+  - The known-good VM has `ObjcMarkdown` at `87ea70ed2df2bac8c634b6b82471339ce5dc8e6d` and `plugins-themes-WinUITheme` at `48d21f0a2ae97ca70a03197d93a305144635517f`.
+  - The known-good runtime is not an existing `dist/packaging/windows/stage`; it is a source-tree app build using `C:\\Users\\Administrator\\AppData\\Local\\gnustep-cli`.
+  - A temporary imported-payload stage produced an MSI through `gnustep-packager`; clean Windows install succeeded, then validation failed because the imported payload did not include TinyTeX.
+  - The normal source stage includes TinyTeX but differs materially from the imported known-good payload, especially project DLL placement and overall runtime size.
+  - Normal source staging on the gnustep-cli runtime still logs `/etc/profile` and `/c/...` path warnings, confirming a `gnustep-cli-new` mount-convention gap.
+- **Phase 10D-G Recovery Work (2026-04-30)**:
+  - [packaging/manifests/windows-msi.manifest.json](/home/danboyd/git/ObjcMarkdown/packaging/manifests/windows-msi.manifest.json) now declares `mingw-w64-clang-x86_64-cmark` under `hostDependencies.windows.msys2Packages`, declares required Windows theme inputs, sets packaged default theme `WinUITheme`, and ignores confirmed Windows system DLLs `DNSAPI.dll` and `IPHLPAPI.DLL` during MSI runtime closure checks.
+  - [.github/workflows/windows-packaging.yml](/home/danboyd/git/ObjcMarkdown/.github/workflows/windows-packaging.yml) is repinned to `gnustep-packager` commit `4fc362a68b3e55191942c01a92cf2f8da82031bb`, which includes manifest-driven host dependency provisioning.
+  - [scripts/windows/build-from-powershell.ps1](/home/danboyd/git/ObjcMarkdown/scripts/windows/build-from-powershell.ps1) and [packaging/scripts/ensure-windows-theme-inputs.ps1](/home/danboyd/git/ObjcMarkdown/packaging/scripts/ensure-windows-theme-inputs.ps1) now detect whether the managed MSYS runtime exposes Windows drives as `/c` or `/cygdrive/c` and only source `/etc/profile` when it exists.
+  - The known-good VM validates the fixed build script against `C:\\Users\\Administrator\\AppData\\Local\\gnustep-cli`: `-Task command -Command pwd` resolves to `/cygdrive/c/Users/Administrator/git/ObjcMarkdown`, and `-Task stage -StageDir dist/phase10-source-stage-fixed/windows/stage` completes cleanly.
+  - The temporary imported-payload MSI path is quarantined as evidence only under ignored `dist/phase10-msi/`; it is not a release path because it omits TinyTeX and imports the full mutable `gnustep-cli` runtime.
+- **Manual MSI Validation Findings (2026-04-30)**:
+  - Candidate `dist/packaging/windows/packages/phase10-manual/ObjcMarkdown-0.1.1-rc2-win64.msi` installed and launched on clean validation VM `lease-20260430203645-pbs16d` at `172.17.2.177`.
+  - The installed payload includes `WinUITheme.dll` under `C:\\Users\\Administrator\\AppData\\Local\\ObjcMarkdown\\runtime\\lib\\GNUstep\\Themes\\WinUITheme.theme`, but the app launched with the GNUstep theme active.
+  - Runtime inspection showed `GSTheme=WinUITheme` in the app defaults domain, while `NSGlobalDomain` had no `GSTheme`; app startup was still searching the old `clang64` packaged layout instead of the MSI's `runtime` layout for `defaults.exe` and bundled themes.
+  - Local fix: [ObjcMarkdownViewer/main.m](/home/danboyd/git/ObjcMarkdown/ObjcMarkdownViewer/main.m) now searches `runtime\\bin\\defaults.exe` before `clang64\\bin\\defaults.exe` and checks `runtime\\lib\\GNUstep\\Themes` before the legacy packaged theme path.
+  - Preferences validation found that clicking the `GNUstep Theme` popup opened the neighboring `Layout Mode` popup; Linux validation also showed broken hover tracking because Preferences used a custom popup overlay and manually drawn popup panel instead of native `NSPopUpButton` menu tracking.
+  - Local fix: [ObjcMarkdownViewer/OMDAppDelegate.m](/home/danboyd/git/ObjcMarkdown/ObjcMarkdownViewer/OMDAppDelegate.m) now disables the custom Preferences popup overlay path so the theme and layout controls use native `NSPopUpButton` popup behavior.
 - **Next Step**:
-  - Update `ObjcMarkdown`’s Windows packaging manifest to declare `mingw-w64-clang-x86_64-cmark` under `hostDependencies.windows.msys2Packages`.
-  - Repin the repo to the new `gnustep-packager` commit that includes host dependency provisioning.
-  - Rebuild the MSI through the normal packaging path instead of the increasingly patched ad hoc OCI remote bundle.
-  - Once a fresh MSI is produced, push the `.msi` and portable `.zip` to a Windows validation VM and re-run manual/UAT verification.
+  - Rebuild the MSI through the normal source-built packaging path with the app-side runtime-layout and native-popup fixes.
+  - Once a fresh MSI is produced, push the `.msi` and portable `.zip` to a clean Windows validation VM and re-run manual/UAT verification.
