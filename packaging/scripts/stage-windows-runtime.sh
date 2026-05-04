@@ -60,6 +60,12 @@ copy_optional /clang64/bin/libwinpthread-1.dll "$RUNTIME_BIN_DIR/"
 copy_optional /clang64/bin/libc++.dll "$RUNTIME_BIN_DIR/"
 copy_optional /clang64/bin/libc++abi.dll "$RUNTIME_BIN_DIR/"
 copy_optional /clang64/bin/libunwind.dll "$RUNTIME_BIN_DIR/"
+copy_optional /clang64/bin/libcairo-2.dll "$RUNTIME_BIN_DIR/"
+copy_optional /clang64/bin/libfontconfig-1.dll "$RUNTIME_BIN_DIR/"
+copy_optional /clang64/bin/libfreetype-6.dll "$RUNTIME_BIN_DIR/"
+if compgen -G "/clang64/bin/*.dll" > /dev/null; then
+  cp -n /clang64/bin/*.dll "$RUNTIME_BIN_DIR/"
+fi
 
 cp -R /clang64/lib/GNUstep/* "$RUNTIME_GNUSTEP_DIR/"
 cp -R /clang64/etc/fonts "$RUNTIME_ETC_DIR/"
@@ -93,6 +99,60 @@ copy_user_theme_if_present() {
 copy_user_theme_if_present "WinUXTheme"
 copy_user_theme_if_present "Win11Theme"
 copy_user_theme_if_present "WinUITheme"
+
+normalize_theme_repo_path() {
+  local path="$1"
+  if [[ "$path" =~ ^([A-Za-z]):[\\/](.*)$ ]]; then
+    local drive="${BASH_REMATCH[1],,}"
+    local tail="${BASH_REMATCH[2]//\\//}"
+    if [[ -d "/${drive}/${tail}" ]]; then
+      printf '/%s/%s\n' "$drive" "$tail"
+    else
+      printf '/cygdrive/%s/%s\n' "$drive" "$tail"
+    fi
+    return
+  fi
+  printf '%s\n' "$path"
+}
+
+merge_theme_resources_from_repo() {
+  local theme_name="$1"
+  local repo_name="$2"
+  local env_var_name="$3"
+  local env_repo="${!env_var_name:-}"
+  local source_repo=""
+  local candidate=""
+  for candidate in \
+    "$env_repo" \
+    "$ROOT/.omd-theme-inputs/$repo_name" \
+    "$ROOT/../$repo_name" \
+    "$ROOT/../../../gnustep/$repo_name"
+  do
+    candidate="$(normalize_theme_repo_path "$candidate")"
+    if [[ -z "$candidate" ]]; then
+      continue
+    fi
+    if [[ -d "$candidate/Resources" ]]; then
+      source_repo="$candidate"
+      break
+    fi
+  done
+
+  if [[ -n "$source_repo" && -d "$RUNTIME_GNUSTEP_DIR/Themes/$theme_name.theme" ]]; then
+    mkdir -p "$RUNTIME_GNUSTEP_DIR/Themes/$theme_name.theme/Resources"
+    cp -R "$source_repo/Resources/"* "$RUNTIME_GNUSTEP_DIR/Themes/$theme_name.theme/Resources/"
+    if [[ -d "$source_repo/Resources/ThemeImages" ]]; then
+      mkdir -p "$RUNTIME_GNUSTEP_DIR/Themes/$theme_name.theme/Resources/GSThemeImages"
+      if compgen -G "$source_repo/Resources/ThemeImages/*" > /dev/null; then
+        cp -R "$source_repo/Resources/ThemeImages/"* "$RUNTIME_GNUSTEP_DIR/Themes/$theme_name.theme/Resources/"
+        cp -R "$source_repo/Resources/ThemeImages/"* "$RUNTIME_GNUSTEP_DIR/Themes/$theme_name.theme/Resources/GSThemeImages/"
+      fi
+    fi
+  fi
+}
+
+merge_theme_resources_from_repo "WinUITheme" "plugins-themes-winuitheme" "OMD_WINUI_THEME_REPO"
+merge_theme_resources_from_repo "Win11Theme" "plugins-themes-win11theme" "OMD_WIN11_THEME_REPO"
 
 cp -f "$ROOT/Resources/markdown_icon.ico" "$METADATA_ICONS_DIR/"
 cp -f "$ROOT/Resources/markdown_icon.png" "$METADATA_ICONS_DIR/"

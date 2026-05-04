@@ -6,6 +6,10 @@
 
 #import "OMDLineNumberRulerView.h"
 
+@interface OMDLineNumberRulerView (Testing)
+- (NSArray *)lineStartIndexesForString:(NSString *)text;
+@end
+
 @interface OMDLineNumberRulerViewTests : XCTestCase
 @end
 
@@ -69,6 +73,25 @@
     XCTAssertEqualWithAccuracy([ruler ruleThickness], thicknessBefore, 0.001);
 
     [stringBefore release];
+    [ruler release];
+    [scrollView release];
+    [textView release];
+}
+
+- (void)testTrailingBlankLineIsCountedAsLineStart
+{
+    NSTextView *textView = nil;
+    NSScrollView *scrollView = nil;
+    OMDLineNumberRulerView *ruler = [self newRulerViewWithTextView:&textView
+                                                         scrollView:&scrollView];
+
+    NSArray *lineStarts = [ruler lineStartIndexesForString:@"test\n\n"];
+
+    XCTAssertEqual([lineStarts count], 3u);
+    XCTAssertEqual([[lineStarts objectAtIndex:0] unsignedIntegerValue], 0u);
+    XCTAssertEqual([[lineStarts objectAtIndex:1] unsignedIntegerValue], 5u);
+    XCTAssertEqual([[lineStarts objectAtIndex:2] unsignedIntegerValue], 6u);
+
     [ruler release];
     [scrollView release];
     [textView release];

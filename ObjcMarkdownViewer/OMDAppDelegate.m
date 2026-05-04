@@ -34,6 +34,39 @@
 
 static void OMDStartupTrace(NSString *message);
 
+static BOOL OMDKeyLatencyProfilingEnabled(void)
+{
+    static NSInteger enabled = -1;
+    if (enabled < 0) {
+        NSString *value = [[[NSProcessInfo processInfo] environment] objectForKey:@"OMD_KEYLATENCY"];
+        enabled = ([value length] > 0 && ![value isEqualToString:@"0"]) ? 1 : 0;
+    }
+    return enabled == 1;
+}
+
+static NSTimeInterval OMDKeyLatencyNow(void)
+{
+    return [NSDate timeIntervalSinceReferenceDate];
+}
+
+static double OMDKeyLatencyThresholdMS(void)
+{
+    static double threshold = -1.0;
+    if (threshold < 0.0) {
+        NSString *value = [[[NSProcessInfo processInfo] environment] objectForKey:@"OMD_KEYLATENCY_THRESHOLD_MS"];
+        threshold = [value length] > 0 ? [value doubleValue] : 4.0;
+        if (threshold < 0.0) {
+            threshold = 0.0;
+        }
+    }
+    return threshold;
+}
+
+static double OMDKeyLatencyMS(NSTimeInterval start, NSTimeInterval end)
+{
+    return (end - start) * 1000.0;
+}
+
 #if defined(_WIN32)
 typedef struct {
     NSString *title;
@@ -2876,7 +2909,100 @@ static NSString *OMDDefaultCacheDirectory(void)
 
 @end
 
-@interface OMDToolbarActionGlyphOverlayView : NSView
+@interface OMDToolbarToolTipView : NSView
+{
+    NSMutableArray *_toolTipRects;
+    NSMutableArray *_toolTipStrings;
+}
+- (void)setToolTip:(NSString *)toolTip forRect:(NSRect)rect;
+@end
+
+@implementation OMDToolbarToolTipView
+
+- (instancetype)initWithFrame:(NSRect)frameRect
+{
+    self = [super initWithFrame:frameRect];
+    if (self != nil) {
+        _toolTipRects = [[NSMutableArray alloc] init];
+        _toolTipStrings = [[NSMutableArray alloc] init];
+    }
+    return self;
+}
+
+- (void)dealloc
+{
+    [_toolTipRects release];
+    [_toolTipStrings release];
+    [super dealloc];
+}
+
+- (BOOL)isFlipped
+{
+    return YES;
+}
+
+- (void)rebuildToolTipRects
+{
+    [self removeAllToolTips];
+    NSUInteger count = [_toolTipRects count];
+    for (NSUInteger i = 0; i < count; i++) {
+        [self addToolTipRect:[[_toolTipRects objectAtIndex:i] rectValue]
+                       owner:self
+                    userData:(void *)((NSInteger)i)];
+    }
+}
+
+- (void)setFrame:(NSRect)frameRect
+{
+    [super setFrame:frameRect];
+    [self rebuildToolTipRects];
+}
+
+- (void)viewDidMoveToWindow
+{
+    [super viewDidMoveToWindow];
+    [self rebuildToolTipRects];
+}
+
+- (void)setToolTip:(NSString *)toolTip forRect:(NSRect)rect
+{
+    if (toolTip == nil) {
+        toolTip = @"";
+    }
+
+    NSUInteger count = [_toolTipRects count];
+    for (NSUInteger i = 0; i < count; i++) {
+        if (NSEqualRects([[_toolTipRects objectAtIndex:i] rectValue], rect)) {
+            [_toolTipStrings replaceObjectAtIndex:i withObject:toolTip];
+            [self rebuildToolTipRects];
+            return;
+        }
+    }
+
+    [_toolTipRects addObject:[NSValue valueWithRect:rect]];
+    [_toolTipStrings addObject:toolTip];
+    [self rebuildToolTipRects];
+}
+
+- (NSString *)view:(NSView *)view
+  stringForToolTip:(NSToolTipTag)tag
+             point:(NSPoint)point
+          userData:(void *)data
+{
+    (void)view;
+    (void)tag;
+    (void)point;
+    NSInteger index = (NSInteger)data;
+    if (index < 0 || index >= (NSInteger)[_toolTipStrings count]) {
+        return nil;
+    }
+    NSString *toolTip = [_toolTipStrings objectAtIndex:(NSUInteger)index];
+    return [toolTip length] > 0 ? toolTip : nil;
+}
+
+@end
+
+@interface OMDToolbarActionGlyphOverlayView : OMDToolbarToolTipView
 {
     NSSegmentedControl *_fileActionsControl;
     NSSegmentedControl *_utilityActionsControl;
@@ -5772,7 +5898,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
         CGFloat containerWidth = fileActionsWidth + OMDToolbarActionGroupSpacing + utilityActionsWidth;
         if (_toolbarPrimaryActionsContainer == nil) {
             CGFloat controlY = floor((OMDToolbarItemHeight - OMDToolbarControlHeight) * 0.5);
-            _toolbarPrimaryActionsContainer = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, containerWidth, OMDToolbarItemHeight)];
+            _toolbarPrimaryActionsContainer = [[OMDToolbarToolTipView alloc] initWithFrame:NSMakeRect(0, 0, containerWidth, OMDToolbarItemHeight)];
 
             _toolbarFileActionsControl = [[NSSegmentedControl alloc] initWithFrame:NSMakeRect(0, controlY, fileActionsWidth, OMDToolbarControlHeight)];
             [_toolbarFileActionsControl setSegmentCount:3];
@@ -5819,6 +5945,18 @@ static NSMutableArray *OMDSecondaryWindows(void)
             [_toolbarActionGlyphOverlay setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable)];
             [(OMDToolbarActionGlyphOverlayView *)_toolbarActionGlyphOverlay setFileActionsControl:_toolbarFileActionsControl
                                                                              utilityActionsControl:_toolbarUtilityActionsControl];
+            [(OMDToolbarToolTipView *)_toolbarActionGlyphOverlay setToolTip:@"Show the file explorer"
+                                                                    forRect:NSMakeRect(0.0, controlY, OMDToolbarActionSegmentWidth, OMDToolbarControlHeight)];
+            [(OMDToolbarToolTipView *)_toolbarActionGlyphOverlay setToolTip:@"Open a Markdown file"
+                                                                    forRect:NSMakeRect(OMDToolbarActionSegmentWidth, controlY, OMDToolbarActionSegmentWidth, OMDToolbarControlHeight)];
+            [(OMDToolbarToolTipView *)_toolbarActionGlyphOverlay setToolTip:@"No unsaved changes to save"
+                                                                    forRect:NSMakeRect(OMDToolbarActionSegmentWidth * 2.0, controlY, OMDToolbarActionSegmentWidth, OMDToolbarControlHeight)];
+            [(OMDToolbarToolTipView *)_toolbarActionGlyphOverlay setToolTip:@"Export the current document as PDF"
+                                                                    forRect:NSMakeRect(fileActionsWidth + OMDToolbarActionGroupSpacing, controlY, OMDToolbarActionSegmentWidth, OMDToolbarControlHeight)];
+            [(OMDToolbarToolTipView *)_toolbarActionGlyphOverlay setToolTip:@"Print the current document"
+                                                                    forRect:NSMakeRect(fileActionsWidth + OMDToolbarActionGroupSpacing + OMDToolbarActionSegmentWidth, controlY, OMDToolbarActionSegmentWidth, OMDToolbarControlHeight)];
+            [(OMDToolbarToolTipView *)_toolbarActionGlyphOverlay setToolTip:@"Open Preferences"
+                                                                    forRect:NSMakeRect(fileActionsWidth + OMDToolbarActionGroupSpacing + (OMDToolbarActionSegmentWidth * 2.0), controlY, OMDToolbarActionSegmentWidth, OMDToolbarControlHeight)];
             [_toolbarPrimaryActionsContainer addSubview:_toolbarActionGlyphOverlay];
 
             [self updateToolbarActionControlsState];
@@ -5830,7 +5968,6 @@ static NSMutableArray *OMDSecondaryWindows(void)
         [item setMaxSize:NSMakeSize(containerWidth, OMDToolbarItemHeight)];
         [item setLabel:@""];
         [item setPaletteLabel:@"Actions"];
-        [item setToolTip:@"Common document and workspace actions"];
         return item;
     }
 
@@ -5943,7 +6080,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
         if (_modeContainer == nil) {
             CGFloat labelY = floor((OMDToolbarItemHeight - OMDToolbarLabelHeight) * 0.5);
             CGFloat controlY = floor((OMDToolbarItemHeight - OMDToolbarControlHeight) * 0.5);
-            _modeContainer = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 356, OMDToolbarItemHeight)];
+            _modeContainer = [[OMDToolbarToolTipView alloc] initWithFrame:NSMakeRect(0, 0, 356, OMDToolbarItemHeight)];
             _modeLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(0, labelY, 32, OMDToolbarLabelHeight)];
             [_modeLabel setBezeled:NO];
             [_modeLabel setEditable:NO];
@@ -5960,9 +6097,18 @@ static NSMutableArray *OMDSecondaryWindows(void)
             [_modeControl setLabel:@"Read" forSegment:0];
             [_modeControl setLabel:@"Edit" forSegment:1];
             [_modeControl setLabel:@"Split" forSegment:2];
+            [[_modeControl cell] setToolTip:@"Read mode" forSegment:0];
+            [[_modeControl cell] setToolTip:@"Edit mode" forSegment:1];
+            [[_modeControl cell] setToolTip:@"Split mode" forSegment:2];
             [_modeControl setTarget:self];
             [_modeControl setAction:@selector(modeControlChanged:)];
             [_modeContainer addSubview:_modeControl];
+            [(OMDToolbarToolTipView *)_modeContainer setToolTip:@"Read mode"
+                                                        forRect:NSMakeRect(36.0, controlY, 60.0, OMDToolbarControlHeight)];
+            [(OMDToolbarToolTipView *)_modeContainer setToolTip:@"Edit mode"
+                                                        forRect:NSMakeRect(96.0, controlY, 61.0, OMDToolbarControlHeight)];
+            [(OMDToolbarToolTipView *)_modeContainer setToolTip:@"Split mode"
+                                                        forRect:NSMakeRect(157.0, controlY, 61.0, OMDToolbarControlHeight)];
 
             _previewStatusLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(224, labelY, 132, OMDToolbarLabelHeight)];
             [_previewStatusLabel setBezeled:NO];
@@ -5984,7 +6130,6 @@ static NSMutableArray *OMDSecondaryWindows(void)
         [item setMaxSize:NSMakeSize(356, OMDToolbarItemHeight)];
         [item setLabel:@""];
         [item setPaletteLabel:@"View"];
-        [item setToolTip:@"Switch view mode and monitor preview state"];
         return item;
     }
 
@@ -5992,7 +6137,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
         if (_zoomContainer == nil) {
             CGFloat labelY = floor((OMDToolbarItemHeight - OMDToolbarLabelHeight) * 0.5);
             CGFloat controlY = floor((OMDToolbarItemHeight - OMDToolbarControlHeight) * 0.5);
-            _zoomContainer = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 300, OMDToolbarItemHeight)];
+            _zoomContainer = [[OMDToolbarToolTipView alloc] initWithFrame:NSMakeRect(0, 0, 300, OMDToolbarItemHeight)];
 
             _zoomLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(0, labelY, 55, OMDToolbarLabelHeight)];
             [_zoomLabel setBezeled:NO];
@@ -6001,6 +6146,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
             [_zoomLabel setDrawsBackground:NO];
             [_zoomLabel setAlignment:NSRightTextAlignment];
             [_zoomLabel setFont:[NSFont boldSystemFontOfSize:11.0]];
+            [_zoomLabel setToolTip:@"Current zoom"];
 
             _zoomSlider = [[NSSlider alloc] initWithFrame:NSMakeRect(60, controlY, 130, OMDToolbarControlHeight)];
             [_zoomSlider setMinValue:50];
@@ -6008,6 +6154,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
             [_zoomSlider setDoubleValue:_zoomScale * 100.0];
             [_zoomSlider setTarget:self];
             [_zoomSlider setAction:@selector(zoomSliderChanged:)];
+            [_zoomSlider setToolTip:@"Adjust zoom"];
 
             _zoomResetButton = [[NSButton alloc] initWithFrame:NSMakeRect(205, controlY, 90, OMDToolbarControlHeight)];
             [_zoomResetButton setTitle:@"100%"];
@@ -6020,6 +6167,12 @@ static NSMutableArray *OMDSecondaryWindows(void)
             [_zoomContainer addSubview:_zoomLabel];
             [_zoomContainer addSubview:_zoomSlider];
             [_zoomContainer addSubview:_zoomResetButton];
+            [(OMDToolbarToolTipView *)_zoomContainer setToolTip:@"Current zoom"
+                                                        forRect:NSMakeRect(0.0, labelY, 55.0, OMDToolbarLabelHeight)];
+            [(OMDToolbarToolTipView *)_zoomContainer setToolTip:@"Adjust zoom"
+                                                        forRect:NSMakeRect(60.0, controlY, 130.0, OMDToolbarControlHeight)];
+            [(OMDToolbarToolTipView *)_zoomContainer setToolTip:@"Reset zoom to 100%"
+                                                        forRect:NSMakeRect(205.0, controlY, 90.0, OMDToolbarControlHeight)];
             [self updateZoomLabel];
         }
 
@@ -6111,6 +6264,17 @@ static NSMutableArray *OMDSecondaryWindows(void)
 {
     BOOL hasDocument = [self hasLoadedDocument];
     BOOL canSaveDocument = [self canSaveCurrentDocument];
+    if (_hasLastToolbarActionState &&
+        _lastToolbarHadDocument == hasDocument &&
+        _lastToolbarCanSaveDocument == canSaveDocument &&
+        _lastToolbarExplorerSidebarVisible == _explorerSidebarVisible) {
+        return;
+    }
+    _lastToolbarHadDocument = hasDocument;
+    _lastToolbarCanSaveDocument = canSaveDocument;
+    _lastToolbarExplorerSidebarVisible = _explorerSidebarVisible;
+    _hasLastToolbarActionState = YES;
+
     NSColor *activeIconTint = OMDResolvedControlTextColor();
     NSColor *disabledIconTint = OMDResolvedMutedTextColor();
     if (_toolbarFileActionsControl != nil) {
@@ -6129,6 +6293,17 @@ static NSMutableArray *OMDSecondaryWindows(void)
                                                        ? @"Save current markdown changes"
                                                        : @"No unsaved changes to save")
                                            forSegment:2];
+        if ([_toolbarActionGlyphOverlay isKindOfClass:[OMDToolbarToolTipView class]]) {
+            CGFloat controlY = floor((OMDToolbarItemHeight - OMDToolbarControlHeight) * 0.5);
+            [(OMDToolbarToolTipView *)_toolbarActionGlyphOverlay setToolTip:(_explorerSidebarVisible
+                                                                              ? @"Hide the file explorer"
+                                                                              : @"Show the file explorer")
+                                                                    forRect:NSMakeRect(0.0, controlY, OMDToolbarActionSegmentWidth, OMDToolbarControlHeight)];
+            [(OMDToolbarToolTipView *)_toolbarActionGlyphOverlay setToolTip:(canSaveDocument
+                                                                              ? @"Save current markdown changes"
+                                                                              : @"No unsaved changes to save")
+                                                                    forRect:NSMakeRect(OMDToolbarActionSegmentWidth * 2.0, controlY, OMDToolbarActionSegmentWidth, OMDToolbarControlHeight)];
+        }
     }
     if (_toolbarUtilityActionsControl != nil) {
         NSImage *exportBaseImage = (OMDImageNamed(@"toolbar-export.png") ?: [NSImage imageNamed:@"NSSave"]);
@@ -13380,6 +13555,8 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
 
 - (void)requestSourceSyntaxHighlightingRefresh
 {
+    BOOL profiling = OMDKeyLatencyProfilingEnabled();
+    NSTimeInterval start = profiling ? OMDKeyLatencyNow() : 0.0;
     if (_sourceTextView == nil) {
         return;
     }
@@ -13394,6 +13571,17 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
         delay = OMDSourceSyntaxHighlightLargeDocDebounceInterval;
     }
     [self scheduleSourceSyntaxHighlightingAfterDelay:delay];
+    if (profiling) {
+        NSTimeInterval end = OMDKeyLatencyNow();
+        double totalMS = OMDKeyLatencyMS(start, end);
+        if (totalMS >= OMDKeyLatencyThresholdMS()) {
+            NSLog(@"OMDKeyLatency sourceHighlightRequest total=%.2fms length=%lu delay=%.3fs fullPass=%@",
+                  totalMS,
+                  (unsigned long)length,
+                  delay,
+                  _sourceHighlightNeedsFullPass ? @"YES" : @"NO");
+        }
+    }
 }
 
 - (void)scheduleSourceSyntaxHighlightingAfterDelay:(NSTimeInterval)delay
@@ -13415,6 +13603,8 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
 
 - (void)sourceSyntaxHighlightTimerFired:(NSTimer *)timer
 {
+    BOOL profiling = OMDKeyLatencyProfilingEnabled();
+    NSTimeInterval start = profiling ? OMDKeyLatencyNow() : 0.0;
     if (timer != _sourceSyntaxHighlightTimer) {
         return;
     }
@@ -13422,6 +13612,13 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
     [_sourceSyntaxHighlightTimer release];
     _sourceSyntaxHighlightTimer = nil;
     [self applySourceSyntaxHighlightingNow];
+    if (profiling) {
+        NSTimeInterval end = OMDKeyLatencyNow();
+        double totalMS = OMDKeyLatencyMS(start, end);
+        if (totalMS >= OMDKeyLatencyThresholdMS()) {
+            NSLog(@"OMDKeyLatency sourceHighlightTimer total=%.2fms", totalMS);
+        }
+    }
 }
 
 - (void)cancelPendingSourceSyntaxHighlighting
@@ -13535,6 +13732,8 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
 
 - (void)applySourceSyntaxHighlightingNow
 {
+    BOOL profiling = OMDKeyLatencyProfilingEnabled();
+    NSTimeInterval start = profiling ? OMDKeyLatencyNow() : 0.0;
     if (_sourceTextView == nil) {
         return;
     }
@@ -13565,6 +13764,7 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
 
     NSRange targetRange = [self sourceSyntaxHighlightIncrementalRangeForStorage:storage];
     BOOL fullPass = targetRange.location == NSNotFound;
+    NSTimeInterval afterRange = profiling ? OMDKeyLatencyNow() : 0.0;
 
     _isProgrammaticSourceHighlightUpdate = YES;
     @try {
@@ -13576,6 +13776,7 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
     } @finally {
         _isProgrammaticSourceHighlightUpdate = NO;
     }
+    NSTimeInterval afterHighlight = profiling ? OMDKeyLatencyNow() : 0.0;
     if (fullPass) {
         _sourceHighlightNeedsFullPass = NO;
     }
@@ -13594,6 +13795,20 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
     [typing setObject:baseColor forKey:NSForegroundColorAttributeName];
     [_sourceTextView setTypingAttributes:typing];
     [typing release];
+
+    if (profiling) {
+        NSTimeInterval end = OMDKeyLatencyNow();
+        double totalMS = OMDKeyLatencyMS(start, end);
+        if (totalMS >= OMDKeyLatencyThresholdMS()) {
+            NSLog(@"OMDKeyLatency sourceHighlightApply total=%.2fms range=%.2fms highlight=%.2fms typing=%.2fms length=%lu target=%@",
+                  totalMS,
+                  OMDKeyLatencyMS(start, afterRange),
+                  OMDKeyLatencyMS(afterRange, afterHighlight),
+                  OMDKeyLatencyMS(afterHighlight, end),
+                  (unsigned long)[storage length],
+                  fullPass ? @"full" : NSStringFromRange(targetRange));
+        }
+    }
 }
 
 - (NSString *)currentGNUstepThemeName
@@ -16105,6 +16320,8 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
 
 - (void)textDidChange:(NSNotification *)notification
 {
+    BOOL profiling = OMDKeyLatencyProfilingEnabled();
+    NSTimeInterval start = profiling ? OMDKeyLatencyNow() : 0.0;
     if (_isProgrammaticSourceUpdate || _isProgrammaticSourceHighlightUpdate) {
         return;
     }
@@ -16113,17 +16330,22 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
     }
 
     NSString *updatedMarkdown = [[_sourceTextView string] copy];
+    NSTimeInterval afterCopy = profiling ? OMDKeyLatencyNow() : 0.0;
     [_currentMarkdown release];
     _currentMarkdown = updatedMarkdown;
     BOOL wasDirty = _sourceIsDirty;
     _sourceIsDirty = YES;
     _sourceRevision += 1;
     [self updateWindowTitle];
+    NSTimeInterval afterTitle = profiling ? OMDKeyLatencyNow() : 0.0;
     [self captureCurrentStateIntoSelectedTab];
+    NSTimeInterval afterCapture = profiling ? OMDKeyLatencyNow() : 0.0;
     if (!wasDirty) {
         [self updateTabStrip];
     }
+    NSTimeInterval afterTabs = profiling ? OMDKeyLatencyNow() : 0.0;
     [self scheduleRecoveryAutosave];
+    NSTimeInterval afterAutosave = profiling ? OMDKeyLatencyNow() : 0.0;
 
     if (_viewerMode == OMDViewerModeSplit) {
         if (_sourceRevision == _lastRenderedSourceRevision) {
@@ -16131,9 +16353,31 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
         }
         [self scheduleLivePreviewRender];
     }
+    NSTimeInterval afterPreview = profiling ? OMDKeyLatencyNow() : 0.0;
     [self requestSourceSyntaxHighlightingRefresh];
+    NSTimeInterval afterHighlightRequest = profiling ? OMDKeyLatencyNow() : 0.0;
     [self updatePreviewStatusIndicator];
+    NSTimeInterval afterStatus = profiling ? OMDKeyLatencyNow() : 0.0;
     [self updateFormattingBarContextState];
+    if (profiling) {
+        NSTimeInterval end = OMDKeyLatencyNow();
+        double totalMS = OMDKeyLatencyMS(start, end);
+        if (totalMS >= OMDKeyLatencyThresholdMS()) {
+            NSLog(@"OMDKeyLatency textDidChange total=%.2fms copy=%.2fms title=%.2fms capture=%.2fms tabs=%.2fms autosave=%.2fms preview=%.2fms highlightRequest=%.2fms status=%.2fms formatting=%.2fms length=%lu mode=%ld",
+                  totalMS,
+                  OMDKeyLatencyMS(start, afterCopy),
+                  OMDKeyLatencyMS(afterCopy, afterTitle),
+                  OMDKeyLatencyMS(afterTitle, afterCapture),
+                  OMDKeyLatencyMS(afterCapture, afterTabs),
+                  OMDKeyLatencyMS(afterTabs, afterAutosave),
+                  OMDKeyLatencyMS(afterAutosave, afterPreview),
+                  OMDKeyLatencyMS(afterPreview, afterHighlightRequest),
+                  OMDKeyLatencyMS(afterHighlightRequest, afterStatus),
+                  OMDKeyLatencyMS(afterStatus, end),
+                  (unsigned long)[_currentMarkdown length],
+                  (long)_viewerMode);
+        }
+    }
 }
 
 - (void)textViewDidChangeSelection:(NSNotification *)notification

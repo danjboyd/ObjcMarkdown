@@ -14,6 +14,7 @@ MarkdownViewer_CPPFLAGS += -I../third_party/GPUpdaterUI/Headers
 ifneq (,$(findstring mingw,$(GNUSTEP_HOST_OS)))
 MarkdownViewer_OBJCFLAGS += -include sys/types.h "-Dmode_t=unsigned short"
 MarkdownViewer_WINDRES_FILES = MarkdownViewer.rc
+MarkdownViewer_LDFLAGS += -lgdi32
 endif
 MarkdownViewer_LDFLAGS += -L../ObjcMarkdown/$(GNUSTEP_OBJ_DIR) -lObjcMarkdown -lcmark
 MarkdownViewer_LDFLAGS += $(CMARK_LIBS)

@@ -929,3 +929,28 @@
   - Updated Windows validation docs to make [windows-otvm-msi-validation.md](/home/danboyd/git/ObjcMarkdown/docs/windows-otvm-msi-validation.md) the only supported clean-machine Windows validation workflow.
   - Reframed [windows-oci-msi-validation.md](/home/danboyd/git/ObjcMarkdown/docs/windows-oci-msi-validation.md) as a retirement note rather than an active operator guide.
   - Updated repo docs so Windows clean-machine validation consistently points at [otvm-msi-validation.sh](/home/danboyd/git/ObjcMarkdown/scripts/windows/otvm-msi-validation.sh) instead of the old direct-OCI helper.
+
+## 75) Source editor line-number gutter omitted trailing blank line
+
+- **Status**: Closed
+- **Closed On**: 2026-05-04
+- **Area**: Viewer / Source editor / Line-number ruler
+- **Description**: When the source editor text ended with a newline, the gutter counted the extra logical line for width calculations but stopped drawing labels before the empty final line. A document like `test\n\n` therefore displayed labels `1` and `2` but omitted `3`.
+- **Resolution**:
+  - Centralized source line-start enumeration so gutter width and painting use the same trailing-newline-aware line model.
+  - Updated gutter drawing to include an empty trailing line by placing its label one line height after the previous newline glyph.
+  - Added a regression test for the `test\n\n` line-start sequence.
+
+## 76) Windows MSI rebuild handoff after WinUITheme/default-theme work
+
+- **Status**: Closed
+- **Closed On**: 2026-05-04
+- **Area**: Release engineering / Windows packaging / `gnustep-packager` integration
+- **Description**: Repo-local packaging changes required a fresh Windows MSI that bundles `WinUITheme`, defaults new packaged launches to `WinUITheme`, and uses the installed runtime layout instead of falling back to the old GNUstep theme behavior.
+- **Resolution**:
+  - Built `ObjcMarkdown-0.1.1-rc30-win64.msi` and `ObjcMarkdown-0.1.1-rc30-win64-portable.zip` through the normal source-built Windows packaging path on the known-good libvirt Windows build VM.
+  - Fixed the Windows build link by adding `-lgdi32` for the MinGW viewer build.
+  - Updated Windows runtime staging to accept MSYS-style `/cygdrive` paths while still taking normal Windows theme repo paths, and to merge `WinUITheme` resources into the packaged runtime theme bundle.
+  - Verified package metadata sets `GSTheme=WinUITheme` with `policy: ifUnset` and that the portable payload contains `runtime\lib\GNUstep\Themes\WinUITheme.theme\WinUITheme.dll` plus the theme image resources.
+  - Ran clean Windows OracleTestVMs validation on libvirt test lease `lease-20260504204357-urui9v`; unattended install, runtime checks, launch smoke, TinyTeX smoke, and uninstall passed.
+  - Reinstalled on the clean test VM and verified the live packaged app process loaded `WinUITheme.dll` from the installed runtime, with app defaults reporting `org.objcmarkdown.MarkdownViewer GSTheme WinUITheme`.

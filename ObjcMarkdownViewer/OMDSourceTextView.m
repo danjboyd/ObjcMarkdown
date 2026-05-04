@@ -5,6 +5,42 @@
 
 static NSString * const OMDWordSelectionShimEnabledDefaultsKey = @"ObjcMarkdownWordSelectionShimEnabled";
 
+static NSTimeInterval OMDSourceLastKeyDownStart = 0.0;
+static BOOL OMDSourcePendingPaintSample = NO;
+
+static BOOL OMDKeyLatencyProfilingEnabled(void)
+{
+    static NSInteger enabled = -1;
+    if (enabled < 0) {
+        NSString *value = [[[NSProcessInfo processInfo] environment] objectForKey:@"OMD_KEYLATENCY"];
+        enabled = ([value length] > 0 && ![value isEqualToString:@"0"]) ? 1 : 0;
+    }
+    return enabled == 1;
+}
+
+static NSTimeInterval OMDKeyLatencyNow(void)
+{
+    return [NSDate timeIntervalSinceReferenceDate];
+}
+
+static double OMDKeyLatencyThresholdMS(void)
+{
+    static double threshold = -1.0;
+    if (threshold < 0.0) {
+        NSString *value = [[[NSProcessInfo processInfo] environment] objectForKey:@"OMD_KEYLATENCY_THRESHOLD_MS"];
+        threshold = [value length] > 0 ? [value doubleValue] : 4.0;
+        if (threshold < 0.0) {
+            threshold = 0.0;
+        }
+    }
+    return threshold;
+}
+
+static double OMDKeyLatencyMS(NSTimeInterval start, NSTimeInterval end)
+{
+    return (end - start) * 1000.0;
+}
+
 static NSColor *OMDSourceSelectionBackgroundColorForBackground(NSColor *backgroundColor)
 {
     NSColor *resolvedBackground = backgroundColor;
@@ -222,8 +258,24 @@ static NSUInteger OMDPositionAfterRemovingRange(NSUInteger position, NSRange rem
 
 - (void)drawRect:(NSRect)dirtyRect
 {
+    BOOL profiling = OMDKeyLatencyProfilingEnabled();
+    NSTimeInterval start = profiling ? OMDKeyLatencyNow() : 0.0;
     [super drawRect:dirtyRect];
     [self omdDrawSelectedSyntaxOverlayInRect:dirtyRect];
+    if (profiling) {
+        NSTimeInterval end = OMDKeyLatencyNow();
+        double drawMS = OMDKeyLatencyMS(start, end);
+        double eventToPaintMS = OMDSourcePendingPaintSample
+            ? OMDKeyLatencyMS(OMDSourceLastKeyDownStart, end)
+            : 0.0;
+        if (drawMS >= OMDKeyLatencyThresholdMS() || OMDSourcePendingPaintSample) {
+            NSLog(@"OMDKeyLatency sourceDraw draw=%.2fms eventToPaint=%.2fms dirty=%@",
+                  drawMS,
+                  eventToPaintMS,
+                  NSStringFromRect(dirtyRect));
+        }
+        OMDSourcePendingPaintSample = NO;
+    }
 }
 
 - (void)resetCursorRects
@@ -374,7 +426,26 @@ static NSUInteger OMDPositionAfterRemovingRange(NSUInteger position, NSRange rem
 
 - (void)keyDown:(NSEvent *)event
 {
+    BOOL profiling = OMDKeyLatencyProfilingEnabled();
+    NSTimeInterval keyStart = profiling ? OMDKeyLatencyNow() : 0.0;
+    NSTimeInterval afterCursorStart = 0.0;
+    NSTimeInterval afterContext = 0.0;
+    NSTimeInterval afterShortcut = 0.0;
+    NSTimeInterval afterVim = 0.0;
+    NSTimeInterval afterWordSelection = 0.0;
+    NSTimeInterval afterSuper = 0.0;
+    BOOL handled = NO;
+    NSString *handledBy = nil;
+
+    if (profiling) {
+        OMDSourceLastKeyDownStart = keyStart;
+        OMDSourcePendingPaintSample = YES;
+    }
+
     [self omdEnsureEditorCursorShape];
+    if (profiling) {
+        afterCursorStart = OMDKeyLatencyNow();
+    }
 
     _omdPendingModifiers = 0;
     _omdPendingArrowDirection = 0;
@@ -406,28 +477,96 @@ static NSUInteger OMDPositionAfterRemovingRange(NSUInteger position, NSRange rem
             }
         }
     }
+    if (profiling) {
+        afterContext = OMDKeyLatencyNow();
+    }
 
     if ([self omdHandleStandardEditingShortcutEvent:event]) {
         _omdHasPendingKeyContext = NO;
         [self omdEnsureEditorCursorShape];
+        handled = YES;
+        handledBy = @"shortcut";
+        if (profiling) {
+            afterShortcut = OMDKeyLatencyNow();
+            goto logKeyDown;
+        }
         return;
+    }
+    if (profiling) {
+        afterShortcut = OMDKeyLatencyNow();
     }
 
     if ([self omdHandleVimKeyEvent:event]) {
         _omdHasPendingKeyContext = NO;
         [self omdEnsureEditorCursorShape];
+        handled = YES;
+        handledBy = @"vim";
+        if (profiling) {
+            afterVim = OMDKeyLatencyNow();
+            goto logKeyDown;
+        }
         return;
+    }
+    if (profiling) {
+        afterVim = OMDKeyLatencyNow();
     }
 
     if ([self omdHandleWordSelectionModifierEvent:event selector:NULL]) {
         _omdHasPendingKeyContext = NO;
         [self omdEnsureEditorCursorShape];
+        handled = YES;
+        handledBy = @"wordSelection";
+        if (profiling) {
+            afterWordSelection = OMDKeyLatencyNow();
+            goto logKeyDown;
+        }
         return;
+    }
+    if (profiling) {
+        afterWordSelection = OMDKeyLatencyNow();
     }
 
     [super keyDown:event];
+    if (profiling) {
+        afterSuper = OMDKeyLatencyNow();
+    }
     _omdHasPendingKeyContext = NO;
     [self omdEnsureEditorCursorShape];
+
+logKeyDown:
+    if (profiling) {
+        NSTimeInterval end = OMDKeyLatencyNow();
+        if (afterSuper == 0.0) {
+            afterSuper = end;
+        }
+        if (afterWordSelection == 0.0) {
+            afterWordSelection = afterSuper;
+        }
+        if (afterVim == 0.0) {
+            afterVim = afterWordSelection;
+        }
+        if (afterShortcut == 0.0) {
+            afterShortcut = afterVim;
+        }
+        if (afterContext == 0.0) {
+            afterContext = afterShortcut;
+        }
+        if (afterCursorStart == 0.0) {
+            afterCursorStart = afterContext;
+        }
+        double totalMS = OMDKeyLatencyMS(keyStart, end);
+        if (totalMS >= OMDKeyLatencyThresholdMS()) {
+            NSLog(@"OMDKeyLatency keyDown total=%.2fms cursor=%.2fms context=%.2fms shortcut=%.2fms vim=%.2fms wordSelection=%.2fms super=%.2fms handled=%@",
+                  totalMS,
+                  OMDKeyLatencyMS(keyStart, afterCursorStart),
+                  OMDKeyLatencyMS(afterCursorStart, afterContext),
+                  OMDKeyLatencyMS(afterContext, afterShortcut),
+                  OMDKeyLatencyMS(afterShortcut, afterVim),
+                  OMDKeyLatencyMS(afterVim, afterWordSelection),
+                  OMDKeyLatencyMS(afterWordSelection, afterSuper),
+                  handled ? handledBy : @"super");
+        }
+    }
 }
 
 - (void)keyUp:(NSEvent *)event
