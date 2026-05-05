@@ -253,6 +253,24 @@ function Ensure-OmdThemeRepoFromManifest {
   return $destination
 }
 
+function Sync-OmdThemeImageCompatibilityResources {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$ThemeRepository
+  )
+
+  $themeImages = Join-Path $ThemeRepository "Resources\ThemeImages"
+  if (-not (Test-Path $themeImages)) {
+    return
+  }
+
+  $gsThemeImages = Join-Path $ThemeRepository "Resources\GSThemeImages"
+  New-Item -ItemType Directory -Force -Path $gsThemeImages | Out-Null
+  foreach ($image in @(Get-ChildItem -LiteralPath $themeImages -File -ErrorAction SilentlyContinue)) {
+    Copy-Item -LiteralPath $image.FullName -Destination $gsThemeImages -Force
+  }
+}
+
 function Resolve-OmdUserThemeRoot {
   param(
     [Parameter(Mandatory = $true)]
@@ -400,6 +418,8 @@ foreach ($themeSpec in $themeSpecs) {
     Write-Warning "Skipping optional theme repository '$themeRepoName'. $($_.Exception.Message)"
     continue
   }
+
+  Sync-OmdThemeImageCompatibilityResources -ThemeRepository $resolvedThemeRepo
 
   $extraEnvironment = @{}
   $themeBuildFlags = "-DHAVE_MODE_T=1"
