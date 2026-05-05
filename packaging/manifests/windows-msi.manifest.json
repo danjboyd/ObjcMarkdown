@@ -19,6 +19,7 @@
     "workingDirectory": "../..",
     "shell": {
       "kind": "pwsh",
+      "msysRoot": "D:\\a\\_temp\\gnustep-cli-new",
       "bootstrapCommands": [],
       "environment": {}
     },
