@@ -51,7 +51,7 @@
       "default": true,
       "workspacePath": "../../.omd-theme-inputs/plugins-themes-winuitheme",
       "build": {
-        "installCommand": "make install GNUSTEP_INSTALLATION_DOMAIN=USER; theme_resources=\"$GNUSTEP_HOME/GNUstep/Library/Themes/WinUITheme.theme/Resources\"; if [ -d Resources/ThemeImages ] && [ -d \"$theme_resources\" ]; then cp Resources/ThemeImages/*.png \"$theme_resources\"/; fi",
+        "installCommand": "make install GNUSTEP_INSTALLATION_DOMAIN=USER; for theme_resources in WinUITheme.theme/Resources \"$GNUSTEP_HOME/GNUstep/Library/Themes/WinUITheme.theme/Resources\"; do if [ -d Resources/ThemeImages ] && [ -d \"$theme_resources\" ]; then cp Resources/ThemeImages/*.png \"$theme_resources\"/; fi; done",
         "environment": {
           "ADDITIONAL_CPPFLAGS": "-DHAVE_MODE_T=1",
           "ADDITIONAL_OBJCFLAGS": "-DHAVE_MODE_T=1"
@@ -70,7 +70,7 @@
       "default": false,
       "workspacePath": "../../.omd-theme-inputs/plugins-themes-win11theme",
       "build": {
-        "installCommand": "make install GNUSTEP_INSTALLATION_DOMAIN=USER; theme_resources=\"$GNUSTEP_HOME/GNUstep/Library/Themes/Win11Theme.theme/Resources\"; if [ -d Resources/ThemeImages ] && [ -d \"$theme_resources\" ]; then cp Resources/ThemeImages/*.png \"$theme_resources\"/; fi",
+        "installCommand": "make install GNUSTEP_INSTALLATION_DOMAIN=USER; for theme_resources in Win11Theme.theme/Resources \"$GNUSTEP_HOME/GNUstep/Library/Themes/Win11Theme.theme/Resources\"; do if [ -d Resources/ThemeImages ] && [ -d \"$theme_resources\" ]; then cp Resources/ThemeImages/*.png \"$theme_resources\"/; fi; done",
         "environment": {
           "ADDITIONAL_CPPFLAGS": "-DHAVE_MODE_T=1",
           "ADDITIONAL_OBJCFLAGS": "-DHAVE_MODE_T=1"
