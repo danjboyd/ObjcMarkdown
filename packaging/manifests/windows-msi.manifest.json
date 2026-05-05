@@ -49,7 +49,13 @@
       ],
       "required": true,
       "default": true,
-      "workspacePath": "../../.omd-theme-inputs/plugins-themes-winuitheme"
+      "workspacePath": "../../.omd-theme-inputs/plugins-themes-winuitheme",
+      "build": {
+        "environment": {
+          "ADDITIONAL_CPPFLAGS": "-DHAVE_MODE_T=1",
+          "ADDITIONAL_OBJCFLAGS": "-DHAVE_MODE_T=1"
+        }
+      }
     },
     {
       "name": "Win11Theme",
@@ -61,7 +67,13 @@
       ],
       "required": false,
       "default": false,
-      "workspacePath": "../../.omd-theme-inputs/plugins-themes-win11theme"
+      "workspacePath": "../../.omd-theme-inputs/plugins-themes-win11theme",
+      "build": {
+        "environment": {
+          "ADDITIONAL_CPPFLAGS": "-DHAVE_MODE_T=1",
+          "ADDITIONAL_OBJCFLAGS": "-DHAVE_MODE_T=1"
+        }
+      }
     }
   ],
   "packagedDefaults": {
