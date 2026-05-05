@@ -268,6 +268,7 @@ function Sync-OmdThemeImageCompatibilityResources {
   New-Item -ItemType Directory -Force -Path $gsThemeImages | Out-Null
   foreach ($image in @(Get-ChildItem -LiteralPath $themeImages -File -ErrorAction SilentlyContinue)) {
     Copy-Item -LiteralPath $image.FullName -Destination $gsThemeImages -Force
+    Copy-Item -LiteralPath $image.FullName -Destination (Join-Path $ThemeRepository "Resources") -Force
   }
 }
 
