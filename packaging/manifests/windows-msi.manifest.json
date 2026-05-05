@@ -48,7 +48,7 @@
       ],
       "required": true,
       "default": true,
-      "workspacePath": "../../../gnustep/plugins-themes-winuitheme"
+      "workspacePath": ".omd-theme-inputs/plugins-themes-winuitheme"
     },
     {
       "name": "Win11Theme",
@@ -60,7 +60,7 @@
       ],
       "required": false,
       "default": false,
-      "workspacePath": "../../../gnustep/plugins-themes-win11theme"
+      "workspacePath": ".omd-theme-inputs/plugins-themes-win11theme"
     }
   ],
   "packagedDefaults": {
