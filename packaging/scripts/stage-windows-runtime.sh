@@ -78,7 +78,7 @@ copy_user_theme_if_present() {
   for candidate in \
     "${OMD_GNUSTEP_USER_THEME_ROOT:-}" \
     "$HOME/GNUstep/Library/Themes" \
-    "/home/$USER/GNUstep/Library/Themes"
+    "/home/${USER:-}/GNUstep/Library/Themes"
   do
     if [[ -z "$candidate" ]]; then
       continue
