@@ -5,7 +5,15 @@ param(
   [string]$RunTarget = "TableRenderDemo.md",
   [string]$StageDir = "dist/packaging/windows/stage",
   [string]$RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path,
-  [string]$MsysRoot = $(if (-not [string]::IsNullOrWhiteSpace($env:MSYS2_LOCATION)) { $env:MSYS2_LOCATION } else { "C:\msys64" })
+  [string]$MsysRoot = $(if (-not [string]::IsNullOrWhiteSpace($env:GP_GNUSTEP_CLI_ROOT)) {
+      $env:GP_GNUSTEP_CLI_ROOT
+    } elseif (-not [string]::IsNullOrWhiteSpace($env:GNUSTEP_CLI_ROOT)) {
+      $env:GNUSTEP_CLI_ROOT
+    } elseif (-not [string]::IsNullOrWhiteSpace($env:MSYS2_LOCATION)) {
+      $env:MSYS2_LOCATION
+    } else {
+      "C:\msys64"
+    })
 )
 
 Set-StrictMode -Version Latest
