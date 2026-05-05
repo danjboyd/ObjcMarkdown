@@ -3658,8 +3658,21 @@ static OMDPreferencesPopupMenuView *OMDShowPreferencesPopupMenu(NSPopUpButton *p
 
 static void OMDAddPreferencesPopupOverlay(NSView *container, NSPopUpButton *popup)
 {
+#if defined(_WIN32)
+    OMDPreferencesPopupOverlayView *overlay = nil;
+
+    if (container == nil || popup == nil) {
+        return;
+    }
+
+    overlay = [[[OMDPreferencesPopupOverlayView alloc] initWithFrame:[popup frame]
+                                                         popupButton:popup] autorelease];
+    [overlay setAutoresizingMask:[popup autoresizingMask]];
+    [container addSubview:overlay];
+#else
     (void)container;
     (void)popup;
+#endif
 }
 
 @interface OMDRoundedCardView : OMDFlippedFillView
