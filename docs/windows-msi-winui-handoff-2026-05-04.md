@@ -31,20 +31,28 @@
 
 ## WinUI Dropdown Status
 
-The MSI is shipping the latest upstream `plugins-themes-winuitheme` commit currently known:
+The MSI was intended to ship the latest upstream `plugins-themes-winuitheme`
+commit currently known:
 
 `48d21f0a2ae97ca70a03197d93a305144635517f` - `Refine WinUI theme menu and control rendering`
 
-The manual Windows screenshot shows Preferences popup controls are present but their selected titles and closed-dropdown chrome do not render correctly. That is not because the MSI has an older WinUI theme.
+Follow-up manual testing showed that a hand-built ObjcMarkdown plus hand-built
+WinUI theme renders Preferences dropdowns correctly on Windows, while the rc30
+MSI does not. That means the rc30 package likely bundled a stale compiled
+`WinUITheme.dll` while merging current theme resources.
 
 Current read:
 
 - ObjcMarkdown now uses native `NSPopUpButton` instances for Preferences controls; the old custom Preferences popup overlay path is disabled.
-- The latest WinUI theme has substantial popup/menu support, but the closed `NSPopUpButtonCell` path still appears incomplete on Windows.
-- The likely next fix belongs in `plugins-themes-winuitheme`, not ObjcMarkdown:
-  - make the `NSPopUpButtonCell` override draw the full closed control surface itself
-  - draw background, selected title, divider/lane, and chevron in one coherent path
-  - avoid depending on GNUstep's split default interior/title/image drawing for the closed popup button
+- The latest compiled WinUI theme appears to fix the Preferences dropdown rendering.
+- The rc30 MSI validation proved `WinUITheme.dll` existed and was loaded, but
+  did not prove that the DLL was rebuilt from the pinned WinUI source commit.
+- The likely next fix belongs in the MSI packaging flow:
+  - run the full `gnustep-packager` pipeline without `GP_SKIP_THEME_PROVISION=1`
+  - make `provision -Backend msi` rebuild and stage the complete
+    `WinUITheme.theme`, including `WinUITheme.dll`
+  - require `metadata\gnustep-packager-theme-report.json` as provenance for the
+    staged theme binary
 
 Relevant WinUI theme files:
 
@@ -62,3 +70,41 @@ Relevant WinUI theme files:
 - Sandboxed XCTest failed due environment limitations: no usable X server, unwritable GNUstep defaults lock path, and GDNC/pasteboard startup failures.
 - Escalated XCTest progressed further with X access but exited abnormally before a clean summary; this remains an environment/tooling validation gap, not a known MSI blocker.
 - GitHub CLI auth is invalid for both configured accounts in this environment; pushing depends on regular Git credentials rather than `gh`.
+
+## Fresh-Binary Rebuild Process
+
+For the next MSI, rebuild from a clean Windows build environment with the full
+`gnustep-packager` pipeline:
+
+```powershell
+.\gnustep-packager\scripts\run-packaging-pipeline.ps1 `
+  -Manifest .\packaging\manifests\windows-msi.manifest.json `
+  -Backend msi `
+  -PackageVersion 0.1.1-rc31 `
+  -InstallHostDependencies `
+  -RunSmoke
+```
+
+Before running it, remove stale generated outputs:
+
+```powershell
+Remove-Item -Recurse -Force .\dist\packaging\windows\stage,
+  .\dist\packaging\windows\tmp,
+  .\dist\packaging\windows\packages,
+  .\dist\packaging\windows\logs -ErrorAction SilentlyContinue
+```
+
+Do not skip theme provisioning. The rebuild is fresh only if:
+
+- the app build, stage, provision, package, and validation logs are all from
+  the same run
+- the staged payload contains `metadata\gnustep-packager-theme-report.json`
+- that report records `WinUITheme` at
+  `48d21f0a2ae97ca70a03197d93a305144635517f`
+- the report's staged theme bundle contains `WinUITheme.dll`
+- the installed app loads
+  `runtime\lib\GNUstep\Themes\WinUITheme.theme\WinUITheme.dll`
+- a clean Windows VM shows the Preferences dropdown controls rendered correctly
+
+If the theme report is missing or reused from an older run, the MSI should not
+be treated as a fresh-binary rebuild.

@@ -152,6 +152,82 @@ function Resolve-OmdThemeRepo {
   throw "Required theme repository '$RepoName' was not found. Checked: $($Candidates -join ', ')"
 }
 
+function Get-OmdManifestThemeInput {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$ThemeName
+  )
+
+  $manifestPath = Join-Path $repoRoot "packaging\manifests\windows-msi.manifest.json"
+  if (-not (Test-Path $manifestPath)) {
+    return $null
+  }
+
+  $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+  foreach ($themeInput in @($manifest.themeInputs)) {
+    if ([string]$themeInput.name -eq $ThemeName) {
+      return $themeInput
+    }
+  }
+
+  return $null
+}
+
+function Ensure-OmdThemeRepoFromManifest {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$ThemeName,
+    [Parameter(Mandatory = $true)]
+    [string]$RepoName
+  )
+
+  $themeInput = Get-OmdManifestThemeInput -ThemeName $ThemeName
+  if (-not $themeInput) {
+    return $null
+  }
+
+  $repoUrl = [string]$themeInput.repo
+  $repoRef = [string]$themeInput.ref
+  if ([string]::IsNullOrWhiteSpace($repoUrl) -or [string]::IsNullOrWhiteSpace($repoRef)) {
+    return $null
+  }
+
+  $themeInputsRoot = [System.IO.Path]::GetFullPath((Join-Path $repoRoot ".omd-theme-inputs"))
+  $destination = [System.IO.Path]::GetFullPath((Join-Path $themeInputsRoot $RepoName))
+  if ((Test-Path (Join-Path $destination "GNUmakefile"))) {
+    return $destination
+  }
+
+  New-Item -ItemType Directory -Force -Path $themeInputsRoot | Out-Null
+
+  if (-not (Test-Path (Join-Path $destination ".git"))) {
+    if (Test-Path $destination) {
+      Remove-Item -LiteralPath $destination -Recurse -Force
+    }
+
+    & git clone $repoUrl $destination
+    if ($LASTEXITCODE -ne 0) {
+      throw "Failed to clone theme repository $repoUrl into $destination"
+    }
+  }
+
+  & git -C $destination fetch --tags --force origin
+  if ($LASTEXITCODE -ne 0) {
+    throw "Failed to fetch theme repository $repoUrl"
+  }
+
+  & git -C $destination checkout --force $repoRef
+  if ($LASTEXITCODE -ne 0) {
+    throw "Failed to checkout theme repository $repoUrl at $repoRef"
+  }
+
+  if (-not (Test-Path (Join-Path $destination "GNUmakefile"))) {
+    throw "Theme repository $repoUrl at $repoRef does not contain GNUmakefile"
+  }
+
+  return $destination
+}
+
 function Resolve-OmdUserThemeRoot {
   param(
     [Parameter(Mandatory = $true)]
@@ -281,6 +357,8 @@ foreach ($themeSpec in $themeSpecs) {
   foreach ($workspacePath in $themeWorkspaceCandidates) {
     $repoCandidates.Add([System.IO.Path]::GetFullPath((Join-Path $workspacePath $themeRepoName))) | Out-Null
   }
+
+  Ensure-OmdThemeRepoFromManifest -ThemeName $themeName -RepoName $themeRepoName | Out-Null
 
   $resolvedThemeRepo = Resolve-OmdThemeRepo -RepoName $themeRepoName -Candidates @($repoCandidates | Select-Object -Unique)
 

@@ -113,6 +113,67 @@ than added as submodules of this repo. If a Windows build VM cannot compile
 those theme repos cleanly, treat that as an environment/toolchain issue first,
 not as a reason to convert the app repo to submodules.
 
+### Fresh-Binary MSI Rebuild
+
+Do not renew binaries by editing an existing MSI or by reusing a hand-edited
+stage tree. Treat every MSI as disposable output generated from a freshly built
+and provisioned staged payload.
+
+For a release candidate, run the full `gnustep-packager` pipeline from a clean
+Windows build environment:
+
+```powershell
+.\gnustep-packager\scripts\run-packaging-pipeline.ps1 `
+  -Manifest .\packaging\manifests\windows-msi.manifest.json `
+  -Backend msi `
+  -PackageVersion 0.1.1-rcNN `
+  -InstallHostDependencies `
+  -RunSmoke
+```
+
+The full wrapper is required because it runs:
+
+- host dependency preflight
+- app build
+- app/runtime stage
+- theme input provisioning
+- shared staged-layout validation
+- MSI packaging
+- MSI backend validation
+
+Do not set `GP_SKIP_THEME_PROVISION=1` for release candidates. `package
+-Backend msi` invokes theme provisioning, but it does not rebuild or restage the
+application. Use the full wrapper unless deliberately debugging one phase.
+
+Before invoking the pipeline for a release candidate, remove stale generated
+outputs on the Windows build VM:
+
+```powershell
+Remove-Item -Recurse -Force .\dist\packaging\windows\stage,
+  .\dist\packaging\windows\tmp,
+  .\dist\packaging\windows\packages,
+  .\dist\packaging\windows\logs -ErrorAction SilentlyContinue
+```
+
+The rebuilt MSI is considered to have fresh binaries only when all of these
+checks pass:
+
+- the build log is from the same run as the package artifacts
+- `metadata\gnustep-packager-theme-report.json` exists in the staged payload
+  and records `WinUITheme` at the manifest-pinned commit
+- the report's staged `WinUITheme.theme` contains `WinUITheme.dll`, not only
+  copied resources
+- the MSI diagnostics report has no unresolved runtime dependencies
+- backend validation installs, launches, and uninstalls the MSI successfully
+- a clean Windows VM confirms the running app loaded
+  `runtime\lib\GNUstep\Themes\WinUITheme.theme\WinUITheme.dll`
+
+The important distinction is provenance: copying a valid
+`WinUITheme.theme\WinUITheme.dll` from a user GNUstep theme directory proves only
+that a theme DLL exists. It does not prove that the DLL was rebuilt from the
+pinned source commit. The packager `provision -Backend msi` step and theme
+payload report are the evidence for that.
+
 ## OracleTestVMs Linux Validation
 
 For the Phase 9C Linux handoff path, use:
