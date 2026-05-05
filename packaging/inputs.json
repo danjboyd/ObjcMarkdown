@@ -35,15 +35,15 @@
     {
       "id": "windows-win11-theme",
       "kind": "git",
-      "repo": "https://github.com/gnustep/plugins-themes-win11theme.git",
+      "repo": "https://github.com/danjboyd/plugins-themes-win11theme.git",
       "workspacePath": "../gnustep/plugins-themes-win11theme",
       "platforms": [
         "windows"
       ],
       "purpose": "Secondary Windows GNUstep theme bundled alongside WinUITheme in MSI packaging.",
-      "required": true,
+      "required": false,
       "notes": [
-        "This theme currently fails in the same Windows header stack conflict as WinUITheme on the test build VM.",
+        "This private input is optional for ObjcMarkdown MSI release candidates; WinUITheme is the required bundled default.",
         "Track the exact working commit outside the app repo."
       ]
     }

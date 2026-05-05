@@ -178,7 +178,8 @@ function Ensure-OmdThemeRepoFromManifest {
     [Parameter(Mandatory = $true)]
     [string]$ThemeName,
     [Parameter(Mandatory = $true)]
-    [string]$RepoName
+    [string]$RepoName,
+    [bool]$Required = $true
   )
 
   $themeInput = Get-OmdManifestThemeInput -ThemeName $ThemeName
@@ -207,21 +208,37 @@ function Ensure-OmdThemeRepoFromManifest {
 
     & git clone $repoUrl $destination
     if ($LASTEXITCODE -ne 0) {
+      if (-not $Required) {
+        Write-Warning "Skipping optional theme repository $repoUrl; clone failed."
+        return $null
+      }
       throw "Failed to clone theme repository $repoUrl into $destination"
     }
   }
 
   & git -C $destination fetch --tags --force origin
   if ($LASTEXITCODE -ne 0) {
+    if (-not $Required) {
+      Write-Warning "Skipping optional theme repository $repoUrl; fetch failed."
+      return $null
+    }
     throw "Failed to fetch theme repository $repoUrl"
   }
 
   & git -C $destination checkout --force $repoRef
   if ($LASTEXITCODE -ne 0) {
+    if (-not $Required) {
+      Write-Warning "Skipping optional theme repository $repoUrl; checkout of $repoRef failed."
+      return $null
+    }
     throw "Failed to checkout theme repository $repoUrl at $repoRef"
   }
 
   if (-not (Test-Path (Join-Path $destination "GNUmakefile"))) {
+    if (-not $Required) {
+      Write-Warning "Skipping optional theme repository $repoUrl; GNUmakefile was not found at $repoRef."
+      return $null
+    }
     throw "Theme repository $repoUrl at $repoRef does not contain GNUmakefile"
   }
 
@@ -349,6 +366,11 @@ foreach ($themeSpec in $themeSpecs) {
   $themeRepoOverride = [string]$themeSpec["RepoOverride"]
   $themeRepoName = [string]$themeSpec["RepoName"]
   $themeName = [string]$themeSpec["Name"]
+  $manifestThemeInput = Get-OmdManifestThemeInput -ThemeName $themeName
+  $themeRequired = $true
+  if ($manifestThemeInput -and ($manifestThemeInput.PSObject.Properties.Name -contains "required")) {
+    $themeRequired = [bool]$manifestThemeInput.required
+  }
 
   if (-not [string]::IsNullOrWhiteSpace($themeRepoOverride)) {
     $repoCandidates.Add([System.IO.Path]::GetFullPath($themeRepoOverride)) | Out-Null
@@ -358,9 +380,18 @@ foreach ($themeSpec in $themeSpecs) {
     $repoCandidates.Add([System.IO.Path]::GetFullPath((Join-Path $workspacePath $themeRepoName))) | Out-Null
   }
 
-  Ensure-OmdThemeRepoFromManifest -ThemeName $themeName -RepoName $themeRepoName | Out-Null
+  Ensure-OmdThemeRepoFromManifest -ThemeName $themeName -RepoName $themeRepoName -Required:$themeRequired | Out-Null
 
-  $resolvedThemeRepo = Resolve-OmdThemeRepo -RepoName $themeRepoName -Candidates @($repoCandidates | Select-Object -Unique)
+  $resolvedThemeRepo = $null
+  try {
+    $resolvedThemeRepo = Resolve-OmdThemeRepo -RepoName $themeRepoName -Candidates @($repoCandidates | Select-Object -Unique)
+  } catch {
+    if ($themeRequired) {
+      throw
+    }
+    Write-Warning "Skipping optional theme repository '$themeRepoName'. $($_.Exception.Message)"
+    continue
+  }
 
   $extraEnvironment = @{}
   $themeBuildFlags = "-DHAVE_MODE_T=1"
@@ -399,7 +430,7 @@ foreach ($themeSpec in $themeSpecs) {
   }) | Out-Null
 }
 
-$resolvedUserThemeRoot = Resolve-OmdUserThemeRoot -MsysRoot $resolvedMsysRoot -ThemeNames @($themeSpecs | ForEach-Object { [string]$_["Name"] })
+$resolvedUserThemeRoot = Resolve-OmdUserThemeRoot -MsysRoot $resolvedMsysRoot -ThemeNames @($themeResults | ForEach-Object { [string]$_.name })
 $resolvedThemeResults = foreach ($themeResult in $themeResults) {
   $installedBundle = Join-Path $resolvedUserThemeRoot ($themeResult.name + ".theme")
   if (-not (Test-Path $installedBundle)) {

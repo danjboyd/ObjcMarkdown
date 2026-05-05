@@ -52,13 +52,13 @@
     },
     {
       "name": "Win11Theme",
-      "repo": "https://github.com/gnustep/plugins-themes-win11theme.git",
+      "repo": "https://github.com/danjboyd/plugins-themes-win11theme.git",
       "ref": "390db8f",
       "platforms": [
         "windows",
         "msi"
       ],
-      "required": true,
+      "required": false,
       "default": false,
       "workspacePath": "../../../gnustep/plugins-themes-win11theme"
     }
