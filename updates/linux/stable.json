@@ -1,0 +1,45 @@
+{
+  "formatVersion": 1,
+  "provider": "github-release-feed",
+  "generatedAt": "2026-05-06T12:57:15.8189337-05:00",
+  "channel": "stable",
+  "feedUrl": "https://danjboyd.github.io/ObjcMarkdown/updates/linux/stable.json",
+  "package": {
+    "id": "org.objcmarkdown.MarkdownViewer",
+    "name": "ObjcMarkdown",
+    "displayName": "Markdown Viewer",
+    "version": "0.1.0",
+    "manufacturer": "ObjcMarkdown"
+  },
+  "source": {
+    "github": {
+      "owner": "danjboyd",
+      "repo": "ObjcMarkdown"
+    }
+  },
+  "releases": [
+    {
+      "version": "0.1.0",
+      "tag": "v0.1.0",
+      "releaseNotesUrl": "https://github.com/danjboyd/ObjcMarkdown/releases/tag/v0.1.0",
+      "assets": [
+        {
+          "backend": "appimage",
+          "platform": "linux-x64",
+          "kind": "appimage",
+          "name": "ObjcMarkdown-0.1.0-linux-x86_64.AppImage",
+          "url": "https://github.com/danjboyd/ObjcMarkdown/releases/download/v0.1.0/ObjcMarkdown-0.1.0-linux-x86_64.AppImage",
+          "sha256": "df941138ced03a76c520a76e5b6ec8328c8ac0bc557852ad118edf1e7bbb5d17",
+          "sizeBytes": 131914232,
+          "updateInformation": "gh-releases-zsync|danjboyd|ObjcMarkdown|latest|ObjcMarkdown-*-linux-x86_64.AppImage.zsync",
+          "zsync": {
+            "name": "ObjcMarkdown-0.1.0-linux-x86_64.AppImage.zsync",
+            "url": "https://github.com/danjboyd/ObjcMarkdown/releases/download/v0.1.0/ObjcMarkdown-0.1.0-linux-x86_64.AppImage.zsync",
+            "sha256": "6f48c10734c483bf06a48905900c237f2854740791887bf144da9ec870252ea0",
+            "sizeBytes": 225694
+          }
+        }
+      ]
+    }
+  ]
+}
