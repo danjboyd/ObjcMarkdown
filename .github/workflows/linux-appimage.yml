@@ -54,7 +54,13 @@ jobs:
     needs:
       - build-appimage
     runs-on: ubuntu-latest
+    concurrency:
+      group: objcmarkdown-update-feeds
+      cancel-in-progress: false
     steps:
+      - name: Checkout Feed Publisher
+        uses: actions/checkout@v4
+
       - name: Download Linux Package Artifacts
         uses: actions/download-artifact@v4
         with:
@@ -84,3 +90,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: release-assets/*
+
+      - name: Publish Linux Stable Update Feed
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: packaging/ci/publish-update-feed.sh linux dist/linux

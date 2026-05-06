@@ -44,6 +44,10 @@ repos it needs at pinned commits in a sibling workspace.
 - MSI upgrades rely on the existing `UpgradeCode`, numeric MSI version
   normalization inside `gnustep-packager`, and a new signed installer published
   for each release.
+- Tagged package workflows publish generated feed JSON to the `gh-pages` branch
+  after release assets are uploaded:
+  - Linux: `updates/linux/stable.json`
+  - Windows: `updates/windows/stable.json`
 
 For the full policy and release invariants, see
 `docs/auto-update-policy.md`.

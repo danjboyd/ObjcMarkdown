@@ -87,6 +87,19 @@ Release invariants:
 - publish the generated `.update-feed.json` to the stable Windows feed URL
 - do not reset the `UpgradeCode` unless intentionally breaking the upgrade path
 
+## Feed Publication
+
+Tagged Linux and Windows packaging workflows publish release assets first, then
+copy the generated update feed into the `gh-pages` branch:
+
+- Linux: `updates/linux/stable.json`
+- Windows: `updates/windows/stable.json`
+
+Both workflow jobs use the shared `objcmarkdown-update-feeds` concurrency group
+so simultaneous platform releases serialize their `gh-pages` writes instead of
+clobbering the other platform's feed. The repository's GitHub Pages source must
+serve the root of the `gh-pages` branch.
+
 ## Channel Policy
 
 Current channel policy:
