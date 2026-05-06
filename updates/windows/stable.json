@@ -1,0 +1,40 @@
+{
+  "formatVersion": 1,
+  "provider": "github-release-feed",
+  "generatedAt": "2026-05-06T17:45:10.8436148+00:00",
+  "channel": "stable",
+  "feedUrl": "https://danjboyd.github.io/ObjcMarkdown/updates/windows/stable.json",
+  "package": {
+    "id": "org.objcmarkdown.MarkdownViewer",
+    "name": "ObjcMarkdown",
+    "displayName": "Markdown Viewer",
+    "version": "0.1.0",
+    "manufacturer": "ObjcMarkdown"
+  },
+  "source": {
+    "github": {
+      "owner": "danjboyd",
+      "repo": "ObjcMarkdown"
+    }
+  },
+  "releases": [
+    {
+      "version": "0.1.0",
+      "tag": "v0.1.0",
+      "releaseNotesUrl": "https://github.com/danjboyd/ObjcMarkdown/releases/tag/v0.1.0",
+      "assets": [
+        {
+          "backend": "msi",
+          "platform": "windows-x64",
+          "kind": "msi",
+          "name": "ObjcMarkdown-0.1.0-win64.msi",
+          "url": "https://github.com/danjboyd/ObjcMarkdown/releases/download/v0.1.0/ObjcMarkdown-0.1.0-win64.msi",
+          "sha256": "60551f23a87863afb070aa80c1a1a601e274b3feae0cf960479b284908c667cb",
+          "sizeBytes": 248418638,
+          "installScope": "perUser",
+          "msiVersion": "0.1.0.0"
+        }
+      ]
+    }
+  ]
+}
