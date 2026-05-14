@@ -5445,7 +5445,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
 #else
     [_renderer setAsynchronousMathGenerationEnabled:YES];
 #endif
-    [_renderer setAllowTableHorizontalOverflow:YES];
+    [_renderer setAllowTableHorizontalOverflow:NO];
     [_renderer setZoomScale:_zoomScale];
     [[NSNotificationCenter defaultCenter] addObserver:self
                                              selector:@selector(mathArtifactsDidWarm:)

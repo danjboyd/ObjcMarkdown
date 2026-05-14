@@ -340,7 +340,7 @@ static BOOL OMDMathToolchainAvailable(void)
     }
 }
 
-- (void)testPipeTableFallsBackToStackedLayoutInNarrowPreview
+- (void)testPipeTableWrapsToNarrowPreviewWidth
 {
     OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
     [renderer setLayoutWidth:200.0];
@@ -349,9 +349,20 @@ static BOOL OMDMathToolchainAvailable(void)
     XCTAssertNotNil(rendered);
 
     NSString *text = [rendered string];
-    XCTAssertTrue([text rangeOfString:@"Row 1"].location != NSNotFound);
-    XCTAssertTrue([text rangeOfString:@"Area: Parsing"].location != NSNotFound);
-    XCTAssertTrue([text rangeOfString:@"Notes: Handles standard pipe table delimiter row"].location != NSNotFound);
+    XCTAssertTrue([rendered containsAttachments]);
+    XCTAssertEqual([self attachmentCharacterCountInRenderedString:rendered], (NSUInteger)1);
+    XCTAssertTrue([text rangeOfString:@"Row 1"].location == NSNotFound);
+
+    NSTextAttachment *attachment = [self firstAttachmentInRenderedString:rendered];
+    XCTAssertNotNil(attachment);
+    if (attachment != nil) {
+        id cell = [attachment attachmentCell];
+        if (cell != nil && [cell respondsToSelector:@selector(cellSize)]) {
+            NSSize size = [cell cellSize];
+            XCTAssertTrue(size.width <= 200.0);
+            XCTAssertTrue(size.height > 90.0);
+        }
+    }
 }
 
 - (void)testPipeTableAllowsHorizontalOverflowInsteadOfStackedFallback
@@ -366,6 +377,16 @@ static BOOL OMDMathToolchainAvailable(void)
     NSString *text = [rendered string];
     XCTAssertTrue([rendered containsAttachments]);
     XCTAssertTrue([text rangeOfString:@"Row 1"].location == NSNotFound);
+
+    NSTextAttachment *attachment = [self firstAttachmentInRenderedString:rendered];
+    XCTAssertNotNil(attachment);
+    if (attachment != nil) {
+        id cell = [attachment attachmentCell];
+        if (cell != nil && [cell respondsToSelector:@selector(cellSize)]) {
+            NSSize size = [cell cellSize];
+            XCTAssertTrue(size.width > 220.0);
+        }
+    }
 }
 
 - (void)testPipeTableKeepsGridLayoutAtComfortablePreviewWidth
@@ -380,6 +401,27 @@ static BOOL OMDMathToolchainAvailable(void)
     XCTAssertTrue([rendered containsAttachments]);
     XCTAssertEqual([self attachmentCharacterCountInRenderedString:rendered], (NSUInteger)1);
     XCTAssertTrue([text rangeOfString:@"Row 1"].location == NSNotFound);
+}
+
+- (void)testPipeTableWrapsLouisianaStrategyStyleProseRows
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    [renderer setLayoutWidth:900.0];
+    NSString *markdown = @"| category | assessment |\n|---|---|\n| Strengths | Louisiana has public official sources that may expose unit, order, notice, owner-address, well, and production context. Invito already has underwriting discipline, Oklahoma Phase I process patterns, and a state-specific research framework. The strategy aligns with a differentiated non-operated asset pipeline rather than generic leasing. |\n| Threats | Legal, title, and reputational risk are material if Invito contacts owners without enough evidence or if owner rights are misunderstood. Competitors, operators, or brokers may move faster once matters are public. Packet gaps, timing delays, and title ambiguity could erase the timing edge. |";
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
+    XCTAssertNotNil(rendered);
+    XCTAssertTrue([rendered containsAttachments]);
+
+    NSTextAttachment *attachment = [self firstAttachmentInRenderedString:rendered];
+    XCTAssertNotNil(attachment);
+    if (attachment != nil) {
+        id cell = [attachment attachmentCell];
+        if (cell != nil && [cell respondsToSelector:@selector(cellSize)]) {
+            NSSize size = [cell cellSize];
+            XCTAssertTrue(size.width <= 900.0);
+            XCTAssertTrue(size.height > 120.0);
+        }
+    }
 }
 
 - (void)testPipeTableCellInlineLinkRendersAsLinkAttribute

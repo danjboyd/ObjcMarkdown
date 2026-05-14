@@ -2108,68 +2108,6 @@ static CGFloat OMPipeTableHorizontalPadding(CGFloat scale)
     return padding;
 }
 
-static CGFloat OMPipeTableAverageCharacterWidth(NSFont *font)
-{
-    if (font == nil) {
-        return 7.0;
-    }
-
-    NSDictionary *attrs = [NSDictionary dictionaryWithObject:font forKey:NSFontAttributeName];
-    NSString *sample = @"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-    NSSize sampleSize = [sample sizeWithAttributes:attrs];
-    CGFloat width = [sample length] > 0 ? (sampleSize.width / (CGFloat)[sample length]) : 0.0;
-    if (width <= 0.0) {
-        width = [font pointSize] * 0.52;
-    }
-    if (width <= 0.0) {
-        width = 7.0;
-    }
-    return width;
-}
-
-static CGFloat OMPipeTableEstimatedGridWidth(NSArray *columnWidths,
-                                             NSFont *tableFont,
-                                             CGFloat cellHorizontalPadding,
-                                             CGFloat scale)
-{
-    if (columnWidths == nil || [columnWidths count] == 0) {
-        return 0.0;
-    }
-    CGFloat charWidth = 0.0;
-    if (tableFont != nil) {
-        NSDictionary *attrs = [NSDictionary dictionaryWithObject:tableFont forKey:NSFontAttributeName];
-        charWidth = [@" " sizeWithAttributes:attrs].width;
-    }
-    if (charWidth <= 0.0) {
-        charWidth = OMPipeTableAverageCharacterWidth(tableFont);
-    }
-    CGFloat total = 0.0;
-    for (NSNumber *value in columnWidths) {
-        NSUInteger width = [value unsignedIntegerValue];
-        if (width < 3) {
-            width = 3;
-        }
-        total += ((CGFloat)width * charWidth) + (cellHorizontalPadding * 2.0);
-    }
-    total += 2.0 * scale;
-    return total;
-}
-
-static CGFloat OMPipeTableMinimumReadableGridWidth(NSUInteger columnCount,
-                                                   CGFloat cellHorizontalPadding,
-                                                   CGFloat scale)
-{
-    if (columnCount == 0) {
-        return 0.0;
-    }
-
-    CGFloat minColumnTextWidth = 72.0 * scale;
-    if (columnCount >= 4) {
-        minColumnTextWidth = 64.0 * scale;
-    }
-    return ((CGFloat)columnCount * (minColumnTextWidth + (cellHorizontalPadding * 2.0))) + (2.0 * scale);
-}
-
 static BOOL OMPipeTableNeedsStackedFallback(NSArray *columnWidths,
                                             CGFloat layoutWidth,
                                             CGFloat indent,
@@ -2188,21 +2126,17 @@ static BOOL OMPipeTableNeedsStackedFallback(NSArray *columnWidths,
     if (availableWidth <= 0.0) {
         return YES;
     }
-    CGFloat minimumReadableWidth = OMPipeTableMinimumReadableGridWidth([columnWidths count],
-                                                                        cellHorizontalPadding,
-                                                                        scale);
-    if (availableWidth < minimumReadableWidth) {
+    CGFloat minimumColumnTextWidth = 44.0 * scale;
+    if (minimumColumnTextWidth < 28.0) {
+        minimumColumnTextWidth = 28.0;
+    }
+    CGFloat minimumGridWidth = ((CGFloat)[columnWidths count] *
+                                (minimumColumnTextWidth + (cellHorizontalPadding * 2.0))) +
+                               (2.0 * scale);
+    if (availableWidth < minimumGridWidth) {
         return YES;
     }
-
-    CGFloat estimatedWidth = OMPipeTableEstimatedGridWidth(columnWidths,
-                                                           tableFont,
-                                                           cellHorizontalPadding,
-                                                           scale);
-    if (estimatedWidth <= 0.0) {
-        return NO;
-    }
-    return estimatedWidth > (availableWidth * 1.03);
+    return NO;
 }
 
 static CGFloat OMPipeTableTextWidth(NSString *text, NSFont *font)
@@ -2628,6 +2562,52 @@ static void OMPipeTableConstrainColumnWidths(NSMutableArray *columnWidths,
     }
 }
 
+static NSMutableAttributedString *OMPipeTableDrawableSegment(NSAttributedString *segment,
+                                                             OMPipeTableAlignment alignment,
+                                                             NSLineBreakMode lineBreakMode)
+{
+    if (segment == nil) {
+        return nil;
+    }
+
+    NSMutableAttributedString *drawSegment = [[segment mutableCopy] autorelease];
+    if ([drawSegment length] == 0) {
+        return drawSegment;
+    }
+
+    NSMutableParagraphStyle *drawStyle = [[[NSMutableParagraphStyle alloc] init] autorelease];
+    [drawStyle setAlignment:OMPipeTableTextAlignment(alignment)];
+    [drawStyle setLineBreakMode:lineBreakMode];
+    [drawSegment addAttribute:NSParagraphStyleAttributeName
+                        value:drawStyle
+                        range:NSMakeRange(0, [drawSegment length])];
+    return drawSegment;
+}
+
+static CGFloat OMPipeTableMeasuredTextHeight(NSAttributedString *segment,
+                                             CGFloat width,
+                                             CGFloat fallbackLineHeight)
+{
+    if (segment == nil || [segment length] == 0 || width <= 0.0) {
+        return fallbackLineHeight;
+    }
+
+    NSTextStorage *storage = [[[NSTextStorage alloc] initWithAttributedString:segment] autorelease];
+    NSLayoutManager *layoutManager = [[[NSLayoutManager alloc] init] autorelease];
+    NSTextContainer *container = [[[NSTextContainer alloc] initWithContainerSize:NSMakeSize(width, FLT_MAX)] autorelease];
+    [container setLineFragmentPadding:0.0];
+    [layoutManager addTextContainer:container];
+    [storage addLayoutManager:layoutManager];
+    [layoutManager ensureLayoutForTextContainer:container];
+
+    NSRect usedRect = [layoutManager usedRectForTextContainer:container];
+    CGFloat height = ceil(usedRect.size.height);
+    if (height < fallbackLineHeight) {
+        height = fallbackLineHeight;
+    }
+    return height;
+}
+
 static CGFloat OMPipeTableRoundToPixel(CGFloat value)
 {
     return floor(value + 0.5);
@@ -2711,7 +2691,26 @@ static BOOL OMPipeTableComputeLayout(NSArray *visibleRows,
     NSUInteger rowIndex = 0;
     for (; rowIndex < rowCount; rowIndex++) {
         CGFloat lineHeight = (rowIndex == 0 ? headerLineHeight : bodyLineHeight);
-        CGFloat rowHeight = ceil(lineHeight + (verticalPadding * 2.0));
+        CGFloat contentHeight = lineHeight;
+        if (attributedRows != nil && [attributedRows count] == rowCount) {
+            NSArray *row = [attributedRows objectAtIndex:rowIndex];
+            NSUInteger columnIndex = 0;
+            for (; columnIndex < columnCount; columnIndex++) {
+                NSAttributedString *segment = (columnIndex < [row count] ? [row objectAtIndex:columnIndex] : nil);
+                OMPipeTableAlignment alignment = OMPipeTableAlignmentLeft;
+                NSMutableAttributedString *measureSegment = OMPipeTableDrawableSegment(segment,
+                                                                                       alignment,
+                                                                                       NSLineBreakByWordWrapping);
+                CGFloat contentWidth = [[columnWidths objectAtIndex:columnIndex] doubleValue];
+                CGFloat measured = OMPipeTableMeasuredTextHeight(measureSegment,
+                                                                 contentWidth,
+                                                                 lineHeight);
+                if (measured > contentHeight) {
+                    contentHeight = measured;
+                }
+            }
+        }
+        CGFloat rowHeight = ceil(contentHeight + (verticalPadding * 2.0));
         [rowHeights addObject:[NSNumber numberWithDouble:rowHeight]];
     }
 
@@ -2829,14 +2828,10 @@ static NSImage *OMPipeTableImageFromRows(NSArray *attributedRows,
             NSArray *rowSegments = [attributedRows objectAtIndex:rowIndex];
             NSAttributedString *segment = (colIndex < [rowSegments count] ? [rowSegments objectAtIndex:colIndex] : nil);
             if (segment != nil && [segment length] > 0) {
-                NSMutableAttributedString *drawSegment = [[segment mutableCopy] autorelease];
-                NSMutableParagraphStyle *drawStyle = [[[NSMutableParagraphStyle alloc] init] autorelease];
                 OMPipeTableAlignment alignment = (OMPipeTableAlignment)[[alignments objectAtIndex:colIndex] unsignedIntegerValue];
-                [drawStyle setAlignment:OMPipeTableTextAlignment(alignment)];
-                [drawStyle setLineBreakMode:NSLineBreakByTruncatingTail];
-                [drawSegment addAttribute:NSParagraphStyleAttributeName
-                                    value:drawStyle
-                                    range:NSMakeRange(0, [drawSegment length])];
+                NSMutableAttributedString *drawSegment = OMPipeTableDrawableSegment(segment,
+                                                                                    alignment,
+                                                                                    NSLineBreakByWordWrapping);
 
                 NSRect textRect = NSInsetRect(cellRect, horizontalPadding, verticalPadding);
                 [drawSegment drawInRect:textRect];
@@ -2977,14 +2972,10 @@ static NSImage *OMPipeTableImageFromRows(NSArray *attributedRows,
             NSArray *rowSegments = [_attributedRows objectAtIndex:rowIndex];
             NSAttributedString *segment = (colIndex < [rowSegments count] ? [rowSegments objectAtIndex:colIndex] : nil);
             if (segment != nil && [segment length] > 0) {
-                NSMutableAttributedString *drawSegment = [[segment mutableCopy] autorelease];
-                NSMutableParagraphStyle *drawStyle = [[[NSMutableParagraphStyle alloc] init] autorelease];
                 OMPipeTableAlignment alignment = (OMPipeTableAlignment)[[_alignments objectAtIndex:colIndex] unsignedIntegerValue];
-                [drawStyle setAlignment:OMPipeTableTextAlignment(alignment)];
-                [drawStyle setLineBreakMode:NSLineBreakByTruncatingTail];
-                [drawSegment addAttribute:NSParagraphStyleAttributeName
-                                    value:drawStyle
-                                    range:NSMakeRange(0, [drawSegment length])];
+                NSMutableAttributedString *drawSegment = OMPipeTableDrawableSegment(segment,
+                                                                                    alignment,
+                                                                                    NSLineBreakByWordWrapping);
 
                 NSRect textRect = OMPipeTableIntegralRect(NSInsetRect(cellRect,
                                                                       _horizontalPadding,

@@ -954,3 +954,15 @@
   - Verified package metadata sets `GSTheme=WinUITheme` with `policy: ifUnset` and that the portable payload contains `runtime\lib\GNUstep\Themes\WinUITheme.theme\WinUITheme.dll` plus the theme image resources.
   - Ran clean Windows OracleTestVMs validation on libvirt test lease `lease-20260504204357-urui9v`; unattended install, runtime checks, launch smoke, TinyTeX smoke, and uninstall passed.
   - Reinstalled on the clean test VM and verified the live packaged app process loaded `WinUITheme.dll` from the installed runtime, with app defaults reporting `org.objcmarkdown.MarkdownViewer GSTheme WinUITheme`.
+
+## 77) Markdown tables overflowed the preview instead of wrapping to the window
+
+- **Status**: Closed
+- **Closed On**: 2026-05-14
+- **Area**: Renderer / Preview layout / GFM tables
+- **Description**: Wide prose-heavy pipe tables rendered as single-line attachment rows, expanding the preview document width and requiring horizontal scrolling.
+- **Resolution**:
+  - Changed non-overflow table layout to constrain column widths to the current preview layout width and measure wrapped cell text for row heights.
+  - Updated table drawing to use word wrapping instead of tail truncation inside cells.
+  - Restored the viewer default to wrapped tables while keeping `allowTableHorizontalOverflow` available for opt-in horizontal overflow behavior.
+  - Added renderer regression coverage for narrow wrapped tables, Louisiana strategy-style prose tables, and explicit overflow mode.
