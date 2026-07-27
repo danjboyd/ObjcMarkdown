@@ -80,6 +80,64 @@
     [self removeFileIfPresent:rtfPath];
 }
 
+- (void)testPandocExportEmbedsRelativeImagesUsingResourceDirectory
+{
+    OMDDocumentConverter *converter = [OMDDocumentConverter defaultConverter];
+    if (converter == nil) {
+        NSLog(@"Skipping pandoc smoke checks: %@", [OMDDocumentConverter missingBackendInstallMessage]);
+        return;
+    }
+
+    NSString *resourceDirectory = [NSTemporaryDirectory() stringByAppendingPathComponent:
+        [NSString stringWithFormat:@"objcmarkdown-test-resources-%@",
+                                   [[NSProcessInfo processInfo] globallyUniqueString]]];
+    NSError *directoryError = nil;
+    BOOL createdDirectory = [[NSFileManager defaultManager] createDirectoryAtPath:resourceDirectory
+                                                      withIntermediateDirectories:YES
+                                                                       attributes:nil
+                                                                            error:&directoryError];
+    XCTAssertTrue(createdDirectory, @"%@", [directoryError localizedDescription]);
+
+    static const unsigned char pixelPNG[] = {
+        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
+        0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+        0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+        0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4,
+        0x89, 0x00, 0x00, 0x00, 0x0A, 0x49, 0x44, 0x41,
+        0x54, 0x78, 0x9C, 0x63, 0x00, 0x01, 0x00, 0x00,
+        0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00,
+        0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE,
+        0x42, 0x60, 0x82
+    };
+    NSData *pngData = [NSData dataWithBytes:pixelPNG length:sizeof(pixelPNG)];
+    NSString *imagePath = [resourceDirectory stringByAppendingPathComponent:@"pixel.png"];
+    XCTAssertTrue([pngData writeToFile:imagePath atomically:YES]);
+
+    NSString *markdown = @"# Image Export Test\n\n![pixel](pixel.png)\n";
+    NSString *docxPath = [self temporaryPathWithExtension:@"docx"];
+
+    NSError *exportError = nil;
+    BOOL exported = [converter exportMarkdown:markdown
+                                       toPath:docxPath
+                            resourceDirectory:resourceDirectory
+                                        error:&exportError];
+    XCTAssertTrue(exported, @"%@", [exportError localizedDescription]);
+    XCTAssertTrue([[NSFileManager defaultManager] fileExistsAtPath:docxPath]);
+
+    NSString *importedMarkdown = nil;
+    NSError *importError = nil;
+    BOOL imported = [converter importFileAtPath:docxPath markdown:&importedMarkdown error:&importError];
+    XCTAssertTrue(imported, @"%@", [importError localizedDescription]);
+    XCTAssertNotNil(importedMarkdown);
+    BOOL hasMarkdownImage = ([importedMarkdown rangeOfString:@"!["].location != NSNotFound);
+    BOOL hasHTMLImage = ([importedMarkdown rangeOfString:@"<img "].location != NSNotFound);
+    XCTAssertTrue(hasMarkdownImage || hasHTMLImage,
+                  @"Expected an embedded image in the DOCX round trip, got: %@", importedMarkdown);
+
+    [self removeFileIfPresent:docxPath];
+    [[NSFileManager defaultManager] removeItemAtPath:resourceDirectory error:NULL];
+}
+
 - (void)testPandocRoundTripsHTMLDOCXAndODT
 {
     OMDDocumentConverter *converter = [OMDDocumentConverter defaultConverter];

@@ -102,6 +102,26 @@ static NSString *OMDResolvePandocPath(void)
     return nil;
 }
 
+static NSString *OMDPandocResourcePathArgument(NSString *resourceDirectory)
+{
+    if (resourceDirectory == nil || [resourceDirectory length] == 0) {
+        return nil;
+    }
+
+    NSString *expanded = [[resourceDirectory stringByExpandingTildeInPath] stringByStandardizingPath];
+    BOOL isDirectory = NO;
+    if (![[NSFileManager defaultManager] fileExistsAtPath:expanded isDirectory:&isDirectory] || !isDirectory) {
+        return nil;
+    }
+
+#if defined(_WIN32)
+    NSString *separator = @";";
+#else
+    NSString *separator = @":";
+#endif
+    return [NSString stringWithFormat:@"%@%@.", expanded, separator];
+}
+
 static NSString *OMDResolvePandocDataDirectory(NSString *pandocPath)
 {
     NSDictionary *environment = [[NSProcessInfo processInfo] environment];
@@ -383,6 +403,17 @@ static NSString *OMDResolvePandocDataDirectory(NSString *pandocPath)
                 toPath:(NSString *)path
                  error:(NSError **)error
 {
+    return [self exportMarkdown:markdown
+                         toPath:path
+              resourceDirectory:nil
+                          error:error];
+}
+
+- (BOOL)exportMarkdown:(NSString *)markdown
+                toPath:(NSString *)path
+     resourceDirectory:(NSString *)resourceDirectory
+                 error:(NSError **)error
+{
     NSString *extension = [[path pathExtension] lowercaseString];
     NSString *targetFormat = [self pandocFormatForExtension:extension];
     if (targetFormat == nil) {
@@ -410,13 +441,19 @@ static NSString *OMDResolvePandocDataDirectory(NSString *pandocPath)
         return NO;
     }
 
-    NSArray *arguments = [NSArray arrayWithObjects:
+    NSMutableArray *arguments = [NSMutableArray arrayWithObjects:
         @"--from", @"gfm",
         @"--to", targetFormat,
         @"--wrap=none",
-        @"--output", path,
-        inputMarkdownPath,
         nil];
+    NSString *resourcePathArgument = OMDPandocResourcePathArgument(resourceDirectory);
+    if (resourcePathArgument != nil) {
+        [arguments addObject:@"--resource-path"];
+        [arguments addObject:resourcePathArgument];
+    }
+    [arguments addObject:@"--output"];
+    [arguments addObject:path];
+    [arguments addObject:inputMarkdownPath];
 
     NSString *logText = nil;
     int status = 0;

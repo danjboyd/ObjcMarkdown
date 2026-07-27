@@ -8169,7 +8169,10 @@ static NSMutableArray *OMDSecondaryWindows(void)
     }
 
     NSError *error = nil;
-    BOOL exported = [converter exportMarkdown:markdown toPath:fragmentPath error:&error];
+    BOOL exported = [converter exportMarkdown:markdown
+                                       toPath:fragmentPath
+                            resourceDirectory:[_currentPath stringByDeletingLastPathComponent]
+                                        error:&error];
     if (!exported) {
         [[NSFileManager defaultManager] removeItemAtPath:fragmentPath error:NULL];
         return NO;
@@ -8500,6 +8503,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
     NSError *error = nil;
     BOOL success = [[self documentConverter] exportMarkdown:markdownForExport
                                                      toPath:path
+                                          resourceDirectory:[_currentPath stringByDeletingLastPathComponent]
                                                       error:&error];
     if (!success) {
         [self presentConverterError:error fallbackTitle:@"Export failed"];

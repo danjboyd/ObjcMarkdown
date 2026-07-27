@@ -27,5 +27,9 @@ typedef NS_ENUM(NSInteger, OMDDocumentConverterErrorCode) {
 - (BOOL)exportMarkdown:(NSString *)markdown
                 toPath:(NSString *)path
                  error:(NSError **)error;
+- (BOOL)exportMarkdown:(NSString *)markdown
+                toPath:(NSString *)path
+     resourceDirectory:(NSString *)resourceDirectory
+                 error:(NSError **)error;
 
 @end

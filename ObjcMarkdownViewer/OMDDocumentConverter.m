@@ -69,6 +69,17 @@ static NSSet *OMDSupportedExtensions(void)
                 toPath:(NSString *)path
                  error:(NSError **)error
 {
+    return [self exportMarkdown:markdown
+                         toPath:path
+              resourceDirectory:nil
+                          error:error];
+}
+
+- (BOOL)exportMarkdown:(NSString *)markdown
+                toPath:(NSString *)path
+     resourceDirectory:(NSString *)resourceDirectory
+                 error:(NSError **)error
+{
     if (error != NULL) {
         *error = [NSError errorWithDomain:OMDDocumentConverterErrorDomain
                                      code:OMDDocumentConverterErrorBackendUnavailable
