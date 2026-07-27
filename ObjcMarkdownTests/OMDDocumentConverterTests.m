@@ -88,9 +88,14 @@
         return;
     }
 
-    NSString *resourceDirectory = [NSTemporaryDirectory() stringByAppendingPathComponent:
-        [NSString stringWithFormat:@"objcmarkdown-test-resources-%@",
-                                   [[NSProcessInfo processInfo] globallyUniqueString]]];
+    NSString *directoryName = [NSString stringWithFormat:@"objcmarkdown-test-resources-%@",
+                                                         [[NSProcessInfo processInfo] globallyUniqueString]];
+#if !defined(_WIN32)
+    // Mimic GVFS network mounts (e.g. "sftp:host=..."), whose colons broke
+    // pandoc's colon-separated --resource-path option.
+    directoryName = [directoryName stringByAppendingString:@":colon"];
+#endif
+    NSString *resourceDirectory = [NSTemporaryDirectory() stringByAppendingPathComponent:directoryName];
     NSError *directoryError = nil;
     BOOL createdDirectory = [[NSFileManager defaultManager] createDirectoryAtPath:resourceDirectory
                                                       withIntermediateDirectories:YES

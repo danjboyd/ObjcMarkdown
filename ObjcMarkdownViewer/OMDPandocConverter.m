@@ -11,6 +11,7 @@
 - (NSString *)pandocFormatForExtension:(NSString *)extension;
 - (NSString *)temporaryPathWithPrefix:(NSString *)prefix extension:(NSString *)extension;
 - (BOOL)runPandocWithArguments:(NSArray *)arguments
+              workingDirectory:(NSString *)workingDirectory
                        logText:(NSString **)logText
               terminationStatus:(int *)terminationStatus
                     launchError:(NSError **)launchError;
@@ -102,7 +103,7 @@ static NSString *OMDResolvePandocPath(void)
     return nil;
 }
 
-static NSString *OMDPandocResourcePathArgument(NSString *resourceDirectory)
+static NSString *OMDPandocResolvedResourceDirectory(NSString *resourceDirectory)
 {
     if (resourceDirectory == nil || [resourceDirectory length] == 0) {
         return nil;
@@ -113,13 +114,7 @@ static NSString *OMDPandocResourcePathArgument(NSString *resourceDirectory)
     if (![[NSFileManager defaultManager] fileExistsAtPath:expanded isDirectory:&isDirectory] || !isDirectory) {
         return nil;
     }
-
-#if defined(_WIN32)
-    NSString *separator = @";";
-#else
-    NSString *separator = @":";
-#endif
-    return [NSString stringWithFormat:@"%@%@.", expanded, separator];
+    return expanded;
 }
 
 static NSString *OMDResolvePandocDataDirectory(NSString *pandocPath)
@@ -268,6 +263,7 @@ static NSString *OMDResolvePandocDataDirectory(NSString *pandocPath)
 }
 
 - (BOOL)runPandocWithArguments:(NSArray *)arguments
+              workingDirectory:(NSString *)workingDirectory
                        logText:(NSString **)logText
               terminationStatus:(int *)terminationStatus
                     launchError:(NSError **)launchError
@@ -281,6 +277,9 @@ static NSString *OMDResolvePandocDataDirectory(NSString *pandocPath)
 
     NSTask *task = [[[NSTask alloc] init] autorelease];
     [task setLaunchPath:_pandocPath];
+    if (workingDirectory != nil && [workingDirectory length] > 0) {
+        [task setCurrentDirectoryPath:workingDirectory];
+    }
     NSMutableArray *effectiveArguments = [NSMutableArray array];
     if (_pandocDataDirectory != nil && [_pandocDataDirectory length] > 0) {
         [effectiveArguments addObject:@"--data-dir"];
@@ -357,6 +356,7 @@ static NSString *OMDResolvePandocDataDirectory(NSString *pandocPath)
     int status = 0;
     NSError *launchError = nil;
     BOOL success = [self runPandocWithArguments:arguments
+                               workingDirectory:nil
                                         logText:&logText
                                terminationStatus:&status
                                      launchError:&launchError];
@@ -441,24 +441,20 @@ static NSString *OMDResolvePandocDataDirectory(NSString *pandocPath)
         return NO;
     }
 
-    NSMutableArray *arguments = [NSMutableArray arrayWithObjects:
+    NSArray *arguments = [NSArray arrayWithObjects:
         @"--from", @"gfm",
         @"--to", targetFormat,
         @"--wrap=none",
+        @"--output", path,
+        inputMarkdownPath,
         nil];
-    NSString *resourcePathArgument = OMDPandocResourcePathArgument(resourceDirectory);
-    if (resourcePathArgument != nil) {
-        [arguments addObject:@"--resource-path"];
-        [arguments addObject:resourcePathArgument];
-    }
-    [arguments addObject:@"--output"];
-    [arguments addObject:path];
-    [arguments addObject:inputMarkdownPath];
+    NSString *resolvedResourceDirectory = OMDPandocResolvedResourceDirectory(resourceDirectory);
 
     NSString *logText = nil;
     int status = 0;
     NSError *launchError = nil;
     BOOL success = [self runPandocWithArguments:arguments
+                               workingDirectory:resolvedResourceDirectory
                                         logText:&logText
                                terminationStatus:&status
                                      launchError:&launchError];
