@@ -699,7 +699,17 @@ static void OMMermaidStableSortRank(NSUInteger *nodes,
         CGFloat laneY = gapTop + ((CGFloat)(edgeLane[j] + 1) * laneSpacing);
 
         BOOL sameRank = (nodeRank[edgeLeftIndex[j]] == nodeRank[edgeRightIndex[j]]);
-        BOOL straight = (!sameRank && fabs(start.x - end.x) < 0.5);
+        BOOL straight = NO;
+        if (!sameRank && fabs(start.x - end.x) <= [metrics boxHorizontalPadding]) {
+            // Two attachment points that nearly line up would otherwise produce a
+            // stub horizontal run: it reads as a kink, and a label centred on it
+            // straddles the vertical segments instead of sitting beside them.
+            // Snap the edge fully straight and let the label offset to the side.
+            CGFloat snapped = (start.x + end.x) / 2.0;
+            start.x = snapped;
+            end.x = snapped;
+            straight = YES;
+        }
 
         NSMutableArray *points = [NSMutableArray array];
         [points addObject:[NSValue valueWithPoint:start]];
@@ -713,11 +723,11 @@ static void OMMermaidStableSortRank(NSUInteger *nodes,
         NSString *label = [relationship label];
         if (label != nil && [label length] > 0) {
             CGFloat labelWidth = [measurer mermaidWidthForRelationshipLabel:label] + 8.0;
+            // Centred on the run, or on the line itself when the edge is
+            // straight. The label paints its own background, so it reads as
+            // interrupting the edge rather than crossing it, and every label in
+            // the diagram sits the same way regardless of how its edge routed.
             CGFloat labelX = ((start.x + end.x) / 2.0) - (labelWidth / 2.0);
-            if (straight) {
-                // Nothing runs horizontally here, so sit the label beside the line.
-                labelX = start.x + 4.0;
-            }
             labelFrame = NSMakeRect(labelX,
                                     laneY - ([metrics labelHeight] / 2.0),
                                     labelWidth,

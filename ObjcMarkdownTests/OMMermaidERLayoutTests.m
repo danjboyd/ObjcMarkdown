@@ -112,7 +112,7 @@
     XCTAssertEqualWithAccuracy([edge endPoint].y, 94.0, 0.001);
 
     [self assertRect:[edge labelFrame]
-          equalsRect:NSMakeRect(61.0, 49.0, 26.0, 14.0)
+          equalsRect:NSMakeRect(44.0, 49.0, 26.0, 14.0)
                label:@"label"];
 
     XCTAssertEqualWithAccuracy([layout size].width, 114.0, 0.001);
@@ -554,6 +554,106 @@
     CGFloat separation = NSMinY([[layout layoutForEntityNamed:@"B"] frame]) -
                          NSMaxY([[layout layoutForEntityNamed:@"A"] frame]);
     XCTAssertEqualWithAccuracy(separation, 200.0, 0.001);
+}
+
+- (NSString *)storefrontSchemaSource
+{
+    return @"erDiagram\n"
+            "    CUSTOMER ||--o{ ORDER : places\n"
+            "    CUSTOMER ||--o{ ADDRESS : \"ships to\"\n"
+            "    ORDER ||--|{ ORDER_ITEM : contains\n"
+            "    ORDER ||--o| PAYMENT : \"settled by\"\n"
+            "    PRODUCT ||--o{ ORDER_ITEM : \"appears in\"\n"
+            "    CATEGORY ||--o{ PRODUCT : groups\n"
+            "    CUSTOMER {\n"
+            "        uuid id PK\n"
+            "        text email UK\n"
+            "    }\n"
+            "    ORDER {\n"
+            "        uuid id PK\n"
+            "        uuid customer_id FK\n"
+            "    }\n";
+}
+
+- (OMMermaidEREdgeLayout *)edgeIn:(OMMermaidERDiagramLayout *)layout
+                             from:(NSString *)left
+                               to:(NSString *)right
+{
+    for (OMMermaidEREdgeLayout *edge in [layout edgeLayouts]) {
+        if ([[[edge relationship] leftEntityName] isEqualToString:left] &&
+            [[[edge relationship] rightEntityName] isEqualToString:right]) {
+            return edge;
+        }
+    }
+    return nil;
+}
+
+- (void)testNearlyAlignedEdgeSnapsStraightInsteadOfLeavingAStubJog
+{
+    NSError *error = nil;
+    OMMermaidERDiagram *diagram = [OMMermaidERDiagram diagramWithSource:[self storefrontSchemaSource]
+                                                                 error:&error];
+    XCTAssertNotNil(diagram);
+
+    // Whether two attachment points land close enough to matter depends on font
+    // metrics, so drive the rule directly: widen the tolerance until every
+    // cross-rank run counts as too short to draw.
+    OMMermaidERLayoutMetrics *metrics = [OMMermaidERLayoutMetrics defaultMetrics];
+    [metrics setBoxHorizontalPadding:400.0];
+    OMMermaidERDiagramLayout *layout = [OMMermaidERDiagramLayout layoutForDiagram:diagram
+                                                                         metrics:metrics
+                                                                        measurer:_measurer];
+    OMMermaidEREdgeLayout *contains = [self edgeIn:layout from:@"ORDER" to:@"ORDER_ITEM"];
+    XCTAssertNotNil(contains);
+
+    XCTAssertEqual([[contains points] count], (NSUInteger)2,
+                   @"a near-vertical edge should route as one straight segment");
+    XCTAssertEqualWithAccuracy([contains startPoint].x, [contains endPoint].x, 0.001);
+    XCTAssertEqualWithAccuracy(NSMidX([contains labelFrame]), [contains startPoint].x, 0.001,
+                               @"a straight edge's label stays centred on it, like every other label");
+}
+
+- (void)testSameRankEdgesStillDipEvenWhenTheirEndsLineUp
+{
+    NSError *error = nil;
+    OMMermaidERDiagram *diagram = [OMMermaidERDiagram diagramWithSource:
+        @"erDiagram\n"
+         "    HUB ||--o{ A : x\n"
+         "    HUB ||--o{ B : y\n"
+         "    A ||--o{ B : sibling\n" error:&error];
+    OMMermaidERLayoutMetrics *metrics = [OMMermaidERLayoutMetrics defaultMetrics];
+    [metrics setBoxHorizontalPadding:400.0];
+    OMMermaidERDiagramLayout *layout = [OMMermaidERDiagramLayout layoutForDiagram:diagram
+                                                                         metrics:metrics
+                                                                        measurer:_measurer];
+
+    OMMermaidEREdgeLayout *sibling = [self edgeIn:layout from:@"A" to:@"B"];
+    XCTAssertEqual([[sibling points] count], (NSUInteger)4,
+                   @"snapping must never collapse a same-rank edge into its own boxes");
+}
+
+- (void)testNoEdgeKeepsAHorizontalRunTooShortToSee
+{
+    OMMermaidERDiagramLayout *layout = [self layoutForSource:[self storefrontSchemaSource]];
+    OMMermaidERLayoutMetrics *metrics = [OMMermaidERLayoutMetrics defaultMetrics];
+
+    for (OMMermaidEREdgeLayout *edge in [layout edgeLayouts]) {
+        if ([[edge points] count] < 4) {
+            continue;
+        }
+        CGFloat run = fabs([[[edge points] objectAtIndex:2] pointValue].x -
+                           [[[edge points] objectAtIndex:1] pointValue].x);
+        BOOL sameRank = ([[layout layoutForEntityNamed:[[edge relationship] leftEntityName]] rank] ==
+                         [[layout layoutForEntityNamed:[[edge relationship] rightEntityName]] rank]);
+        if (sameRank) {
+            continue;   // these must dip below the rank, however short the run
+        }
+        XCTAssertTrue(run > [metrics boxHorizontalPadding],
+                      @"%@ -> %@ kept a %.2fpt jog instead of snapping straight",
+                      [[edge relationship] leftEntityName],
+                      [[edge relationship] rightEntityName],
+                      run);
+    }
 }
 
 @end
