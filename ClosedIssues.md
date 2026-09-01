@@ -966,6 +966,7 @@
   - Updated table drawing to use word wrapping instead of tail truncation inside cells.
   - Restored the viewer default to wrapped tables while keeping `allowTableHorizontalOverflow` available for opt-in horizontal overflow behavior.
   - Added renderer regression coverage for narrow wrapped tables, Louisiana strategy-style prose tables, and explicit overflow mode.
+
 ## 78) Document zoom did not scale inline Markdown images
 
 - **Status**: Closed
@@ -1000,4 +1001,22 @@
   - The underlying defect is in GNUstep, not this repo: concurrent `NSFont` creation corrupts the heap. Filed upstream 2026-09-01 as gnustep/libs-gui#932 (unsynchronized `globalFontMap` cache) and gnustep/libs-back#239 (concurrent font construction crashing in `libfontconfig`). Working write-up at `docs/upstream/gnustep-gui-nsfont-concurrent-creation-crash.md`, standalone reproducer at `docs/upstream/reproducers/gnustep-nsfont-concurrent-creation.m` (crashes 10/10 runs; 0/10 when the font work is serialised).
 - **Notes**:
   - Discovered while validating the mermaid diagram work; unrelated to it.
+
+## 11) Mermaid `erDiagram` rendering in preview
+
+- **Status**: Closed
+- **Closed On**: 2026-09-01
+- **Area**: Renderer / Preview fidelity / Diagram support
+- **Description**: Render fenced ` ```mermaid ` blocks containing a Mermaid `erDiagram` as a real entity-relationship drawing in preview, rather than as diagram source in a code block.
+- **Resolution**:
+  - Phase 1: `OMMermaidERDiagram.{h,m}`, a strict parser for the supported `erDiagram` subset, fence dispatch in `OMRenderCodeBlock`, and a line-numbered diagnostic for malformed diagrams.
+  - Phase 2: `OMMermaidERLayout.{h,m}`, a deterministic layered layout engine (breadth-first ranking, barycenter ordering, lane-assigned orthogonal routing) measured through an injected text-measuring protocol so geometry is testable.
+  - Phase 3: `OMMermaidERDrawing.{h,m}`, an `NSTextAttachmentCell` that draws the diagram as vectors, themed from the pipe-table palette, shrinking to fit the text column and printing at device resolution.
+  - Phase 4: `OMMarkdownDiagramRenderingPolicy` parsing option, `View -> Diagram Rendering` menu, a Preferences row, `-[OMMarkdownRenderer diagramBlocks]`, and `Copy diagram source` buttons in the preview.
+  - Non-`erDiagram` mermaid types, malformed source, and diagrams past the layout limits all fall back to the code block.
+- **Verification**:
+  - 12 test suites, 184 tests green, including 30 parser tests, 23 layout geometry tests, and 15 renderer tests for the diagram paths.
+  - Verified in the running app against `Resources/sample-mermaid-er.md`, in both policy modes.
+- **Notes**:
+  - Design, phase plan, and per-phase outcomes: `docs/internal/omd-mermaid-er-diagrams.md`.
 
