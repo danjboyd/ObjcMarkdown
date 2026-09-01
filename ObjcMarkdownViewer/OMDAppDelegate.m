@@ -713,6 +713,7 @@ static NSString * const OMDTextFileErrorDomain = @"OMDTextFileErrorDomain";
 static NSString * const OMDSourceEditorFontNameDefaultsKey = @"ObjcMarkdownSourceEditorFontName";
 static NSString * const OMDSourceEditorFontSizeDefaultsKey = @"ObjcMarkdownSourceEditorFontSize";
 static NSString * const OMDMathRenderingPolicyDefaultsKey = @"ObjcMarkdownMathRenderingPolicy";
+static NSString * const OMDDiagramRenderingPolicyDefaultsKey = @"ObjcMarkdownDiagramRenderingPolicy";
 static NSString * const OMDAllowRemoteImagesDefaultsKey = @"ObjcMarkdownAllowRemoteImages";
 static NSString * const OMDSplitSyncModeDefaultsKey = @"ObjcMarkdownSplitSyncMode";
 static NSString * const OMDWordSelectionModifierShimDefaultsKey = @"ObjcMarkdownWordSelectionShimEnabled";
@@ -1516,6 +1517,14 @@ static NSString *OMDViewerModeTitle(OMDViewerMode mode)
         return @"Split";
     }
     return @"Read";
+}
+
+static OMMarkdownDiagramRenderingPolicy OMDDiagramRenderingPolicyFromInteger(NSInteger value)
+{
+    if (value == OMMarkdownDiagramRenderingPolicySourceCode) {
+        return OMMarkdownDiagramRenderingPolicySourceCode;
+    }
+    return OMMarkdownDiagramRenderingPolicyNative;
 }
 
 static OMMarkdownMathRenderingPolicy OMDMathRenderingPolicyFromInteger(NSInteger value)
@@ -4364,6 +4373,19 @@ static OMDRoundedCardView *OMDCreatePreferencesCard(NSRect frame, OMDLayoutMetri
 - (void)setSourceEditorFont:(NSFont *)font persistPreference:(BOOL)persistPreference;
 - (void)updateRendererParsingOptionsForSourcePath:(NSString *)sourcePath;
 - (OMMarkdownMathRenderingPolicy)currentMathRenderingPolicy;
+- (OMMarkdownDiagramRenderingPolicy)currentDiagramRenderingPolicy;
+- (void)setDiagramRenderingPolicyPreference:(OMMarkdownDiagramRenderingPolicy)policy;
+- (void)setDiagramRenderingNative:(id)sender;
+- (void)setDiagramRenderingSourceCode:(id)sender;
+- (void)preferencesDiagramPolicyChanged:(id)sender;
+- (void)copyDiagramBlock:(id)sender;
+- (void)addCopyButtonsForRanges:(NSArray *)ranges
+                         action:(SEL)action
+                        toolTip:(NSString *)toolTip
+                  layoutManager:(NSLayoutManager *)layoutManager
+                      container:(NSTextContainer *)container
+                     textOrigin:(NSPoint)textOrigin
+                   blockPadding:(NSSize)blockPadding;
 - (BOOL)isAllowRemoteImagesEnabled;
 - (void)setMathRenderingPolicyPreference:(OMMarkdownMathRenderingPolicy)policy;
 - (void)setAllowRemoteImagesPreference:(BOOL)allow;
@@ -4599,6 +4621,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [_linkedScrollDriverResetTimer release];
     [_preferencesSectionControl release];
     [_preferencesMathPolicyPopup release];
+    [_preferencesDiagramPolicyPopup release];
     [_preferencesSplitSyncModePopup release];
     [_preferencesThemePopup release];
     [_preferencesLayoutModePopup release];
@@ -5178,6 +5201,20 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [remoteImagesItem setTarget:self];
     [mathMenuItem setSubmenu:mathMenu];
 
+    NSMenuItem *diagramMenuItem = (NSMenuItem *)[viewMenu addItemWithTitle:@"Diagram Rendering"
+                                                                    action:NULL
+                                                             keyEquivalent:@""];
+    NSMenu *diagramMenu = [[[NSMenu alloc] initWithTitle:@"Diagram Rendering"] autorelease];
+    NSMenuItem *diagramNativeItem = (NSMenuItem *)[diagramMenu addItemWithTitle:@"Drawn Diagrams"
+                                                                        action:@selector(setDiagramRenderingNative:)
+                                                                 keyEquivalent:@""];
+    [diagramNativeItem setTarget:self];
+    NSMenuItem *diagramSourceItem = (NSMenuItem *)[diagramMenu addItemWithTitle:@"Diagram Source"
+                                                                        action:@selector(setDiagramRenderingSourceCode:)
+                                                                 keyEquivalent:@""];
+    [diagramSourceItem setTarget:self];
+    [diagramMenuItem setSubmenu:diagramMenu];
+
     [viewMenuItem setSubmenu:viewMenu];
 
     OMDLogMenuSnapshot(@"setupMainMenu: before setMainMenu", menubar, _window);
@@ -5420,6 +5457,14 @@ static NSMutableArray *OMDSecondaryWindows(void)
         [options setMathRenderingPolicy:OMMarkdownMathRenderingPolicyStyledText];
 #endif
     }
+    id diagramPolicyValue = [defaults objectForKey:OMDDiagramRenderingPolicyDefaultsKey];
+    if ([diagramPolicyValue respondsToSelector:@selector(integerValue)]) {
+        [options setDiagramRenderingPolicy:
+            OMDDiagramRenderingPolicyFromInteger([diagramPolicyValue integerValue])];
+    } else {
+        [options setDiagramRenderingPolicy:OMMarkdownDiagramRenderingPolicyNative];
+    }
+
     OMDStartupTrace([NSString stringWithFormat:@"setupWindow: math policy=%ld",
                                                (long)[options mathRenderingPolicy]]);
     id allowRemoteImages = [defaults objectForKey:OMDAllowRemoteImagesDefaultsKey];
@@ -6432,6 +6477,17 @@ static NSMutableArray *OMDSecondaryWindows(void)
         } else if (action == @selector(setMathRenderingExternalTools:)) {
             itemPolicy = OMMarkdownMathRenderingPolicyExternalTools;
         }
+        [menuItem setState:(policy == itemPolicy ? NSOnState : NSOffState)];
+        return _renderer != nil;
+    }
+
+    if (action == @selector(setDiagramRenderingNative:) ||
+        action == @selector(setDiagramRenderingSourceCode:)) {
+        OMMarkdownDiagramRenderingPolicy policy = [self currentDiagramRenderingPolicy];
+        OMMarkdownDiagramRenderingPolicy itemPolicy =
+            (action == @selector(setDiagramRenderingNative:))
+                ? OMMarkdownDiagramRenderingPolicyNative
+                : OMMarkdownDiagramRenderingPolicySourceCode;
         [menuItem setState:(policy == itemPolicy ? NSOnState : NSOffState)];
         return _renderer != nil;
     }
@@ -13277,6 +13333,44 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
     [self syncPreferencesPanelFromSettings];
 }
 
+- (OMMarkdownDiagramRenderingPolicy)currentDiagramRenderingPolicy
+{
+    OMMarkdownParsingOptions *options = _renderer != nil ? [_renderer parsingOptions] : nil;
+    if (options != nil) {
+        return [options diagramRenderingPolicy];
+    }
+    id value = [[NSUserDefaults standardUserDefaults] objectForKey:OMDDiagramRenderingPolicyDefaultsKey];
+    if ([value respondsToSelector:@selector(integerValue)]) {
+        return OMDDiagramRenderingPolicyFromInteger([value integerValue]);
+    }
+    return OMMarkdownDiagramRenderingPolicyNative;
+}
+
+- (void)setDiagramRenderingPolicyPreference:(OMMarkdownDiagramRenderingPolicy)policy
+{
+    if (_renderer == nil) {
+        return;
+    }
+    OMMarkdownParsingOptions *existing = [_renderer parsingOptions];
+    OMMarkdownParsingOptions *options = existing != nil ? [[existing copy] autorelease]
+                                                        : [OMMarkdownParsingOptions defaultOptions];
+    [options setDiagramRenderingPolicy:policy];
+    [[NSUserDefaults standardUserDefaults] setInteger:(NSInteger)policy
+                                               forKey:OMDDiagramRenderingPolicyDefaultsKey];
+    [self applyParsingOptionsAndRender:options];
+    [self syncPreferencesPanelFromSettings];
+}
+
+- (void)setDiagramRenderingNative:(id)sender
+{
+    [self setDiagramRenderingPolicyPreference:OMMarkdownDiagramRenderingPolicyNative];
+}
+
+- (void)setDiagramRenderingSourceCode:(id)sender
+{
+    [self setDiagramRenderingPolicyPreference:OMMarkdownDiagramRenderingPolicySourceCode];
+}
+
 - (void)setAllowRemoteImagesPreference:(BOOL)allow
 {
     if (_renderer == nil) {
@@ -13926,6 +14020,8 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
     _preferencesSectionControl = nil;
     [_preferencesMathPolicyPopup release];
     _preferencesMathPolicyPopup = nil;
+    [_preferencesDiagramPolicyPopup release];
+    _preferencesDiagramPolicyPopup = nil;
     [_preferencesSplitSyncModePopup release];
     _preferencesSplitSyncModePopup = nil;
     [_preferencesThemePopup release];
@@ -14367,6 +14463,40 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
     [_preferencesMathPolicyPopup setAction:@selector(preferencesMathPolicyChanged:)];
     [card addSubview:_preferencesMathPolicyPopup];
     OMDAddPreferencesPopupOverlay(card, _preferencesMathPolicyPopup);
+
+    rowY += metrics.preferencesControlHeight + metrics.preferencesRowGap;
+    [card addSubview:OMDStaticTextField(NSMakeRect(pad, rowY + 5.0, rowLabelWidth, 20.0),
+                                        @"Diagrams",
+                                        OMDPreferencesLabelFont(metrics),
+                                        titleColor,
+                                        NSLeftTextAlignment,
+                                        NO)];
+    _preferencesDiagramPolicyPopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(controlX,
+                                                                                      rowY,
+                                                                                      controlWidth,
+                                                                                      metrics.preferencesControlHeight)
+                                                                pullsDown:NO];
+    OMDConfigurePreferencesPopup(_preferencesDiagramPolicyPopup, metrics);
+    [_preferencesDiagramPolicyPopup addItemWithTitle:@"Drawn Diagrams"];
+    [[_preferencesDiagramPolicyPopup itemAtIndex:0] setTag:OMMarkdownDiagramRenderingPolicyNative];
+    [_preferencesDiagramPolicyPopup addItemWithTitle:@"Diagram Source"];
+    [[_preferencesDiagramPolicyPopup itemAtIndex:1] setTag:OMMarkdownDiagramRenderingPolicySourceCode];
+    [_preferencesDiagramPolicyPopup setTarget:self];
+    [_preferencesDiagramPolicyPopup setAction:@selector(preferencesDiagramPolicyChanged:)];
+    [card addSubview:_preferencesDiagramPolicyPopup];
+    OMDAddPreferencesPopupOverlay(card, _preferencesDiagramPolicyPopup);
+
+    rowY += metrics.preferencesControlHeight + 8.0;
+    [card addSubview:OMDStaticTextField(NSMakeRect(controlX,
+                                                   rowY,
+                                                   controlWidth,
+                                                   metrics.preferencesNoteHeight),
+                                        @"Mermaid erDiagram blocks draw as entity-relationship diagrams; other mermaid types stay as code.",
+                                        OMDPreferencesNoteFont(metrics),
+                                        noteColor,
+                                        NSLeftTextAlignment,
+                                        YES)];
+    rowY += metrics.preferencesNoteHeight - metrics.preferencesControlHeight;
 
     rowY += metrics.preferencesControlHeight + metrics.preferencesRowGap;
     _preferencesAllowRemoteImagesButton = [[NSButton alloc] initWithFrame:NSMakeRect(pad,
@@ -14821,6 +14951,20 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
         }
         [_preferencesMathPolicyPopup selectItemAtIndex:selectedIndex];
     }
+    if (_preferencesDiagramPolicyPopup != nil) {
+        OMMarkdownDiagramRenderingPolicy diagramPolicy = [self currentDiagramRenderingPolicy];
+        NSInteger selectedIndex = 0;
+        NSInteger itemCount = [_preferencesDiagramPolicyPopup numberOfItems];
+        NSInteger index = 0;
+        for (; index < itemCount; index++) {
+            id<NSMenuItem> item = [_preferencesDiagramPolicyPopup itemAtIndex:index];
+            if ([item tag] == (NSInteger)diagramPolicy) {
+                selectedIndex = index;
+                break;
+            }
+        }
+        [_preferencesDiagramPolicyPopup selectItemAtIndex:selectedIndex];
+    }
     if (_preferencesAllowRemoteImagesButton != nil) {
         [_preferencesAllowRemoteImagesButton setState:([self isAllowRemoteImagesEnabled] ? NSOnState : NSOffState)];
     }
@@ -14935,6 +15079,13 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
     NSInteger tag = item != nil ? [item tag] : (NSInteger)OMMarkdownMathRenderingPolicyStyledText;
     OMMarkdownMathRenderingPolicy policy = OMDMathRenderingPolicyFromInteger(tag);
     [self setMathRenderingPolicyPreference:policy];
+}
+
+- (void)preferencesDiagramPolicyChanged:(id)sender
+{
+    id<NSMenuItem> item = [_preferencesDiagramPolicyPopup selectedItem];
+    NSInteger tag = item != nil ? [item tag] : (NSInteger)OMMarkdownDiagramRenderingPolicyNative;
+    [self setDiagramRenderingPolicyPreference:OMDDiagramRenderingPolicyFromInteger(tag)];
 }
 
 - (void)preferencesAllowRemoteImagesChanged:(id)sender
@@ -15400,8 +15551,9 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
     }
     [_codeBlockButtons removeAllObjects];
 
-    NSArray *ranges = [_renderer codeBlockRanges];
-    if ([ranges count] == 0) {
+    NSArray *codeRanges = [_renderer codeBlockRanges];
+    NSArray *diagramBlocks = [_renderer diagramBlocks];
+    if ([codeRanges count] == 0 && [diagramBlocks count] == 0) {
         return;
     }
 
@@ -15412,7 +15564,6 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
     }
     [layoutManager ensureLayoutForTextContainer:container];
 
-    NSInteger index = 0;
     NSPoint textOrigin = [_textView textContainerOrigin];
     NSSize blockPadding = NSMakeSize(12.0, 8.0);
     if ([_textView isKindOfClass:[OMDTextView class]]) {
@@ -15422,6 +15573,45 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
         }
     }
 
+    [self addCopyButtonsForRanges:codeRanges
+                           action:@selector(copyCodeBlock:)
+                          toolTip:@"Copy code block"
+                    layoutManager:layoutManager
+                        container:container
+                       textOrigin:textOrigin
+                     blockPadding:blockPadding];
+
+    // Diagrams have no drawn code background, so their buttons need no padding
+    // inset; the range is the single attachment character.
+    NSMutableArray *diagramRanges = [NSMutableArray arrayWithCapacity:[diagramBlocks count]];
+    for (NSDictionary *block in diagramBlocks) {
+        NSValue *range = [block objectForKey:OMMarkdownRendererDiagramRangeKey];
+        if (range != nil) {
+            [diagramRanges addObject:range];
+        }
+    }
+    [self addCopyButtonsForRanges:diagramRanges
+                           action:@selector(copyDiagramBlock:)
+                          toolTip:@"Copy diagram source"
+                    layoutManager:layoutManager
+                        container:container
+                       textOrigin:textOrigin
+                     blockPadding:NSZeroSize];
+}
+
+- (void)addCopyButtonsForRanges:(NSArray *)ranges
+                         action:(SEL)action
+                        toolTip:(NSString *)toolTip
+                  layoutManager:(NSLayoutManager *)layoutManager
+                      container:(NSTextContainer *)container
+                     textOrigin:(NSPoint)textOrigin
+                   blockPadding:(NSSize)blockPadding
+{
+    if ([ranges count] == 0) {
+        return;
+    }
+
+    NSInteger index = 0;
     for (NSValue *value in ranges) {
         NSRange charRange = [value rangeValue];
         if (charRange.length == 0) {
@@ -15479,7 +15669,7 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
         [self applyCopyButtonDefaultAppearance:button];
         [button setButtonType:NSMomentaryChangeButton];
         [button setBordered:NO];
-        [button setToolTip:@"Copy code block"];
+        [button setToolTip:toolTip];
         id buttonCell = [button cell];
         if (buttonCell != nil && [buttonCell respondsToSelector:@selector(setImageScaling:)]) {
             [buttonCell setImageScaling:NSImageScaleNone];
@@ -15488,12 +15678,34 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
             [buttonCell setHighlightsBy:NSNoCellMask];
         }
         [button setTarget:self];
-        [button setAction:@selector(copyCodeBlock:)];
+        [button setAction:action];
         [button setTag:index];
         [_textView addSubview:button];
         [_codeBlockButtons addObject:button];
         [button release];
         index++;
+    }
+}
+
+- (void)copyDiagramBlock:(id)sender
+{
+    NSInteger index = [sender tag];
+    NSArray *blocks = [_renderer diagramBlocks];
+    if (index < 0 || index >= (NSInteger)[blocks count]) {
+        return;
+    }
+
+    NSString *source = [[blocks objectAtIndex:index] objectForKey:OMMarkdownRendererDiagramSourceKey];
+    if (source == nil) {
+        return;
+    }
+
+    NSPasteboard *pasteboard = [NSPasteboard generalPasteboard];
+    [pasteboard declareTypes:[NSArray arrayWithObject:NSStringPboardType] owner:nil];
+    [pasteboard setString:source forType:NSStringPboardType];
+
+    if ([sender isKindOfClass:[NSButton class]]) {
+        [self showCopyFeedbackForButton:(NSButton *)sender];
     }
 }
 

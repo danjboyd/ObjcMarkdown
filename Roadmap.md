@@ -31,6 +31,7 @@ The following are valuable, but they are not required to satisfy the current rel
   - clean-machine validation on the externalized packaging path
   - release parity maintenance for AppImage and MSI packaging through `gnustep-packager`
 - keep CommonMark behavior strong before going deeper on GitHub-flavored extensions
+- extend diagram support beyond the Mermaid `erDiagram` subset if real documents need it (see `docs/internal/omd-mermaid-er-diagrams.md`)
 
 ## Phase 7: Windows Release Packaging and Clean-Machine Validation
 

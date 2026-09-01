@@ -9,7 +9,7 @@
 - `Read`, `Edit`, and `Split` modes
 - linked source/preview scrolling in split view
 - a syntax-highlighted source editor with line numbers, an optional formatting bar, and optional Vim key bindings
-- rendered preview with GitHub-style tables, math styling, and copy buttons for code blocks
+- rendered preview with GitHub-style tables, math styling, drawn Mermaid entity-relationship diagrams, and copy buttons for code blocks and diagrams
 - theme, layout, source-editor, and explorer preferences
 - local file explorer and GitHub repository browsing
 
@@ -80,6 +80,7 @@ Currently supported in the renderer:
 - optional math styling for inline and display math
 - optional full LaTeX-backed math artifact rendering when the required external toolchain is available
 - GitHub-style pipe tables, including horizontal overflow for wide tables
+- Mermaid `erDiagram` blocks drawn as entity-relationship diagrams, with the diagram source kept one click away
 - optional renderer syntax highlighting for code blocks when the required tooling is available
 
 ## Status

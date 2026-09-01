@@ -116,6 +116,7 @@ typedef unsigned short mode_t;
     NSPanel *_preferencesPanel;
     NSSegmentedControl *_preferencesSectionControl;
     NSPopUpButton *_preferencesMathPolicyPopup;
+    NSPopUpButton *_preferencesDiagramPolicyPopup;
     NSPopUpButton *_preferencesSplitSyncModePopup;
     NSPopUpButton *_preferencesThemePopup;
     NSPopUpButton *_preferencesLayoutModePopup;
