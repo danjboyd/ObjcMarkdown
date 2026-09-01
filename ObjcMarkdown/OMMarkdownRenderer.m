@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
 #import "OMMarkdownRenderer.h"
+#import "OMAppKitSerialization.h"
 #import "OMTheme.h"
 
 #import <dispatch/dispatch.h>
@@ -134,9 +135,9 @@ static BOOL OMTruthyFlagValue(NSString *value)
 
 static BOOL OMPerformanceLoggingEnabled(void)
 {
-    static BOOL resolved = NO;
+    static dispatch_once_t onceToken;
     static BOOL enabled = NO;
-    if (!resolved) {
+    dispatch_once(&onceToken, ^{
         NSDictionary *environment = [[NSProcessInfo processInfo] environment];
         NSString *flag = [environment objectForKey:@"OMD_PERF_LOG"];
         if (flag == nil || [flag length] == 0) {
@@ -147,8 +148,7 @@ static BOOL OMPerformanceLoggingEnabled(void)
         } else {
             enabled = [[NSUserDefaults standardUserDefaults] boolForKey:@"ObjcMarkdownPerfLog"];
         }
-        resolved = YES;
-    }
+    });
     return enabled;
 }
 
@@ -340,9 +340,9 @@ static BOOL OMURLUsesAllowedLinkScheme(NSURL *url)
 
 static BOOL OMTreeSitterRuntimeAvailable(void)
 {
-    static BOOL resolved = NO;
+    static dispatch_once_t onceToken;
     static BOOL available = NO;
-    if (!resolved) {
+    dispatch_once(&onceToken, ^{
         available = NO;
 
         const char *libraryCandidates[] = {
@@ -379,8 +379,7 @@ static BOOL OMTreeSitterRuntimeAvailable(void)
             available = (OMExecutablePathNamed(@"tree-sitter") != nil);
         }
 
-        resolved = YES;
-    }
+    });
     return available;
 }
 
@@ -405,14 +404,14 @@ static OMMarkdownHTMLPolicy OMHTMLPolicyForBlockNode(const OMRenderContext *rend
 
 static CGFloat OMMathRasterOversampleFactor(void)
 {
-    static BOOL resolved = NO;
+    static dispatch_once_t onceToken;
     static CGFloat factor =
 #if defined(_WIN32)
         3.0;
 #else
         2.0;
 #endif
-    if (!resolved) {
+    dispatch_once(&onceToken, ^{
         NSDictionary *environment = [[NSProcessInfo processInfo] environment];
         NSString *value = [environment objectForKey:@"OMD_MATH_OVERSAMPLE"];
         if (value == nil || [value length] == 0) {
@@ -432,8 +431,7 @@ static CGFloat OMMathRasterOversampleFactor(void)
         } else if (factor > 4.0) {
             factor = 4.0;
         }
-        resolved = YES;
-    }
+    });
     return factor;
 }
 
@@ -578,9 +576,10 @@ static OMCodeSyntaxPalette OMCodePaletteForBackground(NSColor *backgroundColor)
 static NSMutableDictionary *OMCodeRegexCache(void)
 {
     static NSMutableDictionary *cache = nil;
-    if (cache == nil) {
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
         cache = [[NSMutableDictionary alloc] init];
-    }
+    });
     return cache;
 }
 
@@ -3986,44 +3985,40 @@ static NSString *OMExecutablePathNamed(NSString *name)
 static NSString *OMLaTeXExecutablePath(void)
 {
     static NSString *path = nil;
-    static BOOL resolved = NO;
-    if (!resolved) {
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
         path = [OMExecutablePathNamed(@"latex") retain];
-        resolved = YES;
-    }
+    });
     return path;
 }
 
 static NSString *OMPlainTexExecutablePath(void)
 {
     static NSString *path = nil;
-    static BOOL resolved = NO;
-    if (!resolved) {
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
         path = [OMExecutablePathNamed(@"tex") retain];
-        resolved = YES;
-    }
+    });
     return path;
 }
 
 static NSString *OMDviPngExecutablePath(void)
 {
     static NSString *path = nil;
-    static BOOL resolved = NO;
-    if (!resolved) {
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
         path = [OMExecutablePathNamed(@"dvipng") retain];
-        resolved = YES;
-    }
+    });
     return path;
 }
 
 static NSString *OMDviSvgmExecutablePath(void)
 {
     static NSString *path = nil;
-    static BOOL resolved = NO;
-    if (!resolved) {
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
         path = [OMExecutablePathNamed(@"dvisvgm") retain];
-        resolved = YES;
-    }
+    });
     return path;
 }
 
@@ -4041,50 +4036,55 @@ static BOOL OMMathBackendAvailable(void)
 static NSCache *OMMathAttachmentCache(void)
 {
     static NSCache *cache = nil;
-    if (cache == nil) {
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
         cache = [[NSCache alloc] init];
         [cache setCountLimit:256];
-    }
+    });
     return cache;
 }
 
 static NSCache *OMMathBaseImageCache(void)
 {
     static NSCache *cache = nil;
-    if (cache == nil) {
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
         cache = [[NSCache alloc] init];
         [cache setCountLimit:256];
-    }
+    });
     return cache;
 }
 
 static NSCache *OMMathBaseSVGDataCache(void)
 {
     static NSCache *cache = nil;
-    if (cache == nil) {
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
         cache = [[NSCache alloc] init];
         [cache setCountLimit:256];
-    }
+    });
     return cache;
 }
 
 static NSCache *OMMathBestAvailableImageCache(void)
 {
     static NSCache *cache = nil;
-    if (cache == nil) {
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
         cache = [[NSCache alloc] init];
         [cache setCountLimit:256];
-    }
+    });
     return cache;
 }
 
 static NSCache *OMMathBestAvailableZoomCache(void)
 {
     static NSCache *cache = nil;
-    if (cache == nil) {
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
         cache = [[NSCache alloc] init];
         [cache setCountLimit:256];
-    }
+    });
     return cache;
 }
 
@@ -5364,6 +5364,7 @@ static cmark_node *OMTryAppendMultiNodeDisplayMath(cmark_node *startNode,
 @property (nonatomic, retain) NSArray *codeBlockRanges;
 @property (nonatomic, retain) NSArray *blockquoteRanges;
 @property (nonatomic, retain) NSArray *blockAnchors;
+- (NSAttributedString *)om_attributedStringFromMarkdown:(NSString *)markdown;
 @end
 
 @implementation OMMarkdownRenderer
@@ -5398,12 +5399,15 @@ static cmark_node *OMTryAppendMultiNodeDisplayMath(cmark_node *startNode,
 {
     self = [super init];
     if (self) {
+        NSRecursiveLock *lock = OMAppKitGlobalLock();
+        [lock lock];
         if (theme == nil) {
             theme = [OMTheme defaultTheme];
         }
         if (parsingOptions == nil) {
             parsingOptions = [OMMarkdownParsingOptions defaultOptions];
         }
+        [lock unlock];
         _theme = [theme retain];
         _parsingOptions = [parsingOptions copy];
         _zoomScale = 1.0;
@@ -5438,6 +5442,17 @@ static cmark_node *OMTryAppendMultiNodeDisplayMath(cmark_node *startNode,
 }
 
 - (NSAttributedString *)attributedStringFromMarkdown:(NSString *)markdown
+{
+    NSRecursiveLock *lock = OMAppKitGlobalLock();
+    [lock lock];
+    @try {
+        return [self om_attributedStringFromMarkdown:markdown];
+    } @finally {
+        [lock unlock];
+    }
+}
+
+- (NSAttributedString *)om_attributedStringFromMarkdown:(NSString *)markdown
 {
     if (markdown == nil) {
         return [[[NSAttributedString alloc] initWithString:@""] autorelease];

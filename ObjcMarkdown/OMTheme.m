@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
 #import "OMTheme.h"
+#import "OMAppKitSerialization.h"
 
 #ifndef OBJCMARKDOWN_ENABLE_TOML_THEME
 #define OBJCMARKDOWN_ENABLE_TOML_THEME 1
@@ -30,6 +31,9 @@
 
 + (instancetype)defaultTheme
 {
+    NSRecursiveLock *lock = OMAppKitGlobalLock();
+    [lock lock];
+    @try {
     NSBundle *bundle = [NSBundle mainBundle];
     NSString *path = [bundle pathForResource:@"theme-github" ofType:@"toml"];
     if (path == nil) {
@@ -43,10 +47,16 @@
     }
 
     return [[[OMTheme alloc] initWithDefaultValues] autorelease];
+    } @finally {
+        [lock unlock];
+    }
 }
 
 + (instancetype)themeWithContentsOfFile:(NSString *)path error:(NSError **)error
 {
+    NSRecursiveLock *lock = OMAppKitGlobalLock();
+    [lock lock];
+    @try {
 #if !OBJCMARKDOWN_ENABLE_TOML_THEME
     (void)path;
     if (error != NULL) {
@@ -204,6 +214,9 @@
     toml_free(root);
     return theme;
 #endif
+    } @finally {
+        [lock unlock];
+    }
 }
 
 - (instancetype)initWithDefaultValues

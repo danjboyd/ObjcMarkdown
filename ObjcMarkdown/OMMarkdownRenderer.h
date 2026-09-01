@@ -17,6 +17,8 @@ FOUNDATION_EXPORT NSString * const OMMarkdownRendererAnchorBlockIDKey;
 
 @interface OMMarkdownRenderer : NSObject
 
+// Safe to call from any thread. Rendering touches process-global AppKit text
+// state, so calls serialise against every other renderer in the process.
 - (NSAttributedString *)attributedStringFromMarkdown:(NSString *)markdown;
 - (instancetype)initWithTheme:(OMTheme *)theme;
 - (instancetype)initWithTheme:(OMTheme *)theme parsingOptions:(OMMarkdownParsingOptions *)parsingOptions;

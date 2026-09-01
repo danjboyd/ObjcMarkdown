@@ -7,8 +7,8 @@ CMARK_CFLAGS := $(shell pkg-config --cflags $(CMARK_PKG) 2>/dev/null)
 CMARK_LIBS := $(shell pkg-config --libs $(CMARK_PKG) 2>/dev/null)
 OBJCMARKDOWN_ENABLE_TOML_THEME ?= 1
 
-ObjcMarkdown_OBJC_FILES = OMMarkdownRenderer.m OMTheme.m OMMarkdownParsingOptions.m
-ObjcMarkdown_HEADER_FILES = OMMarkdownRenderer.h OMTheme.h OMMarkdownParsingOptions.h
+ObjcMarkdown_OBJC_FILES = OMMarkdownRenderer.m OMTheme.m OMMarkdownParsingOptions.m OMAppKitSerialization.m
+ObjcMarkdown_HEADER_FILES = OMMarkdownRenderer.h OMTheme.h OMMarkdownParsingOptions.h OMAppKitSerialization.h
 ObjcMarkdown_CPPFLAGS += $(CMARK_CFLAGS) -DOBJCMARKDOWN_ENABLE_TOML_THEME=$(OBJCMARKDOWN_ENABLE_TOML_THEME)
 ifneq (,$(findstring mingw,$(GNUSTEP_HOST_OS)))
 ObjcMarkdown_OBJCFLAGS += -include sys/types.h "-Dmode_t=unsigned short"

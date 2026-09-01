@@ -977,3 +977,27 @@
   - Kept oversized images constrained to the available preview width after zoom is applied.
   - Added regression coverage for 50%, 100%, and 200% image zoom plus constrained non-square images.
 
+## 12) Flaky heap corruption under concurrent rendering
+
+- **Status**: Closed
+- **Closed On**: 2026-09-01
+- **Area**: Renderer / Thread safety / Test reliability
+- **Description**: `OMMarkdownRendererTests` intermittently aborted the whole test process with `SIGSEGV` or `malloc_consolidate(): unaligned fastbin chunk detected`. Reproduced on pristine `main`: 6 crashes in 12 consecutive `xctest` runs.
+- **Root Cause**:
+  - GNUstep AppKit keeps process-global, unguarded state for the font cache, the shared `NSFontManager`, and paragraph-style defaults.
+  - `testConcurrentRenderersDoNotCrossContaminateRenderState` built themes, rendered, inspected the rendered attributed strings, and drained autorelease pools on 160 dispatch worker threads at once, so that global state was mutated concurrently.
+  - Backtraces landed in `NSFontManager convertFont:toHaveTrait:`, `NSMapRemove`, and `objc_retain`/`objc_release` inside gnustep-base, at three different sites across runs, which is the signature of corrupted shared state rather than a bug at any one call site.
+  - Several process-wide caches in `OMMarkdownRenderer.m` also initialised lazily behind a plain `if (x == nil)` check with no barrier, so concurrent first calls could publish a half-initialised cache or two competing instances.
+- **Resolution**:
+  - Added `OMAppKitSerialization.{h,m}` exposing `OMAppKitGlobalLock()`, a process-wide recursive lock documented as the serialisation point for AppKit text work.
+  - `-[OMMarkdownRenderer attributedStringFromMarkdown:]`, the renderer's designated initialiser, and both `OMTheme` constructors now take that lock.
+  - Converted every lazily initialised cache and memoised flag in `OMMarkdownRenderer.m` to `dispatch_once` (the code regex cache, the five math caches, the four external-tool path lookups, and the three memoised feature flags).
+  - Documented in `OMMarkdownRenderer.h` that rendering is safe from any thread but serialises, and that the returned attributed string holds AppKit objects a caller must not touch concurrently with another render.
+  - Replaced the flaky test with two: `testInterleavedRenderersDoNotCrossContaminateRenderState`, which checks state isolation deterministically on one thread by alternating two differently configured renderers, and `testConcurrentRenderersUnderTheSharedLockStayIsolated`, which keeps real concurrency while holding `OMAppKitGlobalLock()` around the AppKit work, exercising the documented pattern.
+- **Verification**:
+  - 16 consecutive full-suite runs with zero crashes and zero assertion failures, against 6 crashes in 12 runs before the fix.
+- **Upstream**:
+  - The underlying defect is in GNUstep, not this repo: concurrent `NSFont` creation corrupts the heap. Filed upstream 2026-09-01 as gnustep/libs-gui#932 (unsynchronized `globalFontMap` cache) and gnustep/libs-back#239 (concurrent font construction crashing in `libfontconfig`). Working write-up at `docs/upstream/gnustep-gui-nsfont-concurrent-creation-crash.md`, standalone reproducer at `docs/upstream/reproducers/gnustep-nsfont-concurrent-creation.m` (crashes 10/10 runs; 0/10 when the font work is serialised).
+- **Notes**:
+  - Discovered while validating the mermaid diagram work; unrelated to it.
+

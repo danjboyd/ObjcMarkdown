@@ -5,6 +5,7 @@
 #import <AppKit/AppKit.h>
 #import <dispatch/dispatch.h>
 #import "OMMarkdownRenderer.h"
+#import "OMAppKitSerialization.h"
 
 static NSArray *OMDTestExecutableCandidateNames(NSString *name)
 {
@@ -1086,75 +1087,131 @@ static BOOL OMDMathToolchainAvailable(void)
     XCTAssertTrue([[styledAgain string] rangeOfString:@"$a^2+b^2=c^2$"].location == NSNotFound);
 }
 
-- (void)testConcurrentRenderersDoNotCrossContaminateRenderState
+- (void)assertRenderState:(NSAttributedString *)rendered
+                  variant:(NSString *)variant
+                  failures:(NSMutableArray *)failures
 {
-    NSString *markdown = @"# Header\n\nBefore <span class=\"hot\">inline</span> after.\n\nSee [rel](note.md).\n\n```objc\nint value = 42;\n```\n\nInline math: $a+b=c$.\n";
+    NSString *text = rendered != nil ? [rendered string] : @"";
+    NSURL *linkURL = [self linkURLInRenderedString:rendered forVisibleText:@"rel"];
+    BOOL isVariantA = [variant isEqualToString:@"A"];
+
+    BOOL htmlCorrect = isVariantA
+        ? ([text rangeOfString:@"<span class=\"hot\">inline</span>"].location == NSNotFound)
+        : ([text rangeOfString:@"<span class=\"hot\">inline</span>"].location != NSNotFound);
+    BOOL mathCorrect = isVariantA
+        ? ([text rangeOfString:@"$a+b=c$"].location != NSNotFound)
+        : ([text rangeOfString:@"$a+b=c$"].location == NSNotFound);
+    NSString *expectedSuffix = isVariantA
+        ? @"/tmp/objcmarkdown-phase1-a/note.md"
+        : @"/tmp/objcmarkdown-phase1-b/note.md";
+    BOOL linkUsesBase = (linkURL != nil && [[linkURL absoluteString] hasSuffix:expectedSuffix]);
+
+    if (rendered == nil || !htmlCorrect || !mathCorrect || !linkUsesBase) {
+        @synchronized (failures) {
+            [failures addObject:[NSString stringWithFormat:@"renderer-%@ mismatch", variant]];
+        }
+    }
+}
+
+- (OMMarkdownRenderer *)rendererForVariant:(NSString *)variant baseURL:(NSURL *)baseURL
+{
+    BOOL isVariantA = [variant isEqualToString:@"A"];
+    OMMarkdownParsingOptions *options = [OMMarkdownParsingOptions defaultOptions];
+    [options setInlineHTMLPolicy:isVariantA ? OMMarkdownHTMLPolicyIgnore : OMMarkdownHTMLPolicyRenderAsText];
+    [options setBlockHTMLPolicy:isVariantA ? OMMarkdownHTMLPolicyIgnore : OMMarkdownHTMLPolicyRenderAsText];
+    [options setMathRenderingPolicy:isVariantA
+        ? OMMarkdownMathRenderingPolicyDisabled
+        : OMMarkdownMathRenderingPolicyStyledText];
+    [options setBaseURL:baseURL];
+    return [[[OMMarkdownRenderer alloc] initWithTheme:nil parsingOptions:options] autorelease];
+}
+
+- (NSString *)crossContaminationMarkdown
+{
+    return @"# Header\n\nBefore <span class=\"hot\">inline</span> after.\n\nSee [rel](note.md).\n\n```objc\nint value = 42;\n```\n\nInline math: $a+b=c$.\n";
+}
+
+- (void)testInterleavedRenderersDoNotCrossContaminateRenderState
+{
+    NSString *markdown = [self crossContaminationMarkdown];
+    NSURL *baseA = [NSURL fileURLWithPath:@"/tmp/objcmarkdown-phase1-a" isDirectory:YES];
+    NSURL *baseB = [NSURL fileURLWithPath:@"/tmp/objcmarkdown-phase1-b" isDirectory:YES];
+    NSMutableArray *failures = [NSMutableArray array];
+
+    NSUInteger i = 0;
+    for (; i < 80; i++) {
+        @autoreleasepool {
+            OMMarkdownRenderer *rendererA = [self rendererForVariant:@"A" baseURL:baseA];
+            OMMarkdownRenderer *rendererB = [self rendererForVariant:@"B" baseURL:baseB];
+
+            // Alternate which renderer goes first so that leaked state from
+            // either ordering shows up.
+            if ((i % 2) == 0) {
+                [self assertRenderState:[rendererA attributedStringFromMarkdown:markdown]
+                                variant:@"A"
+                               failures:failures];
+                [self assertRenderState:[rendererB attributedStringFromMarkdown:markdown]
+                                variant:@"B"
+                               failures:failures];
+            } else {
+                [self assertRenderState:[rendererB attributedStringFromMarkdown:markdown]
+                                variant:@"B"
+                               failures:failures];
+                [self assertRenderState:[rendererA attributedStringFromMarkdown:markdown]
+                                variant:@"A"
+                               failures:failures];
+            }
+
+            XCTAssertTrue([[rendererA blockAnchors] count] > 0);
+            XCTAssertTrue([[rendererA codeBlockRanges] count] > 0);
+            XCTAssertTrue([[rendererB blockAnchors] count] > 0);
+            XCTAssertTrue([[rendererB codeBlockRanges] count] > 0);
+        }
+    }
+
+    XCTAssertEqual([failures count], (NSUInteger)0, @"%@", [failures componentsJoinedByString:@"\n"]);
+}
+
+// GNUstep AppKit text objects cannot be built, inspected, or released on several
+// threads at once, so a caller doing concurrent work holds OMAppKitGlobalLock
+// across everything that touches the rendered string. This checks that the
+// documented pattern keeps renderer state isolated.
+- (void)testConcurrentRenderersUnderTheSharedLockStayIsolated
+{
+    NSString *markdown = [self crossContaminationMarkdown];
     NSURL *baseA = [NSURL fileURLWithPath:@"/tmp/objcmarkdown-phase1-a" isDirectory:YES];
     NSURL *baseB = [NSURL fileURLWithPath:@"/tmp/objcmarkdown-phase1-b" isDirectory:YES];
     NSMutableArray *failures = [NSMutableArray array];
 
     dispatch_group_t group = dispatch_group_create();
     dispatch_queue_t queue = dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0);
-    NSUInteger iterations = 80;
+    NSUInteger iterations = 40;
     NSUInteger i = 0;
     for (; i < iterations; i++) {
-        dispatch_group_async(group, queue, ^{
-            @autoreleasepool {
-                OMMarkdownParsingOptions *options = [OMMarkdownParsingOptions defaultOptions];
-                [options setInlineHTMLPolicy:OMMarkdownHTMLPolicyIgnore];
-                [options setBlockHTMLPolicy:OMMarkdownHTMLPolicyIgnore];
-                [options setMathRenderingPolicy:OMMarkdownMathRenderingPolicyDisabled];
-                [options setBaseURL:baseA];
-                OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] initWithTheme:nil
-                                                                            parsingOptions:options] autorelease];
-                NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
-                NSString *text = rendered != nil ? [rendered string] : @"";
-                NSURL *linkURL = [self linkURLInRenderedString:rendered forVisibleText:@"rel"];
-                NSArray *anchors = [renderer blockAnchors];
-                NSArray *codeRanges = [renderer codeBlockRanges];
-
-                BOOL htmlSuppressed = [text rangeOfString:@"<span class=\"hot\">inline</span>"].location == NSNotFound;
-                BOOL mathLiteral = [text rangeOfString:@"$a+b=c$"].location != NSNotFound;
-                BOOL linkUsesBase = (linkURL != nil &&
-                                     [[linkURL absoluteString] hasSuffix:@"/tmp/objcmarkdown-phase1-a/note.md"]);
-                BOOL hasAnchors = [anchors count] > 0;
-                BOOL hasCodeRanges = [codeRanges count] > 0;
-                if (rendered == nil || !htmlSuppressed || !mathLiteral || !linkUsesBase || !hasAnchors || !hasCodeRanges) {
-                    @synchronized (failures) {
-                        [failures addObject:@"renderer-A mismatch under concurrent load"];
+        NSUInteger which = 0;
+        for (; which < 2; which++) {
+            NSString *variant = (which == 0) ? @"A" : @"B";
+            NSURL *baseURL = (which == 0) ? baseA : baseB;
+            dispatch_group_async(group, queue, ^{
+                NSRecursiveLock *lock = OMAppKitGlobalLock();
+                [lock lock];
+                @try {
+                    @autoreleasepool {
+                        OMMarkdownRenderer *renderer = [self rendererForVariant:variant baseURL:baseURL];
+                        NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
+                        [self assertRenderState:rendered variant:variant failures:failures];
+                        if ([[renderer blockAnchors] count] == 0 ||
+                            [[renderer codeBlockRanges] count] == 0) {
+                            @synchronized (failures) {
+                                [failures addObject:@"missing anchors or code ranges"];
+                            }
+                        }
                     }
+                } @finally {
+                    [lock unlock];
                 }
-            }
-        });
-
-        dispatch_group_async(group, queue, ^{
-            @autoreleasepool {
-                OMMarkdownParsingOptions *options = [OMMarkdownParsingOptions defaultOptions];
-                [options setInlineHTMLPolicy:OMMarkdownHTMLPolicyRenderAsText];
-                [options setBlockHTMLPolicy:OMMarkdownHTMLPolicyRenderAsText];
-                [options setMathRenderingPolicy:OMMarkdownMathRenderingPolicyStyledText];
-                [options setBaseURL:baseB];
-                OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] initWithTheme:nil
-                                                                            parsingOptions:options] autorelease];
-                NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
-                NSString *text = rendered != nil ? [rendered string] : @"";
-                NSURL *linkURL = [self linkURLInRenderedString:rendered forVisibleText:@"rel"];
-                NSArray *anchors = [renderer blockAnchors];
-                NSArray *codeRanges = [renderer codeBlockRanges];
-
-                BOOL htmlVisible = [text rangeOfString:@"<span class=\"hot\">inline</span>"].location != NSNotFound;
-                BOOL mathStyled = [text rangeOfString:@"$a+b=c$"].location == NSNotFound;
-                BOOL linkUsesBase = (linkURL != nil &&
-                                     [[linkURL absoluteString] hasSuffix:@"/tmp/objcmarkdown-phase1-b/note.md"]);
-                BOOL hasAnchors = [anchors count] > 0;
-                BOOL hasCodeRanges = [codeRanges count] > 0;
-                if (rendered == nil || !htmlVisible || !mathStyled || !linkUsesBase || !hasAnchors || !hasCodeRanges) {
-                    @synchronized (failures) {
-                        [failures addObject:@"renderer-B mismatch under concurrent load"];
-                    }
-                }
-            }
-        });
+            });
+        }
     }
 
     long waitResult = dispatch_group_wait(group,
