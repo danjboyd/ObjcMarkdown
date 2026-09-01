@@ -14,6 +14,13 @@ typedef NS_ENUM(NSInteger, OMMarkdownMathRenderingPolicy) {
     OMMarkdownMathRenderingPolicyExternalTools = 2
 };
 
+// Mermaid erDiagram blocks either draw, or render as their fenced source.
+// There is no third state: "off" and "show the source" would behave the same.
+typedef NS_ENUM(NSInteger, OMMarkdownDiagramRenderingPolicy) {
+    OMMarkdownDiagramRenderingPolicySourceCode = 0,
+    OMMarkdownDiagramRenderingPolicyNative = 1
+};
+
 @interface OMMarkdownParsingOptions : NSObject <NSCopying>
 
 @property (nonatomic, assign) NSUInteger cmarkOptions;
@@ -26,6 +33,7 @@ typedef NS_ENUM(NSInteger, OMMarkdownMathRenderingPolicy) {
 @property (nonatomic, assign) OMMarkdownMathRenderingPolicy mathRenderingPolicy;
 @property (nonatomic, assign) NSUInteger maximumMathFormulaLength;
 @property (nonatomic, assign) NSTimeInterval externalToolTimeout;
+@property (nonatomic, assign) OMMarkdownDiagramRenderingPolicy diagramRenderingPolicy;
 
 + (instancetype)defaultOptions;
 

@@ -15,6 +15,10 @@ FOUNDATION_EXPORT NSString * const OMMarkdownRendererAnchorTargetStartKey;
 FOUNDATION_EXPORT NSString * const OMMarkdownRendererAnchorTargetLengthKey;
 FOUNDATION_EXPORT NSString * const OMMarkdownRendererAnchorBlockIDKey;
 
+// Keys in the dictionaries returned by -diagramBlocks.
+FOUNDATION_EXPORT NSString * const OMMarkdownRendererDiagramRangeKey;
+FOUNDATION_EXPORT NSString * const OMMarkdownRendererDiagramSourceKey;
+
 @interface OMMarkdownRenderer : NSObject
 
 // Safe to call from any thread. Rendering touches process-global AppKit text
@@ -32,5 +36,9 @@ FOUNDATION_EXPORT NSString * const OMMarkdownRendererAnchorBlockIDKey;
 @property (nonatomic, readonly) NSArray *codeBlockRanges;
 @property (nonatomic, readonly) NSArray *blockquoteRanges;
 @property (nonatomic, readonly) NSArray *blockAnchors;
+// One dictionary per drawn diagram: its range in the rendered string, and the
+// mermaid source it was drawn from. Diagrams are deliberately absent from
+// -codeBlockRanges so that no code background is painted behind them.
+@property (nonatomic, readonly) NSArray *diagramBlocks;
 
 @end

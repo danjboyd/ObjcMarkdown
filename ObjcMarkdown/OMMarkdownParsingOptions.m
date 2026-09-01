@@ -26,6 +26,7 @@
         _mathRenderingPolicy = OMMarkdownMathRenderingPolicyStyledText;
         _maximumMathFormulaLength = 2048;
         _externalToolTimeout = 4.0;
+        _diagramRenderingPolicy = OMMarkdownDiagramRenderingPolicyNative;
     }
     return self;
 }
@@ -44,6 +45,7 @@
         [copy setMathRenderingPolicy:self.mathRenderingPolicy];
         [copy setMaximumMathFormulaLength:self.maximumMathFormulaLength];
         [copy setExternalToolTimeout:self.externalToolTimeout];
+        [copy setDiagramRenderingPolicy:self.diagramRenderingPolicy];
     }
     return copy;
 }

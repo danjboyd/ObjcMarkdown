@@ -6,6 +6,8 @@
 #import <dispatch/dispatch.h>
 #import "OMMarkdownRenderer.h"
 #import "OMAppKitSerialization.h"
+#import "OMMermaidERDrawing.h"
+#import "OMMermaidERLayout.h"
 
 static NSArray *OMDTestExecutableCandidateNames(NSString *name)
 {
@@ -1244,6 +1246,262 @@ static BOOL OMDMathToolchainAvailable(void)
     XCTAssertNotNil(rendered);
     XCTAssertTrue([rendered length] > 0);
     XCTAssertTrue(elapsed < 15.0);
+}
+
+- (NSString *)sampleMermaidMarkdown
+{
+    return @"```mermaid\n"
+            "erDiagram\n"
+            "    CUSTOMER ||--o{ ORDER : places\n"
+            "    ORDER ||--|{ ORDER_ITEM : contains\n"
+            "    CUSTOMER {\n"
+            "        uuid id PK\n"
+            "        text email UK\n"
+            "    }\n"
+            "```\n";
+}
+
+- (void)testMermaidERDiagramRendersAsDrawnAttachment
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:[self sampleMermaidMarkdown]];
+
+    NSTextAttachment *attachment = [self firstAttachmentInRenderedString:rendered];
+    XCTAssertNotNil(attachment, @"an erDiagram should render as an attachment");
+    XCTAssertTrue([[attachment attachmentCell] isKindOfClass:[OMMermaidERDiagramAttachmentCell class]]);
+
+    NSSize cellSize = [[attachment attachmentCell] cellSize];
+    XCTAssertTrue(cellSize.width > 0.0 && cellSize.height > 0.0);
+
+    NSString *text = [rendered string];
+    XCTAssertTrue([text rangeOfString:@"CUSTOMER ||--o{ ORDER"].location == NSNotFound,
+                  @"diagram source should not also appear as code");
+    XCTAssertTrue([text rangeOfString:@"mermaid erDiagram"].location == NSNotFound,
+                  @"a diagram that draws should produce no diagnostic");
+}
+
+- (void)testDrawnMermaidDiagramIsNotRecordedAsACodeBlock
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:[self sampleMermaidMarkdown]];
+    XCTAssertNotNil(rendered);
+    XCTAssertEqual([[renderer codeBlockRanges] count], (NSUInteger)0,
+                   @"a drawn diagram must not get the code-block background or copy button");
+}
+
+- (void)testDrawnMermaidDiagramExposesEveryEntityAndRelationship
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:[self sampleMermaidMarkdown]];
+    OMMermaidERDiagramAttachmentCell *cell =
+        (OMMermaidERDiagramAttachmentCell *)[[self firstAttachmentInRenderedString:rendered] attachmentCell];
+
+    OMMermaidERDiagramLayout *layout = [cell layout];
+    XCTAssertEqual([[layout entityLayouts] count], (NSUInteger)3);
+    XCTAssertEqual([[layout edgeLayouts] count], (NSUInteger)2);
+    XCTAssertEqual([[[layout layoutForEntityNamed:@"CUSTOMER"] attributeRows] count], (NSUInteger)2);
+}
+
+- (void)testMermaidDiagramShrinksToFitANarrowPreviewWidth
+{
+    OMMarkdownRenderer *wideRenderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    [wideRenderer setLayoutWidth:1400.0];
+    NSAttributedString *wide = [wideRenderer attributedStringFromMarkdown:[self sampleMermaidMarkdown]];
+    OMMermaidERDiagramAttachmentCell *wideCell =
+        (OMMermaidERDiagramAttachmentCell *)[[self firstAttachmentInRenderedString:wide] attachmentCell];
+
+    OMMarkdownRenderer *narrowRenderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    [narrowRenderer setLayoutWidth:240.0];
+    NSAttributedString *narrow = [narrowRenderer attributedStringFromMarkdown:[self sampleMermaidMarkdown]];
+    OMMermaidERDiagramAttachmentCell *narrowCell =
+        (OMMermaidERDiagramAttachmentCell *)[[self firstAttachmentInRenderedString:narrow] attachmentCell];
+
+    XCTAssertEqualWithAccuracy([wideCell drawScale], 1.0, 0.001,
+                               @"a wide column should not shrink the diagram");
+    XCTAssertTrue([narrowCell drawScale] < 1.0, @"a narrow column should shrink the diagram");
+    XCTAssertTrue([narrowCell cellSize].width < [wideCell cellSize].width);
+    XCTAssertTrue([narrowCell cellSize].height < [wideCell cellSize].height);
+    XCTAssertTrue([narrowCell drawScale] >= 0.5,
+                  @"shrinking stops at the legibility floor rather than continuing");
+}
+
+- (void)testMermaidDiagramGrowsWithDocumentZoom
+{
+    OMMarkdownRenderer *plain = [[[OMMarkdownRenderer alloc] init] autorelease];
+    NSAttributedString *plainRendered = [plain attributedStringFromMarkdown:[self sampleMermaidMarkdown]];
+    NSSize plainSize = [[[self firstAttachmentInRenderedString:plainRendered] attachmentCell] cellSize];
+
+    OMMarkdownRenderer *zoomed = [[[OMMarkdownRenderer alloc] init] autorelease];
+    [zoomed setZoomScale:2.0];
+    NSAttributedString *zoomedRendered = [zoomed attributedStringFromMarkdown:[self sampleMermaidMarkdown]];
+    NSSize zoomedSize = [[[self firstAttachmentInRenderedString:zoomedRendered] attachmentCell] cellSize];
+
+    XCTAssertTrue(zoomedSize.width > plainSize.width);
+    XCTAssertTrue(zoomedSize.height > plainSize.height);
+}
+
+- (void)testMermaidDiagramDrawsIntoAnImageContextWithoutFailing
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:[self sampleMermaidMarkdown]];
+    OMMermaidERDiagramAttachmentCell *cell =
+        (OMMermaidERDiagramAttachmentCell *)[[self firstAttachmentInRenderedString:rendered] attachmentCell];
+    NSSize size = [cell cellSize];
+
+    NSImage *canvas = [[[NSImage alloc] initWithSize:size] autorelease];
+    BOOL drew = NO;
+    @try {
+        [canvas lockFocus];
+        [cell drawWithFrame:NSMakeRect(0.0, 0.0, size.width, size.height) inView:nil];
+        [canvas unlockFocus];
+        drew = YES;
+    } @catch (NSException *exception) {
+        XCTFail(@"drawing raised %@: %@", [exception name], [exception reason]);
+    }
+    XCTAssertTrue(drew);
+}
+
+- (void)testMalformedMermaidERDiagramAppendsDiagnosticWithSourceLine
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    NSString *markdown = @"```mermaid\n"
+                          "erDiagram\n"
+                          "    A {\n"
+                          "        lonely\n"
+                          "    }\n"
+                          "```\n";
+
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
+    NSString *text = [rendered string];
+    XCTAssertTrue([text rangeOfString:@"lonely"].location != NSNotFound,
+                  @"diagram source should still render as a code block");
+    XCTAssertTrue([text rangeOfString:@"mermaid erDiagram, line 4:"].location != NSNotFound,
+                  @"expected a diagnostic naming the failing line, got: %@", text);
+    XCTAssertNil([self firstAttachmentInRenderedString:rendered]);
+}
+
+- (void)testOversizedMermaidDiagramFallsBackToCodeWithAnExplanation
+{
+    NSMutableString *markdown = [NSMutableString stringWithString:@"```mermaid\nerDiagram\n"];
+    NSUInteger index = 0;
+    for (; index <= OMMermaidERLayoutMaximumEntities; index++) {
+        [markdown appendFormat:@"    E%lu\n", (unsigned long)index];
+    }
+    [markdown appendString:@"```\n"];
+
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
+    NSString *text = [rendered string];
+
+    XCTAssertNil([self firstAttachmentInRenderedString:rendered]);
+    XCTAssertTrue([text rangeOfString:@"too large to draw"].location != NSNotFound,
+                  @"expected an explanation, got: %@", text);
+    XCTAssertTrue([[renderer codeBlockRanges] count] > 0,
+                  @"the fallback keeps the code block");
+}
+
+- (void)testNonERMermaidDiagramRendersAsCodeWithoutDiagnostic
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    NSString *markdown = @"```mermaid\n"
+                          "flowchart LR\n"
+                          "    A --> B\n"
+                          "```\n";
+
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
+    NSString *text = [rendered string];
+    XCTAssertTrue([text rangeOfString:@"flowchart LR"].location != NSNotFound);
+    XCTAssertTrue([text rangeOfString:@"mermaid erDiagram"].location == NSNotFound);
+    XCTAssertNil([self firstAttachmentInRenderedString:rendered]);
+}
+
+- (void)testMermaidDiagnosticIsNotPartOfAnyCodeBlockRange
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    NSString *markdown = @"```mermaid\n"
+                          "erDiagram\n"
+                          "    A {\n"
+                          "        lonely\n"
+                          "    }\n"
+                          "```\n";
+
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
+    NSRange diagnosticRange = [[rendered string] rangeOfString:@"mermaid erDiagram, line 4:"];
+    XCTAssertTrue(diagnosticRange.location != NSNotFound);
+
+    for (NSValue *value in [renderer codeBlockRanges]) {
+        NSRange codeRange = [value rangeValue];
+        XCTAssertTrue(NSIntersectionRange(codeRange, diagnosticRange).length == 0,
+                      @"diagnostic must sit outside the code-block background range");
+    }
+}
+
+- (void)testDrawnDiagramIsExposedWithItsSourceForCopying
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:[self sampleMermaidMarkdown]];
+
+    NSArray *blocks = [renderer diagramBlocks];
+    XCTAssertEqual([blocks count], (NSUInteger)1);
+
+    NSDictionary *block = [blocks objectAtIndex:0];
+    NSRange range = [[block objectForKey:OMMarkdownRendererDiagramRangeKey] rangeValue];
+    XCTAssertEqual(range.length, (NSUInteger)1, @"a drawn diagram is one attachment character");
+    XCTAssertTrue(NSMaxRange(range) <= [rendered length]);
+    XCTAssertEqual([[rendered string] characterAtIndex:range.location], (unichar)NSAttachmentCharacter);
+
+    NSString *source = [block objectForKey:OMMarkdownRendererDiagramSourceKey];
+    XCTAssertTrue([source rangeOfString:@"CUSTOMER ||--o{ ORDER : places"].location != NSNotFound,
+                  @"the copy button needs the original mermaid source");
+}
+
+- (void)testSourceCodeDiagramPolicyRendersTheFenceAsCode
+{
+    OMMarkdownParsingOptions *options = [OMMarkdownParsingOptions defaultOptions];
+    XCTAssertEqual([options diagramRenderingPolicy], OMMarkdownDiagramRenderingPolicyNative,
+                   @"drawing is the default");
+    [options setDiagramRenderingPolicy:OMMarkdownDiagramRenderingPolicySourceCode];
+
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] initWithTheme:nil
+                                                              parsingOptions:options] autorelease];
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:[self sampleMermaidMarkdown]];
+
+    XCTAssertNil([self firstAttachmentInRenderedString:rendered]);
+    XCTAssertEqual([[renderer diagramBlocks] count], (NSUInteger)0);
+    XCTAssertTrue([[rendered string] rangeOfString:@"CUSTOMER ||--o{ ORDER"].location != NSNotFound);
+    XCTAssertTrue([[renderer codeBlockRanges] count] > 0);
+}
+
+- (void)testSourceCodeDiagramPolicyStaysSilentOnMalformedDiagrams
+{
+    OMMarkdownParsingOptions *options = [OMMarkdownParsingOptions defaultOptions];
+    [options setDiagramRenderingPolicy:OMMarkdownDiagramRenderingPolicySourceCode];
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] initWithTheme:nil
+                                                              parsingOptions:options] autorelease];
+
+    NSString *markdown = @"```mermaid\nerDiagram\n    A {\n        lonely\n    }\n```\n";
+    NSString *text = [[renderer attributedStringFromMarkdown:markdown] string];
+    XCTAssertTrue([text rangeOfString:@"mermaid erDiagram"].location == NSNotFound,
+                  @"asking for source should not also produce diagnostics");
+}
+
+- (void)testDiagramPolicySurvivesParsingOptionsCopy
+{
+    OMMarkdownParsingOptions *options = [OMMarkdownParsingOptions defaultOptions];
+    [options setDiagramRenderingPolicy:OMMarkdownDiagramRenderingPolicySourceCode];
+    OMMarkdownParsingOptions *copy = [[options copy] autorelease];
+    XCTAssertEqual([copy diagramRenderingPolicy], OMMarkdownDiagramRenderingPolicySourceCode);
+}
+
+- (void)testDiagramBlocksAreClearedWhenARenderHasNoDiagram
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    [renderer attributedStringFromMarkdown:[self sampleMermaidMarkdown]];
+    XCTAssertEqual([[renderer diagramBlocks] count], (NSUInteger)1);
+
+    [renderer attributedStringFromMarkdown:@"# Just a heading\n"];
+    XCTAssertEqual([[renderer diagramBlocks] count], (NSUInteger)0,
+                   @"stale diagram ranges would misplace copy buttons");
 }
 
 @end
