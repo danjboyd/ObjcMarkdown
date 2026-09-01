@@ -115,13 +115,13 @@ static BOOL OMDMathToolchainAvailable(void)
     return [directory stringByAppendingPathComponent:fileName];
 }
 
-- (NSString *)writeTemporaryImage
+- (NSString *)writeTemporaryImageWithSize:(NSSize)size
 {
     NSString *path = [self temporaryImagePathWithExtension:@"png"];
-    NSImage *image = [[[NSImage alloc] initWithSize:NSMakeSize(8.0, 8.0)] autorelease];
+    NSImage *image = [[[NSImage alloc] initWithSize:size] autorelease];
     [image lockFocus];
     [[NSColor colorWithCalibratedRed:0.15 green:0.45 blue:0.85 alpha:1.0] setFill];
-    NSRectFill(NSMakeRect(0.0, 0.0, 8.0, 8.0));
+    NSRectFill(NSMakeRect(0.0, 0.0, size.width, size.height));
     [image unlockFocus];
 
     NSData *tiff = [image TIFFRepresentation];
@@ -133,6 +133,11 @@ static BOOL OMDMathToolchainAvailable(void)
         [data writeToFile:path atomically:YES];
     }
     return path;
+}
+
+- (NSString *)writeTemporaryImage
+{
+    return [self writeTemporaryImageWithSize:NSMakeSize(8.0, 8.0)];
 }
 
 - (void)removeFileIfPresent:(NSString *)path
@@ -672,6 +677,64 @@ static BOOL OMDMathToolchainAvailable(void)
         XCTAssertTrue([text rangeOfString:@"[image: tiny-square]"].location != NSNotFound);
     }
     XCTAssertTrue([text rangeOfString:@"[image]"].location == NSNotFound);
+    [self removeFileIfPresent:path];
+}
+
+- (void)testImageAttachmentScalesWithDocumentZoom
+{
+    NSString *path = [self writeTemporaryImage];
+    NSString *markdown = [NSString stringWithFormat:@"![tiny-square](%@)", path];
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    [renderer setLayoutWidth:420.0];
+
+    NSArray *zoomValues = [NSArray arrayWithObjects:
+        [NSNumber numberWithDouble:0.5],
+        [NSNumber numberWithDouble:1.0],
+        [NSNumber numberWithDouble:2.0],
+        nil];
+    NSArray *expectedSizes = [NSArray arrayWithObjects:
+        [NSValue valueWithSize:NSMakeSize(4.0, 4.0)],
+        [NSValue valueWithSize:NSMakeSize(8.0, 8.0)],
+        [NSValue valueWithSize:NSMakeSize(16.0, 16.0)],
+        nil];
+
+    NSUInteger index = 0;
+    for (; index < [zoomValues count]; index++) {
+        [renderer setZoomScale:[[zoomValues objectAtIndex:index] doubleValue]];
+        NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
+        NSTextAttachment *attachment = [self firstAttachmentInRenderedString:rendered];
+        XCTAssertNotNil(attachment);
+        id cell = [attachment attachmentCell];
+        XCTAssertNotNil(cell);
+        if (cell != nil && [cell respondsToSelector:@selector(cellSize)]) {
+            NSSize actualSize = [cell cellSize];
+            NSSize expectedSize = [[expectedSizes objectAtIndex:index] sizeValue];
+            XCTAssertEqualWithAccuracy(actualSize.width, expectedSize.width, 0.01);
+            XCTAssertEqualWithAccuracy(actualSize.height, expectedSize.height, 0.01);
+        }
+    }
+    [self removeFileIfPresent:path];
+}
+
+- (void)testZoomedImageAttachmentFitsPreviewWidthAndPreservesAspectRatio
+{
+    NSString *path = [self writeTemporaryImageWithSize:NSMakeSize(200.0, 100.0)];
+    NSString *markdown = [NSString stringWithFormat:@"![wide-image](%@)", path];
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    [renderer setLayoutWidth:100.0];
+    [renderer setZoomScale:2.0];
+
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
+    NSTextAttachment *attachment = [self firstAttachmentInRenderedString:rendered];
+    XCTAssertNotNil(attachment);
+    id cell = [attachment attachmentCell];
+    XCTAssertNotNil(cell);
+    if (cell != nil && [cell respondsToSelector:@selector(cellSize)]) {
+        NSSize size = [cell cellSize];
+        XCTAssertEqualWithAccuracy(size.width, 52.0, 0.01);
+        XCTAssertEqualWithAccuracy(size.height, 26.0, 0.01);
+        XCTAssertEqualWithAccuracy(size.width / size.height, 2.0, 0.01);
+    }
     [self removeFileIfPresent:path];
 }
 

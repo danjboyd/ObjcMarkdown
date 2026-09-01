@@ -1657,20 +1657,30 @@ static NSImage *OMPreparedImageForAttachment(NSImage *image,
 
     NSImage *preparedImage = [[image copy] autorelease];
     NSSize imageSize = [preparedImage size];
+    if (imageSize.width <= 0.0 || imageSize.height <= 0.0) {
+        return preparedImage;
+    }
+
+    CGFloat effectiveScale = scale > 0.01 ? scale : 1.0;
+    NSSize preparedSize = NSMakeSize(imageSize.width * effectiveScale,
+                                     imageSize.height * effectiveScale);
     CGFloat maxWidth = 0.0;
     if (layoutWidth > 0.0) {
-        maxWidth = floor(layoutWidth - (24.0 * scale));
+        maxWidth = floor(layoutWidth - (24.0 * effectiveScale));
     }
-    if (maxWidth > 0.0 && imageSize.width > maxWidth && imageSize.width > 0.0) {
-        CGFloat ratio = maxWidth / imageSize.width;
+    if (maxWidth > 0.0 && preparedSize.width > maxWidth) {
+        CGFloat ratio = maxWidth / preparedSize.width;
         if (ratio > 0.0) {
-            CGFloat height = floor(imageSize.height * ratio);
+            CGFloat height = floor(preparedSize.height * ratio);
             if (height < 1.0) {
                 height = 1.0;
             }
-            [preparedImage setScalesWhenResized:YES];
-            [preparedImage setSize:NSMakeSize(maxWidth, height)];
+            preparedSize = NSMakeSize(maxWidth, height);
         }
+    }
+    if (!NSEqualSizes(preparedSize, imageSize)) {
+        [preparedImage setScalesWhenResized:YES];
+        [preparedImage setSize:preparedSize];
     }
     return preparedImage;
 }

@@ -966,3 +966,14 @@
   - Updated table drawing to use word wrapping instead of tail truncation inside cells.
   - Restored the viewer default to wrapped tables while keeping `allowTableHorizontalOverflow` available for opt-in horizontal overflow behavior.
   - Added renderer regression coverage for narrow wrapped tables, Louisiana strategy-style prose tables, and explicit overflow mode.
+## 78) Document zoom did not scale inline Markdown images
+
+- **Status**: Closed
+- **Closed On**: 2026-07-14
+- **Area**: Renderer / Preview layout / Images
+- **Description**: Changing the document zoom scaled text and other rendered content, but inline Markdown image attachments retained their intrinsic dimensions.
+- **Resolution**:
+  - Scaled image attachment width and height by the renderer zoom while preserving aspect ratio.
+  - Kept oversized images constrained to the available preview width after zoom is applied.
+  - Added regression coverage for 50%, 100%, and 200% image zoom plus constrained non-square images.
+
