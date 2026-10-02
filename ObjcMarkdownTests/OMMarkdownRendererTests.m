@@ -260,6 +260,119 @@ static BOOL OMDMathToolchainAvailable(void)
     XCTAssertEqual([style integerValue], (NSInteger)NSUnderlineStyleSingle);
 }
 
+- (BOOL)isStruckText:(NSString *)needle inRenderedString:(NSAttributedString *)rendered
+{
+    NSRange range = [[rendered string] rangeOfString:needle];
+    if (range.location == NSNotFound) {
+        return NO;
+    }
+    NSNumber *style = [rendered attribute:NSStrikethroughStyleAttributeName atIndex:range.location effectiveRange:NULL];
+    return style != nil && [style integerValue] != 0;
+}
+
+- (void)testStrikethroughLeavesTildeFencedCodeIntact
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:@"~~~python\nx = 1 ~~y~~\n~~~\n\nAfter ~~gone~~ text."];
+    NSString *text = [rendered string];
+    XCTAssertTrue([text rangeOfString:@"x = 1 ~~y~~"].location != NSNotFound);
+    XCTAssertTrue([text rangeOfString:@"<del>"].location == NSNotFound);
+    XCTAssertFalse([self isStruckText:@"x = 1" inRenderedString:rendered]);
+    XCTAssertTrue([self isStruckText:@"gone" inRenderedString:rendered]);
+}
+
+- (void)testStrikethroughLeavesIndentedCodeIntact
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:@"Para\n\n    code ~~x~~\n"];
+    NSString *text = [rendered string];
+    XCTAssertTrue([text rangeOfString:@"code ~~x~~"].location != NSNotFound);
+    XCTAssertTrue([text rangeOfString:@"<del>"].location == NSNotFound);
+}
+
+- (void)testStrikethroughDoesNotPairAcrossParagraphs
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:@"a ~~b\n\nc~~ d"];
+    NSString *text = [rendered string];
+    XCTAssertTrue([text rangeOfString:@"a ~~b"].location != NSNotFound);
+    XCTAssertTrue([text rangeOfString:@"c~~ d"].location != NSNotFound);
+    XCTAssertFalse([self isStruckText:@"b" inRenderedString:rendered]);
+}
+
+- (void)testStrikethroughFollowsFlankingRules
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:@"a ~~ b ~~z~~ end"];
+    NSString *text = [rendered string];
+    XCTAssertTrue([text rangeOfString:@"a ~~ b z end"].location != NSNotFound);
+    XCTAssertFalse([self isStruckText:@" b " inRenderedString:rendered]);
+    XCTAssertTrue([self isStruckText:@"z" inRenderedString:rendered]);
+}
+
+- (void)testStrikethroughAppliesWhenInlineHTMLIsIgnored
+{
+    OMMarkdownParsingOptions *options = [OMMarkdownParsingOptions defaultOptions];
+    [options setInlineHTMLPolicy:OMMarkdownHTMLPolicyIgnore];
+    [options setBlockHTMLPolicy:OMMarkdownHTMLPolicyIgnore];
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] initWithTheme:nil
+                                                                parsingOptions:options] autorelease];
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:@"Keep ~~remove~~ text."];
+    XCTAssertTrue([[rendered string] rangeOfString:@"Keep remove text."].location != NSNotFound);
+    XCTAssertTrue([self isStruckText:@"remove" inRenderedString:rendered]);
+}
+
+- (void)testStrikeTagOnItsOwnLineDoesNotStrikeFollowingText
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:@"<del>\n\nAfter text."];
+    XCTAssertFalse([self isStruckText:@"After" inRenderedString:rendered]);
+}
+
+- (void)testFrontMatterIsHiddenAndKeepsSourceLines
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:@"---\ntitle: Sample\ntags: [a]\n---\n\n# Heading\n"];
+    NSString *text = [rendered string];
+    XCTAssertTrue([text rangeOfString:@"title:"].location == NSNotFound);
+    XCTAssertTrue([text hasPrefix:@"Heading"]);
+    NSDictionary *anchor = [[renderer blockAnchors] firstObject];
+    XCTAssertNotNil(anchor);
+    XCTAssertEqual([[anchor objectForKey:OMMarkdownRendererAnchorSourceStartLineKey] integerValue], (NSInteger)6);
+}
+
+- (void)testLeadingThematicBreakIsNotFrontMatter
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:@"---\nIntro text\n---\n"];
+    XCTAssertTrue([[rendered string] rangeOfString:@"Intro text"].location != NSNotFound);
+}
+
+- (void)testHardBreakDoesNotAddParagraphSpacing
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:@"line one  \nline two\n\nnext"];
+    NSString *text = [rendered string];
+    NSRange first = [text rangeOfString:@"line one"];
+    NSRange second = [text rangeOfString:@"line two"];
+    XCTAssertTrue(first.location != NSNotFound && second.location != NSNotFound);
+    if (first.location == NSNotFound || second.location == NSNotFound) {
+        return;
+    }
+    NSParagraphStyle *firstStyle = [rendered attribute:NSParagraphStyleAttributeName atIndex:first.location effectiveRange:NULL];
+    NSParagraphStyle *secondStyle = [rendered attribute:NSParagraphStyleAttributeName atIndex:second.location effectiveRange:NULL];
+    XCTAssertEqualWithAccuracy([firstStyle paragraphSpacing], 0.0, 0.01);
+    XCTAssertTrue([secondStyle paragraphSpacing] > 0.0);
+    XCTAssertNil([rendered attribute:@"OMHardLineBreak" atIndex:NSMaxRange(first) effectiveRange:NULL]);
+}
+
+- (void)testLooseListEndsWithOneBlankLine
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    NSString *text = [[renderer attributedStringFromMarkdown:@"- a\n\n- b\n\nAfter"] string];
+    XCTAssertTrue([text rangeOfString:@"b\n\nAfter"].location != NSNotFound);
+}
+
 - (void)testItalicAppliesFontOrObliquenessStyle
 {
     OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
@@ -292,6 +405,13 @@ static BOOL OMDMathToolchainAvailable(void)
     XCTAssertNotNil(rendered);
 
     XCTAssertTrue([rendered containsAttachments]);
+    XCTAssertEqual([self attachmentCharacterCountInRenderedString:rendered], (NSUInteger)1);
+}
+
+- (void)testPipeTableAcceptsSingleDashSeparators
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:@"| a | b |\n|:-|-:|\n| 1 | 2 |"];
     XCTAssertEqual([self attachmentCharacterCountInRenderedString:rendered], (NSUInteger)1);
 }
 

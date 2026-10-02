@@ -1157,6 +1157,38 @@ static NSMutableParagraphStyle *OMParagraphStyleWithIndent(CGFloat firstIndent,
     return style;
 }
 
+// Marks the newline of a Markdown hard break while a paragraph renders.
+static NSString * const OMHardLineBreakAttributeName = @"OMHardLineBreak";
+
+// GNUstep lays out only '\n' as a line break (not U+2028), so a hard break
+// starts a new text paragraph. Drop the paragraph spacing at those breaks so
+// the Markdown paragraph keeps its normal line rhythm.
+static void OMTightenHardLineBreaks(NSMutableAttributedString *output, NSRange range)
+{
+    NSUInteger segmentStart = range.location;
+    NSUInteger index = range.location;
+    NSUInteger end = NSMaxRange(range);
+    while (index < end) {
+        NSRange effective;
+        id marker = [output attribute:OMHardLineBreakAttributeName atIndex:index effectiveRange:&effective];
+        if (marker == nil) {
+            index = MIN(NSMaxRange(effective), end);
+            continue;
+        }
+        NSParagraphStyle *style = [output attribute:NSParagraphStyleAttributeName atIndex:segmentStart effectiveRange:NULL];
+        if (style != nil && [style paragraphSpacing] > 0.0) {
+            NSMutableParagraphStyle *tight = [[style mutableCopy] autorelease];
+            [tight setParagraphSpacing:0.0];
+            [output addAttribute:NSParagraphStyleAttributeName
+                           value:tight
+                           range:NSMakeRange(segmentStart, index + 1 - segmentStart)];
+        }
+        [output removeAttribute:OMHardLineBreakAttributeName range:NSMakeRange(index, 1)];
+        segmentStart = index + 1;
+        index += 1;
+    }
+}
+
 static void OMTrimTrailingNewlines(NSMutableAttributedString *output)
 {
     while ([output length] > 0) {
@@ -1167,6 +1199,51 @@ static void OMTrimTrailingNewlines(NSMutableAttributedString *output)
             break;
         }
     }
+}
+
+static BOOL OMIsFrontMatterFence(NSString *line, BOOL closing)
+{
+    NSString *trimmed = [line stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    if (closing && [trimmed isEqualToString:@"..."]) {
+        return YES;
+    }
+    return [trimmed isEqualToString:@"---"] && [line hasPrefix:@"---"];
+}
+
+// Hides a leading YAML front matter block. Its lines become empty rather than
+// removed, so cmark's line numbers still match the editor's.
+static NSString *OMMarkdownByBlankingFrontMatter(NSString *markdown)
+{
+    if (![markdown hasPrefix:@"---"]) {
+        return markdown;
+    }
+    NSArray *lines = [markdown componentsSeparatedByString:@"\n"];
+    if ([lines count] < 3 || !OMIsFrontMatterFence([lines objectAtIndex:0], NO)) {
+        return markdown;
+    }
+    // Require YAML-looking content ("key:") so a leading thematic break
+    // followed by a setext heading is not mistaken for metadata.
+    NSString *firstContent = [[lines objectAtIndex:1] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+    NSRange colon = [firstContent rangeOfString:@":"];
+    if (colon.location == NSNotFound || colon.location == 0 ||
+        [firstContent rangeOfString:@" "].location < colon.location) {
+        return markdown;
+    }
+    NSUInteger closingIndex = 1;
+    for (; closingIndex < [lines count]; closingIndex++) {
+        if (OMIsFrontMatterFence([lines objectAtIndex:closingIndex], YES)) {
+            break;
+        }
+    }
+    if (closingIndex >= [lines count]) {
+        return markdown;
+    }
+    NSMutableArray *blanked = [[lines mutableCopy] autorelease];
+    NSUInteger index = 0;
+    for (; index <= closingIndex; index++) {
+        [blanked replaceObjectAtIndex:index withObject:@""];
+    }
+    return [blanked componentsJoinedByString:@"\n"];
 }
 
 static NSArray *OMSourceLinesForMarkdown(NSString *markdown)
@@ -1824,18 +1901,116 @@ static BOOL OMMarkerIsEscaped(NSString *text, NSUInteger location)
     return (backslashCount % 2) == 1;
 }
 
+static BOOL OMStrikethroughIsSpace(unichar ch)
+{
+    return [[NSCharacterSet whitespaceAndNewlineCharacterSet] characterIsMember:ch];
+}
+
+static BOOL OMStrikethroughIsPunctuation(unichar ch)
+{
+    return [[NSCharacterSet punctuationCharacterSet] characterIsMember:ch] ||
+           [[NSCharacterSet symbolCharacterSet] characterIsMember:ch];
+}
+
+// Marks each source line (1-based) with the paragraph or heading that owns it;
+// 0 means the line holds no inline content (code, HTML, blank, rules).
+static NSUInteger *OMCreateInlineBlockIDsByLine(NSString *markdown, NSUInteger lineCount)
+{
+    NSUInteger *blockIDs = (NSUInteger *)calloc(lineCount + 2, sizeof(NSUInteger));
+    NSData *data = [markdown dataUsingEncoding:NSUTF8StringEncoding];
+    if (blockIDs == NULL || data == nil) {
+        return blockIDs;
+    }
+    cmark_node *document = cmark_parse_document([data bytes], [data length], CMARK_OPT_DEFAULT);
+    if (document == NULL) {
+        return blockIDs;
+    }
+    NSUInteger nextID = 1;
+    cmark_iter *iter = cmark_iter_new(document);
+    cmark_event_type event;
+    while ((event = cmark_iter_next(iter)) != CMARK_EVENT_DONE) {
+        cmark_node *node = cmark_iter_get_node(iter);
+        cmark_node_type type = cmark_node_get_type(node);
+        if (event != CMARK_EVENT_ENTER ||
+            (type != CMARK_NODE_PARAGRAPH && type != CMARK_NODE_HEADING)) {
+            continue;
+        }
+        int firstLine = cmark_node_get_start_line(node);
+        int lastLine = cmark_node_get_end_line(node);
+        int line = firstLine;
+        for (; line <= lastLine; line++) {
+            if (line >= 1 && (NSUInteger)line <= lineCount) {
+                blockIDs[line] = nextID;
+            }
+        }
+        nextID += 1;
+    }
+    cmark_iter_free(iter);
+    cmark_node_free(document);
+    return blockIDs;
+}
+
+// Pairs the "~~" runs of one block: a closer matches the nearest open opener.
+static void OMPairStrikethroughDelimiters(NSArray *delimiters, NSMutableIndexSet *openers, NSMutableIndexSet *closers)
+{
+    NSMutableArray *stack = [NSMutableArray array];
+    for (NSDictionary *delimiter in delimiters) {
+        NSUInteger location = [[delimiter objectForKey:@"location"] unsignedIntegerValue];
+        if ([[delimiter objectForKey:@"canClose"] boolValue] && [stack count] > 0) {
+            [openers addIndex:[[stack lastObject] unsignedIntegerValue]];
+            [closers addIndex:location];
+            [stack removeLastObject];
+        } else if ([[delimiter objectForKey:@"canOpen"] boolValue]) {
+            [stack addObject:[NSNumber numberWithUnsignedInteger:location]];
+        }
+    }
+}
+
+// Rewrites GFM "~~text~~" as <del> tags for cmark. Only paragraph and heading
+// lines are touched, delimiters pair within one block, and runs follow the
+// flanking rules, so code blocks and unrelated tildes are left alone.
 static NSString *OMNormalizeGFMStrikethroughMarkdown(NSString *markdown)
 {
-    if (markdown == nil || [markdown length] < 4) {
+    if (markdown == nil || [markdown rangeOfString:@"~~"].location == NSNotFound) {
         return markdown;
     }
 
-    NSMutableArray *delimiterLocations = [NSMutableArray array];
-    NSUInteger codeSpanFenceLength = 0;
     NSUInteger length = [markdown length];
+    NSUInteger lineCount = 1;
     NSUInteger index = 0;
     for (; index < length; index++) {
+        if ([markdown characterAtIndex:index] == '\n') {
+            lineCount += 1;
+        }
+    }
+    NSUInteger *blockIDs = OMCreateInlineBlockIDsByLine(markdown, lineCount);
+    if (blockIDs == NULL) {
+        return markdown;
+    }
+
+    NSMutableIndexSet *openers = [NSMutableIndexSet indexSet];
+    NSMutableIndexSet *closers = [NSMutableIndexSet indexSet];
+    NSMutableArray *blockDelimiters = [NSMutableArray array];
+    NSUInteger currentBlock = 0;
+    NSUInteger codeSpanFenceLength = 0;
+    NSUInteger line = 1;
+    for (index = 0; index < length; index++) {
         unichar ch = [markdown characterAtIndex:index];
+        NSUInteger block = blockIDs[line];
+        if (ch == '\n') {
+            line += 1;
+            continue;
+        }
+        if (block != currentBlock) {
+            OMPairStrikethroughDelimiters(blockDelimiters, openers, closers);
+            [blockDelimiters removeAllObjects];
+            codeSpanFenceLength = 0;
+            currentBlock = block;
+        }
+        if (block == 0) {
+            continue;
+        }
+
         if (ch == '`') {
             NSUInteger runLength = 1;
             while ((index + runLength) < length && [markdown characterAtIndex:(index + runLength)] == '`') {
@@ -1849,45 +2024,55 @@ static NSString *OMNormalizeGFMStrikethroughMarkdown(NSString *markdown)
             index += runLength - 1;
             continue;
         }
-
-        if (codeSpanFenceLength != 0) {
+        if (codeSpanFenceLength != 0 || ch != '~') {
             continue;
         }
 
-        if (ch == '~' &&
-            (index + 1) < length &&
-            [markdown characterAtIndex:(index + 1)] == '~' &&
-            !OMMarkerIsEscaped(markdown, index)) {
-            [delimiterLocations addObject:[NSNumber numberWithUnsignedInteger:index]];
-            index += 1;
+        NSUInteger runLength = 1;
+        while ((index + runLength) < length && [markdown characterAtIndex:(index + runLength)] == '~') {
+            runLength += 1;
         }
+        if (runLength == 2 && !OMMarkerIsEscaped(markdown, index)) {
+            unichar before = index > 0 ? [markdown characterAtIndex:(index - 1)] : '\n';
+            unichar after = (index + 2) < length ? [markdown characterAtIndex:(index + 2)] : '\n';
+            BOOL leftFlanking = !OMStrikethroughIsSpace(after) &&
+                                (!OMStrikethroughIsPunctuation(after) ||
+                                 OMStrikethroughIsSpace(before) ||
+                                 OMStrikethroughIsPunctuation(before));
+            BOOL rightFlanking = !OMStrikethroughIsSpace(before) &&
+                                 (!OMStrikethroughIsPunctuation(before) ||
+                                  OMStrikethroughIsSpace(after) ||
+                                  OMStrikethroughIsPunctuation(after));
+            if (leftFlanking || rightFlanking) {
+                [blockDelimiters addObject:[NSDictionary dictionaryWithObjectsAndKeys:
+                                            [NSNumber numberWithUnsignedInteger:index], @"location",
+                                            [NSNumber numberWithBool:leftFlanking], @"canOpen",
+                                            [NSNumber numberWithBool:rightFlanking], @"canClose",
+                                            nil]];
+            }
+        }
+        index += runLength - 1;
     }
+    OMPairStrikethroughDelimiters(blockDelimiters, openers, closers);
+    free(blockIDs);
 
-    if ([delimiterLocations count] < 2) {
+    if ([openers count] == 0) {
         return markdown;
     }
 
-    NSMutableDictionary *replacementMap = [NSMutableDictionary dictionary];
-    NSUInteger replacementCount = ([delimiterLocations count] / 2) * 2;
-    for (index = 0; index < replacementCount; index++) {
-        NSString *replacement = ((index % 2) == 0) ? @"<del>" : @"</del>";
-        [replacementMap setObject:replacement forKey:[delimiterLocations objectAtIndex:index]];
-    }
-
-    NSMutableString *normalized = [NSMutableString string];
-    index = 0;
-    while (index < length) {
-        NSNumber *key = [NSNumber numberWithUnsignedInteger:index];
-        NSString *replacement = [replacementMap objectForKey:key];
-        if (replacement != nil) {
-            [normalized appendString:replacement];
-            index += 2;
+    NSMutableString *normalized = [NSMutableString stringWithCapacity:length + ([openers count] * 9)];
+    NSUInteger copied = 0;
+    for (index = 0; index < length; index++) {
+        BOOL opens = [openers containsIndex:index];
+        if (!opens && ![closers containsIndex:index]) {
             continue;
         }
-        [normalized appendFormat:@"%C", [markdown characterAtIndex:index]];
+        [normalized appendString:[markdown substringWithRange:NSMakeRange(copied, index - copied)]];
+        [normalized appendString:(opens ? @"<del>" : @"</del>")];
+        copied = index + 2;
         index += 1;
     }
-
+    [normalized appendString:[markdown substringFromIndex:copied]];
     return normalized;
 }
 
@@ -1991,9 +2176,6 @@ static BOOL OMPipeTableAlignmentFromSeparatorCell(NSString *cell, OMPipeTableAli
     }
 
     NSString *core = [trimmed substringWithRange:NSMakeRange(start, end - start)];
-    if ([core length] < 3) {
-        return NO;
-    }
     NSUInteger index = 0;
     for (; index < [core length]; index++) {
         if ([core characterAtIndex:index] != '-') {
@@ -3525,28 +3707,30 @@ static void OMAppendHTMLLiteral(const char *literal,
                                 BOOL blockNode,
                                 const OMRenderContext *renderContext)
 {
-    if (OMHTMLPolicyForBlockNode(renderContext, blockNode) == OMMarkdownHTMLPolicyIgnore) {
-        return;
-    }
-
     NSString *html = literal != NULL ? [NSString stringWithUTF8String:literal] : @"";
     if (html == nil || [html length] == 0) {
         return;
     }
 
+    // Strike tags are applied under every HTML policy: GFM "~~" reaches cmark
+    // as <del> through OMNormalizeGFMStrikethroughMarkdown.
     NSString *trimmed = [html stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
     NSString *lower = [trimmed lowercaseString];
-    if ([lower isEqualToString:@"<del>"] ||
+    if (!blockNode && ([lower isEqualToString:@"<del>"] ||
         [lower isEqualToString:@"<s>"] ||
-        [lower isEqualToString:@"<strike>"]) {
+        [lower isEqualToString:@"<strike>"])) {
         [attributes setObject:[NSNumber numberWithInteger:NSUnderlineStyleSingle]
                        forKey:NSStrikethroughStyleAttributeName];
         return;
     }
-    if ([lower isEqualToString:@"</del>"] ||
+    if (!blockNode && ([lower isEqualToString:@"</del>"] ||
         [lower isEqualToString:@"</s>"] ||
-        [lower isEqualToString:@"</strike>"]) {
+        [lower isEqualToString:@"</strike>"])) {
         [attributes removeObjectForKey:NSStrikethroughStyleAttributeName];
+        return;
+    }
+
+    if (OMHTMLPolicyForBlockNode(renderContext, blockNode) == OMMarkdownHTMLPolicyIgnore) {
         return;
     }
 
@@ -5505,7 +5689,7 @@ static cmark_node *OMTryAppendMultiNodeDisplayMath(cmark_node *startNode,
         return [[[NSAttributedString alloc] initWithString:@""] autorelease];
     }
 
-    NSString *markdownForParsing = OMNormalizeGFMStrikethroughMarkdown(markdown);
+    NSString *markdownForParsing = OMNormalizeGFMStrikethroughMarkdown(OMMarkdownByBlankingFrontMatter(markdown));
     if (markdownForParsing == nil) {
         markdownForParsing = markdown;
     }
@@ -5586,6 +5770,7 @@ static cmark_node *OMTryAppendMultiNodeDisplayMath(cmark_node *startNode,
     [self setBlockAnchors:blockAnchors];
     [self setDiagramBlocks:diagramBlocks];
     OMTrimTrailingNewlines(output);
+    [output removeAttribute:OMHardLineBreakAttributeName range:NSMakeRange(0, [output length])];
     cmark_node_free(document);
     if (perfLogging) {
         NSLog(@"[Perf][Renderer] total=%.1fms parse=%.1fms render=%.1fms charsIn=%lu charsOut=%lu zoom=%.2f width=%.1f math(req=%lu hit=%lu miss=%lu assetHit=%lu assetMiss=%lu ok=%lu fail=%lu total=%.1fms latex=%lums/%lu dvisvgm=%lums/%lu decode=%.1fms)",
@@ -5651,8 +5836,10 @@ static void OMRenderParagraph(cmark_node *node,
     NSParagraphStyle *style = OMParagraphStyleWithIndent(indent, indent, 12.0 * scale, 0.0, 1.725, fontSize);
     [paraAttrs setObject:style forKey:NSParagraphStyleAttributeName];
 
+    NSUInteger paragraphStart = [output length];
     OMRenderInlines(node, theme, output, paraAttrs, scale, renderContext);
     [paraAttrs release];
+    OMTightenHardLineBreaks(output, NSMakeRange(paragraphStart, [output length] - paragraphStart));
 
     if (OMIsTightList(listStack)) {
         OMAppendString(output, @"\n", attributes);
@@ -6084,7 +6271,16 @@ static void OMRenderList(cmark_node *node,
     if (nested || tight) {
         OMAppendString(output, @"\n", attributes);
     } else {
-        OMAppendString(output, @"\n\n", attributes);
+        // Loose items already end in a blank line; top it up to one.
+        NSString *text = [output string];
+        NSUInteger trailing = 0;
+        while (trailing < 2 && trailing < [text length] &&
+               [text characterAtIndex:([text length] - 1 - trailing)] == '\n') {
+            trailing += 1;
+        }
+        for (; trailing < 2; trailing++) {
+            OMAppendString(output, @"\n", attributes);
+        }
     }
 }
 
@@ -6304,9 +6500,13 @@ static void OMRenderInlines(cmark_node *node,
             case CMARK_NODE_SOFTBREAK:
                 OMAppendString(output, @" ", attributes);
                 break;
-            case CMARK_NODE_LINEBREAK:
-                OMAppendString(output, @"\n", attributes);
+            case CMARK_NODE_LINEBREAK: {
+                NSMutableDictionary *breakAttrs = [attributes mutableCopy];
+                [breakAttrs setObject:[NSNumber numberWithBool:YES] forKey:OMHardLineBreakAttributeName];
+                OMAppendString(output, @"\n", breakAttrs);
+                [breakAttrs release];
                 break;
+            }
             case CMARK_NODE_CODE: {
                 const char *literal = cmark_node_get_literal(child);
                 NSString *text = literal != NULL ? [NSString stringWithUTF8String:literal] : @"";
