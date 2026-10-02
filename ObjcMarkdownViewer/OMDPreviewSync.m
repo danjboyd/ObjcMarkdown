@@ -5,6 +5,7 @@
 
 #include "cmark-gfm.h"
 #include "OMGFMParser.h"
+#import "OMBlockSignatureIndex.h"
 #include <float.h>
 #include <math.h>
 
@@ -1000,38 +1001,7 @@ static NSArray *OMDSourceLinesForMarkdown(NSString *sourceText)
     return lines;
 }
 
-static NSString *OMDBlockSignatureForLineRange(NSArray *sourceLines,
-                                               NSInteger startLine,
-                                               NSInteger endLine)
-{
-    NSUInteger count = [sourceLines count];
-    if (count == 0 || startLine <= 0) {
-        return @"";
-    }
-    if (startLine > (NSInteger)count) {
-        return @"";
-    }
-    if (endLine < startLine) {
-        endLine = startLine;
-    }
-    if (endLine > (NSInteger)count) {
-        endLine = (NSInteger)count;
-    }
-
-    NSMutableString *joined = [NSMutableString string];
-    NSInteger line = startLine;
-    for (; line <= endLine; line++) {
-        NSString *lineText = [sourceLines objectAtIndex:(NSUInteger)line - 1];
-        NSString *trimmed = [lineText stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
-        if ([joined length] > 0) {
-            [joined appendString:@"\n"];
-        }
-        [joined appendString:trimmed];
-    }
-    return OMDNormalizeAnchorLine(joined);
-}
-
-static NSString *OMDStableBlockIDForNode(cmark_node *node, NSArray *sourceLines)
+static NSString *OMDStableBlockIDForNode(cmark_node *node, OMBlockSignatureIndex *signatures)
 {
     if (node == NULL) {
         return nil;
@@ -1043,15 +1013,13 @@ static NSString *OMDStableBlockIDForNode(cmark_node *node, NSArray *sourceLines)
         return nil;
     }
 
-    NSString *signature = OMDBlockSignatureForLineRange(sourceLines, startLine, endLine);
-    if (signature == nil || [signature length] == 0) {
-        signature = @"_";
-    }
-    return [NSString stringWithFormat:@"%d|%@", (int)cmark_node_get_type(node), signature];
+    return [signatures blockIDForNodeType:(int)cmark_node_get_type(node)
+                                startLine:(NSUInteger)startLine
+                                  endLine:(NSUInteger)endLine];
 }
 
 static void OMDCollectSourceBlockDescriptors(cmark_node *node,
-                                             NSArray *sourceLines,
+                                             OMBlockSignatureIndex *signatures,
                                              NSMutableArray *descriptors)
 {
     if (node == NULL) {
@@ -1063,7 +1031,7 @@ static void OMDCollectSourceBlockDescriptors(cmark_node *node,
         NSInteger startLine = 0;
         NSInteger endLine = 0;
         if (OMDNodeLineBounds(node, &startLine, &endLine)) {
-            NSString *blockID = OMDStableBlockIDForNode(node, sourceLines);
+            NSString *blockID = OMDStableBlockIDForNode(node, signatures);
             NSMutableDictionary *descriptor = [NSMutableDictionary dictionaryWithObjectsAndKeys:
                                                [NSNumber numberWithInteger:startLine], OMDAnchorSourceStartLineKey,
                                                [NSNumber numberWithInteger:endLine], OMDAnchorSourceEndLineKey,
@@ -1077,7 +1045,7 @@ static void OMDCollectSourceBlockDescriptors(cmark_node *node,
 
     cmark_node *child = cmark_node_first_child(node);
     while (child != NULL) {
-        OMDCollectSourceBlockDescriptors(child, sourceLines, descriptors);
+        OMDCollectSourceBlockDescriptors(child, signatures, descriptors);
         child = cmark_node_next(child);
     }
 }
@@ -1101,8 +1069,9 @@ static NSArray *OMDSourceBlockDescriptorsForMarkdown(NSString *sourceText)
     }
 
     NSArray *sourceLines = OMDSourceLinesForMarkdown(sourceText);
+    OMBlockSignatureIndex *signatures = [[[OMBlockSignatureIndex alloc] initWithSourceLines:sourceLines] autorelease];
     NSMutableArray *descriptors = [NSMutableArray array];
-    OMDCollectSourceBlockDescriptors(document, sourceLines, descriptors);
+    OMDCollectSourceBlockDescriptors(document, signatures, descriptors);
     cmark_node_free(document);
     return descriptors;
 }

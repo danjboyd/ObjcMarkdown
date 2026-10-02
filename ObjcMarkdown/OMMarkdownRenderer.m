@@ -6,6 +6,7 @@
 #import "OMMermaidERDiagram.h"
 #import "OMMermaidERDrawing.h"
 #import "OMRenderedObject.h"
+#import "OMBlockSignatureIndex.h"
 #import "OMTheme.h"
 
 #import <dispatch/dispatch.h>
@@ -69,6 +70,8 @@ typedef struct {
     NSMutableDictionary *headingSlugCounts;
     // The list contexts enclosing the block being rendered (see OMRenderList).
     NSMutableArray *listStack;
+    // Hashed source lines for block IDs (see OMBlockSignatureIndex).
+    OMBlockSignatureIndex *blockSignatures;
     NSMutableArray *consumedDisplayMathLineRanges;
     // Raw source of the current block's formulas, keyed by their unescaped
     // form; see OMPrepareRawMathSources.
@@ -1721,35 +1724,6 @@ static NSArray *OMSourceLinesForMarkdown(NSString *markdown)
     return lines;
 }
 
-static NSString *OMNormalizedBlockIDText(NSString *text)
-{
-    if (text == nil || [text length] == 0) {
-        return @"";
-    }
-
-    NSMutableString *normalized = [NSMutableString stringWithCapacity:[text length]];
-    NSCharacterSet *alphanumeric = [NSCharacterSet alphanumericCharacterSet];
-    BOOL previousWasSpace = YES;
-    NSUInteger length = [text length];
-    NSUInteger i = 0;
-    for (; i < length; i++) {
-        unichar ch = [text characterAtIndex:i];
-        if ([alphanumeric characterIsMember:ch]) {
-            NSString *s = [[NSString stringWithCharacters:&ch length:1] lowercaseString];
-            [normalized appendString:s];
-            previousWasSpace = NO;
-        } else if (!previousWasSpace) {
-            [normalized appendString:@" "];
-            previousWasSpace = YES;
-        }
-    }
-
-    while ([normalized hasSuffix:@" "]) {
-        [normalized deleteCharactersInRange:NSMakeRange([normalized length] - 1, 1)];
-    }
-    return normalized;
-}
-
 static BOOL OMNodeLineBounds(cmark_node *node, NSUInteger *startLineOut, NSUInteger *endLineOut)
 {
     if (node == NULL) {
@@ -1935,52 +1909,16 @@ static BOOL OMDisplayMathFenceRangeStartingAtLine(NSArray *sourceLines,
     return NO;
 }
 
-static NSString *OMBlockSignatureForLineRange(NSArray *sourceLines,
-                                              NSUInteger startLine,
-                                              NSUInteger endLine)
-{
-    NSUInteger count = [sourceLines count];
-    if (count == 0 || startLine == 0) {
-        return @"";
-    }
-    if (startLine > count) {
-        return @"";
-    }
-    if (endLine < startLine) {
-        endLine = startLine;
-    }
-    if (endLine > count) {
-        endLine = count;
-    }
-
-    NSMutableString *joined = [NSMutableString string];
-    NSUInteger line = startLine;
-    for (; line <= endLine; line++) {
-        NSString *lineText = [sourceLines objectAtIndex:line - 1];
-        NSString *trimmed = [lineText stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
-        if ([joined length] > 0) {
-            [joined appendString:@"\n"];
-        }
-        [joined appendString:trimmed];
-    }
-    return OMNormalizedBlockIDText(joined);
-}
-
 static NSString *OMStableBlockIDForTypeAndLineRange(cmark_node_type nodeType,
                                                     NSUInteger startLine,
                                                     NSUInteger endLine,
                                                     const OMRenderContext *renderContext)
 {
-    NSArray *sourceLines = renderContext != NULL ? renderContext->sourceLines : nil;
-    if (sourceLines == nil) {
+    OMBlockSignatureIndex *signatures = renderContext != NULL ? renderContext->blockSignatures : nil;
+    if (signatures == nil) {
         return nil;
     }
-
-    NSString *signature = OMBlockSignatureForLineRange(sourceLines, startLine, endLine);
-    if (signature == nil || [signature length] == 0) {
-        signature = @"_";
-    }
-    return [NSString stringWithFormat:@"%d|%@", (int)nodeType, signature];
+    return [signatures blockIDForNodeType:(int)nodeType startLine:startLine endLine:endLine];
 }
 
 static void OMRecordBlockAnchorForSourceRange(cmark_node *node,
@@ -6106,6 +6044,8 @@ static cmark_node *OMTryAppendMultiNodeDisplayMath(cmark_node *startNode,
     OMRenderContext renderContext;
     renderContext.parsingOptions = self.parsingOptions;
     renderContext.sourceLines = sourceLines;
+    OMBlockSignatureIndex *blockSignatures = [[[OMBlockSignatureIndex alloc] initWithSourceLines:sourceLines] autorelease];
+    renderContext.blockSignatures = blockSignatures;
     renderContext.blockAnchors = blockAnchors;
     renderContext.diagramBlocks = diagramBlocks;
     renderContext.listStack = listStack;
