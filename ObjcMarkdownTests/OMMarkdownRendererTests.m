@@ -1557,19 +1557,46 @@ static BOOL OMDMathToolchainAvailable(void)
                   @"the fallback keeps the code block");
 }
 
-- (void)testNonERMermaidDiagramRendersAsCodeWithoutDiagnostic
+- (void)testMermaidFlowchartRendersAsDrawnDiagram
 {
     OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
     NSString *markdown = @"```mermaid\n"
                           "flowchart LR\n"
-                          "    A --> B\n"
+                          "    A[Start] --> B{Ready?} -->|yes| C([Done])\n"
                           "```\n";
-
     NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
     NSString *text = [rendered string];
-    XCTAssertTrue([text rangeOfString:@"flowchart LR"].location != NSNotFound);
-    XCTAssertTrue([text rangeOfString:@"mermaid erDiagram"].location == NSNotFound);
+    XCTAssertTrue([text rangeOfString:@"flowchart LR"].location == NSNotFound, @"drawn, not shown as code");
+    NSArray *objects = [self renderedObjectsInString:rendered];
+    XCTAssertEqual([objects count], (NSUInteger)1);
+    XCTAssertEqual([[objects firstObject] kind], OMRenderedObjectKindDiagram);
+    XCTAssertTrue([[[objects firstObject] source] hasPrefix:@"flowchart LR"]);
+    XCTAssertEqual([[renderer diagramBlocks] count], (NSUInteger)1);
+}
+
+- (void)testUnsupportedMermaidTypeShowsSourceWithNotice
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    NSString *markdown = @"```mermaid\n"
+                          "sequenceDiagram\n"
+                          "    Alice->>Bob: Hi\n"
+                          "```\n";
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
+    NSString *text = [rendered string];
+    XCTAssertTrue([text rangeOfString:@"Alice->>Bob: Hi"].location != NSNotFound);
+    XCTAssertTrue([text rangeOfString:@"mermaid sequenceDiagram: this diagram type isn't drawn yet"].location != NSNotFound);
     XCTAssertNil([self firstAttachmentInRenderedString:rendered]);
+}
+
+- (void)testBrokenFlowchartShowsSourceWithDiagnostic
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    NSString *markdown = @"Intro\n\n```mermaid\n"
+                          "flowchart TD\n"
+                          "    A --> \n"
+                          "```\n";
+    NSString *text = [[renderer attributedStringFromMarkdown:markdown] string];
+    XCTAssertTrue([text rangeOfString:@"mermaid flowchart: line 5:"].location != NSNotFound, @"%@", text);
 }
 
 - (void)testMermaidDiagnosticIsNotPartOfAnyCodeBlockRange

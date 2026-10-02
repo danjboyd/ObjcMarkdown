@@ -5,6 +5,8 @@
 #import "OMAppKitSerialization.h"
 #import "OMMermaidERDiagram.h"
 #import "OMMermaidERDrawing.h"
+#import "OMMermaidFlowchart.h"
+#import "OMMermaidFlowchartDrawing.h"
 #import "OMRenderedObject.h"
 #import "OMBlockSignatureIndex.h"
 #import "OMTheme.h"
@@ -6554,7 +6556,8 @@ static OMMermaidERDrawingStyle *OMMermaidStyleForTheme(OMTheme *theme,
 
 // Draws a parsed erDiagram as a block attachment. Returns NO when the diagram
 // cannot be laid out, which leaves the caller on the code-block path.
-static BOOL OMAppendMermaidDiagram(OMMermaidERDiagram *diagram,
+// diagram is an OMMermaidERDiagram or an OMMermaidFlowchart.
+static BOOL OMAppendMermaidDiagram(id diagram,
                                    NSString *source,
                                    OMTheme *theme,
                                    NSMutableAttributedString *output,
@@ -6587,10 +6590,9 @@ static BOOL OMAppendMermaidDiagram(OMMermaidERDiagram *diagram,
     [paragraphStyle setAlignment:NSCenterTextAlignment];
     [diagramAttributes setObject:paragraphStyle forKey:NSParagraphStyleAttributeName];
 
-    NSAttributedString *attachment = OMMermaidERAttachmentAttributedString(diagram,
-                                                                          style,
-                                                                          maximumWidth,
-                                                                          diagramAttributes);
+    NSAttributedString *attachment = [diagram isKindOfClass:[OMMermaidFlowchart class]]
+        ? OMMermaidFlowchartAttachmentAttributedString(diagram, style, maximumWidth, diagramAttributes)
+        : OMMermaidERAttachmentAttributedString(diagram, style, maximumWidth, diagramAttributes);
     if (attachment == nil) {
         [diagramAttributes release];
         return NO;
@@ -6646,7 +6648,33 @@ static BOOL OMTryRenderMermaidDiagram(cmark_node *node,
     if (!OMNativeDiagramRenderingEnabled(renderContext)) {
         return NO;
     }
+    if ([OMMermaidFlowchart sourceDeclaresFlowchart:code]) {
+        NSError *flowError = nil;
+        OMMermaidFlowchart *flowchart = [OMMermaidFlowchart flowchartWithSource:code error:&flowError];
+        if (flowchart != nil &&
+            OMAppendMermaidDiagram(flowchart, code, theme, output, attributes, quoteLevel, scale, renderContext)) {
+            return YES;
+        }
+        if (diagnosticOut != NULL) {
+            NSString *reason = [[flowError userInfo] objectForKey:NSLocalizedDescriptionKey];
+            NSNumber *line = [[flowError userInfo] objectForKey:OMMermaidFlowchartErrorLineNumberKey];
+            if (line != nil) {
+                // Lines count from the fence, as for erDiagram messages.
+                int fenceLine = cmark_node_get_start_line(node);
+                reason = [NSString stringWithFormat:@"line %ld: %@",
+                          (long)([line integerValue] + (fenceLine > 0 ? fenceLine : 0)), reason];
+            }
+            *diagnosticOut = [NSString stringWithFormat:@"mermaid flowchart: %@",
+                              reason != nil ? reason : @"could not be drawn."];
+        }
+        return NO;
+    }
     if (![OMMermaidERDiagram sourceDeclaresERDiagram:code]) {
+        // Say why the source shows instead of a drawing.
+        NSString *type = OMMermaidDeclaredDiagramType(code);
+        if (diagnosticOut != NULL && [type length] > 0) {
+            *diagnosticOut = [NSString stringWithFormat:@"mermaid %@: this diagram type isn't drawn yet, so its source is shown.", type];
+        }
         return NO;
     }
 
