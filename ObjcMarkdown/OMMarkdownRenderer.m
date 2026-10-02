@@ -3478,7 +3478,8 @@ static NSAttributedString *OMImageAttachmentAttributedString(cmark_node *imageNo
     NSCache *cache = OMImageAttachmentCache();
     NSImage *cachedImage = nil;
     @synchronized (cache) {
-        cachedImage = [cache objectForKey:cacheKey];
+        // Local files must be read again on refresh, even at the same URL.
+        cachedImage = [url isFileURL] ? nil : [cache objectForKey:cacheKey];
     }
 
     NSImage *preparedImage = nil;
@@ -3500,9 +3501,6 @@ static NSAttributedString *OMImageAttachmentAttributedString(cmark_node *imageNo
             return nil;
         }
 
-        @synchronized (cache) {
-            [cache setObject:preparedImage forKey:cacheKey];
-        }
     }
 
     NSTextAttachment *attachment = [[[NSTextAttachment alloc] initWithFileWrapper:nil] autorelease];
@@ -5383,6 +5381,39 @@ static cmark_node *OMTryAppendMultiNodeDisplayMath(cmark_node *startNode,
 @end
 
 @implementation OMMarkdownRenderer
+
++ (NSArray *)localImageURLsInMarkdown:(NSString *)markdown baseURL:(NSURL *)baseURL
+{
+    NSData *data = [markdown dataUsingEncoding:NSUTF8StringEncoding];
+    if (data == nil) {
+        return [NSArray array];
+    }
+    cmark_node *document = cmark_parse_document([data bytes], [data length], CMARK_OPT_DEFAULT);
+    if (document == NULL) {
+        return [NSArray array];
+    }
+    OMMarkdownParsingOptions *options = [[[OMMarkdownParsingOptions alloc] init] autorelease];
+    [options setBaseURL:baseURL];
+    OMRenderContext context = {0};
+    context.parsingOptions = options;
+    NSMutableArray *urls = [NSMutableArray array];
+    cmark_iter *iter = cmark_iter_new(document);
+    cmark_event_type event;
+    while ((event = cmark_iter_next(iter)) != CMARK_EVENT_DONE) {
+        cmark_node *node = cmark_iter_get_node(iter);
+        if (event != CMARK_EVENT_ENTER || cmark_node_get_type(node) != CMARK_NODE_IMAGE) {
+            continue;
+        }
+        const char *literal = cmark_node_get_url(node);
+        NSURL *url = OMResolvedImageURL(literal ? [NSString stringWithUTF8String:literal] : nil, &context);
+        if ([url isFileURL] && ![urls containsObject:url]) {
+            [urls addObject:url];
+        }
+    }
+    cmark_iter_free(iter);
+    cmark_node_free(document);
+    return urls;
+}
 
 @synthesize zoomScale = _zoomScale;
 @synthesize layoutWidth = _layoutWidth;

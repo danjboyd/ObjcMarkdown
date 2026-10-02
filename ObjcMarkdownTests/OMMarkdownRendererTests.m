@@ -754,6 +754,41 @@ static BOOL OMDMathToolchainAvailable(void)
     XCTAssertTrue([[rendered string] rangeOfString:@"$a+b=c$"].location != NSNotFound);
 }
 
+- (void)testLocalImageDependenciesUseCommonMarkResolution
+{
+    NSURL *base = [NSURL fileURLWithPath:@"/tmp/markdown-images" isDirectory:YES];
+    NSString *markdown = @"![inline](images/a%20b.png)\n![reference][pic]\n"
+                          @"![duplicate](images/a%20b.png)\n![remote](https://example.com/image.png)\n"
+                          @"`![code](ignored.png)`\n\n```\n![fenced](ignored-too.png)\n```\n\n"
+                          @"[pic]: ../missing.png\n";
+    NSArray *urls = [OMMarkdownRenderer localImageURLsInMarkdown:markdown baseURL:base];
+    XCTAssertEqual([urls count], (NSUInteger)2);
+    XCTAssertEqualObjects([[[urls objectAtIndex:0] path] stringByStandardizingPath], @"/tmp/markdown-images/images/a b.png");
+    XCTAssertEqualObjects([[[urls objectAtIndex:1] path] stringByStandardizingPath], @"/tmp/missing.png");
+}
+
+- (void)testLocalImageReplacementAndDeletionAreVisibleOnRerender
+{
+    NSString *path = [self writeTemporaryImage];
+    NSString *replacement = [self writeTemporaryImageWithSize:NSMakeSize(32.0, 16.0)];
+    NSString *markdown = [NSString stringWithFormat:@"![changing](%@)", path];
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    [renderer setLayoutWidth:420.0];
+    NSTextAttachment *original = [self firstAttachmentInRenderedString:[renderer attributedStringFromMarkdown:markdown]];
+    XCTAssertNotNil(original);
+    XCTAssertTrue([[NSData dataWithContentsOfFile:replacement] writeToFile:path atomically:YES]);
+    NSTextAttachment *updated = [self firstAttachmentInRenderedString:[renderer attributedStringFromMarkdown:markdown]];
+    XCTAssertNotNil(updated);
+    NSSize size = [[updated attachmentCell] cellSize];
+    XCTAssertEqualWithAccuracy(size.width, 32.0, 0.01);
+    XCTAssertEqualWithAccuracy(size.height, 16.0, 0.01);
+    [self removeFileIfPresent:path];
+    NSAttributedString *missing = [renderer attributedStringFromMarkdown:markdown];
+    XCTAssertNil([self firstAttachmentInRenderedString:missing]);
+    XCTAssertTrue([[missing string] rangeOfString:@"[image: changing]"].location != NSNotFound);
+    [self removeFileIfPresent:replacement];
+}
+
 - (void)testStyledMathFallbackNormalizesCommonTeXCommands
 {
     OMMarkdownParsingOptions *options = [OMMarkdownParsingOptions defaultOptions];

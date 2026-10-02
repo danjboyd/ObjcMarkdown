@@ -1,5 +1,20 @@
 # Closed Issues
 
+## 79) Referenced images stayed stale after changing on disk
+
+- **Status**: Closed
+- **Closed On**: 2026-09-09
+- **Area**: Viewer / File monitoring / Image rendering
+- **Description**: Editing an image referenced by Markdown did not trigger the document reload prompt, and URL-based image caching kept displaying the old image.
+- **Resolution**:
+  - Track local image file metadata per document tab, including missing files, using CommonMark image destinations and the renderer's URL resolution.
+  - Offer the existing Reload/Keep dialog for image modifications, replacement, deletion, and creation; Keep suppresses repeated prompts until another disk change.
+  - Replace the conditional Reload from Disk menu item with File -> Refresh (Command-R equivalent), available for any loaded disk-backed document. Preserve the viewport and confirm before discarding unsaved edits.
+  - Reread local images on rendering instead of retaining them in the remote-image cache.
+- **Verification**:
+  - GNUstep build and all 179 tests across 12 suites passed.
+  - Regression coverage checks same-path image replacement and deletion, relative/reference image destinations, escaped paths, missing files, and exclusion of remote URLs and code examples.
+
 ## 1) Export to PDF (Viewer)
 
 - **Status**: Closed
@@ -1019,4 +1034,3 @@
   - Verified in the running app against `Resources/sample-mermaid-er.md`, in both policy modes.
 - **Notes**:
   - Design, phase plan, and per-phase outcomes: `docs/internal/omd-mermaid-er-diagrams.md`.
-

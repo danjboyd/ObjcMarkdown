@@ -952,6 +952,10 @@ static NSString * const OMDTabSyntaxLanguageKey = @"syntaxLanguage";
 static NSString * const OMDTabLoadedDiskFingerprintKey = @"loadedDiskFingerprint";
 static NSString * const OMDTabObservedDiskFingerprintKey = @"observedDiskFingerprint";
 static NSString * const OMDTabSuppressedDiskFingerprintKey = @"suppressedDiskFingerprint";
+static NSString * const OMDTabImageFingerprintsKey = @"imageFingerprints";
+static NSString * const OMDTabSuppressedImageFingerprintsKey = @"suppressedImageFingerprints";
+static NSString * const OMDTabImageMarkdownKey = @"imageMarkdown";
+static NSString * const OMDTabImageSourcePathKey = @"imageSourcePath";
 
 static NSString *OMDTrimmedString(NSString *value);
 #if defined(_WIN32)
@@ -4102,6 +4106,7 @@ static OMDRoundedCardView *OMDCreatePreferencesCard(NSRect frame, OMDLayoutMetri
 - (void)presentConverterError:(NSError *)error fallbackTitle:(NSString *)title;
 - (NSString *)resolvedAbsolutePathForLocalPath:(NSString *)path;
 - (NSString *)diskFingerprintForPath:(NSString *)path;
+- (NSDictionary *)imageFingerprintsForMarkdown:(NSString *)markdown sourcePath:(NSString *)path;
 - (BOOL)isCurrentDocumentReloadableFromDisk;
 - (BOOL)currentDocumentHasNewerDiskVersion;
 - (void)setCurrentDiskFingerprintStateLoaded:(NSString *)loaded
@@ -4872,9 +4877,9 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [[fileMenuWin addItemWithTitle:@"Save Markdown As..."
                             action:@selector(saveDocumentAsMarkdown:)
                      keyEquivalent:@"S"] setTarget:self];
-    [[fileMenuWin addItemWithTitle:@"Reload from Disk"
+    [[fileMenuWin addItemWithTitle:@"Refresh"
                             action:@selector(reloadDocumentFromDisk:)
-                     keyEquivalent:@""] setTarget:self];
+                     keyEquivalent:@"r"] setTarget:self];
     [fileMenuWin addItem:[NSMenuItem separatorItem]];
     [[fileMenuWin addItemWithTitle:@"Print..."
                             action:@selector(printDocument:)
@@ -4991,9 +4996,9 @@ static NSMutableArray *OMDSecondaryWindows(void)
                                                          keyEquivalent:@"S"];
     [saveAsItem setTarget:self];
 
-    NSMenuItem *reloadItem = (NSMenuItem *)[fileMenu addItemWithTitle:@"Reload from Disk"
+    NSMenuItem *reloadItem = (NSMenuItem *)[fileMenu addItemWithTitle:@"Refresh"
                                                                action:@selector(reloadDocumentFromDisk:)
-                                                        keyEquivalent:@""];
+                                                        keyEquivalent:@"r"];
     [reloadItem setTarget:self];
 
     NSMenuItem *exportMenuItem = (NSMenuItem *)[fileMenu addItemWithTitle:@"Export"
@@ -6540,8 +6545,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
             return [self canSaveCurrentDocument];
         }
         if (action == @selector(reloadDocumentFromDisk:)) {
-            [self refreshCurrentDocumentDiskStateAllowPrompt:NO];
-            return [self currentDocumentHasNewerDiskVersion];
+            return [self isCurrentDocumentReloadableFromDisk];
         }
         return [self hasLoadedDocument];
     }
@@ -6878,6 +6882,21 @@ static NSMutableArray *OMDSecondaryWindows(void)
     return YES;
 }
 
+- (NSDictionary *)imageFingerprintsForMarkdown:(NSString *)markdown sourcePath:(NSString *)path
+{
+    NSString *resolvedPath = [self resolvedAbsolutePathForLocalPath:path];
+    if ([resolvedPath length] == 0) {
+        return [NSDictionary dictionary];
+    }
+    NSURL *baseURL = [NSURL fileURLWithPath:[resolvedPath stringByDeletingLastPathComponent] isDirectory:YES];
+    NSMutableDictionary *fingerprints = [NSMutableDictionary dictionary];
+    for (NSURL *url in [OMMarkdownRenderer localImageURLsInMarkdown:markdown baseURL:baseURL]) {
+        NSString *imagePath = [[url path] stringByStandardizingPath];
+        [fingerprints setObject:([self diskFingerprintForPath:imagePath] ?: @"missing") forKey:imagePath];
+    }
+    return fingerprints;
+}
+
 - (BOOL)currentDocumentHasNewerDiskVersion
 {
     if (![self isCurrentDocumentReloadableFromDisk]) {
@@ -7130,6 +7149,45 @@ static NSMutableArray *OMDSecondaryWindows(void)
                                     suppressed:suppressedFingerprint];
     [self captureCurrentStateIntoSelectedTab];
 
+    NSMutableDictionary *tab = (_selectedDocumentTabIndex >= 0 && _selectedDocumentTabIndex < (NSInteger)[_documentTabs count]
+                                ? [_documentTabs objectAtIndex:_selectedDocumentTabIndex] : nil);
+    NSMutableDictionary *loadedImages = [[[tab objectForKey:OMDTabImageFingerprintsKey] mutableCopy] autorelease];
+    if (loadedImages == nil) {
+        loadedImages = [NSMutableDictionary dictionary];
+    }
+    NSDictionary *images = nil;
+    if ([_currentMarkdown isEqual:[tab objectForKey:OMDTabImageMarkdownKey]] &&
+        [_currentPath isEqual:[tab objectForKey:OMDTabImageSourcePathKey]]) {
+        // Poll file metadata without reparsing unchanged Markdown on every tick.
+        NSMutableDictionary *observedImages = [NSMutableDictionary dictionary];
+        for (NSString *path in loadedImages) {
+            [observedImages setObject:([self diskFingerprintForPath:path] ?: @"missing") forKey:path];
+        }
+        images = observedImages;
+    } else {
+        images = (_currentDocumentRenderMode == OMDDocumentRenderModeMarkdown
+                  ? [self imageFingerprintsForMarkdown:_currentMarkdown sourcePath:_currentPath]
+                  : [NSDictionary dictionary]);
+        [tab setObject:(_currentMarkdown ?: @"") forKey:OMDTabImageMarkdownKey];
+        [tab setObject:(_currentPath ?: @"") forKey:OMDTabImageSourcePathKey];
+    }
+    // Editing references establishes a baseline for new paths; it is not a disk change.
+    for (NSString *path in [loadedImages allKeys]) {
+        if ([images objectForKey:path] == nil) {
+            [loadedImages removeObjectForKey:path];
+        }
+    }
+    for (NSString *path in images) {
+        if ([loadedImages objectForKey:path] == nil) {
+            [loadedImages setObject:[images objectForKey:path] forKey:path];
+        }
+    }
+    [tab setObject:loadedImages forKey:OMDTabImageFingerprintsKey];
+    BOOL imagesChanged = ![loadedImages isEqual:images];
+    if (!imagesChanged) {
+        [tab removeObjectForKey:OMDTabSuppressedImageFingerprintsKey];
+    }
+
     if (!allowPrompt || _externalReloadPromptVisible) {
         return;
     }
@@ -7139,22 +7197,28 @@ static NSMutableArray *OMDSecondaryWindows(void)
     if (NSApp != nil && ![NSApp isActive]) {
         return;
     }
-    if (![self currentDocumentHasNewerDiskVersion]) {
+    BOOL documentChanged = [self currentDocumentHasNewerDiskVersion];
+    if (!documentChanged && !imagesChanged) {
         return;
     }
-    if ([_currentObservedDiskFingerprint isEqualToString:_currentSuppressedDiskFingerprint]) {
+    if ((!documentChanged || [_currentObservedDiskFingerprint isEqualToString:_currentSuppressedDiskFingerprint]) &&
+        (!imagesChanged || [images isEqual:[tab objectForKey:OMDTabSuppressedImageFingerprintsKey]])) {
         return;
     }
 
     NSString *documentName = (_currentPath != nil ? [_currentPath lastPathComponent] : @"Untitled");
+    NSString *changeDescription = (imagesChanged
+                                  ? [NSString stringWithFormat:@"Referenced images in \"%@\"%@ changed on disk.",
+                                     documentName, documentChanged ? @" and the document itself" : @""]
+                                  : [NSString stringWithFormat:@"\"%@\" changed on disk.", documentName]);
     NSAlert *alert = [[[NSAlert alloc] init] autorelease];
     [alert setMessageText:@"Reload from disk?"];
     if (_sourceIsDirty) {
-        [alert setInformativeText:[NSString stringWithFormat:@"\"%@\" changed on disk. Reloading discards your unsaved changes in this window. Keep stops prompts until the file changes again.",
-                                                             documentName]];
+        [alert setInformativeText:[NSString stringWithFormat:@"%@ Reloading discards your unsaved changes in this window. Keep stops prompts until another disk change.",
+                                                             changeDescription]];
     } else {
-        [alert setInformativeText:[NSString stringWithFormat:@"\"%@\" changed on disk. Keep stops prompts until the file changes again.",
-                                                             documentName]];
+        [alert setInformativeText:[NSString stringWithFormat:@"%@ Keep stops prompts until another disk change.",
+                                                             changeDescription]];
     }
     [alert addButtonWithTitle:@"Reload"];
     [alert addButtonWithTitle:@"Keep"];
@@ -7165,12 +7229,14 @@ static NSMutableArray *OMDSecondaryWindows(void)
 
     if (buttonIndex == 0) {
         if (![self reloadCurrentDocumentFromDiskPreservingViewport]) {
+            [tab setObject:images forKey:OMDTabSuppressedImageFingerprintsKey];
             [self setCurrentDiskFingerprintStateLoaded:_currentLoadedDiskFingerprint
                                               observed:_currentObservedDiskFingerprint
                                             suppressed:_currentObservedDiskFingerprint];
             [self captureCurrentStateIntoSelectedTab];
         }
     } else {
+        [tab setObject:images forKey:OMDTabSuppressedImageFingerprintsKey];
         [self setCurrentDiskFingerprintStateLoaded:_currentLoadedDiskFingerprint
                                           observed:_currentObservedDiskFingerprint
                                         suppressed:_currentObservedDiskFingerprint];
@@ -7215,12 +7281,11 @@ static NSMutableArray *OMDSecondaryWindows(void)
 - (void)reloadDocumentFromDisk:(id)sender
 {
     (void)sender;
-    if (![self ensureDocumentLoadedForActionName:@"Reload from Disk"]) {
+    if (![self ensureDocumentLoadedForActionName:@"Refresh"]) {
         return;
     }
 
-    [self refreshCurrentDocumentDiskStateAllowPrompt:NO];
-    if (![self currentDocumentHasNewerDiskVersion]) {
+    if (![self isCurrentDocumentReloadableFromDisk]) {
         return;
     }
     if (![self confirmReloadingFromDiskDiscardingCurrentChanges]) {
@@ -7729,7 +7794,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
     NSString *documentName = (_currentPath != nil ? [_currentPath lastPathComponent] : @"Untitled");
     NSAlert *alert = [[[NSAlert alloc] init] autorelease];
     [alert setMessageText:[NSString stringWithFormat:@"Reload \"%@\" from disk?", documentName]];
-    [alert setInformativeText:@"Reloading the newer version will discard your unsaved changes in this window."];
+    [alert setInformativeText:@"Reloading from disk will discard your unsaved changes in this window."];
     [alert addButtonWithTitle:@"Reload"];
     [alert addButtonWithTitle:@"Cancel"];
 
@@ -10238,6 +10303,12 @@ constrainSplitPosition:(CGFloat)proposedPosition
 {
     NSMutableDictionary *tab = [NSMutableDictionary dictionary];
     [tab setObject:(markdown != nil ? markdown : @"") forKey:OMDTabMarkdownKey];
+    [tab setObject:(markdown ?: @"") forKey:OMDTabImageMarkdownKey];
+    [tab setObject:(sourcePath ?: @"") forKey:OMDTabImageSourcePathKey];
+    if (renderMode == OMDDocumentRenderModeMarkdown) {
+        [tab setObject:[self imageFingerprintsForMarkdown:markdown sourcePath:sourcePath]
+                forKey:OMDTabImageFingerprintsKey];
+    }
     if (sourcePath != nil && [sourcePath length] > 0) {
         [tab setObject:sourcePath forKey:OMDTabSourcePathKey];
     }

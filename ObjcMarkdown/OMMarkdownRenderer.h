@@ -27,6 +27,8 @@ FOUNDATION_EXPORT NSString * const OMMarkdownRendererDiagramSourceKey;
 - (instancetype)initWithTheme:(OMTheme *)theme;
 - (instancetype)initWithTheme:(OMTheme *)theme parsingOptions:(OMMarkdownParsingOptions *)parsingOptions;
 + (BOOL)isTreeSitterAvailable;
+// Resolved local image dependencies, including files that do not yet exist.
++ (NSArray *)localImageURLsInMarkdown:(NSString *)markdown baseURL:(NSURL *)baseURL;
 @property (nonatomic, assign) CGFloat zoomScale;
 @property (nonatomic, assign) CGFloat layoutWidth;
 @property (nonatomic, assign) BOOL allowTableHorizontalOverflow;
