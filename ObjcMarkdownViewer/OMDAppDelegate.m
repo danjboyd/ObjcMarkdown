@@ -4,6 +4,7 @@
 #import "OMDAppDelegate.h"
 #import "OMMarkdownRenderer.h"
 #import "OMRenderedObject.h"
+#import "OMTheme.h"
 #import "OMDTextView.h"
 #import "OMDOutlineController.h"
 #import "OMDSourceTextView.h"
@@ -961,6 +962,19 @@ static NSString * const OMDTabImageMarkdownKey = @"imageMarkdown";
 static NSString * const OMDTabImageSourcePathKey = @"imageSourcePath";
 
 static NSString *OMDTrimmedString(NSString *value);
+
+// Whether the desktop theme is dark, judged from its window background (the
+// Adwaita theme picks its palette from GNOME's colour scheme at launch).
+static BOOL OMDSystemAppearanceIsDark(void)
+{
+    NSColor *background = [[NSColor windowBackgroundColor] colorUsingColorSpaceName:NSCalibratedRGBColorSpace];
+    if (background == nil) {
+        return NO;
+    }
+    CGFloat luminance = 0.2126 * [background redComponent] + 0.7152 * [background greenComponent] +
+                        0.0722 * [background blueComponent];
+    return luminance < 0.5;
+}
 #if defined(_WIN32)
 static NSString *OMDHTMLEscapedString(NSString *value);
 #endif
@@ -5340,7 +5354,9 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [_textView setTextContainerInset:NSMakeSize(metrics.previewTextInsetX, metrics.previewTextInsetY)];
     if ([_textView isKindOfClass:[OMDTextView class]]) {
         OMDTextView *previewTextView = (OMDTextView *)_textView;
-        [previewTextView setDocumentBackgroundColor:[NSColor whiteColor]];
+        [previewTextView setDocumentBackgroundColor:(OMDSystemAppearanceIsDark()
+                                                     ? [NSColor colorWithCalibratedRed:(13.0 / 255.0) green:(17.0 / 255.0) blue:(23.0 / 255.0) alpha:1.0]
+                                                     : [NSColor whiteColor])];
         [previewTextView setDocumentBorderColor:OMDResolvedSubtleSeparatorColor()];
         [previewTextView setDocumentCornerRadius:OMDPreviewPageCornerRadius];
         [previewTextView setDocumentBorderWidth:OMDPreviewPageBorderWidth];
@@ -5465,6 +5481,9 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [self applyExplorerSidebarVisibility];
 
     _renderer = [[OMMarkdownRenderer alloc] init];
+    // The preview follows the desktop's light or dark appearance; printing
+    // keeps its own light renderer.
+    [_renderer setTheme:[OMTheme defaultThemeForDarkAppearance:OMDSystemAppearanceIsDark()]];
     OMDStartupTrace(@"setupWindow: renderer allocated");
     OMMarkdownParsingOptions *options = [OMMarkdownParsingOptions defaultOptions];
     id mathPolicyValue = [defaults objectForKey:OMDMathRenderingPolicyDefaultsKey];
@@ -8720,19 +8739,26 @@ static NSMutableArray *OMDSecondaryWindows(void)
         [codeView setDocumentCornerRadius:OMDPreviewPageCornerRadius];
         [codeView setDocumentBorderWidth:OMDPreviewPageBorderWidth];
         [codeView setCodeBlockRanges:[_renderer codeBlockRanges]];
-        [codeView setCodeBlockBackgroundColor:[NSColor colorWithCalibratedRed:(239.0 / 255.0)
-                                                                         green:(243.0 / 255.0)
-                                                                          blue:(247.0 / 255.0)
-                                                                         alpha:1.0]];
-        [codeView setCodeBlockBorderColor:[NSColor colorWithCalibratedRed:(208.0 / 255.0)
-                                                                     green:(215.0 / 255.0)
-                                                                      blue:(222.0 / 255.0)
-                                                                     alpha:1.0]];
+        OMTheme *theme = [_renderer theme];
+        [codeView setCodeBlockBackgroundColor:(theme.codeBackgroundColor != nil
+                                               ? theme.codeBackgroundColor
+                                               : [NSColor colorWithCalibratedRed:(239.0 / 255.0) green:(243.0 / 255.0) blue:(247.0 / 255.0) alpha:1.0])];
+        [codeView setCodeBlockBorderColor:(theme.codeBorderColor != nil
+                                           ? theme.codeBorderColor
+                                           : [NSColor colorWithCalibratedRed:(208.0 / 255.0) green:(215.0 / 255.0) blue:(222.0 / 255.0) alpha:1.0])];
+        if (theme.linkColor != nil) {
+            [codeView setLinkTextAttributes:@{
+                NSForegroundColorAttributeName: theme.linkColor,
+                NSUnderlineStyleAttributeName: [NSNumber numberWithInt:NSUnderlineStyleSingle]
+            }];
+        }
         [codeView setCodeBlockPadding:NSMakeSize(20.0, 14.0)];
         [codeView setCodeBlockCornerRadius:6.0];
         [codeView setCodeBlockBorderWidth:1.0];
         [codeView setBlockquoteRanges:[_renderer blockquoteRanges]];
-        [codeView setBlockquoteLineColor:[NSColor colorWithCalibratedWhite:0.82 alpha:1.0]];
+        [codeView setBlockquoteLineColor:(theme.blockquoteBorderColor != nil
+                                          ? theme.blockquoteBorderColor
+                                          : [NSColor colorWithCalibratedWhite:0.82 alpha:1.0])];
         [codeView setBlockquoteLineWidth:3.0];
         [codeView setNeedsDisplay:YES];
     }

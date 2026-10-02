@@ -25,6 +25,10 @@
 @property (nonatomic, retain) NSColor *codeBackgroundColor;
 @property (nonatomic, retain) NSColor *linkColor;
 @property (nonatomic, retain) NSColor *hrColor;
+@property (nonatomic, retain) NSColor *codeBorderColor;
+@property (nonatomic, retain) NSColor *blockquoteBorderColor;
+@property (nonatomic, retain) NSColor *blockquoteTextColor;
+- (void)applyDarkDefaults;
 @end
 
 @implementation OMTheme
@@ -47,6 +51,30 @@
     }
 
     return [[[OMTheme alloc] initWithDefaultValues] autorelease];
+    } @finally {
+        [lock unlock];
+    }
+}
+
++ (instancetype)defaultThemeForDarkAppearance:(BOOL)dark
+{
+    if (!dark) {
+        return [self defaultTheme];
+    }
+    NSRecursiveLock *lock = OMAppKitGlobalLock();
+    [lock lock];
+    @try {
+        NSString *path = [[NSBundle mainBundle] pathForResource:@"theme-github-dark" ofType:@"toml"];
+        if (path == nil) {
+            path = @"Resources/theme-github-dark.toml";
+        }
+        OMTheme *theme = [self themeWithContentsOfFile:path error:NULL];
+        if (theme != nil) {
+            return theme;
+        }
+        theme = [[[OMTheme alloc] initWithDefaultValues] autorelease];
+        [theme applyDarkDefaults];
+        return theme;
     } @finally {
         [lock unlock];
     }
@@ -166,6 +194,10 @@
         NSString *fontFamily = [self stringInTable:code key:"font_family"];
         NSString *colorValue = [self stringInTable:code key:"color"];
         NSString *backgroundValue = [self stringInTable:code key:"background"];
+        NSString *borderValue = [self stringInTable:code key:"border_color"];
+        if (borderValue != nil && [self colorFromHexString:borderValue] != nil) {
+            theme.codeBorderColor = [self colorFromHexString:borderValue];
+        }
         if (fontFamily != nil) {
             NSFont *font = [NSFont fontWithName:fontFamily size:theme.baseFont.pointSize];
             if (font == nil) {
@@ -186,6 +218,18 @@
             if (color != nil) {
                 theme.codeBackgroundColor = color;
             }
+        }
+    }
+
+    toml_table_t *blockquote = toml_table_in(root, "blockquote");
+    if (blockquote != NULL) {
+        NSString *borderValue = [self stringInTable:blockquote key:"border_color"];
+        NSString *textValue = [self stringInTable:blockquote key:"text_color"];
+        if (borderValue != nil && [self colorFromHexString:borderValue] != nil) {
+            theme.blockquoteBorderColor = [self colorFromHexString:borderValue];
+        }
+        if (textValue != nil && [self colorFromHexString:textValue] != nil) {
+            theme.blockquoteTextColor = [self colorFromHexString:textValue];
         }
     }
 
@@ -268,8 +312,37 @@
         } else {
             [_hrColor retain];
         }
+        _codeBorderColor = [[[self class] colorFromHexString:@"#d0d7de"] retain];
+        _blockquoteBorderColor = [[[self class] colorFromHexString:@"#d0d7de"] retain];
+        _blockquoteTextColor = [[[self class] colorFromHexString:@"#59636e"] retain];
     }
     return self;
+}
+
+// GitHub's dark-default palette, for when theme-github-dark.toml is missing.
+- (void)applyDarkDefaults
+{
+    Class cls = [self class];
+    self.baseTextColor = [cls colorFromHexString:@"#e6edf3"];
+    self.baseBackgroundColor = [cls colorFromHexString:@"#0d1117"];
+    self.headingColor = [cls colorFromHexString:@"#e6edf3"];
+    self.codeTextColor = [cls colorFromHexString:@"#e6edf3"];
+    self.codeBackgroundColor = [cls colorFromHexString:@"#151b23"];
+    self.codeBorderColor = [cls colorFromHexString:@"#3d444d"];
+    self.linkColor = [cls colorFromHexString:@"#4493f8"];
+    self.hrColor = [cls colorFromHexString:@"#3d444d"];
+    self.blockquoteBorderColor = [cls colorFromHexString:@"#3d444d"];
+    self.blockquoteTextColor = [cls colorFromHexString:@"#9198a1"];
+}
+
+- (BOOL)isDark
+{
+    NSColor *rgb = [self.baseBackgroundColor colorUsingColorSpaceName:NSCalibratedRGBColorSpace];
+    if (rgb == nil) {
+        return NO;
+    }
+    CGFloat luminance = 0.2126 * [rgb redComponent] + 0.7152 * [rgb greenComponent] + 0.0722 * [rgb blueComponent];
+    return luminance < 0.5;
 }
 
 - (void)dealloc
@@ -284,6 +357,9 @@
     [_codeBackgroundColor release];
     [_linkColor release];
     [_hrColor release];
+    [_codeBorderColor release];
+    [_blockquoteBorderColor release];
+    [_blockquoteTextColor release];
     [super dealloc];
 }
 

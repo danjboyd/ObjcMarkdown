@@ -1,4 +1,4 @@
-# Default GitHub-like theme (placeholder; not yet wired into renderer)
+# GitHub light theme (the default; see theme-github-dark.toml for dark).
 
 [base]
 font_family = "Helvetica"
@@ -13,6 +13,7 @@ color = "#24292f"
 [code]
 font_family = "Menlo"
 background = "#f6f8fa"
+border_color = "#d0d7de"
 color = "#24292f"
 
 [blockquote]

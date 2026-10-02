@@ -16,9 +16,17 @@
 @property (nonatomic, readonly) NSColor *codeBackgroundColor;
 @property (nonatomic, readonly) NSColor *linkColor;
 @property (nonatomic, readonly) NSColor *hrColor;
+@property (nonatomic, readonly) NSColor *codeBorderColor;
+@property (nonatomic, readonly) NSColor *blockquoteBorderColor;
+@property (nonatomic, readonly) NSColor *blockquoteTextColor;
 
 + (instancetype)defaultTheme;
+// The GitHub light theme, or GitHub's dark theme (theme-github-dark.toml).
++ (instancetype)defaultThemeForDarkAppearance:(BOOL)dark;
 + (instancetype)themeWithContentsOfFile:(NSString *)path error:(NSError **)error;
+
+// YES when the background is dark (luminance below one half).
+- (BOOL)isDark;
 
 - (NSDictionary *)baseAttributes;
 - (NSDictionary *)headingAttributesForSize:(CGFloat)size;

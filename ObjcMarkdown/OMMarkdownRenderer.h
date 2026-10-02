@@ -43,6 +43,8 @@ FOUNDATION_EXPORT NSString * const OMMarkdownRendererDiagramSourceKey;
 // GitHub's anchor slug for a heading title, before de-duplication: lowercase,
 // letters/marks/numbers/"_"/"-"/spaces kept, spaces turned into "-".
 + (NSString *)anchorSlugForHeadingTitle:(NSString *)title;
+// The colours and fonts rendered with; may be changed between renders.
+@property (nonatomic, retain) OMTheme *theme;
 @property (nonatomic, assign) CGFloat zoomScale;
 @property (nonatomic, assign) CGFloat layoutWidth;
 @property (nonatomic, assign) BOOL allowTableHorizontalOverflow;

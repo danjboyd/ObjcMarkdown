@@ -6,6 +6,7 @@
 #import <dispatch/dispatch.h>
 #import "OMMarkdownRenderer.h"
 #import "OMRenderedObject.h"
+#import "OMTheme.h"
 #import "OMAppKitSerialization.h"
 #import "OMMermaidERDrawing.h"
 #import "OMMermaidERLayout.h"
@@ -2106,6 +2107,75 @@ static BOOL OMDMathToolchainAvailable(void)
     XCTAssertEqual([style alignment], NSCenterTextAlignment);
     NSRange next = [text rangeOfString:@"next block"];
     XCTAssertTrue([[text substringWithRange:NSMakeRange(NSMaxRange(diagram), next.location - NSMaxRange(diagram))] hasPrefix:@"\n\n"]);
+}
+
+- (CGFloat)luminanceOfColor:(NSColor *)color
+{
+    NSColor *rgb = [color colorUsingColorSpaceName:NSCalibratedRGBColorSpace];
+    return 0.2126 * [rgb redComponent] + 0.7152 * [rgb greenComponent] + 0.0722 * [rgb blueComponent];
+}
+
+- (void)testDarkThemeUsesGitHubDarkPalette
+{
+    OMTheme *light = [OMTheme defaultThemeForDarkAppearance:NO];
+    OMTheme *dark = [OMTheme defaultThemeForDarkAppearance:YES];
+    XCTAssertFalse([light isDark]);
+    XCTAssertTrue([dark isDark]);
+    XCTAssertTrue([self luminanceOfColor:[dark baseTextColor]] > 0.8);
+    XCTAssertTrue([self luminanceOfColor:[dark codeBackgroundColor]] < 0.15);
+    XCTAssertNotNil([dark codeBorderColor]);
+    XCTAssertNotNil([light blockquoteTextColor]);
+    XCTAssertTrue([self luminanceOfColor:[dark linkColor]] > [self luminanceOfColor:[light linkColor]]);
+}
+
+- (void)testQuotedTextUsesTheThemesMutedColour
+{
+    OMTheme *dark = [OMTheme defaultThemeForDarkAppearance:YES];
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] initWithTheme:dark] autorelease];
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:@"Plain text.\n\n> Quoted text.\n"];
+    NSString *text = [rendered string];
+    NSColor *plain = [rendered attribute:NSForegroundColorAttributeName atIndex:[text rangeOfString:@"Plain"].location effectiveRange:NULL];
+    NSColor *quoted = [rendered attribute:NSForegroundColorAttributeName atIndex:[text rangeOfString:@"Quoted"].location effectiveRange:NULL];
+    XCTAssertEqualObjects(quoted, [dark blockquoteTextColor]);
+    XCTAssertFalse([quoted isEqual:plain]);
+}
+
+- (void)testDarkThemeMathIsDrawnInLightInkAndCachedApart
+{
+    if (!OMDMathToolchainAvailable()) {
+        return;
+    }
+    OMMarkdownParsingOptions *options = [OMMarkdownParsingOptions defaultOptions];
+    [options setMathRenderingPolicy:OMMarkdownMathRenderingPolicyExternalTools];
+    OMMarkdownRenderer *light = [[[OMMarkdownRenderer alloc] initWithTheme:[OMTheme defaultThemeForDarkAppearance:NO]
+                                                             parsingOptions:options] autorelease];
+    OMMarkdownRenderer *dark = [[[OMMarkdownRenderer alloc] initWithTheme:[OMTheme defaultThemeForDarkAppearance:YES]
+                                                            parsingOptions:options] autorelease];
+    NSTextAttachment *lightMath = [self firstAttachmentInRenderedString:[light attributedStringFromMarkdown:@"$w_9$"]];
+    NSTextAttachment *darkMath = [self firstAttachmentInRenderedString:[dark attributedStringFromMarkdown:@"$w_9$"]];
+    XCTAssertNotNil(lightMath);
+    XCTAssertNotNil(darkMath);
+    XCTAssertTrue(lightMath != darkMath, @"light and dark renders must not share a cache entry");
+
+    NSImage *image = [(NSCell *)[darkMath attachmentCell] image];
+    NSBitmapImageRep *bitmap = [NSBitmapImageRep imageRepWithData:[image TIFFRepresentation]];
+    CGFloat inkLuminance = 0.0;
+    NSUInteger inked = 0;
+    NSInteger x = 0;
+    for (; x < [bitmap pixelsWide]; x++) {
+        NSInteger y = 0;
+        for (; y < [bitmap pixelsHigh]; y++) {
+            NSColor *pixel = [[bitmap colorAtX:x y:y] colorUsingColorSpaceName:NSCalibratedRGBColorSpace];
+            if ([pixel alphaComponent] > 0.8) {
+                inkLuminance += [self luminanceOfColor:pixel];
+                inked += 1;
+            }
+        }
+    }
+    XCTAssertTrue(inked > 0);
+    if (inked > 0) {
+        XCTAssertTrue(inkLuminance / inked > 0.6, @"dark-theme math should be drawn in light ink");
+    }
 }
 
 @end

@@ -5052,6 +5052,40 @@ static void OMScheduleAsyncMathAssetGeneration(NSString *formula,
     });
 }
 
+// Hex for the ink of math on this theme when it isn't (near) black, else nil.
+// LaTeX draws black; light ink is only needed on dark themes.
+static NSString *OMMathInkHexForTheme(OMTheme *theme)
+{
+    NSColor *ink = [theme.baseTextColor colorUsingColorSpaceName:NSCalibratedRGBColorSpace];
+    if (ink == nil) {
+        return nil;
+    }
+    CGFloat luminance = 0.2126 * [ink redComponent] + 0.7152 * [ink greenComponent] + 0.0722 * [ink blueComponent];
+    if (luminance < 0.5) {
+        return nil;
+    }
+    return [NSString stringWithFormat:@"#%02x%02x%02x",
+            (int)lround([ink redComponent] * 255.0),
+            (int)lround([ink greenComponent] * 255.0),
+            (int)lround([ink blueComponent] * 255.0)];
+}
+
+// dvisvgm leaves glyph fills unset (black); a fill on the root recolours them.
+static NSData *OMMathSVGDataWithInk(NSData *svgData, NSString *inkHex)
+{
+    if (svgData == nil || inkHex == nil) {
+        return svgData;
+    }
+    NSString *svg = [[[NSString alloc] initWithData:svgData encoding:NSUTF8StringEncoding] autorelease];
+    NSRange root = [svg rangeOfString:@"<svg "];
+    if (svg == nil || root.location == NSNotFound) {
+        return svgData;
+    }
+    NSString *inked = [svg stringByReplacingCharactersInRange:root
+                                                   withString:[NSString stringWithFormat:@"<svg fill='%@' ", inkHex]];
+    return [inked dataUsingEncoding:NSUTF8StringEncoding];
+}
+
 static NSAttributedString *OMMathAttachmentAttributedString(NSString *formula,
                                                             OMTheme *theme,
                                                             NSMutableDictionary *attributes,
@@ -5094,10 +5128,20 @@ static NSAttributedString *OMMathAttachmentAttributedString(NSString *formula,
     CGFloat zoom = OMMathZoomForFontSize(fontSize);
     CGFloat oversample = OMMathRasterOversampleFactor();
     CGFloat renderZoom = OMMathQuantizedRenderZoom(zoom, oversample);
-    NSString *cacheKey = [NSString stringWithFormat:@"%@|%.2f|%@",
+#if defined(_WIN32)
+    NSString *inkHex = nil;
+#else
+    NSString *inkHex = OMMathInkHexForTheme(theme);
+#endif
+    // Ink-coloured renders are cached apart from black ones (printing uses the
+    // light theme while the preview may be dark).
+    NSString *inkSuffix = inkHex != nil ? [@"|ink=" stringByAppendingString:inkHex] : @"";
+    NSString *inkedFormula = [formula stringByAppendingString:inkSuffix];
+    NSString *cacheKey = [NSString stringWithFormat:@"%@|%.2f|%@%@",
                           displayMath ? @"display" : @"inline",
                           fontSize,
-                          OMMathVersionedFormula(formula)];
+                          OMMathVersionedFormula(formula),
+                          inkSuffix];
     NSAttributedString *cached = [OMMathAttachmentCache() objectForKey:cacheKey];
     if (cached != nil) {
         if (stats != NULL) {
@@ -5111,7 +5155,8 @@ static NSAttributedString *OMMathAttachmentAttributedString(NSString *formula,
 
     NSTimeInterval mathStart = OMNow();
     NSString *assetKey = OMMathAssetCacheKey(formula, displayMath, renderZoom);
-    NSImage *baseImage = [OMMathBaseImageCache() objectForKey:assetKey];
+    NSString *imageKey = [assetKey stringByAppendingString:inkSuffix];
+    NSImage *baseImage = [OMMathBaseImageCache() objectForKey:imageKey];
 #if !defined(_WIN32)
     NSData *svgData = nil;
 #endif
@@ -5121,7 +5166,7 @@ static NSAttributedString *OMMathAttachmentAttributedString(NSString *formula,
         if (stats != NULL) {
             stats->mathAssetCacheHits += 1;
         }
-        OMRecordBestAvailableMathImage(formula, displayMath, renderZoom, baseImage);
+        OMRecordBestAvailableMathImage(inkedFormula, displayMath, renderZoom, baseImage);
     } else {
 #if defined(_WIN32)
         if (stats != NULL) {
@@ -5129,7 +5174,7 @@ static NSAttributedString *OMMathAttachmentAttributedString(NSString *formula,
         }
         if (asyncMathGenerationEnabled) {
             CGFloat fallbackRenderZoom = 0.0;
-            NSImage *fallbackImage = OMBestAvailableMathImage(formula, displayMath, &fallbackRenderZoom);
+            NSImage *fallbackImage = OMBestAvailableMathImage(inkedFormula, displayMath, &fallbackRenderZoom);
             if (fallbackImage != nil) {
                 baseImage = fallbackImage;
                 usedFallbackImage = YES;
@@ -5159,8 +5204,8 @@ static NSAttributedString *OMMathAttachmentAttributedString(NSString *formula,
 #endif
                 return nil;
             }
-            [OMMathBaseImageCache() setObject:baseImage forKey:assetKey];
-            OMRecordBestAvailableMathImage(formula, displayMath, renderZoom, baseImage);
+            [OMMathBaseImageCache() setObject:baseImage forKey:imageKey];
+            OMRecordBestAvailableMathImage(inkedFormula, displayMath, renderZoom, baseImage);
         }
 #else
         svgData = [OMMathBaseSVGDataCache() objectForKey:assetKey];
@@ -5180,7 +5225,7 @@ static NSAttributedString *OMMathAttachmentAttributedString(NSString *formula,
                                                    maxFormulaLength,
                                                    externalToolTimeout);
                 CGFloat fallbackRenderZoom = 0.0;
-                NSImage *fallbackImage = OMBestAvailableMathImage(formula, displayMath, &fallbackRenderZoom);
+                NSImage *fallbackImage = OMBestAvailableMathImage(inkedFormula, displayMath, &fallbackRenderZoom);
                 if (fallbackImage != nil) {
                     baseImage = fallbackImage;
                     usedFallbackImage = YES;
@@ -5213,7 +5258,7 @@ static NSAttributedString *OMMathAttachmentAttributedString(NSString *formula,
 
         if (baseImage == nil) {
             NSTimeInterval decodeStart = OMNow();
-            NSImage *decodedImage = [[[NSImage alloc] initWithData:svgData] autorelease];
+            NSImage *decodedImage = [[[NSImage alloc] initWithData:OMMathSVGDataWithInk(svgData, inkHex)] autorelease];
             if (stats != NULL) {
                 stats->svgDecodeSeconds += (OMNow() - decodeStart);
             }
@@ -5224,9 +5269,9 @@ static NSAttributedString *OMMathAttachmentAttributedString(NSString *formula,
                 }
                 return nil;
             }
-            [OMMathBaseImageCache() setObject:decodedImage forKey:assetKey];
+            [OMMathBaseImageCache() setObject:decodedImage forKey:imageKey];
             baseImage = decodedImage;
-            OMRecordBestAvailableMathImage(formula, displayMath, renderZoom, baseImage);
+            OMRecordBestAvailableMathImage(inkedFormula, displayMath, renderZoom, baseImage);
         }
 #endif
     }
@@ -5717,7 +5762,6 @@ static cmark_node *OMTryAppendMultiNodeDisplayMath(cmark_node *startNode,
 }
 
 @interface OMMarkdownRenderer ()
-@property (nonatomic, retain) OMTheme *theme;
 @property (nonatomic, retain) NSArray *codeBlockRanges;
 @property (nonatomic, retain) NSArray *blockquoteRanges;
 @property (nonatomic, retain) NSArray *blockAnchors;
@@ -6096,6 +6140,9 @@ static void OMRenderParagraph(cmark_node *node,
     CGFloat fontSize = font != nil ? [font pointSize] : (theme.baseFont != nil ? [theme.baseFont pointSize] * scale : 16.0 * scale);
     NSParagraphStyle *style = OMParagraphStyleWithIndent(indent, indent, 12.0 * scale, 0.0, 1.725, fontSize);
     [paraAttrs setObject:style forKey:NSParagraphStyleAttributeName];
+    if (quoteLevel > 0 && theme.blockquoteTextColor != nil) {
+        [paraAttrs setObject:theme.blockquoteTextColor forKey:NSForegroundColorAttributeName];
+    }
 
     NSUInteger paragraphStart = [output length];
     OMPrepareRawMathSources(node, renderContext);

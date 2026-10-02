@@ -23,7 +23,7 @@ MarkdownViewer_LDFLAGS += -L../third_party/GPUpdaterUI/$(GNUSTEP_OBJ_DIR) -lGPUp
 MarkdownViewer_LDFLAGS += -Wl,-rpath,'$$ORIGIN/../../ObjcMarkdownRuntime'
 MarkdownViewer_LDFLAGS += -Wl,-rpath,'$$ORIGIN/../../../GNUstep/System/Library/Libraries'
 MarkdownViewer_LDFLAGS += -ldispatch
-MarkdownViewer_RESOURCE_FILES = ../Resources/theme-github.toml ../Resources/markdown_icon.png ../Resources/open-icon.png ../Resources/toolbar-open.png ../Resources/toolbar-import.png ../Resources/toolbar-saveas.png ../Resources/toolbar-export.png ../Resources/toolbar-print.png ../Resources/toolbar-explorer-toggle.png ../Resources/toolbar-preferences.png ../Resources/code-copy-icon.png
+MarkdownViewer_RESOURCE_FILES = ../Resources/theme-github.toml ../Resources/theme-github-dark.toml ../Resources/markdown_icon.png ../Resources/open-icon.png ../Resources/toolbar-open.png ../Resources/toolbar-import.png ../Resources/toolbar-saveas.png ../Resources/toolbar-export.png ../Resources/toolbar-print.png ../Resources/toolbar-explorer-toggle.png ../Resources/toolbar-preferences.png ../Resources/code-copy-icon.png
 MarkdownViewer_APPLICATION_ICON = markdown_icon.png
 MarkdownViewer_GSWAPP_INFO_PLIST = MarkdownViewerInfo.plist
 
