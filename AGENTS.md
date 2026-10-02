@@ -11,7 +11,6 @@ to `NSAttributedString`, plus a minimal viewer app.
 Prereqs:
 - GNUstep installed and available at `/usr/GNUstep`.
 - `gmake` and a C/ObjC toolchain.
-- `cmark` library + headers (CommonMark reference implementation; `cmark.h` must be on include path).
 
 Steps:
 1) `source /usr/GNUstep/System/Library/Makefiles/GNUstep.sh`
@@ -46,7 +45,7 @@ Workflow:
 TBD: add separate build instructions when macOS target is set up.
 
 ## Dependencies
-- `cmark` for CommonMark parsing.
+- `cmark-gfm` (vendored in `third_party/cmark-gfm`, compiled into the library) for CommonMark + GFM parsing. Parse through `OMGFMParseDocument()` (`ObjcMarkdown/OMGFMParser.h`) so the renderer, split sync and source highlighter agree on block structure; never link a system `libcmark` alongside it.
 - `tomlc99` (vendored in `third_party/tomlc99`) for theme TOML parsing.
 
 ## Structure (expected)

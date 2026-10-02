@@ -3,7 +3,8 @@
 
 #import "OMDPreviewSync.h"
 
-#include <cmark.h>
+#include "cmark-gfm.h"
+#include "OMGFMParser.h"
 #include <float.h>
 #include <math.h>
 
@@ -951,6 +952,10 @@ static BOOL OMDNodeLineBounds(cmark_node *node, NSInteger *startLineOut, NSInteg
 
 static BOOL OMDNodeTypeHasBlockAnchor(cmark_node_type type)
 {
+    // The renderer anchors these too; table's type is assigned at run time.
+    if (type == CMARK_NODE_FOOTNOTE_DEFINITION) {
+        return YES;
+    }
     switch (type) {
         case CMARK_NODE_PARAGRAPH:
         case CMARK_NODE_HEADING:
@@ -1054,7 +1059,7 @@ static void OMDCollectSourceBlockDescriptors(cmark_node *node,
     }
 
     cmark_node_type type = cmark_node_get_type(node);
-    if (OMDNodeTypeHasBlockAnchor(type)) {
+    if (OMDNodeTypeHasBlockAnchor(type) || OMGFMNodeIsTable(node)) {
         NSInteger startLine = 0;
         NSInteger endLine = 0;
         if (OMDNodeLineBounds(node, &startLine, &endLine)) {
@@ -1090,7 +1095,7 @@ static NSArray *OMDSourceBlockDescriptorsForMarkdown(NSString *sourceText)
 
     const char *bytes = (const char *)[sourceData bytes];
     size_t length = (size_t)[sourceData length];
-    cmark_node *document = cmark_parse_document(bytes, length, CMARK_OPT_DEFAULT);
+    cmark_node *document = OMGFMParseDocument(bytes, length, CMARK_OPT_DEFAULT);
     if (document == NULL) {
         return [NSArray array];
     }

@@ -10,7 +10,11 @@
 
 #import <dispatch/dispatch.h>
 
-#include <cmark.h>
+#include "cmark-gfm.h"
+#include "cmark-gfm-core-extensions.h"
+#include "strikethrough.h"
+#include "table.h"
+#include "OMGFMParser.h"
 #include <ctype.h>
 #if defined(_WIN32)
 #include <windows.h>
@@ -2271,181 +2275,6 @@ static BOOL OMMarkerIsEscaped(NSString *text, NSUInteger location)
     return (backslashCount % 2) == 1;
 }
 
-static BOOL OMStrikethroughIsSpace(unichar ch)
-{
-    return [[NSCharacterSet whitespaceAndNewlineCharacterSet] characterIsMember:ch];
-}
-
-static BOOL OMStrikethroughIsPunctuation(unichar ch)
-{
-    return [[NSCharacterSet punctuationCharacterSet] characterIsMember:ch] ||
-           [[NSCharacterSet symbolCharacterSet] characterIsMember:ch];
-}
-
-// Marks each source line (1-based) with the paragraph or heading that owns it;
-// 0 means the line holds no inline content (code, HTML, blank, rules).
-static NSUInteger *OMCreateInlineBlockIDsByLine(NSString *markdown, NSUInteger lineCount)
-{
-    NSUInteger *blockIDs = (NSUInteger *)calloc(lineCount + 2, sizeof(NSUInteger));
-    NSData *data = [markdown dataUsingEncoding:NSUTF8StringEncoding];
-    if (blockIDs == NULL || data == nil) {
-        return blockIDs;
-    }
-    cmark_node *document = cmark_parse_document([data bytes], [data length], CMARK_OPT_DEFAULT);
-    if (document == NULL) {
-        return blockIDs;
-    }
-    NSUInteger nextID = 1;
-    cmark_iter *iter = cmark_iter_new(document);
-    cmark_event_type event;
-    while ((event = cmark_iter_next(iter)) != CMARK_EVENT_DONE) {
-        cmark_node *node = cmark_iter_get_node(iter);
-        cmark_node_type type = cmark_node_get_type(node);
-        if (event != CMARK_EVENT_ENTER ||
-            (type != CMARK_NODE_PARAGRAPH && type != CMARK_NODE_HEADING)) {
-            continue;
-        }
-        int firstLine = cmark_node_get_start_line(node);
-        int lastLine = cmark_node_get_end_line(node);
-        int line = firstLine;
-        for (; line <= lastLine; line++) {
-            if (line >= 1 && (NSUInteger)line <= lineCount) {
-                blockIDs[line] = nextID;
-            }
-        }
-        nextID += 1;
-    }
-    cmark_iter_free(iter);
-    cmark_node_free(document);
-    return blockIDs;
-}
-
-// Pairs the "~~" runs of one block: a closer matches the nearest open opener.
-static void OMPairStrikethroughDelimiters(NSArray *delimiters, NSMutableIndexSet *openers, NSMutableIndexSet *closers)
-{
-    NSMutableArray *stack = [NSMutableArray array];
-    for (NSDictionary *delimiter in delimiters) {
-        NSUInteger location = [[delimiter objectForKey:@"location"] unsignedIntegerValue];
-        if ([[delimiter objectForKey:@"canClose"] boolValue] && [stack count] > 0) {
-            [openers addIndex:[[stack lastObject] unsignedIntegerValue]];
-            [closers addIndex:location];
-            [stack removeLastObject];
-        } else if ([[delimiter objectForKey:@"canOpen"] boolValue]) {
-            [stack addObject:[NSNumber numberWithUnsignedInteger:location]];
-        }
-    }
-}
-
-// Rewrites GFM "~~text~~" as <del> tags for cmark. Only paragraph and heading
-// lines are touched, delimiters pair within one block, and runs follow the
-// flanking rules, so code blocks and unrelated tildes are left alone.
-static NSString *OMNormalizeGFMStrikethroughMarkdown(NSString *markdown)
-{
-    if (markdown == nil || [markdown rangeOfString:@"~~"].location == NSNotFound) {
-        return markdown;
-    }
-
-    NSUInteger length = [markdown length];
-    NSUInteger lineCount = 1;
-    NSUInteger index = 0;
-    for (; index < length; index++) {
-        if ([markdown characterAtIndex:index] == '\n') {
-            lineCount += 1;
-        }
-    }
-    NSUInteger *blockIDs = OMCreateInlineBlockIDsByLine(markdown, lineCount);
-    if (blockIDs == NULL) {
-        return markdown;
-    }
-
-    NSMutableIndexSet *openers = [NSMutableIndexSet indexSet];
-    NSMutableIndexSet *closers = [NSMutableIndexSet indexSet];
-    NSMutableArray *blockDelimiters = [NSMutableArray array];
-    NSUInteger currentBlock = 0;
-    NSUInteger codeSpanFenceLength = 0;
-    NSUInteger line = 1;
-    for (index = 0; index < length; index++) {
-        unichar ch = [markdown characterAtIndex:index];
-        NSUInteger block = blockIDs[line];
-        if (ch == '\n') {
-            line += 1;
-            continue;
-        }
-        if (block != currentBlock) {
-            OMPairStrikethroughDelimiters(blockDelimiters, openers, closers);
-            [blockDelimiters removeAllObjects];
-            codeSpanFenceLength = 0;
-            currentBlock = block;
-        }
-        if (block == 0) {
-            continue;
-        }
-
-        if (ch == '`') {
-            NSUInteger runLength = 1;
-            while ((index + runLength) < length && [markdown characterAtIndex:(index + runLength)] == '`') {
-                runLength += 1;
-            }
-            if (codeSpanFenceLength == 0) {
-                codeSpanFenceLength = runLength;
-            } else if (codeSpanFenceLength == runLength) {
-                codeSpanFenceLength = 0;
-            }
-            index += runLength - 1;
-            continue;
-        }
-        if (codeSpanFenceLength != 0 || ch != '~') {
-            continue;
-        }
-
-        NSUInteger runLength = 1;
-        while ((index + runLength) < length && [markdown characterAtIndex:(index + runLength)] == '~') {
-            runLength += 1;
-        }
-        if (runLength == 2 && !OMMarkerIsEscaped(markdown, index)) {
-            unichar before = index > 0 ? [markdown characterAtIndex:(index - 1)] : '\n';
-            unichar after = (index + 2) < length ? [markdown characterAtIndex:(index + 2)] : '\n';
-            BOOL leftFlanking = !OMStrikethroughIsSpace(after) &&
-                                (!OMStrikethroughIsPunctuation(after) ||
-                                 OMStrikethroughIsSpace(before) ||
-                                 OMStrikethroughIsPunctuation(before));
-            BOOL rightFlanking = !OMStrikethroughIsSpace(before) &&
-                                 (!OMStrikethroughIsPunctuation(before) ||
-                                  OMStrikethroughIsSpace(after) ||
-                                  OMStrikethroughIsPunctuation(after));
-            if (leftFlanking || rightFlanking) {
-                [blockDelimiters addObject:[NSDictionary dictionaryWithObjectsAndKeys:
-                                            [NSNumber numberWithUnsignedInteger:index], @"location",
-                                            [NSNumber numberWithBool:leftFlanking], @"canOpen",
-                                            [NSNumber numberWithBool:rightFlanking], @"canClose",
-                                            nil]];
-            }
-        }
-        index += runLength - 1;
-    }
-    OMPairStrikethroughDelimiters(blockDelimiters, openers, closers);
-    free(blockIDs);
-
-    if ([openers count] == 0) {
-        return markdown;
-    }
-
-    NSMutableString *normalized = [NSMutableString stringWithCapacity:length + ([openers count] * 9)];
-    NSUInteger copied = 0;
-    for (index = 0; index < length; index++) {
-        BOOL opens = [openers containsIndex:index];
-        if (!opens && ![closers containsIndex:index]) {
-            continue;
-        }
-        [normalized appendString:[markdown substringWithRange:NSMakeRange(copied, index - copied)]];
-        [normalized appendString:(opens ? @"<del>" : @"</del>")];
-        copied = index + 2;
-        index += 1;
-    }
-    [normalized appendString:[markdown substringFromIndex:copied]];
-    return normalized;
-}
-
 typedef NS_ENUM(NSUInteger, OMPipeTableAlignment) {
     OMPipeTableAlignmentLeft = 0,
     OMPipeTableAlignmentCenter = 1,
@@ -2458,220 +2287,6 @@ static NSString *OMTrimmedCellText(NSString *value)
         return @"";
     }
     return [value stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
-}
-
-static NSArray *OMPipeTableCellsFromLine(NSString *line)
-{
-    NSString *trimmed = OMTrimmedCellText(line);
-    if ([trimmed length] == 0) {
-        return nil;
-    }
-
-    BOOL hasPipe = NO;
-    NSUInteger i = 0;
-    NSUInteger length = [trimmed length];
-    for (; i < length; i++) {
-        unichar ch = [trimmed characterAtIndex:i];
-        if (ch == '\\' && (i + 1) < length && [trimmed characterAtIndex:(i + 1)] == '|') {
-            i += 1;
-            continue;
-        }
-        if (ch == '|') {
-            hasPipe = YES;
-            break;
-        }
-    }
-    if (!hasPipe) {
-        return nil;
-    }
-
-    BOOL startsWithPipe = ([trimmed characterAtIndex:0] == '|');
-    BOOL endsWithPipe = ([trimmed characterAtIndex:(length - 1)] == '|');
-    NSMutableArray *rawCells = [NSMutableArray array];
-    NSMutableString *current = [NSMutableString string];
-
-    i = 0;
-    for (; i < length; i++) {
-        unichar ch = [trimmed characterAtIndex:i];
-        if (ch == '\\' && (i + 1) < length && [trimmed characterAtIndex:(i + 1)] == '|') {
-            [current appendString:@"|"];
-            i += 1;
-            continue;
-        }
-        if (ch == '|') {
-            [rawCells addObject:[NSString stringWithString:current]];
-            [current setString:@""];
-            continue;
-        }
-        [current appendFormat:@"%C", ch];
-    }
-    [rawCells addObject:[NSString stringWithString:current]];
-
-    if (startsWithPipe && [rawCells count] > 0) {
-        NSString *first = OMTrimmedCellText([rawCells objectAtIndex:0]);
-        if ([first length] == 0) {
-            [rawCells removeObjectAtIndex:0];
-        }
-    }
-    if (endsWithPipe && [rawCells count] > 0) {
-        NSString *last = OMTrimmedCellText([rawCells lastObject]);
-        if ([last length] == 0) {
-            [rawCells removeLastObject];
-        }
-    }
-    if ([rawCells count] == 0) {
-        return nil;
-    }
-
-    NSMutableArray *cells = [NSMutableArray arrayWithCapacity:[rawCells count]];
-    for (NSString *raw in rawCells) {
-        [cells addObject:OMTrimmedCellText(raw)];
-    }
-    return cells;
-}
-
-static BOOL OMPipeTableAlignmentFromSeparatorCell(NSString *cell, OMPipeTableAlignment *alignmentOut)
-{
-    NSString *trimmed = OMTrimmedCellText(cell);
-    if ([trimmed length] == 0) {
-        return NO;
-    }
-
-    BOOL hasLeadingColon = [trimmed hasPrefix:@":"];
-    BOOL hasTrailingColon = [trimmed hasSuffix:@":"];
-    NSUInteger start = hasLeadingColon ? 1 : 0;
-    NSUInteger end = [trimmed length] - (hasTrailingColon ? 1 : 0);
-    if (end <= start) {
-        return NO;
-    }
-
-    NSString *core = [trimmed substringWithRange:NSMakeRange(start, end - start)];
-    NSUInteger index = 0;
-    for (; index < [core length]; index++) {
-        if ([core characterAtIndex:index] != '-') {
-            return NO;
-        }
-    }
-
-    OMPipeTableAlignment alignment = OMPipeTableAlignmentLeft;
-    if (hasLeadingColon && hasTrailingColon) {
-        alignment = OMPipeTableAlignmentCenter;
-    } else if (hasTrailingColon) {
-        alignment = OMPipeTableAlignmentRight;
-    }
-    if (alignmentOut != NULL) {
-        *alignmentOut = alignment;
-    }
-    return YES;
-}
-
-static BOOL OMPipeTableParseFromLines(NSArray *candidateLines,
-                                      NSArray **rowsOut,
-                                      NSArray **alignmentsOut)
-{
-    if (candidateLines == nil || [candidateLines count] < 2) {
-        return NO;
-    }
-
-    NSMutableArray *lines = [NSMutableArray arrayWithArray:candidateLines];
-    while ([lines count] > 0 && [OMTrimmedCellText([lines objectAtIndex:0]) length] == 0) {
-        [lines removeObjectAtIndex:0];
-    }
-    while ([lines count] > 0 && [OMTrimmedCellText([lines lastObject]) length] == 0) {
-        [lines removeLastObject];
-    }
-    if ([lines count] < 2) {
-        return NO;
-    }
-
-    NSArray *headerCells = OMPipeTableCellsFromLine([lines objectAtIndex:0]);
-    NSArray *separatorCells = OMPipeTableCellsFromLine([lines objectAtIndex:1]);
-    if (headerCells == nil || separatorCells == nil) {
-        return NO;
-    }
-
-    NSUInteger columnCount = [headerCells count];
-    if (columnCount == 0 || [separatorCells count] != columnCount) {
-        return NO;
-    }
-
-    NSMutableArray *alignments = [NSMutableArray arrayWithCapacity:columnCount];
-    for (NSString *separatorCell in separatorCells) {
-        OMPipeTableAlignment alignment = OMPipeTableAlignmentLeft;
-        if (!OMPipeTableAlignmentFromSeparatorCell(separatorCell, &alignment)) {
-            return NO;
-        }
-        [alignments addObject:[NSNumber numberWithUnsignedInteger:alignment]];
-    }
-
-    NSMutableArray *rows = [NSMutableArray array];
-    [rows addObject:headerCells];
-    NSUInteger lineIndex = 2;
-    for (; lineIndex < [lines count]; lineIndex++) {
-        NSString *line = [lines objectAtIndex:lineIndex];
-        if ([OMTrimmedCellText(line) length] == 0) {
-            continue;
-        }
-
-        NSArray *parsedCells = OMPipeTableCellsFromLine(line);
-        if (parsedCells == nil) {
-            return NO;
-        }
-        NSMutableArray *cells = [NSMutableArray arrayWithArray:parsedCells];
-        while ([cells count] < columnCount) {
-            [cells addObject:@""];
-        }
-        if ([cells count] > columnCount) {
-            NSMutableArray *normalized = [NSMutableArray arrayWithCapacity:columnCount];
-            NSUInteger colIndex = 0;
-            for (; colIndex + 1 < columnCount; colIndex++) {
-                [normalized addObject:[cells objectAtIndex:colIndex]];
-            }
-            NSArray *overflow = [cells subarrayWithRange:NSMakeRange(columnCount - 1, [cells count] - (columnCount - 1))];
-            [normalized addObject:[overflow componentsJoinedByString:@" | "]];
-            cells = normalized;
-        }
-        [rows addObject:cells];
-    }
-
-    if (rowsOut != NULL) {
-        *rowsOut = rows;
-    }
-    if (alignmentsOut != NULL) {
-        *alignmentsOut = alignments;
-    }
-    return YES;
-}
-
-static BOOL OMPipeTableDataForParagraphNode(cmark_node *node,
-                                            const OMRenderContext *renderContext,
-                                            NSArray **rowsOut,
-                                            NSArray **alignmentsOut)
-{
-    if (node == NULL || renderContext == NULL || renderContext->sourceLines == nil) {
-        return NO;
-    }
-
-    NSUInteger startLine = 0;
-    NSUInteger endLine = 0;
-    if (!OMNodeLineBounds(node, &startLine, &endLine)) {
-        return NO;
-    }
-
-    NSArray *sourceLines = renderContext->sourceLines;
-    if (startLine == 0 || startLine > [sourceLines count]) {
-        return NO;
-    }
-    if (endLine < startLine) {
-        endLine = startLine;
-    }
-    if (endLine > [sourceLines count]) {
-        endLine = [sourceLines count];
-    }
-
-    NSRange range = NSMakeRange(startLine - 1, endLine - startLine + 1);
-    NSArray *candidateLines = [sourceLines subarrayWithRange:range];
-    return OMPipeTableParseFromLines(candidateLines, rowsOut, alignmentsOut);
 }
 
 static CGFloat OMPipeTableHorizontalPadding(CGFloat scale)
@@ -2796,7 +2411,7 @@ static NSString *OMPipeTableVisibleCellText(NSString *cellMarkdown)
 
     const char *bytes = (const char *)[data bytes];
     NSUInteger length = [data length];
-    cmark_node *document = cmark_parse_document(bytes, length, (int)CMARK_OPT_DEFAULT);
+    cmark_node *document = OMGFMParseDocument(bytes, length, (int)CMARK_OPT_DEFAULT);
     if (document == NULL) {
         return OMTrimmedCellText(normalized);
     }
@@ -2903,7 +2518,6 @@ static NSMutableAttributedString *OMPipeTableAttributedCellContent(NSString *cel
                                                                    const OMRenderContext *renderContext)
 {
     NSString *normalized = (cellMarkdown != nil ? cellMarkdown : @"");
-    normalized = OMNormalizeGFMStrikethroughMarkdown(normalized);
     NSMutableAttributedString *result = [[[NSMutableAttributedString alloc] init] autorelease];
     if ([normalized length] == 0) {
         return result;
@@ -2920,7 +2534,7 @@ static NSMutableAttributedString *OMPipeTableAttributedCellContent(NSString *cel
     NSUInteger cmarkOptions = (renderContext != NULL && renderContext->parsingOptions != nil)
                               ? [renderContext->parsingOptions cmarkOptions]
                               : (NSUInteger)CMARK_OPT_DEFAULT;
-    cmark_node *document = cmark_parse_document(bytes, length, (int)cmarkOptions);
+    cmark_node *document = OMGFMParseDocument(bytes, length, (int)cmarkOptions);
     if (document == NULL) {
         OMAppendString(result, normalized, cellAttributes);
         return result;
@@ -6097,7 +5711,7 @@ static cmark_node *OMTryAppendMultiNodeDisplayMath(cmark_node *startNode,
     if (data == nil) {
         return [NSArray array];
     }
-    cmark_node *document = cmark_parse_document([data bytes], [data length], CMARK_OPT_DEFAULT);
+    cmark_node *document = OMGFMParseDocument([data bytes], [data length], CMARK_OPT_DEFAULT);
     if (document == NULL) {
         return [NSArray array];
     }
@@ -6214,7 +5828,7 @@ static cmark_node *OMTryAppendMultiNodeDisplayMath(cmark_node *startNode,
         return [[[NSAttributedString alloc] initWithString:@""] autorelease];
     }
 
-    NSString *markdownForParsing = OMNormalizeGFMStrikethroughMarkdown(OMMarkdownByBlankingFrontMatter(markdown));
+    NSString *markdownForParsing = OMMarkdownByBlankingFrontMatter(markdown);
     if (markdownForParsing == nil) {
         markdownForParsing = markdown;
     }
@@ -6231,7 +5845,7 @@ static cmark_node *OMTryAppendMultiNodeDisplayMath(cmark_node *startNode,
     size_t length = (size_t)[markdownData length];
     NSUInteger cmarkOptions = self.parsingOptions != nil ? [self.parsingOptions cmarkOptions] : (NSUInteger)CMARK_OPT_DEFAULT;
     NSTimeInterval parseStart = perfLogging ? OMNow() : 0.0;
-    cmark_node *document = cmark_parse_document(bytes, length, (int)cmarkOptions);
+    cmark_node *document = OMGFMParseDocument(bytes, length, (int)cmarkOptions);
     NSTimeInterval parseMs = perfLogging ? ((OMNow() - parseStart) * 1000.0) : 0.0;
     if (document == NULL) {
         if (perfLogging) {
@@ -6330,6 +5944,97 @@ static cmark_node *OMTryAppendMultiNodeDisplayMath(cmark_node *startNode,
     return self.theme.baseBackgroundColor;
 }
 
+// Raw Markdown of a GFM table cell, cut from its source line using the byte
+// columns cmark-gfm records (1-based UTF-8 offsets on the whole line, so this
+// holds inside block quotes and list items too).
+static NSString *OMGFMTableCellMarkdown(cmark_node *cell, const OMRenderContext *renderContext)
+{
+    NSArray *sourceLines = renderContext != NULL ? renderContext->sourceLines : nil;
+    int line = cmark_node_get_start_line(cell);
+    int startColumn = cmark_node_get_start_column(cell);
+    int endColumn = cmark_node_get_end_column(cell);
+    if (sourceLines != nil && line >= 1 && (NSUInteger)line <= [sourceLines count] &&
+        startColumn >= 1 && endColumn >= startColumn) {
+        NSData *bytes = [[sourceLines objectAtIndex:(NSUInteger)line - 1] dataUsingEncoding:NSUTF8StringEncoding];
+        if ((NSUInteger)endColumn <= [bytes length]) {
+            NSData *slice = [bytes subdataWithRange:NSMakeRange((NSUInteger)startColumn - 1,
+                                                                (NSUInteger)(endColumn - startColumn + 1))];
+            NSString *text = [[[NSString alloc] initWithData:slice encoding:NSUTF8StringEncoding] autorelease];
+            if (text != nil) {
+                return OMTrimmedCellText(text);
+            }
+        }
+    }
+    return OMInlinePlainText(cell);
+}
+
+static void OMRenderGFMTable(cmark_node *node,
+                             OMTheme *theme,
+                             NSMutableAttributedString *output,
+                             NSMutableDictionary *attributes,
+                             NSMutableArray *listStack,
+                             NSUInteger quoteLevel,
+                             CGFloat scale,
+                             CGFloat layoutWidth,
+                             const OMRenderContext *renderContext)
+{
+    NSUInteger columnCount = cmark_gfm_extensions_get_table_columns(node);
+    if (columnCount == 0) {
+        return;
+    }
+    uint8_t *alignmentBytes = cmark_gfm_extensions_get_table_alignments(node);
+    NSMutableArray *alignments = [NSMutableArray arrayWithCapacity:columnCount];
+    NSUInteger column = 0;
+    for (; column < columnCount; column++) {
+        uint8_t alignment = alignmentBytes != NULL ? alignmentBytes[column] : 0;
+        OMPipeTableAlignment value = OMPipeTableAlignmentLeft;
+        if (alignment == 'c') {
+            value = OMPipeTableAlignmentCenter;
+        } else if (alignment == 'r') {
+            value = OMPipeTableAlignmentRight;
+        }
+        [alignments addObject:[NSNumber numberWithUnsignedInteger:value]];
+    }
+
+    NSMutableArray *rows = [NSMutableArray array];
+    cmark_node *row = cmark_node_first_child(node);
+    for (; row != NULL; row = cmark_node_next(row)) {
+        if (cmark_node_get_type(row) != CMARK_NODE_TABLE_ROW) {
+            continue;
+        }
+        NSMutableArray *cells = [NSMutableArray arrayWithCapacity:columnCount];
+        cmark_node *cell = cmark_node_first_child(row);
+        for (; cell != NULL && [cells count] < columnCount; cell = cmark_node_next(cell)) {
+            if (cmark_node_get_type(cell) == CMARK_NODE_TABLE_CELL) {
+                [cells addObject:OMGFMTableCellMarkdown(cell, renderContext)];
+            }
+        }
+        while ([cells count] < columnCount) {
+            [cells addObject:@""];
+        }
+        [rows addObject:cells];
+    }
+    if ([rows count] == 0) {
+        return;
+    }
+
+    NSUInteger objectStart = [output length];
+    OMRenderPipeTable(rows,
+                      alignments,
+                      theme,
+                      output,
+                      attributes,
+                      listStack,
+                      quoteLevel,
+                      scale,
+                      layoutWidth,
+                      renderContext);
+    NSString *tableMarkdown = OMSourceTextForNodeLines(node, renderContext);
+    if (tableMarkdown != nil) {
+        OMTagAppendedObject(output, objectStart, OMRenderedObjectKindTable, tableMarkdown, nil);
+    }
+}
+
 static void OMRenderParagraph(cmark_node *node,
                               OMTheme *theme,
                               NSMutableAttributedString *output,
@@ -6339,28 +6044,6 @@ static void OMRenderParagraph(cmark_node *node,
                               CGFloat scale,
                               const OMRenderContext *renderContext)
 {
-    NSArray *tableRows = nil;
-    NSArray *tableAlignments = nil;
-    if (OMPipeTableDataForParagraphNode(node, renderContext, &tableRows, &tableAlignments)) {
-        CGFloat layoutWidth = (renderContext != NULL ? renderContext->layoutWidth : 0.0);
-        NSUInteger objectStart = [output length];
-        OMRenderPipeTable(tableRows,
-                          tableAlignments,
-                          theme,
-                          output,
-                          attributes,
-                          listStack,
-                          quoteLevel,
-                          scale,
-                          layoutWidth,
-                          renderContext);
-        NSString *tableMarkdown = OMSourceTextForNodeLines(node, renderContext);
-        if (tableMarkdown != nil) {
-            OMTagAppendedObject(output, objectStart, OMRenderedObjectKindTable, tableMarkdown, nil);
-        }
-        return;
-    }
-
     NSMutableDictionary *paraAttrs = [attributes mutableCopy];
     CGFloat indent = (CGFloat)(quoteLevel * 20.0 * scale);
     NSFont *font = [attributes objectForKey:NSFontAttributeName];
@@ -6840,6 +6523,10 @@ static void OMRenderListItem(cmark_node *node,
 {
     NSUInteger startLocation = [output length];
     NSString *prefix = OMListPrefix(listStack);
+    if (OMGFMNodeIsTaskItem(node)) {
+        NSString *box = cmark_gfm_extensions_get_tasklist_item_checked(node) ? @"\u2611 " : @"\u2610 ";
+        prefix = [prefix isEqualToString:@"- "] ? box : [prefix stringByAppendingString:box];
+    }
     OMAppendString(output, prefix, attributes);
 
     cmark_node *child = cmark_node_first_child(node);
@@ -6896,6 +6583,39 @@ static void OMRenderListItem(cmark_node *node,
     OMIncrementListIndex(listStack);
 }
 
+// Footnotes come last in the document (cmark-gfm moves them there, in order
+// of first reference): a rule, then each note as a numbered item.
+static void OMRenderFootnoteDefinition(cmark_node *node,
+                                       OMTheme *theme,
+                                       NSMutableAttributedString *output,
+                                       NSMutableDictionary *attributes,
+                                       NSMutableArray *codeRanges,
+                                       NSMutableArray *blockquoteRanges,
+                                       NSMutableArray *listStack,
+                                       NSUInteger quoteLevel,
+                                       CGFloat scale,
+                                       CGFloat layoutWidth,
+                                       const OMRenderContext *renderContext)
+{
+    NSUInteger number = 1;
+    cmark_node *previous = cmark_node_previous(node);
+    for (; previous != NULL; previous = cmark_node_previous(previous)) {
+        if (cmark_node_get_type(previous) == CMARK_NODE_FOOTNOTE_DEFINITION) {
+            number += 1;
+        }
+    }
+    if (number == 1) {
+        OMRenderThematicBreak(theme, output, attributes, layoutWidth);
+    }
+    NSMutableDictionary *listInfo = [NSMutableDictionary dictionary];
+    [listInfo setObject:[NSNumber numberWithInt:CMARK_ORDERED_LIST] forKey:@"type"];
+    [listInfo setObject:[NSNumber numberWithUnsignedInteger:number] forKey:@"index"];
+    [listInfo setObject:[NSNumber numberWithBool:YES] forKey:@"tight"];
+    [listStack addObject:listInfo];
+    OMRenderListItem(node, theme, output, attributes, codeRanges, blockquoteRanges, listStack, quoteLevel, scale, layoutWidth, renderContext);
+    [listStack removeLastObject];
+}
+
 static void OMRenderBlocks(cmark_node *node,
                            OMTheme *theme,
                            NSMutableAttributedString *output,
@@ -6945,6 +6665,18 @@ static void OMRenderBlocks(cmark_node *node,
             [blockquoteRanges addObject:[NSValue valueWithRange:NSMakeRange(startLocation, endLocation - startLocation)]];
             OMRecordBlockAnchor(node, startLocation, endLocation, renderContext);
         }
+        return;
+    }
+    // Extension node types are assigned at run time, so they can't be cases.
+    if (type == CMARK_NODE_TABLE) {
+        OMRenderGFMTable(node, theme, output, attributes, listStack, quoteLevel, scale, layoutWidth, renderContext);
+        OMRecordBlockAnchor(node, startLocation, [output length], renderContext);
+        return;
+    }
+    if (type == CMARK_NODE_FOOTNOTE_DEFINITION) {
+        OMRenderFootnoteDefinition(node, theme, output, attributes, codeRanges, blockquoteRanges,
+                                   listStack, quoteLevel, scale, layoutWidth, renderContext);
+        OMRecordBlockAnchor(node, startLocation, [output length], renderContext);
         return;
     }
     switch (type) {
@@ -7020,6 +6752,15 @@ static void OMRenderInlines(cmark_node *node,
     cmark_node *child = cmark_node_first_child(node);
     while (child != NULL) {
         cmark_node_type type = cmark_node_get_type(child);
+        if (type == CMARK_NODE_STRIKETHROUGH) {
+            NSMutableDictionary *struckAttrs = [attributes mutableCopy];
+            [struckAttrs setObject:[NSNumber numberWithInteger:NSUnderlineStyleSingle]
+                            forKey:NSStrikethroughStyleAttributeName];
+            OMRenderInlines(child, theme, output, struckAttrs, scale, renderContext);
+            [struckAttrs release];
+            child = cmark_node_next(child);
+            continue;
+        }
         switch (type) {
             case CMARK_NODE_TEXT: {
                 BOOL renderedDisplayMath = NO;
@@ -7037,6 +6778,27 @@ static void OMRenderInlines(cmark_node *node,
                 const char *literal = cmark_node_get_literal(child);
                 NSString *text = literal != NULL ? [NSString stringWithUTF8String:literal] : @"";
                 OMAppendTextWithMathSpans(text, theme, output, attributes, scale, renderContext);
+                break;
+            }
+            case CMARK_NODE_FOOTNOTE_REFERENCE: {
+                // The literal is the footnote's number.
+                const char *literal = cmark_node_get_literal(child);
+                NSString *number = literal != NULL ? [NSString stringWithUTF8String:literal] : @"";
+                NSMutableDictionary *refAttrs = [attributes mutableCopy];
+                NSFont *font = [attributes objectForKey:NSFontAttributeName];
+                CGFloat size = font != nil ? [font pointSize] : 14.0 * scale;
+                NSFont *smaller = font != nil ? [NSFont fontWithName:[font fontName] size:size * 0.72] : nil;
+                if (smaller != nil) {
+                    [refAttrs setObject:smaller forKey:NSFontAttributeName];
+                }
+                // GNUstep applies NSBaselineOffsetAttributeName upside down; superscript
+                // is raised correctly on both GNUstep and macOS.
+                [refAttrs setObject:[NSNumber numberWithInt:1] forKey:NSSuperscriptAttributeName];
+                if (theme.linkColor != nil) {
+                    [refAttrs setObject:theme.linkColor forKey:NSForegroundColorAttributeName];
+                }
+                OMAppendString(output, number, refAttrs);
+                [refAttrs release];
                 break;
             }
             case CMARK_NODE_SOFTBREAK:

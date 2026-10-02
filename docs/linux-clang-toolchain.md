@@ -13,7 +13,6 @@ For this repo, the canonical Linux environment is:
 - `libdispatch`
 - GNUstep built against that clang/runtime stack
 - `tools-xctest`
-- `cmark`
 
 ## Reference Setup Path
 

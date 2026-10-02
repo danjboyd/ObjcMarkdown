@@ -18,7 +18,6 @@ this project.
 - Objective-C capable compiler toolchain
 - `make`
 - `pkg-config`
-- `cmark` headers and library (`cmark.h`, linkable `cmark`; MSYS2 exposes this via `libcmark.pc`)
 - `xctest` (from GNUstep tools-xctest) if you want unit tests on Windows
 - the sibling [gnustep-packager](/C:/Users/Support/git/gnustep-packager) repo if you are producing the MSI package from this repo
 
@@ -38,8 +37,6 @@ Sanity checks:
 
 ```bash
 make --version
-pkg-config --cflags libcmark
-pkg-config --libs libcmark
 ```
 
 If these fail, do not continue until fixed.
@@ -148,32 +145,28 @@ Suggested directories:
 
 ## Repo-Specific Windows Blockers to Expect
 
-1. `cmark` not found
-- Symptom: `cmark.h` missing or `-lcmark` link errors.
-- Fix: install/provide cmark dev package and ensure `pkg-config --libs libcmark` works.
-
-2. GNUstep environment not loaded
+1. GNUstep environment not loaded
 - Symptom: errors such as `/common.make: No such file or directory`.
 - Fix: source `/etc/profile` and `/clang64/share/GNUstep/Makefiles/GNUstep.sh` before running `make`.
 
-3. `dispatch` / `-ldispatch` link errors
+2. `dispatch` / `-ldispatch` link errors
 - Symptom: unresolved `dispatch_*` symbols.
 - Fix: install/provide libdispatch for your Windows GNUstep toolchain, or patch linkage for a no-dispatch fallback build.
 
-4. MSYS2 `mode_t` header break
+3. MSYS2 `mode_t` header break
 - Symptom: Windows app sources fail while including AppKit/Foundation/dispatch with an error like `dispatch/io.h: unknown type name 'mode_t'`.
 - Fix: keep the Windows-specific viewer build workaround in `ObjcMarkdownViewer/GNUmakefile` that forces `sys/types.h` and defines `mode_t` for the Objective-C compile.
 - Diagnostic: run `make -n messages=yes` in `ObjcMarkdownViewer/` and verify the compile line still includes the Windows workaround flags.
 
-5. `openapp` missing
+4. `openapp` missing
 - Symptom: `make run` fails.
 - Fix: launch the app binary directly.
 
-6. Test lock directory missing
+5. Test lock directory missing
 - Symptom: defaults/lock file errors while running tests.
 - Fix: create `~/GNUstep/Defaults/.lck`.
 
-7. Sombre theme crash (Windows)
+6. Sombre theme crash (Windows)
 - Symptom: launch under `GSTheme=Sombre` fails with an `NSInvalidArgumentException` and no usable main window.
 - Fix: use `WinUITheme` when available, or `WinUXTheme` as the fallback in `scripts/omd-viewer-msys2.sh`, unless you are actively investigating Sombre.
 - If you want Sombre enabled: rebuild and install Sombre with the same MSYS2 toolchain version as the app so `Sombre.dll` links to the same `gnustep-base-*.dll`.

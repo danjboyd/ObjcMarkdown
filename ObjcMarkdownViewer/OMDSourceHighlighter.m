@@ -3,7 +3,8 @@
 
 #import "OMDSourceHighlighter.h"
 
-#include <cmark.h>
+#include "cmark-gfm.h"
+#include "OMGFMParser.h"
 
 typedef struct {
     NSColor *headingColor;
@@ -397,7 +398,7 @@ static NSDictionary *OMDParserBackedLineStyles(NSString *markdown)
         return nil;
     }
 
-    cmark_node *document = cmark_parse_document((const char *)[utf8 bytes],
+    cmark_node *document = OMGFMParseDocument((const char *)[utf8 bytes],
                                                 (size_t)[utf8 length],
                                                 CMARK_OPT_DEFAULT | CMARK_OPT_SOURCEPOS);
     if (document == NULL) {

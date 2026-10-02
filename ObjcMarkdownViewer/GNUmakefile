@@ -2,11 +2,10 @@ include $(GNUSTEP_MAKEFILES)/common.make
 
 APP_NAME = MarkdownViewer
 
-CMARK_PKG := $(shell pkg-config --exists cmark 2>/dev/null && echo cmark || echo libcmark)
-CMARK_LIBS := $(shell pkg-config --libs $(CMARK_PKG) 2>/dev/null)
-
 MarkdownViewer_OBJC_FILES = main.m OMDAppDelegate.m OMDTextView.m OMDSourceTextView.m OMDSourceHighlighter.m OMDLineNumberRulerView.m OMDDocumentConverter.m OMDPandocConverter.m OMDPreviewSync.m OMDViewerModeState.m OMDCodeCopyButton.m OMDCopyFeedbackBadgeView.m OMDFormattingBarView.m OMDGitHubClient.m OMDInlineToggle.m OMDPanelSelection.m
 MarkdownViewer_CPPFLAGS += -I../ObjcMarkdown
+# cmark-gfm is compiled into libObjcMarkdown; the source highlighter uses it too.
+MarkdownViewer_CPPFLAGS += -I../third_party/cmark-gfm/compat -I../third_party/cmark-gfm/src -I../third_party/cmark-gfm/extensions -DCMARK_GFM_STATIC_DEFINE
 MarkdownViewer_CPPFLAGS += -I../third_party/libs-OpenSave/Headers
 MarkdownViewer_CPPFLAGS += -I../third_party/TextViewVimKit/src
 MarkdownViewer_CPPFLAGS += -I../third_party/GPUpdaterCore/Headers
@@ -16,8 +15,7 @@ MarkdownViewer_OBJCFLAGS += -include sys/types.h "-Dmode_t=unsigned short"
 MarkdownViewer_WINDRES_FILES = MarkdownViewer.rc
 MarkdownViewer_LDFLAGS += -lgdi32
 endif
-MarkdownViewer_LDFLAGS += -L../ObjcMarkdown/$(GNUSTEP_OBJ_DIR) -lObjcMarkdown -lcmark
-MarkdownViewer_LDFLAGS += $(CMARK_LIBS)
+MarkdownViewer_LDFLAGS += -L../ObjcMarkdown/$(GNUSTEP_OBJ_DIR) -lObjcMarkdown
 MarkdownViewer_LDFLAGS += -L../third_party/libs-OpenSave/Source/$(GNUSTEP_OBJ_DIR) -lOpenSave
 MarkdownViewer_LDFLAGS += -L../third_party/TextViewVimKitBuild/$(GNUSTEP_OBJ_DIR) -lTextViewVimKit
 MarkdownViewer_LDFLAGS += -L../third_party/GPUpdaterCore/$(GNUSTEP_OBJ_DIR) -lGPUpdaterCore

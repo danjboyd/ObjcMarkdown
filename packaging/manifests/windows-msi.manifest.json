@@ -33,9 +33,7 @@
   },
   "hostDependencies": {
     "windows": {
-      "msys2Packages": [
-        "mingw-w64-clang-x86_64-cmark"
-      ]
+      "msys2Packages": []
     }
   },
   "themeInputs": [

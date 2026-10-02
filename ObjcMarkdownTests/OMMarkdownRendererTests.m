@@ -1874,4 +1874,120 @@ static BOOL OMDMathToolchainAvailable(void)
     XCTAssertEqualObjects([[objects firstObject] source], @"a < b");
 }
 
+// Rows of the first table's cells, read from its drawing cell.
+- (NSArray *)tableRowsInRenderedString:(NSAttributedString *)rendered
+{
+    NSTextAttachment *attachment = [self firstAttachmentInRenderedString:rendered];
+    id cell = [attachment attachmentCell];
+    if (cell == nil) {
+        return nil;
+    }
+    NSArray *attributedRows = nil;
+    @try {
+        attributedRows = [cell valueForKey:@"attributedRows"];
+    } @catch (NSException *exception) {
+        return nil;
+    }
+    NSMutableArray *rows = [NSMutableArray array];
+    for (NSArray *row in attributedRows) {
+        NSMutableArray *cells = [NSMutableArray array];
+        for (NSAttributedString *value in row) {
+            [cells addObject:[[value string] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]]];
+        }
+        [rows addObject:cells];
+    }
+    return rows;
+}
+
+- (void)testTaskListItemsRenderCheckboxes
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    NSString *text = [[renderer attributedStringFromMarkdown:@"- [ ] open task\n- [x] done task\n- plain item\n"] string];
+    XCTAssertTrue([text rangeOfString:@"☐ open task"].location != NSNotFound);
+    XCTAssertTrue([text rangeOfString:@"☑ done task"].location != NSNotFound);
+    XCTAssertTrue([text rangeOfString:@"- plain item"].location != NSNotFound);
+    XCTAssertTrue([text rangeOfString:@"[x]"].location == NSNotFound);
+    XCTAssertTrue([text rangeOfString:@"[ ]"].location == NSNotFound);
+}
+
+- (void)testFootnotesRenderAsSuperscriptAndNumberedNotes
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:@"Claim[^src] and more[^two].\n\n[^two]: Second note.\n[^src]: First note.\n"];
+    NSString *text = [rendered string];
+    XCTAssertTrue([text rangeOfString:@"[^"].location == NSNotFound);
+    NSRange reference = [text rangeOfString:@"Claim1"];
+    XCTAssertTrue(reference.location != NSNotFound);
+    if (reference.location != NSNotFound) {
+        NSNumber *superscript = [rendered attribute:NSSuperscriptAttributeName atIndex:NSMaxRange(reference) - 1 effectiveRange:NULL];
+        XCTAssertEqual([superscript intValue], 1);
+    }
+    NSRange first = [text rangeOfString:@"1. First note."];
+    NSRange second = [text rangeOfString:@"2. Second note."];
+    XCTAssertTrue(first.location != NSNotFound);
+    XCTAssertTrue(second.location != NSNotFound);
+    XCTAssertTrue(first.location < second.location);
+}
+
+- (void)testBareURLsBecomeLinks
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:@"Visit https://commonmark.org/help or www.example.com today."];
+    NSString *text = [rendered string];
+    NSRange url = [text rangeOfString:@"https://commonmark.org/help"];
+    NSRange www = [text rangeOfString:@"www.example.com"];
+    XCTAssertTrue(url.location != NSNotFound && www.location != NSNotFound);
+    if (url.location != NSNotFound && www.location != NSNotFound) {
+        id link = [rendered attribute:NSLinkAttributeName atIndex:url.location effectiveRange:NULL];
+        XCTAssertTrue([[link description] hasPrefix:@"https://commonmark.org/help"]);
+        id wwwLink = [rendered attribute:NSLinkAttributeName atIndex:www.location effectiveRange:NULL];
+        XCTAssertTrue([[wwwLink description] rangeOfString:@"www.example.com"].location != NSNotFound);
+    }
+}
+
+- (void)testSingleTildeStrikethroughFollowsGFM
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:@"Keep ~gone~ text."];
+    XCTAssertTrue([[rendered string] rangeOfString:@"Keep gone text."].location != NSNotFound);
+    XCTAssertTrue([self isStruckText:@"gone" inRenderedString:rendered]);
+}
+
+- (void)testTablesRenderInsideQuotesListsAndAfterParagraphs
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    NSArray *documents = [NSArray arrayWithObjects:
+                          @"> | a | b |\n> |---|---|\n> | 1 | 2 |\n",
+                          @"- item\n\n  | a | b |\n  |---|---|\n  | 1 | 2 |\n",
+                          @"Intro line\n| a | b |\n|---|---|\n| 1 | 2 |\n",
+                          nil];
+    for (NSString *markdown in documents) {
+        NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
+        XCTAssertEqual([self attachmentCharacterCountInRenderedString:rendered], (NSUInteger)1, @"%@", markdown);
+        NSArray *rows = [self tableRowsInRenderedString:rendered];
+        XCTAssertEqualObjects(rows, ([NSArray arrayWithObjects:
+                                      [NSArray arrayWithObjects:@"a", @"b", nil],
+                                      [NSArray arrayWithObjects:@"1", @"2", nil], nil]), @"%@", markdown);
+    }
+}
+
+- (void)testTableCellsKeepFormattingEscapesAndUnicode
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    NSString *markdown = @"| Name | Note |\n|:--|--:|\n| **bold** | a \\| b |\n| café über | 3 | extra |\n| short |\n";
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
+    NSArray *rows = [self tableRowsInRenderedString:rendered];
+    XCTAssertEqual([rows count], (NSUInteger)4);
+    if ([rows count] == 4) {
+        XCTAssertEqualObjects([rows objectAtIndex:1], ([NSArray arrayWithObjects:@"bold", @"a | b", nil]));
+        XCTAssertEqualObjects([rows objectAtIndex:2], ([NSArray arrayWithObjects:@"café über", @"3", nil]));
+        XCTAssertEqualObjects([rows objectAtIndex:3], ([NSArray arrayWithObjects:@"short", @"", nil]));
+    }
+    NSArray *attributedRows = [[[self firstAttachmentInRenderedString:rendered] attachmentCell] valueForKey:@"attributedRows"];
+    NSAttributedString *boldCell = [[attributedRows objectAtIndex:1] objectAtIndex:0];
+    NSRange bold = [[boldCell string] rangeOfString:@"bold"];
+    NSFont *font = [boldCell attribute:NSFontAttributeName atIndex:bold.location effectiveRange:NULL];
+    XCTAssertTrue(([[NSFontManager sharedFontManager] traitsOfFont:font] & NSBoldFontMask) != 0);
+}
+
 @end
