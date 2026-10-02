@@ -880,6 +880,18 @@ static void OMDRefreshWindowsMainMenu(void)
     }
 }
 
+// Off Windows the toolbar is a few GNOME-style buttons around a flexible
+// space; with the Adwaita theme's header bar (GnomeThemeHeaderBarToolbar in
+// the Info.plist) it sits in the title row. Windows keeps its own toolbar.
+static BOOL OMDUsesCompactToolbar(void)
+{
+#if defined(_WIN32)
+    return NO;
+#else
+    return YES;
+#endif
+}
+
 static BOOL OMDShouldUseToolbarFlexibleSpace(void)
 {
 #if defined(_WIN32) || defined(__APPLE__)
@@ -4546,6 +4558,7 @@ static OMDRoundedCardView *OMDCreatePreferencesCard(NSRect frame, OMDLayoutMetri
 
 @implementation OMDAppDelegate
 
+
 static NSMutableArray *OMDSecondaryWindows(void)
 {
     static NSMutableArray *windows = nil;
@@ -5274,6 +5287,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
         }
     }
     [self setupToolbar];
+    [self updateZoomLabel];
     OMDStartupTrace(@"setupWindow: setupToolbar returned");
     [self setupWorkspaceChrome];
     OMDStartupTrace(@"setupWindow: setupWorkspaceChrome returned");
@@ -5966,7 +5980,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [toolbar setDelegate:self];
     [toolbar setAllowsUserCustomization:NO];
     [toolbar setAutosavesConfiguration:NO];
-    [toolbar setDisplayMode:NSToolbarDisplayModeIconAndLabel];
+    [toolbar setDisplayMode:(OMDUsesCompactToolbar() ? NSToolbarDisplayModeIconOnly : NSToolbarDisplayModeIconAndLabel)];
     [toolbar setSizeMode:NSToolbarSizeModeRegular];
     [_window setToolbar:toolbar];
 }
@@ -6159,6 +6173,57 @@ static NSMutableArray *OMDSecondaryWindows(void)
         return item;
     }
 
+    if ([identifier isEqualToString:@"ModeControls"] && OMDUsesCompactToolbar()) {
+        CGFloat statusWidth = 132.0;
+        CGFloat switcherWidth = 182.0;
+        CGFloat containerWidth = statusWidth + 8.0 + switcherWidth;
+        if (_modeContainer == nil) {
+            CGFloat labelY = floor((OMDToolbarItemHeight - OMDToolbarLabelHeight) * 0.5);
+            CGFloat controlY = floor((OMDToolbarItemHeight - OMDToolbarControlHeight) * 0.5);
+            _modeContainer = [[OMDToolbarToolTipView alloc] initWithFrame:NSMakeRect(0, 0, containerWidth, OMDToolbarItemHeight)];
+            // Vim's mode and command line, beside the switcher.
+            _previewStatusLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(0, labelY, statusWidth, OMDToolbarLabelHeight)];
+            [_previewStatusLabel setBezeled:NO];
+            [_previewStatusLabel setEditable:NO];
+            [_previewStatusLabel setSelectable:NO];
+            [_previewStatusLabel setDrawsBackground:NO];
+            [_previewStatusLabel setAlignment:NSRightTextAlignment];
+            [_previewStatusLabel setFont:[NSFont boldSystemFontOfSize:11.0]];
+            [_previewStatusLabel setStringValue:@""];
+            [_previewStatusLabel setHidden:YES];
+            [_modeContainer addSubview:_previewStatusLabel];
+
+            CGFloat switcherX = statusWidth + 8.0;
+            _modeControl = [[NSSegmentedControl alloc] initWithFrame:NSMakeRect(switcherX, controlY, switcherWidth, OMDToolbarControlHeight)];
+            [_modeControl setSegmentCount:3];
+            [_modeControl setLabel:@"Read" forSegment:0];
+            [_modeControl setLabel:@"Edit" forSegment:1];
+            [_modeControl setLabel:@"Split" forSegment:2];
+            [[_modeControl cell] setToolTip:@"Read (Ctrl+1)" forSegment:0];
+            [[_modeControl cell] setToolTip:@"Edit (Ctrl+2)" forSegment:1];
+            [[_modeControl cell] setToolTip:@"Split (Ctrl+3)" forSegment:2];
+            [_modeControl setTarget:self];
+            [_modeControl setAction:@selector(modeControlChanged:)];
+            [_modeContainer addSubview:_modeControl];
+            CGFloat segment = floor(switcherWidth / 3.0);
+            [(OMDToolbarToolTipView *)_modeContainer setToolTip:@"Read (Ctrl+1)"
+                                                        forRect:NSMakeRect(switcherX, controlY, segment, OMDToolbarControlHeight)];
+            [(OMDToolbarToolTipView *)_modeContainer setToolTip:@"Edit (Ctrl+2)"
+                                                        forRect:NSMakeRect(switcherX + segment, controlY, segment, OMDToolbarControlHeight)];
+            [(OMDToolbarToolTipView *)_modeContainer setToolTip:@"Split (Ctrl+3)"
+                                                        forRect:NSMakeRect(switcherX + 2.0 * segment, controlY, switcherWidth - 2.0 * segment, OMDToolbarControlHeight)];
+            [self updateModeControlSelection];
+            [self updatePreviewStatusIndicator];
+        }
+        NSToolbarItem *item = [[[NSToolbarItem alloc] initWithItemIdentifier:@"ModeControls"] autorelease];
+        [item setView:_modeContainer];
+        [item setMinSize:NSMakeSize(containerWidth, OMDToolbarItemHeight)];
+        [item setMaxSize:NSMakeSize(containerWidth, OMDToolbarItemHeight)];
+        [item setLabel:@""];
+        [item setPaletteLabel:@"View"];
+        return item;
+    }
+
     if ([identifier isEqualToString:@"ModeControls"]) {
         if (_modeContainer == nil) {
             CGFloat labelY = floor((OMDToolbarItemHeight - OMDToolbarLabelHeight) * 0.5);
@@ -6271,6 +6336,16 @@ static NSMutableArray *OMDSecondaryWindows(void)
 
 - (NSArray *)toolbarAllowedItemIdentifiers:(NSToolbar *)toolbar
 {
+    if (OMDUsesCompactToolbar()) {
+        // Export, Print and Preferences are in the menus (the header bar's
+        // main menu with the Adwaita theme); zoom is View > Zoom In / Out.
+        return [NSArray arrayWithObjects:@"ToggleExplorer",
+                                         @"OpenDocument",
+                                         @"SaveDocument",
+                                         NSToolbarFlexibleSpaceItemIdentifier,
+                                         @"ModeControls",
+                                         nil];
+    }
     NSMutableArray *identifiers = [NSMutableArray arrayWithObjects:
         @"PrimaryActions",
         nil];
@@ -6287,12 +6362,33 @@ static NSMutableArray *OMDSecondaryWindows(void)
     return [self toolbarAllowedItemIdentifiers:toolbar];
 }
 
+// The menu item for action anywhere in menu, or nil.
+static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
+{
+    for (NSMenuItem *item in [menu itemArray]) {
+        if ([item action] == action) {
+            return item;
+        }
+        NSMenuItem *found = [item hasSubmenu] ? OMDMenuItemWithAction([item submenu], action) : nil;
+        if (found != nil) {
+            return found;
+        }
+    }
+    return nil;
+}
+
 - (void)updateZoomLabel
 {
+    NSInteger percent = (NSInteger)lrint(_zoomScale * 100.0);
+    // Without the toolbar's zoom controls, the menu says what the zoom is.
+    NSMenuItem *actualSize = OMDMenuItemWithAction([NSApp mainMenu], @selector(zoomToActualSize:));
+    if (actualSize != nil) {
+        [actualSize setTitle:(percent == 100 ? @"Actual Size"
+                                             : [NSString stringWithFormat:@"Actual Size (now %ld%%)", (long)percent])];
+    }
     if (_zoomLabel == nil) {
         return;
     }
-    NSInteger percent = (NSInteger)lrint(_zoomScale * 100.0);
     [_zoomLabel setStringValue:[NSString stringWithFormat:@"%ld%%", (long)percent]];
 }
 
