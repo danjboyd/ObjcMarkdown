@@ -570,6 +570,36 @@
         }
         index = [indexes indexGreaterThanIndex:index];
     }
+
+    // Link and image titles (NSToolTipAttributeName): one rect per line.
+    NSTextStorage *storage = [self textStorage];
+    NSLayoutManager *layoutManager = [self layoutManager];
+    NSTextContainer *container = [self textContainer];
+    NSPoint origin = [self textContainerOrigin];
+    NSUInteger location = 0;
+    while (location < [storage length] && layoutManager != nil && container != nil) {
+        NSRange run;
+        id toolTip = [storage attribute:NSToolTipAttributeName
+                                atIndex:location
+                  longestEffectiveRange:&run
+                                inRange:NSMakeRange(location, [storage length] - location)];
+        location = NSMaxRange(run);
+        if (toolTip == nil || [indexes containsIndex:run.location]) {
+            continue;
+        }
+        NSUInteger rectCount = 0;
+        NSRectArray rects = [layoutManager rectArrayForCharacterRange:run
+                                         withinSelectedCharacterRange:NSMakeRange(NSNotFound, 0)
+                                                      inTextContainer:container
+                                                            rectCount:&rectCount];
+        NSUInteger rectIndex = 0;
+        for (; rects != NULL && rectIndex < rectCount; rectIndex++) {
+            NSRect rect = NSOffsetRect(rects[rectIndex], origin.x, origin.y);
+            if (!NSIsEmptyRect(rect)) {
+                [self addToolTipRect:rect owner:self userData:(void *)(uintptr_t)run.location];
+            }
+        }
+    }
 }
 
 - (NSString *)view:(NSView *)view
@@ -577,7 +607,15 @@
              point:(NSPoint)point
           userData:(void *)userData
 {
-    OMRenderedObject *object = [self renderedObjectAtCharacterIndex:(NSUInteger)(uintptr_t)userData];
+    NSUInteger index = (NSUInteger)(uintptr_t)userData;
+    // A title (link or image) wins over an object's source.
+    NSString *title = index < [[self textStorage] length]
+        ? [[self textStorage] attribute:NSToolTipAttributeName atIndex:index effectiveRange:NULL]
+        : nil;
+    if ([title length] > 0) {
+        return title;
+    }
+    OMRenderedObject *object = [self renderedObjectAtCharacterIndex:index];
     NSString *source = [object source];
     if (source == nil) {
         return nil;

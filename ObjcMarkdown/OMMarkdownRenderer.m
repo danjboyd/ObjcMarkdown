@@ -17,6 +17,7 @@
 #include "table.h"
 #include "OMGFMParser.h"
 #import "OMStrikethroughLayoutManager.h"
+#include "OMEmojiShortcodes.inc"
 #include <ctype.h>
 #if defined(_WIN32)
 #include <windows.h>
@@ -1657,6 +1658,38 @@ static NSArray *OMRangesClampedToLength(NSArray *ranges, NSUInteger length)
         [clamped addObject:[NSValue valueWithRange:range]];
     }
     return clamped;
+}
+
+static NSCharacterSet *OMEmojiCharacterSet(void);
+
+// Fonts chosen for emoji by default are colour fonts GNUstep can't draw
+// (they show as "?"); draw the table's emoji with Symbola instead.
+static void OMApplyEmojiFont(NSMutableAttributedString *output, NSArray *codeRanges)
+{
+    static NSString *emojiFontName = @"Symbola";
+    NSString *text = [output string];
+    NSCharacterSet *emoji = OMEmojiCharacterSet();
+    NSRange found = [text rangeOfCharacterFromSet:emoji];
+    if (found.location == NSNotFound || [NSFont fontWithName:emojiFontName size:12.0] == nil) {
+        return;
+    }
+    NSMutableIndexSet *code = [NSMutableIndexSet indexSet];
+    for (NSValue *value in codeRanges) {
+        [code addIndexesInRange:[value rangeValue]];
+    }
+    while (found.location != NSNotFound) {
+        if (![code containsIndex:found.location]) {
+            NSFont *font = [output attribute:NSFontAttributeName atIndex:found.location effectiveRange:NULL];
+            NSFont *emojiFont = [NSFont fontWithName:emojiFontName size:(font != nil ? [font pointSize] : 14.0)];
+            if (emojiFont != nil) {
+                [output addAttribute:NSFontAttributeName value:emojiFont range:found];
+            }
+        }
+        NSUInteger next = NSMaxRange(found);
+        found = next < [text length]
+            ? [text rangeOfCharacterFromSet:emoji options:0 range:NSMakeRange(next, [text length] - next)]
+            : NSMakeRange(NSNotFound, 0);
+    }
 }
 
 static void OMTrimTrailingNewlines(NSMutableAttributedString *output)
@@ -5545,6 +5578,86 @@ static NSString *OMRawMathFormula(NSString *formula, BOOL display, const OMRende
     return raw;
 }
 
+static NSDictionary *OMEmojiShortcodeTable(void)
+{
+    static NSDictionary *table = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        NSMutableDictionary *built = [NSMutableDictionary dictionary];
+        size_t index = 0;
+        for (; index < sizeof(OMEmojiShortcodes) / sizeof(OMEmojiShortcodes[0]); index++) {
+            unichar character = OMEmojiShortcodes[index].character;
+            [built setObject:[NSString stringWithCharacters:&character length:1]
+                      forKey:[NSString stringWithUTF8String:OMEmojiShortcodes[index].name]];
+        }
+        table = [built copy];
+    });
+    return table;
+}
+
+// The emoji characters the shortcode table can produce.
+static NSCharacterSet *OMEmojiCharacterSet(void)
+{
+    static NSCharacterSet *set = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        NSMutableCharacterSet *built = [[NSMutableCharacterSet alloc] init];
+        size_t index = 0;
+        for (; index < sizeof(OMEmojiShortcodes) / sizeof(OMEmojiShortcodes[0]); index++) {
+            [built addCharactersInRange:NSMakeRange(OMEmojiShortcodes[index].character, 1)];
+        }
+        set = built;
+    });
+    return set;
+}
+
+// ":name:" -> emoji, for GitHub shortcodes in the table; others stay as typed.
+static NSString *OMStringByReplacingEmojiShortcodes(NSString *text)
+{
+    if (text == nil || [text rangeOfString:@":"].location == NSNotFound) {
+        return text;
+    }
+    NSDictionary *table = OMEmojiShortcodeTable();
+    NSMutableString *result = nil;
+    NSUInteger length = [text length];
+    NSUInteger copied = 0;
+    NSUInteger index = 0;
+    while (index < length) {
+        if ([text characterAtIndex:index] != ':') {
+            index += 1;
+            continue;
+        }
+        NSUInteger end = index + 1;
+        while (end < length && end - index <= 48) {
+            unichar ch = [text characterAtIndex:end];
+            BOOL nameCharacter = (ch < 128 && (isalnum((int)ch) || ch == '_' || ch == '+' || ch == '-'));
+            if (!nameCharacter) {
+                break;
+            }
+            end += 1;
+        }
+        if (end < length && [text characterAtIndex:end] == ':' && end > index + 1) {
+            NSString *emoji = [table objectForKey:[text substringWithRange:NSMakeRange(index + 1, end - index - 1)]];
+            if (emoji != nil) {
+                if (result == nil) {
+                    result = [NSMutableString stringWithCapacity:length];
+                }
+                [result appendString:[text substringWithRange:NSMakeRange(copied, index - copied)]];
+                [result appendString:emoji];
+                copied = end + 1;
+                index = end + 1;
+                continue;
+            }
+        }
+        index += 1;
+    }
+    if (result == nil) {
+        return text;
+    }
+    [result appendString:[text substringFromIndex:copied]];
+    return result;
+}
+
 static void OMAppendTextWithMathSpans(NSString *text,
                                       OMTheme *theme,
                                       NSMutableAttributedString *output,
@@ -5556,7 +5669,7 @@ static void OMAppendTextWithMathSpans(NSString *text,
         return;
     }
     if (!OMShouldParseMathSpans(renderContext)) {
-        OMAppendString(output, text, attributes);
+        OMAppendString(output, OMStringByReplacingEmojiShortcodes(text), attributes);
         return;
     }
 
@@ -5572,12 +5685,12 @@ static void OMAppendTextWithMathSpans(NSString *text,
         }
 
         if (dollarLocation == NSNotFound) {
-            OMAppendString(output, [text substringWithRange:NSMakeRange(cursor, length - cursor)], attributes);
+            OMAppendString(output, OMStringByReplacingEmojiShortcodes([text substringWithRange:NSMakeRange(cursor, length - cursor)]), attributes);
             break;
         }
 
         if (dollarLocation > cursor) {
-            OMAppendString(output, [text substringWithRange:NSMakeRange(cursor, dollarLocation - cursor)], attributes);
+            OMAppendString(output, OMStringByReplacingEmojiShortcodes([text substringWithRange:NSMakeRange(cursor, dollarLocation - cursor)]), attributes);
         }
 
         BOOL renderedMath = NO;
@@ -6100,6 +6213,7 @@ static cmark_node *OMTryAppendMultiNodeDisplayMath(cmark_node *startNode,
     OMTrimTrailingNewlines(output);
     [self setCodeBlockRanges:OMRangesClampedToLength(codeRanges, [output length])];
     [self setBlockquoteRanges:OMRangesClampedToLength(blockquoteRanges, [output length])];
+    OMApplyEmojiFont(output, codeRanges);
     OMSizeBlockGaps(output,
                     codeRanges,
                     (self.theme.baseFont != nil ? [self.theme.baseFont pointSize] : 14.0) * scale,
@@ -7245,6 +7359,14 @@ static void OMRenderInlines(cmark_node *node,
                 if (hasValidLinkURL && theme.linkColor != nil) {
                     [linkAttrs setObject:theme.linkColor forKey:NSForegroundColorAttributeName];
                 }
+                // The link's title, else where it goes (the viewer has no status bar).
+                const char *linkTitle = cmark_node_get_title(child);
+                NSString *toolTip = (linkTitle != NULL && linkTitle[0] != '\0')
+                    ? [NSString stringWithUTF8String:linkTitle]
+                    : urlString;
+                if ([toolTip length] > 0 && hasValidLinkURL) {
+                    [linkAttrs setObject:toolTip forKey:NSToolTipAttributeName];
+                }
                 OMRenderInlines(child, theme, output, linkAttrs, scale, renderContext);
                 [linkAttrs release];
                 break;
@@ -7260,6 +7382,12 @@ static void OMRenderInlines(cmark_node *node,
                     if (attachment != nil) {
                         NSUInteger objectStart = [output length];
                         OMAppendAttributedSegment(output, attachment);
+                        const char *imageTitle = cmark_node_get_title(child);
+                        if (imageTitle != NULL && imageTitle[0] != '\0' && [output length] > objectStart) {
+                            [output addAttribute:NSToolTipAttributeName
+                                           value:[NSString stringWithUTF8String:imageTitle]
+                                           range:NSMakeRange(objectStart, [output length] - objectStart)];
+                        }
                         OMTagAppendedObject(output,
                                             objectStart,
                                             OMRenderedObjectKindImage,

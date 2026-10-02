@@ -279,6 +279,15 @@
     XCTAssertEqualWithAccuracy((top + bottom) * 0.5, expectedMiddle, 4.0);
 }
 
+- (void)testLinkTitleIsOfferedAsToolTip
+{
+    OMDTextView *textView = [self textViewShowingMarkdown:@"See [docs](https://example.com \"The docs\") now."];
+    NSUInteger link = [[[textView textStorage] string] rangeOfString:@"docs"].location;
+    [textView updateRenderedObjectToolTips];
+    NSString *tip = [textView view:textView stringForToolTip:0 point:NSZeroPoint userData:(void *)(uintptr_t)link];
+    XCTAssertEqualObjects(tip, @"The docs");
+}
+
 - (void)testHitTestingFindsObjectOnlyInsideItsBox
 {
     OMDTextView *textView = [self textViewShowingMarkdown:[NSString stringWithFormat:@"Intro\n\n%@", [self tableMarkdown]]];

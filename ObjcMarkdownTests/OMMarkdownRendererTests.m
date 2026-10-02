@@ -2310,4 +2310,37 @@ static BOOL OMDMathToolchainAvailable(void)
     XCTAssertTrue(NSMaxRange([[code firstObject] rangeValue]) <= length);
 }
 
+- (void)testEmojiShortcodesBecomeDrawableEmoji
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:
+        @"Careful :warning:, done :white_check_mark:, party :tada:, code `:warning:`, url https://x.org/a:b:c and :not_a_code:."];
+    NSString *text = [rendered string];
+    XCTAssertTrue([text rangeOfString:@"Careful ⚠,"].location != NSNotFound);
+    XCTAssertTrue([text rangeOfString:@"done ✅,"].location != NSNotFound);
+    XCTAssertTrue([text rangeOfString:@":tada:"].location != NSNotFound, @"emoji GNUstep can't draw stay as typed");
+    XCTAssertTrue([text rangeOfString:@"code :warning:"].location != NSNotFound, @"code spans are left alone");
+    XCTAssertTrue([text rangeOfString:@"https://x.org/a:b:c"].location != NSNotFound);
+    XCTAssertTrue([text rangeOfString:@":not_a_code:"].location != NSNotFound);
+    if ([NSFont fontWithName:@"Symbola" size:12.0] != nil) {
+        NSFont *font = [rendered attribute:NSFontAttributeName atIndex:[text rangeOfString:@"✅"].location effectiveRange:NULL];
+        XCTAssertEqualObjects([font fontName], @"Symbola");
+    }
+}
+
+- (void)testLinkAndImageTitlesBecomeToolTips
+{
+    NSString *path = [self writeTemporaryImage];
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    NSString *markdown = [NSString stringWithFormat:@"[titled](https://a.example \"Read more\") [bare](https://b.example) ![pic](%@ \"A picture\")", path];
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
+    NSString *text = [rendered string];
+    XCTAssertEqualObjects([rendered attribute:NSToolTipAttributeName atIndex:[text rangeOfString:@"titled"].location effectiveRange:NULL], @"Read more");
+    XCTAssertEqualObjects([rendered attribute:NSToolTipAttributeName atIndex:[text rangeOfString:@"bare"].location effectiveRange:NULL], @"https://b.example");
+    unichar attachmentCharacter = NSAttachmentCharacter;
+    NSUInteger image = [text rangeOfString:[NSString stringWithCharacters:&attachmentCharacter length:1]].location;
+    XCTAssertEqualObjects([rendered attribute:NSToolTipAttributeName atIndex:image effectiveRange:NULL], @"A picture");
+    [self removeFileIfPresent:path];
+}
+
 @end
