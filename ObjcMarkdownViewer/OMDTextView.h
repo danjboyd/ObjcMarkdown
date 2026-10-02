@@ -20,6 +20,10 @@
 - (OMRenderedObject *)renderedObjectAtPoint:(NSPoint)point characterIndex:(NSUInteger *)characterIndex;
 // An image of the attachment at a character index, as drawn in the preview.
 - (NSImage *)imageForRenderedObjectAtIndex:(NSUInteger)characterIndex;
+// An object's box in view coordinates, or NSZeroRect.
+- (NSRect)viewRectForRenderedObjectAtIndex:(NSUInteger)characterIndex;
+// Rebuilds the source tool tips; call after the text is laid out.
+- (void)updateRenderedObjectToolTips;
 
 @property (nonatomic, retain) NSColor *documentBackgroundColor;
 @property (nonatomic, retain) NSColor *documentBorderColor;

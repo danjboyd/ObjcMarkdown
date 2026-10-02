@@ -7,6 +7,14 @@
 #import "OMMarkdownRenderer.h"
 #import "OMRenderedObject.h"
 
+// The tool tip owner callback OMDTextView implements for its object rects.
+@interface OMDTextView (ToolTipOwner)
+- (NSString *)view:(NSView *)view
+  stringForToolTip:(NSToolTipTag)tag
+             point:(NSPoint)point
+          userData:(void *)userData;
+@end
+
 @interface OMDTextViewTests : XCTestCase
 @end
 
@@ -97,6 +105,41 @@
     XCTAssertEqualObjects([pboard stringForType:NSStringPboardType], @"Just");
     XCTAssertNil([pboard dataForType:NSTIFFPboardType]);
     [pboard releaseGlobally];
+}
+
+- (void)testEscapeClearsSelectionInReadOnlyPreview
+{
+    OMDTextView *textView = [self textViewShowingMarkdown:[self tableMarkdown]];
+    NSUInteger index = [self firstObjectIndexInTextView:textView];
+    XCTAssertTrue(index != NSNotFound);
+    [textView setSelectedRange:NSMakeRange(index, 1)];
+    NSEvent *escape = [NSEvent keyEventWithType:NSKeyDown
+                                       location:NSZeroPoint
+                                  modifierFlags:0
+                                      timestamp:0.0
+                                   windowNumber:0
+                                        context:nil
+                                     characters:@"\x1b"
+                    charactersIgnoringModifiers:@"\x1b"
+                                      isARepeat:NO
+                                        keyCode:9];
+    [textView keyDown:escape];
+    XCTAssertEqual([textView selectedRange].length, (NSUInteger)0);
+    XCTAssertEqual([textView selectedRange].location, index);
+}
+
+- (void)testToolTipShowsObjectSource
+{
+    OMDTextView *textView = [self textViewShowingMarkdown:[self tableMarkdown]];
+    NSUInteger index = [self firstObjectIndexInTextView:textView];
+    XCTAssertTrue(index != NSNotFound);
+    XCTAssertFalse(NSIsEmptyRect([textView viewRectForRenderedObjectAtIndex:index]));
+    [textView updateRenderedObjectToolTips];
+    NSString *tip = [textView view:textView
+                      stringForToolTip:0
+                                 point:NSZeroPoint
+                              userData:(void *)(uintptr_t)index];
+    XCTAssertEqualObjects(tip, [self tableMarkdown]);
 }
 
 - (void)testHitTestingFindsObjectOnlyInsideItsBox

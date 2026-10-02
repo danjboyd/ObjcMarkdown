@@ -38,6 +38,7 @@
     [super drawRect:dirtyRect];
     [context restoreGraphicsState];
     [self drawBlockquoteLines];
+    [self drawRenderedObjectSelection];
 }
 
 - (void)drawDocumentSurface
@@ -324,6 +325,184 @@
         [copy replaceCharactersInRange:NSMakeRange((NSUInteger)index, 1) withAttributedString:replacement];
     }
     return copy;
+}
+
+#pragma mark - Object selection
+
+// The object's box in view coordinates, or NSZeroRect.
+- (NSRect)viewRectForRenderedObjectAtIndex:(NSUInteger)characterIndex
+{
+    NSLayoutManager *layoutManager = [self layoutManager];
+    NSTextContainer *container = [self textContainer];
+    if (layoutManager == nil || container == nil || characterIndex >= [[self textStorage] length]) {
+        return NSZeroRect;
+    }
+    NSRange glyphs = [layoutManager glyphRangeForCharacterRange:NSMakeRange(characterIndex, 1)
+                                           actualCharacterRange:NULL];
+    if (glyphs.length == 0) {
+        return NSZeroRect;
+    }
+    NSRect box = [layoutManager boundingRectForGlyphRange:glyphs inTextContainer:container];
+    NSPoint origin = [self textContainerOrigin];
+    return NSOffsetRect(box, origin.x, origin.y);
+}
+
+// Indexes of the rendered objects inside range.
+- (NSIndexSet *)renderedObjectIndexesInRange:(NSRange)range
+{
+    NSMutableIndexSet *indexes = [NSMutableIndexSet indexSet];
+    NSTextStorage *storage = [self textStorage];
+    if (range.location == NSNotFound || range.length == 0 || NSMaxRange(range) > [storage length]) {
+        return indexes;
+    }
+    NSUInteger index = range.location;
+    while (index < NSMaxRange(range)) {
+        NSRange effective;
+        id object = [storage attribute:OMRenderedObjectAttributeName
+                               atIndex:index
+                 longestEffectiveRange:&effective
+                               inRange:range];
+        if (object != nil) {
+            [indexes addIndexesInRange:effective];
+        }
+        index = NSMaxRange(effective);
+    }
+    return indexes;
+}
+
+- (void)invalidateRenderedObjectsInRange:(NSRange)range
+{
+    NSIndexSet *indexes = [self renderedObjectIndexesInRange:range];
+    NSUInteger index = [indexes firstIndex];
+    while (index != NSNotFound) {
+        NSRect rect = [self viewRectForRenderedObjectAtIndex:index];
+        if (!NSIsEmptyRect(rect)) {
+            [self setNeedsDisplayInRect:NSInsetRect(rect, -6.0, -6.0)];
+        }
+        index = [indexes indexGreaterThanIndex:index];
+    }
+}
+
+// GNUstep paints the selection under attachments, and table and diagram cells
+// fill their boxes, so a selected object gets an outline drawn over it.
+- (void)drawRenderedObjectSelection
+{
+    NSIndexSet *indexes = [self renderedObjectIndexesInRange:[self selectedRange]];
+    if ([indexes count] == 0) {
+        return;
+    }
+    BOOL active = [[self window] isKeyWindow] && [[self window] firstResponder] == self;
+    NSColor *accent = active ? [NSColor selectedControlColor] : [NSColor controlShadowColor];
+    // Named system colours ignore colorWithAlphaComponent: in GNUstep, so
+    // resolve to RGB before deriving the translucent tint.
+    NSColor *rgbAccent = [accent colorUsingColorSpaceName:NSCalibratedRGBColorSpace];
+    if (rgbAccent == nil) {
+        rgbAccent = [NSColor colorWithCalibratedRed:0.21 green:0.52 blue:0.89 alpha:1.0];
+    }
+    accent = rgbAccent;
+    NSGraphicsContext *context = [NSGraphicsContext currentContext];
+    [context saveGraphicsState];
+    NSUInteger index = [indexes firstIndex];
+    while (index != NSNotFound) {
+        NSRect rect = [self viewRectForRenderedObjectAtIndex:index];
+        if (!NSIsEmptyRect(rect)) {
+            NSRect outline = NSInsetRect(NSIntegralRect(rect), -3.0, -3.0);
+            NSBezierPath *path = [NSBezierPath bezierPathWithRoundedRect:outline xRadius:4.0 yRadius:4.0];
+            [[accent colorWithAlphaComponent:0.12] set];
+            [path fill];
+            [path setLineWidth:2.0];
+            [accent set];
+            [path stroke];
+        }
+        index = [indexes indexGreaterThanIndex:index];
+    }
+    [context restoreGraphicsState];
+}
+
+- (void)setSelectedRange:(NSRange)charRange
+                affinity:(NSSelectionAffinity)affinity
+          stillSelecting:(BOOL)stillSelecting
+{
+    [self invalidateRenderedObjectsInRange:[self selectedRange]];
+    [super setSelectedRange:charRange affinity:affinity stillSelecting:stillSelecting];
+    [self invalidateRenderedObjectsInRange:[self selectedRange]];
+}
+
+- (BOOL)becomeFirstResponder
+{
+    BOOL accepted = [super becomeFirstResponder];
+    [self invalidateRenderedObjectsInRange:[self selectedRange]];
+    return accepted;
+}
+
+- (BOOL)resignFirstResponder
+{
+    BOOL resigned = [super resignFirstResponder];
+    [self invalidateRenderedObjectsInRange:[self selectedRange]];
+    return resigned;
+}
+
+- (void)mouseDown:(NSEvent *)event
+{
+    NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
+    NSUInteger index = NSNotFound;
+    OMRenderedObject *object = [self renderedObjectAtPoint:point characterIndex:&index];
+    BOOL extending = ([event modifierFlags] & NSShiftKeyMask) != 0;
+    // Let NSTextView track first, so a drag that starts on an object still
+    // selects text. A plain click on an object then selects the whole object;
+    // GNUstep would otherwise hand it to the cell, or place a caret beside it.
+    [super mouseDown:event];
+    if (object == nil || extending) {
+        return;
+    }
+    if ([self selectedRange].length == 0 || [event clickCount] >= 2) {
+        [self setSelectedRange:NSMakeRange(index, 1)];
+    }
+}
+
+- (void)keyDown:(NSEvent *)event
+{
+    NSString *characters = [event charactersIgnoringModifiers];
+    NSRange selection = [self selectedRange];
+    if (![self isEditable] && selection.length > 0 &&
+        [characters length] == 1 && [characters characterAtIndex:0] == 0x1B) {
+        [self setSelectedRange:NSMakeRange(selection.location, 0)];
+        return;
+    }
+    [super keyDown:event];
+}
+
+#pragma mark - Tool tips
+
+- (void)updateRenderedObjectToolTips
+{
+    [self removeAllToolTips];
+    NSIndexSet *indexes = [self renderedObjectIndexesInRange:NSMakeRange(0, [[self textStorage] length])];
+    NSUInteger index = [indexes firstIndex];
+    while (index != NSNotFound) {
+        NSRect rect = [self viewRectForRenderedObjectAtIndex:index];
+        if (!NSIsEmptyRect(rect)) {
+            [self addToolTipRect:rect owner:self userData:(void *)(uintptr_t)index];
+        }
+        index = [indexes indexGreaterThanIndex:index];
+    }
+}
+
+- (NSString *)view:(NSView *)view
+  stringForToolTip:(NSToolTipTag)tag
+             point:(NSPoint)point
+          userData:(void *)userData
+{
+    OMRenderedObject *object = [self renderedObjectAtCharacterIndex:(NSUInteger)(uintptr_t)userData];
+    NSString *source = [object source];
+    if (source == nil) {
+        return nil;
+    }
+    source = [source stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    if ([source length] > 400) {
+        source = [[source substringToIndex:400] stringByAppendingString:@"…"];
+    }
+    return source;
 }
 
 #pragma mark - Pasteboard

@@ -3,6 +3,7 @@
 
 #import "OMDAppDelegate.h"
 #import "OMMarkdownRenderer.h"
+#import "OMRenderedObject.h"
 #import "OMDTextView.h"
 #import "OMDSourceTextView.h"
 #import "OMDSourceHighlighter.h"
@@ -15628,9 +15629,7 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
 
     NSArray *codeRanges = [_renderer codeBlockRanges];
     NSArray *diagramBlocks = [_renderer diagramBlocks];
-    if ([codeRanges count] == 0 && [diagramBlocks count] == 0) {
-        return;
-    }
+    NSArray *displayMathRanges = [self displayMathObjectRanges];
 
     NSLayoutManager *layoutManager = [_textView layoutManager];
     NSTextContainer *container = [_textView textContainer];
@@ -15638,6 +15637,12 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
         return;
     }
     [layoutManager ensureLayoutForTextContainer:container];
+    if ([_textView isKindOfClass:[OMDTextView class]]) {
+        [(OMDTextView *)_textView updateRenderedObjectToolTips];
+    }
+    if ([codeRanges count] == 0 && [diagramBlocks count] == 0 && [displayMathRanges count] == 0) {
+        return;
+    }
 
     NSPoint textOrigin = [_textView textContainerOrigin];
     NSSize blockPadding = NSMakeSize(12.0, 8.0);
@@ -15672,6 +15677,62 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
                         container:container
                        textOrigin:textOrigin
                      blockPadding:NSZeroSize];
+
+    // Equations are narrow and centred: put the button just right of the
+    // formula instead of over its corner (button 20 + 6 inset + 6 gap).
+    [self addCopyButtonsForRanges:displayMathRanges
+                           action:@selector(copyDisplayMathBlock:)
+                          toolTip:@"Copy equation source"
+                    layoutManager:layoutManager
+                        container:container
+                       textOrigin:textOrigin
+                     blockPadding:NSMakeSize(32.0, 0.0)];
+}
+
+// Ranges of the display equations in the preview, in document order.
+- (NSArray *)displayMathObjectRanges
+{
+    NSMutableArray *ranges = [NSMutableArray array];
+    NSTextStorage *storage = [_textView textStorage];
+    NSUInteger length = [storage length];
+    NSUInteger index = 0;
+    while (index < length) {
+        NSRange effective;
+        OMRenderedObject *object = [storage attribute:OMRenderedObjectAttributeName
+                                              atIndex:index
+                                       effectiveRange:&effective];
+        if (object != nil && [object kind] == OMRenderedObjectKindDisplayMath) {
+            NSUInteger location = effective.location;
+            for (; location < NSMaxRange(effective); location++) {
+                [ranges addObject:[NSValue valueWithRange:NSMakeRange(location, 1)]];
+            }
+        }
+        index = NSMaxRange(effective);
+    }
+    return ranges;
+}
+
+- (void)copyDisplayMathBlock:(id)sender
+{
+    NSArray *ranges = [self displayMathObjectRanges];
+    NSInteger index = [sender tag];
+    if (index < 0 || index >= (NSInteger)[ranges count]) {
+        return;
+    }
+    NSRange range = [[ranges objectAtIndex:index] rangeValue];
+    OMRenderedObject *object = [[_textView textStorage] attribute:OMRenderedObjectAttributeName
+                                                          atIndex:range.location
+                                                   effectiveRange:NULL];
+    if (object == nil) {
+        return;
+    }
+    NSPasteboard *pasteboard = [NSPasteboard generalPasteboard];
+    [pasteboard declareTypes:[NSArray arrayWithObject:NSStringPboardType] owner:nil];
+    [pasteboard setString:[[object source] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]]
+                  forType:NSStringPboardType];
+    if ([sender isKindOfClass:[NSButton class]]) {
+        [self showCopyFeedbackForButton:(NSButton *)sender];
+    }
 }
 
 - (void)addCopyButtonsForRanges:(NSArray *)ranges
