@@ -11,6 +11,7 @@
 #import <dispatch/dispatch.h>
 
 #include <cmark.h>
+#include <ctype.h>
 #if defined(_WIN32)
 #include <windows.h>
 #include <gdiplus/gdiplus.h>
@@ -450,19 +451,44 @@ static CGFloat OMMathRasterOversampleFactor(void)
     return factor;
 }
 
+// Re-rendering a formula bumps its generation, which changes every cache key
+// built from it; the stale NSCache entries are evicted in time.
+static NSMutableDictionary *OMMathFormulaGenerations(void)
+{
+    static NSMutableDictionary *generations = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        generations = [[NSMutableDictionary alloc] init];
+    });
+    return generations;
+}
+
+static NSString *OMMathVersionedFormula(NSString *formula)
+{
+    NSMutableDictionary *generations = OMMathFormulaGenerations();
+    NSNumber *generation = nil;
+    @synchronized (generations) {
+        generation = [[[generations objectForKey:formula] retain] autorelease];
+    }
+    if (generation == nil) {
+        return formula;
+    }
+    return [NSString stringWithFormat:@"%@\x1F%lu", formula, (unsigned long)[generation unsignedIntegerValue]];
+}
+
 static NSString *OMMathAssetCacheKey(NSString *formula, BOOL displayMath, CGFloat renderZoom)
 {
     return [NSString stringWithFormat:@"%@|%.2f|%@",
             displayMath ? @"display" : @"inline",
             renderZoom,
-            formula];
+            OMMathVersionedFormula(formula)];
 }
 
 static NSString *OMMathFormulaCacheKey(NSString *formula, BOOL displayMath)
 {
     return [NSString stringWithFormat:@"%@|%@",
             displayMath ? @"display" : @"inline",
-            formula];
+            OMMathVersionedFormula(formula)];
 }
 
 static CGFloat OMMathQuantizedRenderZoom(CGFloat zoom, CGFloat oversample)
@@ -1278,8 +1304,219 @@ static NSRange OMSourceLineRangeForTargetLocation(NSArray *blockAnchors, NSUInte
     return best;
 }
 
-static void OMResolvePendingRenderedObjects(NSMutableAttributedString *output, NSArray *blockAnchors)
+// CommonMark drops a backslash before ASCII punctuation in text, so a formula
+// from a cmark text node is compared with its source in that form too.
+static NSString *OMCommonMarkUnescaped(NSString *text)
 {
+    if ([text rangeOfString:@"\\"].location == NSNotFound) {
+        return text;
+    }
+    NSMutableString *result = [NSMutableString stringWithCapacity:[text length]];
+    NSUInteger length = [text length];
+    NSUInteger index = 0;
+    while (index < length) {
+        unichar ch = [text characterAtIndex:index];
+        if (ch == '\\' && index + 1 < length) {
+            unichar next = [text characterAtIndex:index + 1];
+            if (next < 128 && ispunct((int)next)) {
+                [result appendFormat:@"%C", next];
+                index += 2;
+                continue;
+            }
+        }
+        [result appendFormat:@"%C", ch];
+        index += 1;
+    }
+    return result;
+}
+
+static BOOL OMMathSourceMatchesFormula(NSString *content, NSString *formula)
+{
+    NSCharacterSet *space = [NSCharacterSet whitespaceAndNewlineCharacterSet];
+    NSString *target = [formula stringByTrimmingCharactersInSet:space];
+    return [[content stringByTrimmingCharactersInSet:space] isEqualToString:target] ||
+           [[OMCommonMarkUnescaped(content) stringByTrimmingCharactersInSet:space] isEqualToString:target];
+}
+
+// The occurrence-th "$formula$" (or "$$formula$$") inside span, delimiters included.
+static NSRange OMFindMathSource(NSString *markdown,
+                                NSRange span,
+                                NSString *formula,
+                                BOOL display,
+                                NSUInteger occurrence)
+{
+    NSUInteger end = NSMaxRange(span);
+    NSUInteger delimiterLength = display ? 2 : 1;
+    NSUInteger matches = 0;
+    NSUInteger index = span.location;
+    while (index < end) {
+        unichar ch = [markdown characterAtIndex:index];
+        if (ch == '\\') {
+            index += 2;
+            continue;
+        }
+        if (ch != '$') {
+            index += 1;
+            continue;
+        }
+        BOOL doubled = (index + 1 < end && [markdown characterAtIndex:index + 1] == '$');
+        if (doubled != display) {
+            index += doubled ? 2 : 1;
+            continue;
+        }
+        NSUInteger contentStart = index + delimiterLength;
+        NSUInteger close = contentStart;
+        while (close < end) {
+            unichar c = [markdown characterAtIndex:close];
+            if (c == '\\') {
+                close += 2;
+                continue;
+            }
+            if (c == '$') {
+                BOOL closeDoubled = (close + 1 < end && [markdown characterAtIndex:close + 1] == '$');
+                if (closeDoubled == display) {
+                    break;
+                }
+            }
+            close += 1;
+        }
+        if (close >= end) {
+            break;
+        }
+        NSString *content = [markdown substringWithRange:NSMakeRange(contentStart, close - contentStart)];
+        if (OMMathSourceMatchesFormula(content, formula)) {
+            if (matches == occurrence) {
+                return NSMakeRange(index, close + delimiterLength - index);
+            }
+            matches += 1;
+        }
+        index = close + delimiterLength;
+    }
+    return NSMakeRange(NSNotFound, 0);
+}
+
+// The destination of the image syntax starting at index ("![alt](dest ...)"),
+// and the syntax's full range; NSNotFound if it isn't an inline image.
+static NSRange OMImageSyntaxRange(NSString *text, NSUInteger index, NSUInteger end, NSString **destination)
+{
+    NSRange notFound = NSMakeRange(NSNotFound, 0);
+    if (index + 1 >= end || [text characterAtIndex:index] != '!' || [text characterAtIndex:index + 1] != '[') {
+        return notFound;
+    }
+    NSRange bracket = [text rangeOfString:@"](" options:0 range:NSMakeRange(index, end - index)];
+    if (bracket.location == NSNotFound) {
+        return notFound;
+    }
+    NSUInteger cursor = NSMaxRange(bracket);
+    NSUInteger destStart = cursor;
+    NSUInteger destEnd = cursor;
+    if (cursor < end && [text characterAtIndex:cursor] == '<') {
+        NSRange close = [text rangeOfString:@">" options:0 range:NSMakeRange(cursor, end - cursor)];
+        if (close.location == NSNotFound) {
+            return notFound;
+        }
+        destStart = cursor + 1;
+        destEnd = close.location;
+        cursor = close.location + 1;
+    } else {
+        while (destEnd < end) {
+            unichar c = [text characterAtIndex:destEnd];
+            if (c == ')' || c == ' ' || c == '\t' || c == '\n') {
+                break;
+            }
+            destEnd += 1;
+        }
+        cursor = destEnd;
+    }
+    NSRange closeParen = [text rangeOfString:@")" options:0 range:NSMakeRange(cursor, end - cursor)];
+    if (closeParen.location == NSNotFound) {
+        return notFound;
+    }
+    if (destination != NULL) {
+        *destination = [text substringWithRange:NSMakeRange(destStart, destEnd - destStart)];
+    }
+    return NSMakeRange(index, NSMaxRange(closeParen) - index);
+}
+
+// The occurrence-th inline image in span whose destination matches the
+// object's reconstructed Markdown.
+static NSRange OMFindImageSource(NSString *markdown, NSRange span, NSString *imageMarkdown, NSUInteger occurrence)
+{
+    NSString *target = nil;
+    if (OMImageSyntaxRange(imageMarkdown, 0, [imageMarkdown length], &target).location == NSNotFound || target == nil) {
+        return NSMakeRange(NSNotFound, 0);
+    }
+    NSUInteger end = NSMaxRange(span);
+    NSUInteger matches = 0;
+    NSUInteger index = span.location;
+    while (index + 1 < end) {
+        NSRange bang = [markdown rangeOfString:@"![" options:0 range:NSMakeRange(index, end - index)];
+        if (bang.location == NSNotFound) {
+            break;
+        }
+        NSString *destination = nil;
+        NSRange syntax = OMImageSyntaxRange(markdown, bang.location, end, &destination);
+        if (syntax.location != NSNotFound && [destination isEqualToString:target]) {
+            if (matches == occurrence) {
+                return syntax;
+            }
+            matches += 1;
+        }
+        index = bang.location + 2;
+    }
+    return NSMakeRange(NSNotFound, 0);
+}
+
+// Character span of 1-based source lines, without the final line break.
+static NSRange OMCharacterSpanForLines(NSString *markdown, NSArray *lineStarts, NSRange lineRange)
+{
+    if (lineRange.location == NSNotFound || lineRange.location == 0 ||
+        lineRange.location > [lineStarts count]) {
+        return NSMakeRange(NSNotFound, 0);
+    }
+    NSUInteger lastLine = NSMaxRange(lineRange) - 1;
+    NSUInteger start = [[lineStarts objectAtIndex:lineRange.location - 1] unsignedIntegerValue];
+    NSUInteger end = (lastLine < [lineStarts count])
+        ? [[lineStarts objectAtIndex:lastLine] unsignedIntegerValue]
+        : [markdown length];
+    while (end > start && ([markdown characterAtIndex:end - 1] == '\n' || [markdown characterAtIndex:end - 1] == '\r')) {
+        end -= 1;
+    }
+    return NSMakeRange(start, end - start);
+}
+
+static NSRange OMSourceRangeForPendingObject(NSString *markdown,
+                                             NSRange span,
+                                             OMRenderedObjectKind kind,
+                                             NSString *source,
+                                             NSUInteger occurrence)
+{
+    NSRange found = NSMakeRange(NSNotFound, 0);
+    if (span.location == NSNotFound) {
+        return found;
+    }
+    if (kind == OMRenderedObjectKindInlineMath || kind == OMRenderedObjectKindDisplayMath) {
+        found = OMFindMathSource(markdown, span, source, kind == OMRenderedObjectKindDisplayMath, occurrence);
+    } else if (kind == OMRenderedObjectKindImage) {
+        found = OMFindImageSource(markdown, span, source, occurrence);
+    }
+    return found.location != NSNotFound ? found : span;
+}
+
+static void OMResolvePendingRenderedObjects(NSMutableAttributedString *output,
+                                            NSArray *blockAnchors,
+                                            NSString *markdown)
+{
+    NSMutableArray *lineStarts = [NSMutableArray arrayWithObject:[NSNumber numberWithUnsignedInteger:0]];
+    NSUInteger scan = 0;
+    for (; scan < [markdown length]; scan++) {
+        if ([markdown characterAtIndex:scan] == '\n') {
+            [lineStarts addObject:[NSNumber numberWithUnsignedInteger:scan + 1]];
+        }
+    }
+    // Repeats of the same object in one block resolve in document order.
+    NSMutableDictionary *occurrences = [NSMutableDictionary dictionary];
+
     NSUInteger index = 0;
     while (index < [output length]) {
         NSRange effective;
@@ -1289,11 +1526,27 @@ static void OMResolvePendingRenderedObjects(NSMutableAttributedString *output, N
         if (pending != nil) {
             NSUInteger location = effective.location;
             for (; location < NSMaxRange(effective); location++) {
+                OMRenderedObjectKind kind = (OMRenderedObjectKind)[[pending objectForKey:OMPendingObjectKindKey] integerValue];
+                NSString *source = [pending objectForKey:OMPendingObjectSourceKey];
+                NSRange lineRange = OMSourceLineRangeForTargetLocation(blockAnchors, location);
+                NSRange span = OMCharacterSpanForLines(markdown, lineStarts, lineRange);
+                // Count repeats by what the search matches on: images by destination.
+                NSString *matchText = source;
+                if (kind == OMRenderedObjectKindImage) {
+                    NSString *destination = nil;
+                    OMImageSyntaxRange(source, 0, [source length], &destination);
+                    matchText = destination != nil ? destination : source;
+                }
+                NSString *occurrenceKey = [NSString stringWithFormat:@"%lu|%ld|%@",
+                                           (unsigned long)span.location, (long)kind, matchText];
+                NSUInteger occurrence = [[occurrences objectForKey:occurrenceKey] unsignedIntegerValue];
+                [occurrences setObject:[NSNumber numberWithUnsignedInteger:occurrence + 1] forKey:occurrenceKey];
                 OMRenderedObject *object = [[OMRenderedObject alloc]
-                    initWithKind:(OMRenderedObjectKind)[[pending objectForKey:OMPendingObjectKindKey] integerValue]
-                          source:[pending objectForKey:OMPendingObjectSourceKey]
+                    initWithKind:kind
+                          source:source
                         markdown:[pending objectForKey:OMPendingObjectMarkdownKey]
-                 sourceLineRange:OMSourceLineRangeForTargetLocation(blockAnchors, location)];
+                 sourceLineRange:lineRange
+                     sourceRange:OMSourceRangeForPendingObject(markdown, span, kind, source, occurrence)];
                 [output addAttribute:OMRenderedObjectAttributeName value:object range:NSMakeRange(location, 1)];
                 [object release];
             }
@@ -5193,7 +5446,7 @@ static NSAttributedString *OMMathAttachmentAttributedString(NSString *formula,
     NSString *cacheKey = [NSString stringWithFormat:@"%@|%.2f|%@",
                           displayMath ? @"display" : @"inline",
                           fontSize,
-                          formula];
+                          OMMathVersionedFormula(formula)];
     NSAttributedString *cached = [OMMathAttachmentCache() objectForKey:cacheKey];
     if (cached != nil) {
         if (stats != NULL) {
@@ -5692,6 +5945,18 @@ static cmark_node *OMTryAppendMultiNodeDisplayMath(cmark_node *startNode,
 
 @implementation OMMarkdownRenderer
 
++ (void)invalidateCachedMathForFormula:(NSString *)formula
+{
+    if ([formula length] == 0) {
+        return;
+    }
+    NSMutableDictionary *generations = OMMathFormulaGenerations();
+    @synchronized (generations) {
+        NSUInteger next = [[generations objectForKey:formula] unsignedIntegerValue] + 1;
+        [generations setObject:[NSNumber numberWithUnsignedInteger:next] forKey:formula];
+    }
+}
+
 + (NSArray *)localImageURLsInMarkdown:(NSString *)markdown baseURL:(NSURL *)baseURL
 {
     NSData *data = [markdown dataUsingEncoding:NSUTF8StringEncoding];
@@ -5897,7 +6162,7 @@ static cmark_node *OMTryAppendMultiNodeDisplayMath(cmark_node *startNode,
     [self setDiagramBlocks:diagramBlocks];
     OMTrimTrailingNewlines(output);
     [output removeAttribute:OMHardLineBreakAttributeName range:NSMakeRange(0, [output length])];
-    OMResolvePendingRenderedObjects(output, blockAnchors);
+    OMResolvePendingRenderedObjects(output, blockAnchors, markdown);
     cmark_node_free(document);
     if (perfLogging) {
         NSLog(@"[Perf][Renderer] total=%.1fms parse=%.1fms render=%.1fms charsIn=%lu charsOut=%lu zoom=%.2f width=%.1f math(req=%lu hit=%lu miss=%lu assetHit=%lu assetMiss=%lu ok=%lu fail=%lu total=%.1fms latex=%lums/%lu dvisvgm=%lums/%lu decode=%.1fms)",

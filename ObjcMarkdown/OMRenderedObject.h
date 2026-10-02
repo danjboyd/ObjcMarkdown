@@ -22,6 +22,11 @@ FOUNDATION_EXPORT NSString * const OMRenderedObjectAttributeName;
                       source:(NSString *)source
                     markdown:(NSString *)markdown
              sourceLineRange:(NSRange)sourceLineRange;
+- (instancetype)initWithKind:(OMRenderedObjectKind)kind
+                      source:(NSString *)source
+                    markdown:(NSString *)markdown
+             sourceLineRange:(NSRange)sourceLineRange
+                 sourceRange:(NSRange)sourceRange;
 
 @property (nonatomic, readonly) OMRenderedObjectKind kind;
 // The object's own source: LaTeX, Mermaid text, table Markdown, or image Markdown.
@@ -30,6 +35,12 @@ FOUNDATION_EXPORT NSString * const OMRenderedObjectAttributeName;
 @property (nonatomic, readonly, copy) NSString *markdown;
 // 1-based source lines of the enclosing block; location is NSNotFound if unknown.
 @property (nonatomic, readonly) NSRange sourceLineRange;
+// The object's characters in the Markdown source, delimiters included (for
+// example "$a^2$"). Falls back to the whole block's lines when the exact text
+// can't be found; location is NSNotFound if unknown.
+@property (nonatomic, readonly) NSRange sourceRange;
+// YES for inline and display math.
+- (BOOL)isMath;
 
 // "Equation", "Diagram", "Table" or "Image", for menu titles.
 - (NSString *)kindDisplayName;

@@ -4299,6 +4299,7 @@ static OMDRoundedCardView *OMDCreatePreferencesCard(NSRect frame, OMDLayoutMetri
 - (void)mathArtifactsDidWarm:(NSNotification *)notification;
 - (void)remoteImagesDidWarm:(NSNotification *)notification;
 - (void)scheduleMathArtifactRefresh;
+- (void)updateLinkedPreviewObject;
 - (void)mathArtifactRenderTimerFired:(NSTimer *)timer;
 - (void)cancelPendingMathArtifactRender;
 - (void)modeControlChanged:(id)sender;
@@ -9979,6 +9980,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
     } else if (![self isPreviewVisible]) {
         [self setPreviewUpdating:NO];
     }
+    [self updateLinkedPreviewObject];
 }
 
 - (void)applyViewerModeLayout
@@ -15639,6 +15641,9 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
     [layoutManager ensureLayoutForTextContainer:container];
     if ([_textView isKindOfClass:[OMDTextView class]]) {
         [(OMDTextView *)_textView updateRenderedObjectToolTips];
+        // Character indexes changed with the new render.
+        [(OMDTextView *)_textView setLinkedObjectIndex:NSNotFound];
+        [self updateLinkedPreviewObject];
     }
     if ([codeRanges count] == 0 && [diagramBlocks count] == 0 && [displayMathRanges count] == 0) {
         return;
@@ -16747,6 +16752,9 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
 
 - (void)textViewDidChangeSelection:(NSNotification *)notification
 {
+    if ([notification object] == _sourceTextView) {
+        [self updateLinkedPreviewObject];
+    }
     if (_isProgrammaticSelectionSync) {
         return;
     }
@@ -16810,12 +16818,21 @@ static NSRange OMDCharacterRangeForSourceLines(NSString *source, NSRange lineRan
     return NSMakeRange(NSNotFound, 0);
 }
 
-- (void)textView:(OMDTextView *)textView revealSourceLineRange:(NSRange)lineRange
+- (void)textView:(OMDTextView *)textView revealSourceOfRenderedObject:(OMRenderedObject *)object
 {
-    if (textView != _textView || _sourceTextView == nil || ![self hasLoadedDocument]) {
+    if (textView != _textView || _sourceTextView == nil || object == nil || ![self hasLoadedDocument]) {
         return;
     }
-    NSRange characters = OMDCharacterRangeForSourceLines([_sourceTextView string], lineRange);
+    NSString *source = [_sourceTextView string];
+    NSRange characters = NSMakeRange(NSNotFound, 0);
+    // The exact range holds only while the preview matches the editor text.
+    NSRange exact = [object sourceRange];
+    if (_sourceRevision == _lastRenderedSourceRevision &&
+        exact.location != NSNotFound && NSMaxRange(exact) <= [source length]) {
+        characters = exact;
+    } else {
+        characters = OMDCharacterRangeForSourceLines(source, [object sourceLineRange]);
+    }
     if (characters.location == NSNotFound) {
         NSBeep();
         return;
@@ -16826,6 +16843,33 @@ static NSRange OMDCharacterRangeForSourceLines(NSString *source, NSRange lineRan
     [_sourceTextView setSelectedRange:characters];
     [_sourceTextView scrollRangeToVisible:characters];
     [[_sourceTextView window] makeFirstResponder:_sourceTextView];
+}
+
+- (void)textView:(OMDTextView *)textView rerenderRenderedObject:(OMRenderedObject *)object
+{
+    if (textView != _textView || ![object isMath]) {
+        return;
+    }
+    [OMMarkdownRenderer invalidateCachedMathForFormula:[object source]];
+    [self scheduleMathArtifactRefresh];
+}
+
+// Outlines the preview object whose source holds the editor caret (Split mode).
+- (void)updateLinkedPreviewObject
+{
+    if (![_textView isKindOfClass:[OMDTextView class]]) {
+        return;
+    }
+    OMDTextView *preview = (OMDTextView *)_textView;
+    NSUInteger linked = NSNotFound;
+    if (_viewerMode == OMDViewerModeSplit && _sourceTextView != nil &&
+        _sourceRevision == _lastRenderedSourceRevision) {
+        NSRange selection = [_sourceTextView selectedRange];
+        if (selection.location != NSNotFound) {
+            linked = [preview renderedObjectIndexContainingSourceLocation:selection.location];
+        }
+    }
+    [preview setLinkedObjectIndex:linked];
 }
 
 - (BOOL)textView:(NSTextView *)textView clickedOnLink:(id)link

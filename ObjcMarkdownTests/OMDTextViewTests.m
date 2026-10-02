@@ -142,6 +142,29 @@
     XCTAssertEqualObjects(tip, [self tableMarkdown]);
 }
 
+- (void)testSourceLocationFindsItsObject
+{
+    NSString *markdown = [NSString stringWithFormat:@"Intro\n\n%@\n\nOutro", [self tableMarkdown]];
+    OMDTextView *textView = [self textViewShowingMarkdown:markdown];
+    NSUInteger index = [self firstObjectIndexInTextView:textView];
+    XCTAssertTrue(index != NSNotFound);
+    NSUInteger insideTable = [markdown rangeOfString:@"| 1 |"].location;
+    XCTAssertEqual([textView renderedObjectIndexContainingSourceLocation:insideTable], index);
+    XCTAssertEqual([textView renderedObjectIndexContainingSourceLocation:2], (NSUInteger)NSNotFound);
+    XCTAssertEqual([textView renderedObjectIndexContainingSourceLocation:[markdown length] - 2], (NSUInteger)NSNotFound);
+}
+
+- (void)testLinkedObjectIndexDefaultsToNotFound
+{
+    OMDTextView *textView = [self textViewShowingMarkdown:[self tableMarkdown]];
+    XCTAssertEqual([textView linkedObjectIndex], (NSUInteger)NSNotFound);
+    NSUInteger index = [self firstObjectIndexInTextView:textView];
+    [textView setLinkedObjectIndex:index];
+    XCTAssertEqual([textView linkedObjectIndex], index);
+    [textView setLinkedObjectIndex:NSNotFound];
+    XCTAssertEqual([textView linkedObjectIndex], (NSUInteger)NSNotFound);
+}
+
 - (void)testHitTestingFindsObjectOnlyInsideItsBox
 {
     OMDTextView *textView = [self textViewShowingMarkdown:[NSString stringWithFormat:@"Intro\n\n%@", [self tableMarkdown]]];

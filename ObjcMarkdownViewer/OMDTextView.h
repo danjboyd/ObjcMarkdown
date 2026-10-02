@@ -10,8 +10,10 @@
 // images) in the preview.
 @protocol OMDTextViewRenderedObjectDelegate <NSObject>
 @optional
-// lineRange holds 1-based source lines (location = first line).
-- (void)textView:(OMDTextView *)textView revealSourceLineRange:(NSRange)lineRange;
+// Show the object's Markdown source in the editor.
+- (void)textView:(OMDTextView *)textView revealSourceOfRenderedObject:(OMRenderedObject *)object;
+// Render a math object again with its caches dropped.
+- (void)textView:(OMDTextView *)textView rerenderRenderedObject:(OMRenderedObject *)object;
 @end
 
 @interface OMDTextView : NSTextView
@@ -24,6 +26,12 @@
 - (NSRect)viewRectForRenderedObjectAtIndex:(NSUInteger)characterIndex;
 // Rebuilds the source tool tips; call after the text is laid out.
 - (void)updateRenderedObjectToolTips;
+// Character index of an object to mark as linked to the editor caret (a
+// dashed outline), or NSNotFound.
+@property (nonatomic, assign) NSUInteger linkedObjectIndex;
+// Character index of the object whose sourceRange contains location (an
+// insertion point just after the object counts), or NSNotFound.
+- (NSUInteger)renderedObjectIndexContainingSourceLocation:(NSUInteger)location;
 
 @property (nonatomic, retain) NSColor *documentBackgroundColor;
 @property (nonatomic, retain) NSColor *documentBorderColor;

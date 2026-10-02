@@ -11,11 +11,25 @@ NSString * const OMRenderedObjectAttributeName = @"OMRenderedObject";
 @synthesize source = _source;
 @synthesize markdown = _markdown;
 @synthesize sourceLineRange = _sourceLineRange;
+@synthesize sourceRange = _sourceRange;
 
 - (instancetype)initWithKind:(OMRenderedObjectKind)kind
                       source:(NSString *)source
                     markdown:(NSString *)markdown
              sourceLineRange:(NSRange)sourceLineRange
+{
+    return [self initWithKind:kind
+                       source:source
+                     markdown:markdown
+              sourceLineRange:sourceLineRange
+                  sourceRange:NSMakeRange(NSNotFound, 0)];
+}
+
+- (instancetype)initWithKind:(OMRenderedObjectKind)kind
+                      source:(NSString *)source
+                    markdown:(NSString *)markdown
+             sourceLineRange:(NSRange)sourceLineRange
+                 sourceRange:(NSRange)sourceRange
 {
     self = [super init];
     if (self != nil) {
@@ -23,6 +37,7 @@ NSString * const OMRenderedObjectAttributeName = @"OMRenderedObject";
         _source = [(source != nil ? source : @"") copy];
         _markdown = [(markdown != nil ? markdown : _source) copy];
         _sourceLineRange = sourceLineRange;
+        _sourceRange = sourceRange;
     }
     return self;
 }
@@ -32,6 +47,11 @@ NSString * const OMRenderedObjectAttributeName = @"OMRenderedObject";
     [_source release];
     [_markdown release];
     [super dealloc];
+}
+
+- (BOOL)isMath
+{
+    return _kind == OMRenderedObjectKindInlineMath || _kind == OMRenderedObjectKindDisplayMath;
 }
 
 - (NSString *)kindDisplayName

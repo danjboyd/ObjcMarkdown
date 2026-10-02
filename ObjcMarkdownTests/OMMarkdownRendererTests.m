@@ -1764,4 +1764,84 @@ static BOOL OMDMathToolchainAvailable(void)
     XCTAssertEqual([[second firstObject] sourceLineRange].location, (NSUInteger)3);
 }
 
+- (NSString *)sourceTextOfObject:(OMRenderedObject *)object inMarkdown:(NSString *)markdown
+{
+    NSRange range = [object sourceRange];
+    if (range.location == NSNotFound || NSMaxRange(range) > [markdown length]) {
+        return nil;
+    }
+    return [markdown substringWithRange:range];
+}
+
+- (OMMarkdownRenderer *)externalMathRenderer
+{
+    OMMarkdownParsingOptions *options = [OMMarkdownParsingOptions defaultOptions];
+    [options setMathRenderingPolicy:OMMarkdownMathRenderingPolicyExternalTools];
+    return [[[OMMarkdownRenderer alloc] initWithTheme:nil parsingOptions:options] autorelease];
+}
+
+- (void)testInlineMathSourceRangeHandlesEscapesAndRepeats
+{
+    if (!OMDMathToolchainAvailable()) {
+        return;
+    }
+    NSString *markdown = @"Intro\n\nArea $x^2\\,dx$ then $a$ and $a$ again.\n";
+    NSArray *objects = [self renderedObjectsInString:[[self externalMathRenderer] attributedStringFromMarkdown:markdown]];
+    XCTAssertEqual([objects count], (NSUInteger)3);
+    if ([objects count] != 3) {
+        return;
+    }
+    XCTAssertEqualObjects([self sourceTextOfObject:[objects objectAtIndex:0] inMarkdown:markdown], @"$x^2\\,dx$");
+    NSRange first = [[objects objectAtIndex:1] sourceRange];
+    NSRange second = [[objects objectAtIndex:2] sourceRange];
+    XCTAssertEqualObjects([self sourceTextOfObject:[objects objectAtIndex:1] inMarkdown:markdown], @"$a$");
+    XCTAssertEqualObjects([self sourceTextOfObject:[objects objectAtIndex:2] inMarkdown:markdown], @"$a$");
+    XCTAssertTrue(second.location > first.location);
+}
+
+- (void)testDisplayMathSourceRangeCoversItsFence
+{
+    if (!OMDMathToolchainAvailable()) {
+        return;
+    }
+    NSString *markdown = @"Text\n\n$$\n\\frac{1}{2}\n$$\n\nMore";
+    NSArray *objects = [self renderedObjectsInString:[[self externalMathRenderer] attributedStringFromMarkdown:markdown]];
+    XCTAssertEqual([objects count], (NSUInteger)1);
+    XCTAssertEqualObjects([self sourceTextOfObject:[objects firstObject] inMarkdown:markdown], @"$$\n\\frac{1}{2}\n$$");
+}
+
+- (void)testMathCacheInvalidationStillRendersFormula
+{
+    if (!OMDMathToolchainAvailable()) {
+        return;
+    }
+    OMMarkdownRenderer *renderer = [self externalMathRenderer];
+    NSTextAttachment *first = [self firstAttachmentInRenderedString:[renderer attributedStringFromMarkdown:@"$q^3$"]];
+    NSTextAttachment *cached = [self firstAttachmentInRenderedString:[renderer attributedStringFromMarkdown:@"$q^3$"]];
+    XCTAssertNotNil(first);
+    XCTAssertTrue(first == cached, @"an unchanged formula should come from the cache");
+    [OMMarkdownRenderer invalidateCachedMathForFormula:@"q^3"];
+    NSTextAttachment *fresh = [self firstAttachmentInRenderedString:[renderer attributedStringFromMarkdown:@"$q^3$"]];
+    XCTAssertNotNil(fresh);
+    XCTAssertTrue(fresh != first, @"invalidation should force a new render");
+}
+
+- (void)testImageAndTableSourceRanges
+{
+    NSString *path = [self writeTemporaryImage];
+    NSString *markdown = [NSString stringWithFormat:@"See ![one](%@) and ![two](%@ \"T\").\n\n| a | b |\n|---|---|\n| 1 | 2 |\n", path, path];
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    NSArray *objects = [self renderedObjectsInString:[renderer attributedStringFromMarkdown:markdown]];
+    XCTAssertEqual([objects count], (NSUInteger)3);
+    if ([objects count] == 3) {
+        XCTAssertEqualObjects([self sourceTextOfObject:[objects objectAtIndex:0] inMarkdown:markdown],
+                              ([NSString stringWithFormat:@"![one](%@)", path]));
+        XCTAssertEqualObjects([self sourceTextOfObject:[objects objectAtIndex:1] inMarkdown:markdown],
+                              ([NSString stringWithFormat:@"![two](%@ \"T\")", path]));
+        XCTAssertEqualObjects([self sourceTextOfObject:[objects objectAtIndex:2] inMarkdown:markdown],
+                              @"| a | b |\n|---|---|\n| 1 | 2 |");
+    }
+    [self removeFileIfPresent:path];
+}
+
 @end

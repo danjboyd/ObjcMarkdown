@@ -8,6 +8,8 @@
 {
     NSUInteger _contextObjectIndex;
     OMRenderedObject *_contextObject;
+    // linkedObjectIndex + 1, so a zero-initialised view has no linked object.
+    NSUInteger _linkedObjectIndexPlusOne;
 }
 @end
 
@@ -388,7 +390,10 @@
 - (void)drawRenderedObjectSelection
 {
     NSIndexSet *indexes = [self renderedObjectIndexesInRange:[self selectedRange]];
-    if ([indexes count] == 0) {
+    NSUInteger linked = [self linkedObjectIndex];
+    BOOL drawLinked = (linked != NSNotFound && ![indexes containsIndex:linked] &&
+                       [self renderedObjectAtCharacterIndex:linked] != nil);
+    if ([indexes count] == 0 && !drawLinked) {
         return;
     }
     BOOL active = [[self window] isKeyWindow] && [[self window] firstResponder] == self;
@@ -416,7 +421,62 @@
         }
         index = [indexes indexGreaterThanIndex:index];
     }
+    // The object whose source holds the editor caret: dashed, no tint.
+    if (drawLinked) {
+        NSRect rect = [self viewRectForRenderedObjectAtIndex:linked];
+        if (!NSIsEmptyRect(rect)) {
+            NSRect outline = NSInsetRect(NSIntegralRect(rect), -3.0, -3.0);
+            NSBezierPath *path = [NSBezierPath bezierPathWithRoundedRect:outline xRadius:4.0 yRadius:4.0];
+            CGFloat dash[2] = {4.0, 3.0};
+            [path setLineDash:dash count:2 phase:0.0];
+            [path setLineWidth:1.5];
+            // Shown while the editor has focus, so always in the accent colour.
+            NSColor *linkedColor = [[NSColor selectedControlColor] colorUsingColorSpaceName:NSCalibratedRGBColorSpace];
+            [(linkedColor != nil ? linkedColor : rgbAccent) set];
+            [path stroke];
+        }
+    }
     [context restoreGraphicsState];
+}
+
+- (NSUInteger)renderedObjectIndexContainingSourceLocation:(NSUInteger)location
+{
+    NSTextStorage *storage = [self textStorage];
+    NSIndexSet *indexes = [self renderedObjectIndexesInRange:NSMakeRange(0, [storage length])];
+    NSUInteger best = NSNotFound;
+    NSUInteger bestLength = NSUIntegerMax;
+    NSUInteger index = [indexes firstIndex];
+    while (index != NSNotFound) {
+        OMRenderedObject *object = [storage attribute:OMRenderedObjectAttributeName atIndex:index effectiveRange:NULL];
+        NSRange range = [object sourceRange];
+        if (range.location != NSNotFound && location >= range.location &&
+            location <= NSMaxRange(range) && range.length < bestLength) {
+            best = index;
+            bestLength = range.length;
+        }
+        index = [indexes indexGreaterThanIndex:index];
+    }
+    return best;
+}
+
+- (NSUInteger)linkedObjectIndex
+{
+    return _linkedObjectIndexPlusOne == 0 ? NSNotFound : _linkedObjectIndexPlusOne - 1;
+}
+
+- (void)setLinkedObjectIndex:(NSUInteger)index
+{
+    NSUInteger previous = [self linkedObjectIndex];
+    if (previous == index) {
+        return;
+    }
+    if (previous != NSNotFound) {
+        [self invalidateRenderedObjectsInRange:NSMakeRange(previous, 1)];
+    }
+    _linkedObjectIndexPlusOne = (index == NSNotFound) ? 0 : index + 1;
+    if (index != NSNotFound) {
+        [self invalidateRenderedObjectsInRange:NSMakeRange(index, 1)];
+    }
 }
 
 - (void)setSelectedRange:(NSRange)charRange
@@ -457,6 +517,11 @@
     }
     if ([self selectedRange].length == 0 || [event clickCount] >= 2) {
         [self setSelectedRange:NSMakeRange(index, 1)];
+    }
+    // Double-click jumps to the object's source.
+    if ([event clickCount] == 2 &&
+        [[self delegate] respondsToSelector:@selector(textView:revealSourceOfRenderedObject:)]) {
+        [(id<OMDTextViewRenderedObjectDelegate>)[self delegate] textView:self revealSourceOfRenderedObject:object];
     }
 }
 
@@ -583,7 +648,13 @@
                     keyEquivalent:@""];
     [item setTarget:self];
     [item setEnabled:([object sourceLineRange].location != NSNotFound &&
-                      [[self delegate] respondsToSelector:@selector(textView:revealSourceLineRange:)])];
+                      [[self delegate] respondsToSelector:@selector(textView:revealSourceOfRenderedObject:)])];
+    if ([object isMath] && [[self delegate] respondsToSelector:@selector(textView:rerenderRenderedObject:)]) {
+        item = (NSMenuItem *)[menu addItemWithTitle:@"Re-render Equation"
+                               action:@selector(rerenderRenderedObject:)
+                        keyEquivalent:@""];
+        [item setTarget:self];
+    }
     return menu;
 }
 
@@ -682,11 +753,23 @@
     OMRenderedObject *object = [self contextRenderedObject];
     id delegate = [self delegate];
     if (object == nil || [object sourceLineRange].location == NSNotFound ||
-        ![delegate respondsToSelector:@selector(textView:revealSourceLineRange:)]) {
+        ![delegate respondsToSelector:@selector(textView:revealSourceOfRenderedObject:)]) {
         NSBeep();
         return;
     }
-    [delegate textView:self revealSourceLineRange:[object sourceLineRange]];
+    [delegate textView:self revealSourceOfRenderedObject:object];
+}
+
+- (void)rerenderRenderedObject:(id)sender
+{
+    OMRenderedObject *object = [self contextRenderedObject];
+    id delegate = [self delegate];
+    if (object == nil || ![object isMath] ||
+        ![delegate respondsToSelector:@selector(textView:rerenderRenderedObject:)]) {
+        NSBeep();
+        return;
+    }
+    [delegate textView:self rerenderRenderedObject:object];
 }
 
 @end
