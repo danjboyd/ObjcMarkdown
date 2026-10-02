@@ -6330,6 +6330,8 @@ static BOOL OMAppendMermaidDiagram(OMMermaidERDiagram *diagram,
                                                                         1.0,
                                                                         0.0);
     [paragraphStyle setParagraphSpacingBefore:10.0 * scale];
+    // Centred like display math, as GitHub shows diagrams.
+    [paragraphStyle setAlignment:NSCenterTextAlignment];
     [diagramAttributes setObject:paragraphStyle forKey:NSParagraphStyleAttributeName];
 
     NSAttributedString *attachment = OMMermaidERAttachmentAttributedString(diagram,
@@ -6360,6 +6362,8 @@ static BOOL OMAppendMermaidDiagram(OMMermaidERDiagram *diagram,
                 nil]];
     }
     OMAppendString(output, @"\n", diagramAttributes);
+    // A blank line after the diagram, as after code blocks and paragraphs.
+    OMAppendString(output, @"\n", attributes);
     [diagramAttributes release];
     return YES;
 }

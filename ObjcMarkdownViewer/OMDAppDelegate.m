@@ -4401,7 +4401,8 @@ static OMDRoundedCardView *OMDCreatePreferencesCard(NSRect frame, OMDLayoutMetri
                   layoutManager:(NSLayoutManager *)layoutManager
                       container:(NSTextContainer *)container
                      textOrigin:(NSPoint)textOrigin
-                   blockPadding:(NSSize)blockPadding;
+                   blockPadding:(NSSize)blockPadding
+             matchCodeBlockEdge:(BOOL)matchCodeBlockEdge;
 - (BOOL)isAllowRemoteImagesEnabled;
 - (void)setMathRenderingPolicyPreference:(OMMarkdownMathRenderingPolicy)policy;
 - (void)setAllowRemoteImagesPreference:(BOOL)allow;
@@ -15727,10 +15728,11 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
                     layoutManager:layoutManager
                         container:container
                        textOrigin:textOrigin
-                     blockPadding:blockPadding];
+                     blockPadding:blockPadding
+               matchCodeBlockEdge:NO];
 
-    // Diagrams have no drawn code background, so their buttons need no padding
-    // inset; the range is the single attachment character.
+    // Diagrams are centred attachments: their button goes at the code blocks'
+    // right edge, level with the diagram's top.
     NSMutableArray *diagramRanges = [NSMutableArray arrayWithCapacity:[diagramBlocks count]];
     for (NSDictionary *block in diagramBlocks) {
         NSValue *range = [block objectForKey:OMMarkdownRendererDiagramRangeKey];
@@ -15744,7 +15746,8 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
                     layoutManager:layoutManager
                         container:container
                        textOrigin:textOrigin
-                     blockPadding:NSZeroSize];
+                     blockPadding:blockPadding
+               matchCodeBlockEdge:YES];
 
     // Equations are narrow and centred: put the button just right of the
     // formula instead of over its corner (button 20 + 6 inset + 6 gap).
@@ -15754,7 +15757,8 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
                     layoutManager:layoutManager
                         container:container
                        textOrigin:textOrigin
-                     blockPadding:NSMakeSize(32.0, 0.0)];
+                     blockPadding:NSMakeSize(32.0, 0.0)
+               matchCodeBlockEdge:NO];
 }
 
 // Ranges of the display equations in the preview, in document order.
@@ -15810,6 +15814,7 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
                       container:(NSTextContainer *)container
                      textOrigin:(NSPoint)textOrigin
                    blockPadding:(NSSize)blockPadding
+             matchCodeBlockEdge:(BOOL)matchCodeBlockEdge
 {
     if ([ranges count] == 0) {
         return;
@@ -15830,6 +15835,13 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
         }
 
         NSRect blockRect = [layoutManager boundingRectForGlyphRange:glyphRange inTextContainer:container];
+        if (matchCodeBlockEdge) {
+            // A code block's text runs to the line end less its tail inset.
+            NSRect fragment = [layoutManager lineFragmentRectForGlyphAtIndex:glyphRange.location effectiveRange:NULL];
+            CGFloat codeTailInset = 20.0 * ([_renderer zoomScale] > 0.0 ? [_renderer zoomScale] : 1.0);
+            CGFloat right = NSMaxX(fragment) - [container lineFragmentPadding] - codeTailInset;
+            blockRect.size.width = MAX(1.0, right - NSMinX(blockRect));
+        }
 
         CGFloat buttonWidth = 20.0;
         CGFloat buttonHeight = 20.0;

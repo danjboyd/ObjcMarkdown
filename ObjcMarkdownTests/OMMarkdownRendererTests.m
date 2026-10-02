@@ -2090,4 +2090,22 @@ static BOOL OMDMathToolchainAvailable(void)
     XCTAssertEqualWithAccuracy([outside firstLineHeadIndent], 0.0, 0.5);
 }
 
+- (void)testMermaidDiagramIsCentredAndFollowedByABlankLine
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    NSString *markdown = @"```mermaid\nerDiagram\n    A ||--o{ B : has\n```\n```\nnext block\n```\n";
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
+    NSString *text = [rendered string];
+    unichar attachmentCharacter = NSAttachmentCharacter;
+    NSRange diagram = [text rangeOfString:[NSString stringWithCharacters:&attachmentCharacter length:1]];
+    XCTAssertTrue(diagram.location != NSNotFound);
+    if (diagram.location == NSNotFound) {
+        return;
+    }
+    NSParagraphStyle *style = [rendered attribute:NSParagraphStyleAttributeName atIndex:diagram.location effectiveRange:NULL];
+    XCTAssertEqual([style alignment], NSCenterTextAlignment);
+    NSRange next = [text rangeOfString:@"next block"];
+    XCTAssertTrue([[text substringWithRange:NSMakeRange(NSMaxRange(diagram), next.location - NSMaxRange(diagram))] hasPrefix:@"\n\n"]);
+}
+
 @end
