@@ -5,6 +5,7 @@
 #import "OMMarkdownRenderer.h"
 #import "OMRenderedObject.h"
 #import "OMDTextView.h"
+#import "OMDOutlineController.h"
 #import "OMDSourceTextView.h"
 #import "OMDSourceHighlighter.h"
 #import "OMDLineNumberRulerView.h"
@@ -733,6 +734,7 @@ static NSString * const OMDExplorerListFontSizeDefaultsKey = @"ObjcMarkdownExplo
 static NSString * const OMDExplorerIncludeForkArchivedDefaultsKey = @"ObjcMarkdownExplorerIncludeForkArchived";
 static NSString * const OMDExplorerShowHiddenFilesDefaultsKey = @"ObjcMarkdownExplorerShowHiddenFiles";
 static NSString * const OMDExplorerSidebarVisibleDefaultsKey = @"ObjcMarkdownExplorerSidebarVisible";
+static NSString * const OMDOutlineVisibleDefaultsKey = @"ObjcMarkdownOutlineVisible";
 static NSString * const OMDExplorerGitHubTokenDefaultsKey = @"ObjcMarkdownGitHubToken";
 static NSString * const OMDGitHubCacheErrorDomain = @"OMDGitHubCacheErrorDomain";
 
@@ -4080,7 +4082,7 @@ static OMDRoundedCardView *OMDCreatePreferencesCard(NSRect frame, OMDLayoutMetri
     return card;
 }
 
-@interface OMDAppDelegate () <GSVVimBindingControllerDelegate, OMDTextViewRenderedObjectDelegate>
+@interface OMDAppDelegate () <GSVVimBindingControllerDelegate, OMDTextViewRenderedObjectDelegate, OMDOutlineControllerDelegate>
 - (void)importDocument:(id)sender;
 - (void)newWindow:(id)sender;
 - (void)saveDocument:(id)sender;
@@ -4162,6 +4164,7 @@ static OMDRoundedCardView *OMDCreatePreferencesCard(NSRect frame, OMDLayoutMetri
 - (void)setupExplorerSidebar;
 - (void)updateExplorerControlsVisibility;
 - (void)toggleExplorerSidebar:(id)sender;
+- (void)toggleOutline:(id)sender;
 - (void)reloadExplorerEntries;
 - (void)reloadLocalExplorerEntries;
 - (void)reloadGitHubExplorerEntries;
@@ -4300,6 +4303,9 @@ static OMDRoundedCardView *OMDCreatePreferencesCard(NSRect frame, OMDLayoutMetri
 - (void)remoteImagesDidWarm:(NSNotification *)notification;
 - (void)scheduleMathArtifactRefresh;
 - (void)updateLinkedPreviewObject;
+- (NSRect)layoutOutlinePanelInBounds:(NSRect)bounds;
+- (void)refreshOutline;
+- (void)updateOutlineCurrentHeading;
 - (void)mathArtifactRenderTimerFired:(NSTimer *)timer;
 - (void)cancelPendingMathArtifactRender;
 - (void)modeControlChanged:(id)sender;
@@ -4666,6 +4672,8 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [_previewScrollView release];
     [_previewCanvasView release];
     [_documentContainer release];
+    [_outlineController setDelegate:nil];
+    [_outlineController release];
     [_textView release];
     [_window release];
     [super dealloc];
@@ -4939,6 +4947,10 @@ static NSMutableArray *OMDSecondaryWindows(void)
                                                                    action:@selector(toggleExplorerSidebar:)
                                                             keyEquivalent:@""];
     [_viewShowExplorerMenuItem setTarget:self];
+    _viewShowOutlineMenuItem = (NSMenuItem *)[viewMenuWin addItemWithTitle:@"Show Outline"
+                                                                  action:@selector(toggleOutline:)
+                                                           keyEquivalent:@"O"];
+    [_viewShowOutlineMenuItem setTarget:self];
     _viewShowFormattingBarMenuItem = (NSMenuItem *)[viewMenuWin addItemWithTitle:@"Show Formatting Bar"
                                                                         action:@selector(toggleFormattingBar:)
                                                                  keyEquivalent:@""];
@@ -5130,6 +5142,11 @@ static NSMutableArray *OMDSecondaryWindows(void)
                                                                    action:@selector(toggleExplorerSidebar:)
                                                             keyEquivalent:@""];
     [_viewShowExplorerMenuItem setTarget:self];
+
+    _viewShowOutlineMenuItem = (NSMenuItem *)[viewMenu addItemWithTitle:@"Show Outline"
+                                                               action:@selector(toggleOutline:)
+                                                        keyEquivalent:@"O"];
+    [_viewShowOutlineMenuItem setTarget:self];
 
     _viewShowFormattingBarMenuItem = (NSMenuItem *)[viewMenu addItemWithTitle:@"Show Formatting Bar"
                                                                         action:@selector(toggleFormattingBar:)
@@ -5721,6 +5738,10 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [_documentContainer setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable)];
     [_workspaceMainContainer addSubview:_documentContainer];
 
+    _outlineController = [[OMDOutlineController alloc] initWithFrame:NSMakeRect(0.0, 0.0, 240.0, 400.0)];
+    [_outlineController setDelegate:self];
+    _outlineVisible = [[NSUserDefaults standardUserDefaults] boolForKey:OMDOutlineVisibleDefaultsKey];
+
     _documentTabs = [[NSMutableArray alloc] init];
     _selectedDocumentTabIndex = -1;
     _currentDocumentRenderMode = OMDDocumentRenderModeMarkdown;
@@ -5879,6 +5900,15 @@ static NSMutableArray *OMDSecondaryWindows(void)
     }
 
     [self layoutWorkspaceChrome];
+}
+
+- (void)toggleOutline:(id)sender
+{
+    (void)sender;
+    _outlineVisible = !_outlineVisible;
+    [[NSUserDefaults standardUserDefaults] setBool:_outlineVisible forKey:OMDOutlineVisibleDefaultsKey];
+    [self layoutDocumentViews];
+    [self updateOutlineCurrentHeading];
 }
 
 - (void)toggleExplorerSidebar:(id)sender
@@ -6449,6 +6479,11 @@ static NSMutableArray *OMDSecondaryWindows(void)
     if (action == @selector(toggleExplorerSidebar:)) {
         [menuItem setState:(_explorerSidebarVisible ? NSOnState : NSOffState)];
         return YES;
+    }
+
+    if (action == @selector(toggleOutline:)) {
+        [menuItem setState:(_outlineVisible ? NSOnState : NSOffState)];
+        return [self hasLoadedDocument];
     }
 
     if (action == @selector(checkForUpdates:)) {
@@ -9988,13 +10023,35 @@ constrainSplitPosition:(CGFloat)proposedPosition
     [self layoutDocumentViews];
 }
 
+// Places the outline panel at the right of the document area when shown,
+// and returns the rest of the area for the preview and editor.
+- (NSRect)layoutOutlinePanelInBounds:(NSRect)bounds
+{
+    NSView *panel = [_outlineController view];
+    if (panel == nil) {
+        return bounds;
+    }
+    CGFloat width = floor(MIN(260.0, MAX(180.0, NSWidth(bounds) * 0.24)));
+    if (!_outlineVisible || ![self hasLoadedDocument] || NSWidth(bounds) - width < 320.0) {
+        [panel removeFromSuperview];
+        return bounds;
+    }
+    if ([panel superview] != _documentContainer) {
+        [_documentContainer addSubview:panel];
+    }
+    [panel setFrame:NSMakeRect(NSMaxX(bounds) - width, NSMinY(bounds), width, NSHeight(bounds))];
+    NSRect rest = bounds;
+    rest.size.width -= width;
+    return rest;
+}
+
 - (void)layoutDocumentViews
 {
     if (_documentContainer == nil) {
         return;
     }
 
-    NSRect bounds = [_documentContainer bounds];
+    NSRect bounds = [self layoutOutlinePanelInBounds:[_documentContainer bounds]];
     OMDViewerPaneLayout layout = OMDViewerPaneLayoutForMode((OMDViewerMode)_viewerMode);
 
     if (!layout.splitVisible && layout.previewVisible) {
@@ -12854,6 +12911,7 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
 
 - (void)scrollViewContentBoundsDidChange:(NSNotification *)notification
 {
+    [self updateOutlineCurrentHeading];
     if (_isProgrammaticScrollSync) {
         return;
     }
@@ -15645,6 +15703,7 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
         [(OMDTextView *)_textView setLinkedObjectIndex:NSNotFound];
         [self updateLinkedPreviewObject];
     }
+    [self refreshOutline];
     if ([codeRanges count] == 0 && [diagramBlocks count] == 0 && [displayMathRanges count] == 0) {
         return;
     }
@@ -16852,6 +16911,88 @@ static NSRange OMDCharacterRangeForSourceLines(NSString *source, NSRange lineRan
     }
     [OMMarkdownRenderer invalidateCachedMathForFormula:[object source]];
     [self scheduleMathArtifactRefresh];
+}
+
+- (void)refreshOutline
+{
+    if (_outlineController == nil) {
+        return;
+    }
+    [_outlineController setHeadings:([self hasLoadedDocument] ? [_renderer headings] : nil)];
+    if ([[_outlineController view] superview] == nil && _outlineVisible && [self hasLoadedDocument]) {
+        [self layoutDocumentViews];
+    }
+    [self updateOutlineCurrentHeading];
+}
+
+// Highlights the heading whose section is at the top of what's being read:
+// the preview when it's shown, otherwise the editor.
+- (void)updateOutlineCurrentHeading
+{
+    if (_outlineController == nil || !_outlineVisible) {
+        return;
+    }
+    NSArray *headings = [_outlineController headings];
+    NSInteger index = -1;
+    if ([headings count] > 0 && [self isPreviewVisible] && _textView != nil) {
+        NSLayoutManager *layoutManager = [_textView layoutManager];
+        NSTextContainer *container = [_textView textContainer];
+        NSRect visible = [_textView visibleRect];
+        NSPoint origin = [_textView textContainerOrigin];
+        NSPoint probe = NSMakePoint(NSMinX(visible) + 4.0 - origin.x,
+                                    MAX(0.0, NSMinY(visible) + NSHeight(visible) * 0.2 - origin.y));
+        if ([layoutManager numberOfGlyphs] > 0) {
+            NSUInteger glyph = [layoutManager glyphIndexForPoint:probe inTextContainer:container];
+            NSUInteger character = [layoutManager characterIndexForGlyphAtIndex:glyph];
+            index = [OMDOutlineController headingIndexForRenderedLocation:character inHeadings:headings];
+        }
+    } else if ([headings count] > 0 && _sourceTextView != nil) {
+        NSLayoutManager *layoutManager = [_sourceTextView layoutManager];
+        NSRect visible = [_sourceTextView visibleRect];
+        NSPoint origin = [_sourceTextView textContainerOrigin];
+        NSPoint probe = NSMakePoint(4.0, MAX(0.0, NSMinY(visible) + NSHeight(visible) * 0.2 - origin.y));
+        if ([layoutManager numberOfGlyphs] > 0) {
+            NSUInteger glyph = [layoutManager glyphIndexForPoint:probe inTextContainer:[_sourceTextView textContainer]];
+            NSUInteger character = [layoutManager characterIndexForGlyphAtIndex:glyph];
+            NSString *source = [_sourceTextView string];
+            NSUInteger line = 1;
+            NSUInteger scan = 0;
+            for (; scan < character && scan < [source length]; scan++) {
+                if ([source characterAtIndex:scan] == '\n') {
+                    line += 1;
+                }
+            }
+            index = [OMDOutlineController headingIndexForSourceLine:line inHeadings:headings];
+        }
+    }
+    if (index != [_outlineController currentHeadingIndex]) {
+        [_outlineController setCurrentHeadingIndex:index];
+    }
+}
+
+- (void)outlineController:(OMDOutlineController *)controller didChooseHeading:(NSDictionary *)heading
+{
+    NSRange range = [[heading objectForKey:OMMarkdownRendererHeadingRangeKey] rangeValue];
+    NSUInteger line = [[heading objectForKey:OMMarkdownRendererHeadingSourceLineKey] unsignedIntegerValue];
+    // Scroll both panes directly; linked scrolling would otherwise fight it.
+    BOOL wasSyncing = _isProgrammaticScrollSync;
+    _isProgrammaticScrollSync = YES;
+    if ([self isPreviewVisible] && _textView != nil && range.location <= [[_textView textStorage] length]) {
+        [self scrollPreviewToCharacterIndex:range.location verticalAnchor:0.06];
+    }
+    if (_viewerMode != OMDViewerModeRead && _sourceTextView != nil) {
+        NSRange characters = OMDCharacterRangeForSourceLines([_sourceTextView string], NSMakeRange(line, 1));
+        if (characters.location != NSNotFound) {
+            BOOL wasSelecting = _isProgrammaticSelectionSync;
+            _isProgrammaticSelectionSync = YES;
+            [_sourceTextView setSelectedRange:NSMakeRange(characters.location, 0)];
+            _isProgrammaticSelectionSync = wasSelecting;
+            [self updateFormattingBarContextState];
+            [self scrollSourceToCharacterIndex:characters.location verticalAnchor:0.06];
+        }
+    }
+    _isProgrammaticScrollSync = wasSyncing;
+    [controller setCurrentHeadingIndex:[[controller headings] indexOfObject:heading]];
 }
 
 // Outlines the preview object whose source holds the editor caret (Split mode).

@@ -15,6 +15,7 @@ typedef unsigned short mode_t;
 @class OMDFormattingBarView;
 @class GSVVimBindingController;
 @class OMDGitHubClient;
+@class OMDOutlineController;
 
 @interface OMDAppDelegate : NSObject <NSApplicationDelegate, NSToolbarDelegate, NSWindowDelegate, NSTextViewDelegate, NSMenuValidation, NSSplitViewDelegate, NSTableViewDataSource, NSTableViewDelegate, NSComboBoxDelegate, NSControlTextEditingDelegate, OMDSourceTextViewVimEventHandling>
 {
@@ -50,6 +51,7 @@ typedef unsigned short mode_t;
     id _updaterController;
     NSMenu *_fileOpenRecentMenu;
     NSMenuItem *_viewShowExplorerMenuItem;
+    NSMenuItem *_viewShowOutlineMenuItem;
     NSControl *_explorerSourceModeControl;
     NSTextField *_explorerLocalRootLabel;
     NSTextField *_explorerGitHubUserLabel;
@@ -73,6 +75,8 @@ typedef unsigned short mode_t;
     NSUInteger _explorerRequestToken;
     BOOL _explorerIsLoading;
     BOOL _explorerSidebarVisible;
+    BOOL _outlineVisible;
+    OMDOutlineController *_outlineController;
     CGFloat _explorerSidebarLastVisibleWidth;
     NSView *_toolbarPrimaryActionsContainer;
     NSView *_toolbarActionGlyphOverlay;

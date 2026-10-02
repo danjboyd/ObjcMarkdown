@@ -34,6 +34,12 @@ NSString * const OMMarkdownRendererAnchorSourceEndLineKey = @"sourceEndLine";
 NSString * const OMMarkdownRendererAnchorTargetStartKey = @"targetStart";
 NSString * const OMMarkdownRendererAnchorTargetLengthKey = @"targetLength";
 NSString * const OMMarkdownRendererAnchorBlockIDKey = @"blockID";
+NSString * const OMMarkdownRendererHeadingLevelKey = @"OMMarkdownRendererHeadingLevel";
+NSString * const OMMarkdownRendererHeadingTitleKey = @"OMMarkdownRendererHeadingTitle";
+NSString * const OMMarkdownRendererHeadingAnchorKey = @"OMMarkdownRendererHeadingAnchor";
+NSString * const OMMarkdownRendererHeadingRangeKey = @"OMMarkdownRendererHeadingRange";
+NSString * const OMMarkdownRendererHeadingSourceLineKey = @"OMMarkdownRendererHeadingSourceLine";
+NSString * const OMMarkdownRendererHeadingAnchorAttributeName = @"OMMarkdownRendererHeadingAnchor";
 NSString * const OMMarkdownRendererDiagramRangeKey = @"OMMarkdownRendererDiagramRange";
 NSString * const OMMarkdownRendererDiagramSourceKey = @"OMMarkdownRendererDiagramSource";
 
@@ -58,6 +64,9 @@ typedef struct {
     NSArray *sourceLines;
     NSMutableArray *blockAnchors;
     NSMutableArray *diagramBlocks;
+    NSMutableArray *headings;
+    // Slugs handed out so far in this document, for GitHub's de-duplication.
+    NSMutableDictionary *headingSlugCounts;
     NSMutableArray *consumedDisplayMathLineRanges;
     // Raw source of the current block's formulas, keyed by their unescaped
     // form; see OMPrepareRawMathSources.
@@ -5691,10 +5700,16 @@ static cmark_node *OMTryAppendMultiNodeDisplayMath(cmark_node *startNode,
 @property (nonatomic, retain) NSArray *blockquoteRanges;
 @property (nonatomic, retain) NSArray *blockAnchors;
 @property (nonatomic, retain) NSArray *diagramBlocks;
+@property (nonatomic, retain) NSArray *headings;
 - (NSAttributedString *)om_attributedStringFromMarkdown:(NSString *)markdown;
 @end
 
 @implementation OMMarkdownRenderer
+
++ (NSString *)anchorSlugForHeadingTitle:(NSString *)title
+{
+    return OMHeadingAnchorSlug(title);
+}
 
 + (void)invalidateCachedMathForFormula:(NSString *)formula
 {
@@ -5796,6 +5811,7 @@ static cmark_node *OMTryAppendMultiNodeDisplayMath(cmark_node *startNode,
     [_blockquoteRanges release];
     [_blockAnchors release];
     [_diagramBlocks release];
+    [_headings release];
     [_parsingOptions release];
     [_theme release];
     [super dealloc];
@@ -5889,6 +5905,9 @@ static cmark_node *OMTryAppendMultiNodeDisplayMath(cmark_node *startNode,
     renderContext.sourceLines = sourceLines;
     renderContext.blockAnchors = blockAnchors;
     renderContext.diagramBlocks = diagramBlocks;
+    NSMutableArray *headings = [NSMutableArray array];
+    renderContext.headings = headings;
+    renderContext.headingSlugCounts = [NSMutableDictionary dictionary];
     renderContext.consumedDisplayMathLineRanges = consumedDisplayMathLineRanges;
     renderContext.rawMathSources = [NSMutableDictionary dictionary];
     renderContext.mathPerfStats = &stats;
@@ -5912,6 +5931,7 @@ static cmark_node *OMTryAppendMultiNodeDisplayMath(cmark_node *startNode,
     [self setBlockquoteRanges:blockquoteRanges];
     [self setBlockAnchors:blockAnchors];
     [self setDiagramBlocks:diagramBlocks];
+    [self setHeadings:headings];
     OMTrimTrailingNewlines(output);
     [output removeAttribute:OMHardLineBreakAttributeName range:NSMakeRange(0, [output length])];
     OMResolvePendingRenderedObjects(output, blockAnchors, markdown);
@@ -6067,6 +6087,42 @@ static void OMRenderParagraph(cmark_node *node,
     }
 }
 
+static NSString *OMHeadingAnchorSlug(NSString *title)
+{
+    NSString *lower = [(title != nil ? title : @"") lowercaseString];
+    NSMutableCharacterSet *kept = [[[NSCharacterSet alphanumericCharacterSet] mutableCopy] autorelease];
+    [kept addCharactersInString:@"_- "];
+    NSMutableString *slug = [NSMutableString stringWithCapacity:[lower length]];
+    NSUInteger index = 0;
+    for (; index < [lower length]; index++) {
+        unichar ch = [lower characterAtIndex:index];
+        if (ch == ' ') {
+            [slug appendString:@"-"];
+        } else if ([kept characterIsMember:ch]) {
+            [slug appendFormat:@"%C", ch];
+        }
+    }
+    return slug;
+}
+
+// GitHub's de-duplication (github-slugger): a repeat of "x" becomes "x-1",
+// then "x-2", skipping any slug already taken.
+static NSString *OMUniqueHeadingSlug(NSString *title, NSMutableDictionary *counts)
+{
+    NSString *original = OMHeadingAnchorSlug(title);
+    if (counts == nil) {
+        return original;
+    }
+    NSString *slug = original;
+    while ([counts objectForKey:slug] != nil) {
+        NSUInteger next = [[counts objectForKey:original] unsignedIntegerValue] + 1;
+        [counts setObject:[NSNumber numberWithUnsignedInteger:next] forKey:original];
+        slug = [NSString stringWithFormat:@"%@-%lu", original, (unsigned long)next];
+    }
+    [counts setObject:[NSNumber numberWithUnsignedInteger:0] forKey:slug];
+    return slug;
+}
+
 static void OMRenderHeading(cmark_node *node,
                             OMTheme *theme,
                             NSMutableAttributedString *output,
@@ -6090,8 +6146,24 @@ static void OMRenderHeading(cmark_node *node,
     [headingAttrs setObject:style forKey:NSParagraphStyleAttributeName];
 
     OMPrepareRawMathSources(node, renderContext);
+    NSUInteger headingStart = [output length];
     OMRenderInlines(node, theme, output, headingAttrs, scale, renderContext);
     [headingAttrs release];
+    NSRange headingRange = NSMakeRange(headingStart, [output length] - headingStart);
+    if (renderContext != NULL && renderContext->headings != nil) {
+        NSString *title = OMInlinePlainText(node);
+        NSString *anchor = OMUniqueHeadingSlug(title, renderContext->headingSlugCounts);
+        if (headingRange.length > 0) {
+            [output addAttribute:OMMarkdownRendererHeadingAnchorAttributeName value:anchor range:headingRange];
+        }
+        [renderContext->headings addObject:[NSDictionary dictionaryWithObjectsAndKeys:
+            [NSNumber numberWithInt:level], OMMarkdownRendererHeadingLevelKey,
+            (title != nil ? title : @""), OMMarkdownRendererHeadingTitleKey,
+            anchor, OMMarkdownRendererHeadingAnchorKey,
+            [NSValue valueWithRange:headingRange], OMMarkdownRendererHeadingRangeKey,
+            [NSNumber numberWithInt:cmark_node_get_start_line(node)], OMMarkdownRendererHeadingSourceLineKey,
+            nil]];
+    }
     OMAppendString(output, @"\n", attributes);
 
     if (level <= 3 && theme.hrColor != nil) {

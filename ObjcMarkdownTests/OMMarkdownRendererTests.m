@@ -1990,4 +1990,40 @@ static BOOL OMDMathToolchainAvailable(void)
     XCTAssertTrue(([[NSFontManager sharedFontManager] traitsOfFont:font] & NSBoldFontMask) != 0);
 }
 
+- (void)testHeadingAnchorsFollowGitHubSlugRules
+{
+    XCTAssertEqualObjects([OMMarkdownRenderer anchorSlugForHeadingTitle:@"Hello, World!"], @"hello-world");
+    XCTAssertEqualObjects([OMMarkdownRenderer anchorSlugForHeadingTitle:@"foo-bar_baz 2.0"], @"foo-bar_baz-20");
+    XCTAssertEqualObjects([OMMarkdownRenderer anchorSlugForHeadingTitle:@"Über Café"], @"über-café");
+    XCTAssertEqualObjects([OMMarkdownRenderer anchorSlugForHeadingTitle:@"a  b"], @"a--b");
+    XCTAssertEqualObjects([OMMarkdownRenderer anchorSlugForHeadingTitle:@"C++ & Objective-C"], @"c--objective-c");
+}
+
+- (void)testHeadingsListDeduplicatesAnchorsAndRecordsRanges
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    NSString *markdown = @"# Repeat\n\ntext\n\n## Repeat-1\n\n### Repeat\n\nSetext `Code` *em*\n---------\n";
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
+    NSArray *headings = [renderer headings];
+    XCTAssertEqual([headings count], (NSUInteger)4);
+    if ([headings count] != 4) {
+        return;
+    }
+    NSArray *expectedAnchors = [NSArray arrayWithObjects:@"repeat", @"repeat-1", @"repeat-2", @"setext-code-em", nil];
+    NSArray *expectedLevels = [NSArray arrayWithObjects:@1, @2, @3, @2, nil];
+    NSArray *expectedLines = [NSArray arrayWithObjects:@1, @5, @7, @9, nil];
+    NSUInteger index = 0;
+    for (; index < 4; index++) {
+        NSDictionary *heading = [headings objectAtIndex:index];
+        XCTAssertEqualObjects([heading objectForKey:OMMarkdownRendererHeadingAnchorKey], [expectedAnchors objectAtIndex:index]);
+        XCTAssertEqualObjects([heading objectForKey:OMMarkdownRendererHeadingLevelKey], [expectedLevels objectAtIndex:index]);
+        XCTAssertEqualObjects([heading objectForKey:OMMarkdownRendererHeadingSourceLineKey], [expectedLines objectAtIndex:index]);
+        NSRange range = [[heading objectForKey:OMMarkdownRendererHeadingRangeKey] rangeValue];
+        XCTAssertEqualObjects([[rendered string] substringWithRange:range], [heading objectForKey:OMMarkdownRendererHeadingTitleKey]);
+        XCTAssertEqualObjects([rendered attribute:OMMarkdownRendererHeadingAnchorAttributeName atIndex:range.location effectiveRange:NULL],
+                              [expectedAnchors objectAtIndex:index]);
+    }
+    XCTAssertEqualObjects([[headings lastObject] objectForKey:OMMarkdownRendererHeadingTitleKey], @"Setext Code em");
+}
+
 @end

@@ -15,6 +15,15 @@ FOUNDATION_EXPORT NSString * const OMMarkdownRendererAnchorTargetStartKey;
 FOUNDATION_EXPORT NSString * const OMMarkdownRendererAnchorTargetLengthKey;
 FOUNDATION_EXPORT NSString * const OMMarkdownRendererAnchorBlockIDKey;
 
+// Keys in the dictionaries returned by -headings.
+FOUNDATION_EXPORT NSString * const OMMarkdownRendererHeadingLevelKey;       // NSNumber, 1-6
+FOUNDATION_EXPORT NSString * const OMMarkdownRendererHeadingTitleKey;       // NSString, plain text
+FOUNDATION_EXPORT NSString * const OMMarkdownRendererHeadingAnchorKey;      // NSString, GitHub-style slug
+FOUNDATION_EXPORT NSString * const OMMarkdownRendererHeadingRangeKey;       // NSValue, heading text in the rendered string
+FOUNDATION_EXPORT NSString * const OMMarkdownRendererHeadingSourceLineKey;  // NSNumber, 1-based
+// Attribute on each heading's text: its anchor slug (the target of "#slug" links).
+FOUNDATION_EXPORT NSString * const OMMarkdownRendererHeadingAnchorAttributeName;
+
 // Keys in the dictionaries returned by -diagramBlocks.
 FOUNDATION_EXPORT NSString * const OMMarkdownRendererDiagramRangeKey;
 FOUNDATION_EXPORT NSString * const OMMarkdownRendererDiagramSourceKey;
@@ -31,6 +40,9 @@ FOUNDATION_EXPORT NSString * const OMMarkdownRendererDiagramSourceKey;
 + (NSArray *)localImageURLsInMarkdown:(NSString *)markdown baseURL:(NSURL *)baseURL;
 // Drops every cached render of formula, so the next render runs LaTeX again.
 + (void)invalidateCachedMathForFormula:(NSString *)formula;
+// GitHub's anchor slug for a heading title, before de-duplication: lowercase,
+// letters/marks/numbers/"_"/"-"/spaces kept, spaces turned into "-".
++ (NSString *)anchorSlugForHeadingTitle:(NSString *)title;
 @property (nonatomic, assign) CGFloat zoomScale;
 @property (nonatomic, assign) CGFloat layoutWidth;
 @property (nonatomic, assign) BOOL allowTableHorizontalOverflow;
@@ -44,5 +56,8 @@ FOUNDATION_EXPORT NSString * const OMMarkdownRendererDiagramSourceKey;
 // mermaid source it was drawn from. Diagrams are deliberately absent from
 // -codeBlockRanges so that no code background is painted behind them.
 @property (nonatomic, readonly) NSArray *diagramBlocks;
+// One dictionary per heading, in document order (keys above). Repeated slugs
+// get "-1", "-2" ... as on GitHub.
+@property (nonatomic, readonly) NSArray *headings;
 
 @end
