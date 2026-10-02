@@ -67,6 +67,8 @@ typedef struct {
     NSMutableArray *headings;
     // Slugs handed out so far in this document, for GitHub's de-duplication.
     NSMutableDictionary *headingSlugCounts;
+    // The list contexts enclosing the block being rendered (see OMRenderList).
+    NSMutableArray *listStack;
     NSMutableArray *consumedDisplayMathLineRanges;
     // Raw source of the current block's formulas, keyed by their unescaped
     // form; see OMPrepareRawMathSources.
@@ -76,6 +78,14 @@ typedef struct {
     BOOL allowTableHorizontalOverflow;
     BOOL asynchronousMathGenerationEnabled;
 } OMRenderContext;
+
+// Indent of a list item's content, so every block in an item (not only its
+// first line) lines up under the item's text. Zero outside lists.
+static CGFloat OMListContentIndent(const OMRenderContext *renderContext, CGFloat scale)
+{
+    NSUInteger depth = (renderContext != NULL && renderContext->listStack != nil) ? [renderContext->listStack count] : 0;
+    return depth > 0 ? ((CGFloat)depth * 18.0 + 20.0) * scale : 0.0;
+}
 
 static NSString *OMExecutablePathNamed(NSString *name);
 static BOOL OMURLUsesRemoteScheme(NSURL *url);
@@ -3383,7 +3393,7 @@ static void OMRenderPipeTable(NSArray *rows,
         }
     }
 
-    CGFloat indent = (CGFloat)(quoteLevel * 20.0 * scale);
+    CGFloat indent = (CGFloat)(quoteLevel * 20.0 * scale) + OMListContentIndent(renderContext, scale);
     NSParagraphStyle *style = OMParagraphStyleWithIndent(indent, indent, 10.0 * scale, 0.0, 1.52, tableFontSize);
     [tableAttrs setObject:style forKey:NSParagraphStyleAttributeName];
 
@@ -5917,6 +5927,7 @@ static cmark_node *OMTryAppendMultiNodeDisplayMath(cmark_node *startNode,
     renderContext.sourceLines = sourceLines;
     renderContext.blockAnchors = blockAnchors;
     renderContext.diagramBlocks = diagramBlocks;
+    renderContext.listStack = listStack;
     NSMutableArray *headings = [NSMutableArray array];
     renderContext.headings = headings;
     renderContext.headingSlugCounts = [NSMutableDictionary dictionary];
@@ -6080,7 +6091,7 @@ static void OMRenderParagraph(cmark_node *node,
                               const OMRenderContext *renderContext)
 {
     NSMutableDictionary *paraAttrs = [attributes mutableCopy];
-    CGFloat indent = (CGFloat)(quoteLevel * 20.0 * scale);
+    CGFloat indent = (CGFloat)(quoteLevel * 20.0 * scale) + OMListContentIndent(renderContext, scale);
     NSFont *font = [attributes objectForKey:NSFontAttributeName];
     CGFloat fontSize = font != nil ? [font pointSize] : (theme.baseFont != nil ? [theme.baseFont pointSize] * scale : 16.0 * scale);
     NSParagraphStyle *style = OMParagraphStyleWithIndent(indent, indent, 12.0 * scale, 0.0, 1.725, fontSize);
@@ -6149,7 +6160,7 @@ static void OMRenderHeading(cmark_node *node,
     NSDictionary *headingStyle = OMHeadingAttributes(theme, (NSUInteger)level, scale);
     [headingAttrs addEntriesFromDictionary:headingStyle];
 
-    CGFloat indent = (CGFloat)(quoteLevel * 20.0 * scale);
+    CGFloat indent = (CGFloat)(quoteLevel * 20.0 * scale) + OMListContentIndent(renderContext, scale);
     NSFont *font = [headingAttrs objectForKey:NSFontAttributeName];
     CGFloat fontSize = font != nil ? [font pointSize] : (theme.baseFont != nil ? [theme.baseFont pointSize] * scale : 16.0 * scale);
     NSMutableParagraphStyle *style = OMParagraphStyleWithIndent(indent, indent, 14.0 * scale, 0.0, 1.38, fontSize);
@@ -6300,7 +6311,7 @@ static BOOL OMAppendMermaidDiagram(OMMermaidERDiagram *diagram,
                                    const OMRenderContext *renderContext)
 {
     OMMermaidERDrawingStyle *style = OMMermaidStyleForTheme(theme, attributes, scale);
-    CGFloat indent = (CGFloat)(quoteLevel * 20.0 * scale) + 20.0 * scale;
+    CGFloat indent = (CGFloat)(quoteLevel * 20.0 * scale) + OMListContentIndent(renderContext, scale) + 20.0 * scale;
     CGFloat layoutWidth = renderContext != NULL ? renderContext->layoutWidth : 0.0;
     CGFloat maximumWidth = 0.0;
     if (layoutWidth > 0.0) {
@@ -6487,7 +6498,7 @@ static void OMRenderCodeBlock(cmark_node *node,
         [blockAttrs removeObjectForKey:NSBackgroundColorAttributeName];
     }
 
-    CGFloat indent = (CGFloat)(quoteLevel * 20.0 * scale) + 20.0 * scale;
+    CGFloat indent = (CGFloat)(quoteLevel * 20.0 * scale) + OMListContentIndent(renderContext, scale) + 20.0 * scale;
     CGFloat padding = 20.0 * scale;
     NSMutableParagraphStyle *style = OMParagraphStyleWithIndent(indent + padding,
                                                                 indent + padding,

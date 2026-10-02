@@ -2050,4 +2050,44 @@ static BOOL OMDMathToolchainAvailable(void)
     XCTAssertEqualObjects([other fragment], @"usage");
 }
 
+- (NSParagraphStyle *)paragraphStyleAtText:(NSString *)needle inRenderedString:(NSAttributedString *)rendered
+{
+    NSRange range = [[rendered string] rangeOfString:needle];
+    if (range.location == NSNotFound) {
+        return nil;
+    }
+    return [rendered attribute:NSParagraphStyleAttributeName atIndex:range.location effectiveRange:NULL];
+}
+
+- (void)testBlocksInsideListItemsAlignWithTheItemText
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    NSString *markdown = @"- first line  \n  after break\n\n  second paragraph\n\n  ```\n  code line\n  ```\n\n  | a | b |\n  |---|---|\n  | 1 | 2 |\n\nOutside paragraph\n";
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
+
+    NSParagraphStyle *first = [self paragraphStyleAtText:@"first line" inRenderedString:rendered];
+    CGFloat contentIndent = [first headIndent];
+    XCTAssertTrue(contentIndent > [first firstLineHeadIndent], @"the bullet hangs left of the item text");
+
+    NSParagraphStyle *afterBreak = [self paragraphStyleAtText:@"after break" inRenderedString:rendered];
+    NSParagraphStyle *second = [self paragraphStyleAtText:@"second paragraph" inRenderedString:rendered];
+    NSParagraphStyle *code = [self paragraphStyleAtText:@"code line" inRenderedString:rendered];
+    XCTAssertEqualWithAccuracy([afterBreak firstLineHeadIndent], contentIndent, 0.5);
+    XCTAssertEqualWithAccuracy([second firstLineHeadIndent], contentIndent, 0.5);
+    XCTAssertEqualWithAccuracy([second headIndent], contentIndent, 0.5);
+    XCTAssertTrue([code firstLineHeadIndent] > contentIndent, @"code sits inside the item, past its text edge");
+
+    NSString *text = [rendered string];
+    unichar attachment = NSAttachmentCharacter;
+    NSRange table = [text rangeOfString:[NSString stringWithCharacters:&attachment length:1]];
+    XCTAssertTrue(table.location != NSNotFound);
+    if (table.location != NSNotFound) {
+        NSParagraphStyle *tableStyle = [rendered attribute:NSParagraphStyleAttributeName atIndex:table.location effectiveRange:NULL];
+        XCTAssertEqualWithAccuracy([tableStyle firstLineHeadIndent], contentIndent, 0.5);
+    }
+
+    NSParagraphStyle *outside = [self paragraphStyleAtText:@"Outside paragraph" inRenderedString:rendered];
+    XCTAssertEqualWithAccuracy([outside firstLineHeadIndent], 0.0, 0.5);
+}
+
 @end
