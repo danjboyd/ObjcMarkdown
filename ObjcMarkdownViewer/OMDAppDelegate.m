@@ -1951,7 +1951,7 @@ static OMDLayoutMetrics OMDLayoutMetricsForMode(OMDLayoutDensityMode mode)
     metrics.preferencesExplorerCardHeight = 258.0;
     metrics.preferencesPreviewCardHeight = 132.0;
     metrics.preferencesRenderingCardHeight = 236.0;
-    metrics.preferencesEditingCardHeight = 366.0;
+    metrics.preferencesEditingCardHeight = 402.0;
 
     if (mode == OMDLayoutDensityModeCompact) {
         metrics.scale = 0.92;
@@ -1985,7 +1985,7 @@ static OMDLayoutMetrics OMDLayoutMetricsForMode(OMDLayoutDensityMode mode)
         metrics.preferencesExplorerCardHeight = 244.0;
         metrics.preferencesPreviewCardHeight = 124.0;
         metrics.preferencesRenderingCardHeight = 224.0;
-        metrics.preferencesEditingCardHeight = 346.0;
+        metrics.preferencesEditingCardHeight = 382.0;
     } else if (mode == OMDLayoutDensityModeAdwaita) {
         metrics.scale = 1.14;
         metrics.sidebarDefaultWidth = 324.0;
@@ -2025,7 +2025,7 @@ static OMDLayoutMetrics OMDLayoutMetricsForMode(OMDLayoutDensityMode mode)
         metrics.preferencesExplorerCardHeight = 300.0;
         metrics.preferencesPreviewCardHeight = 156.0;
         metrics.preferencesRenderingCardHeight = 272.0;
-        metrics.preferencesEditingCardHeight = 424.0;
+        metrics.preferencesEditingCardHeight = 460.0;
     }
 
     return metrics;
@@ -4434,6 +4434,12 @@ static OMDRoundedCardView *OMDCreatePreferencesCard(NSRect frame, OMDLayoutMetri
 - (void)decreaseSourceEditorFontSize:(id)sender;
 - (void)resetSourceEditorFontSize:(id)sender;
 - (void)chooseSourceEditorFont:(id)sender;
+- (NSString *)sourceEditorFontDescription;
+- (BOOL)sourceEditorHasFocus;
+- (void)setPreviewZoomScale:(CGFloat)scale;
+- (void)zoomIn:(id)sender;
+- (void)zoomOut:(id)sender;
+- (void)zoomToActualSize:(id)sender;
 - (void)checkForUpdates:(id)sender;
 - (void)showAboutPanel:(id)sender;
 - (void)showPreferences:(id)sender;
@@ -4669,6 +4675,8 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [_preferencesSourceHighContrastButton release];
     [_preferencesSourceAccentColorWell release];
     [_preferencesSourceAccentResetButton release];
+    [_preferencesSourceFontField release];
+    [_preferencesSourceFontButton release];
     [_preferencesRendererSyntaxHighlightingButton release];
     [_preferencesRendererSyntaxHighlightingNoteLabel release];
     [_preferencesExplorerLocalRootField release];
@@ -4982,6 +4990,22 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [[viewMenuWin addItemWithTitle:@"Full-Width Preview"
                             action:@selector(togglePreviewFullWidth:)
                      keyEquivalent:@""] setTarget:self];
+    [viewMenuWin addItem:[NSMenuItem separatorItem]];
+    NSMenuItem *zoomInItemWin = (NSMenuItem *)[viewMenuWin addItemWithTitle:@"Zoom In"
+                                                                    action:@selector(zoomIn:)
+                                                             keyEquivalent:@"="];
+    [zoomInItemWin setKeyEquivalentModifierMask:NSControlKeyMask];
+    [zoomInItemWin setTarget:self];
+    NSMenuItem *zoomOutItemWin = (NSMenuItem *)[viewMenuWin addItemWithTitle:@"Zoom Out"
+                                                                     action:@selector(zoomOut:)
+                                                              keyEquivalent:@"-"];
+    [zoomOutItemWin setKeyEquivalentModifierMask:NSControlKeyMask];
+    [zoomOutItemWin setTarget:self];
+    NSMenuItem *actualSizeItemWin = (NSMenuItem *)[viewMenuWin addItemWithTitle:@"Actual Size"
+                                                                        action:@selector(zoomToActualSize:)
+                                                                 keyEquivalent:@"0"];
+    [actualSizeItemWin setKeyEquivalentModifierMask:NSControlKeyMask];
+    [actualSizeItemWin setTarget:self];
     [viewMenuItemWin setSubmenu:viewMenuWin];
 
     OMDLogMenuSnapshot(@"setupMainMenu: before setMainMenu", menubar, _window);
@@ -5185,89 +5209,21 @@ static NSMutableArray *OMDSecondaryWindows(void)
 
     [viewMenu addItem:[NSMenuItem separatorItem]];
 
-    NSMenuItem *fontMenuItem = (NSMenuItem *)[viewMenu addItemWithTitle:@"Source Editor Font"
-                                                                  action:NULL
-                                                           keyEquivalent:@""];
-    NSMenu *fontMenu = [[[NSMenu alloc] initWithTitle:@"Source Editor Font"] autorelease];
-    NSMenuItem *chooseFontItem = (NSMenuItem *)[fontMenu addItemWithTitle:@"Choose Monospace Font..."
-                                                                    action:@selector(chooseSourceEditorFont:)
-                                                             keyEquivalent:@""];
-    [chooseFontItem setTarget:self];
-    NSMenuItem *increaseFontItem = (NSMenuItem *)[fontMenu addItemWithTitle:@"Increase Size"
-                                                                      action:@selector(increaseSourceEditorFontSize:)
-                                                               keyEquivalent:@"="];
-    [increaseFontItem setTarget:self];
-    [increaseFontItem setKeyEquivalentModifierMask:NSControlKeyMask];
-    NSMenuItem *decreaseFontItem = (NSMenuItem *)[fontMenu addItemWithTitle:@"Decrease Size"
-                                                                      action:@selector(decreaseSourceEditorFontSize:)
-                                                               keyEquivalent:@"-"];
-    [decreaseFontItem setTarget:self];
-    [decreaseFontItem setKeyEquivalentModifierMask:NSControlKeyMask];
-    NSMenuItem *resetFontItem = (NSMenuItem *)[fontMenu addItemWithTitle:@"Reset Size"
-                                                                   action:@selector(resetSourceEditorFontSize:)
-                                                            keyEquivalent:@""];
-    [resetFontItem setTarget:self];
-    [fontMenuItem setSubmenu:fontMenu];
-
-    NSMenuItem *wordSelectionShimItem = (NSMenuItem *)[viewMenu addItemWithTitle:@"Word Selection for Ctrl/Cmd+Shift+Arrow"
-                                                                            action:@selector(toggleWordSelectionModifierShim:)
-                                                                     keyEquivalent:@""];
-    [wordSelectionShimItem setTarget:self];
-    NSMenuItem *sourceVimKeyBindingsItem = (NSMenuItem *)[viewMenu addItemWithTitle:@"Vim Key Bindings (Source Editor)"
-                                                                               action:@selector(toggleSourceVimKeyBindings:)
-                                                                        keyEquivalent:@""];
-    [sourceVimKeyBindingsItem setTarget:self];
-    NSMenuItem *syntaxHighlightingItem = (NSMenuItem *)[viewMenu addItemWithTitle:@"Source Syntax Highlighting"
-                                                                            action:@selector(toggleSourceSyntaxHighlighting:)
-                                                                     keyEquivalent:@""];
-    [syntaxHighlightingItem setTarget:self];
-    NSMenuItem *sourceHighlightContrastItem = (NSMenuItem *)[viewMenu addItemWithTitle:@"Source Highlight High Contrast"
-                                                                                  action:@selector(toggleSourceHighlightHighContrast:)
-                                                                           keyEquivalent:@""];
-    [sourceHighlightContrastItem setTarget:self];
-    NSMenuItem *rendererSyntaxHighlightingItem = (NSMenuItem *)[viewMenu addItemWithTitle:@"Renderer Syntax Highlighting"
-                                                                                    action:@selector(toggleRendererSyntaxHighlighting:)
-                                                                             keyEquivalent:@""];
-    [rendererSyntaxHighlightingItem setTarget:self];
-
-    [viewMenu addItem:[NSMenuItem separatorItem]];
-
-    NSMenuItem *mathMenuItem = (NSMenuItem *)[viewMenu addItemWithTitle:@"Math Rendering"
-                                                                  action:NULL
-                                                           keyEquivalent:@""];
-    NSMenu *mathMenu = [[[NSMenu alloc] initWithTitle:@"Math Rendering"] autorelease];
-    NSMenuItem *mathStyledItem = (NSMenuItem *)[mathMenu addItemWithTitle:@"Styled Text (Safe)"
-                                                                    action:@selector(setMathRenderingStyledText:)
-                                                             keyEquivalent:@""];
-    [mathStyledItem setTarget:self];
-    NSMenuItem *mathDisabledItem = (NSMenuItem *)[mathMenu addItemWithTitle:@"Disabled (Literal $...$)"
-                                                                      action:@selector(setMathRenderingDisabled:)
-                                                               keyEquivalent:@""];
-    [mathDisabledItem setTarget:self];
-    NSMenuItem *mathExternalItem = (NSMenuItem *)[mathMenu addItemWithTitle:@"External Tools (LaTeX)"
-                                                                      action:@selector(setMathRenderingExternalTools:)
-                                                               keyEquivalent:@""];
-    [mathExternalItem setTarget:self];
-    [mathMenu addItem:[NSMenuItem separatorItem]];
-    NSMenuItem *remoteImagesItem = (NSMenuItem *)[mathMenu addItemWithTitle:@"Allow Remote Images"
-                                                                      action:@selector(toggleAllowRemoteImages:)
-                                                               keyEquivalent:@""];
-    [remoteImagesItem setTarget:self];
-    [mathMenuItem setSubmenu:mathMenu];
-
-    NSMenuItem *diagramMenuItem = (NSMenuItem *)[viewMenu addItemWithTitle:@"Diagram Rendering"
-                                                                    action:NULL
-                                                             keyEquivalent:@""];
-    NSMenu *diagramMenu = [[[NSMenu alloc] initWithTitle:@"Diagram Rendering"] autorelease];
-    NSMenuItem *diagramNativeItem = (NSMenuItem *)[diagramMenu addItemWithTitle:@"Drawn Diagrams"
-                                                                        action:@selector(setDiagramRenderingNative:)
-                                                                 keyEquivalent:@""];
-    [diagramNativeItem setTarget:self];
-    NSMenuItem *diagramSourceItem = (NSMenuItem *)[diagramMenu addItemWithTitle:@"Diagram Source"
-                                                                        action:@selector(setDiagramRenderingSourceCode:)
-                                                                 keyEquivalent:@""];
-    [diagramSourceItem setTarget:self];
-    [diagramMenuItem setSubmenu:diagramMenu];
+    NSMenuItem *zoomInItem = (NSMenuItem *)[viewMenu addItemWithTitle:@"Zoom In"
+                                                              action:@selector(zoomIn:)
+                                                       keyEquivalent:@"="];
+    [zoomInItem setKeyEquivalentModifierMask:NSControlKeyMask];
+    [zoomInItem setTarget:self];
+    NSMenuItem *zoomOutItem = (NSMenuItem *)[viewMenu addItemWithTitle:@"Zoom Out"
+                                                               action:@selector(zoomOut:)
+                                                        keyEquivalent:@"-"];
+    [zoomOutItem setKeyEquivalentModifierMask:NSControlKeyMask];
+    [zoomOutItem setTarget:self];
+    NSMenuItem *actualSizeItem = (NSMenuItem *)[viewMenu addItemWithTitle:@"Actual Size"
+                                                                  action:@selector(zoomToActualSize:)
+                                                           keyEquivalent:@"0"];
+    [actualSizeItem setKeyEquivalentModifierMask:NSControlKeyMask];
+    [actualSizeItem setTarget:self];
 
     [viewMenuItem setSubmenu:viewMenu];
 
@@ -14269,6 +14225,10 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
     _preferencesSourceAccentColorWell = nil;
     [_preferencesSourceAccentResetButton release];
     _preferencesSourceAccentResetButton = nil;
+    [_preferencesSourceFontField release];
+    _preferencesSourceFontField = nil;
+    [_preferencesSourceFontButton release];
+    _preferencesSourceFontButton = nil;
     [_preferencesRendererSyntaxHighlightingButton release];
     _preferencesRendererSyntaxHighlightingButton = nil;
     [_preferencesRendererSyntaxHighlightingNoteLabel release];
@@ -14789,6 +14749,35 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
                                         noteColor,
                                         NSLeftTextAlignment,
                                         YES)];
+    CGFloat fontLabelWidth = 48.0;
+    CGFloat fontButtonWidth = metrics.preferencesSmallButtonWidth + 24.0;
+    [card addSubview:OMDStaticTextField(NSMakeRect(pad, rowY + 3.0, fontLabelWidth, 20.0),
+                                        @"Font",
+                                        OMDPreferencesLabelFont(metrics),
+                                        titleColor,
+                                        NSLeftTextAlignment,
+                                        NO)];
+    _preferencesSourceFontField = [OMDStaticTextField(NSMakeRect(pad + fontLabelWidth,
+                                                                 rowY + 3.0,
+                                                                 sectionWidth - fontLabelWidth - fontButtonWidth - 8.0,
+                                                                 20.0),
+                                                      [self sourceEditorFontDescription],
+                                                      OMDPreferencesLabelFont(metrics),
+                                                      noteColor,
+                                                      NSLeftTextAlignment,
+                                                      NO) retain];
+    [card addSubview:_preferencesSourceFontField];
+    _preferencesSourceFontButton = [[NSButton alloc] initWithFrame:NSMakeRect(pad + sectionWidth - fontButtonWidth,
+                                                                              rowY,
+                                                                              fontButtonWidth,
+                                                                              metrics.preferencesControlHeight)];
+    [_preferencesSourceFontButton setTitle:@"Choose..."];
+    [_preferencesSourceFontButton setBezelStyle:NSRoundedBezelStyle];
+    [_preferencesSourceFontButton setTarget:self];
+    [_preferencesSourceFontButton setAction:@selector(chooseSourceEditorFont:)];
+    [card addSubview:_preferencesSourceFontButton];
+
+    rowY += 36.0;
     _preferencesFormattingBarButton = [[NSButton alloc] initWithFrame:NSMakeRect(pad, rowY, sectionWidth, 22.0)];
     [_preferencesFormattingBarButton setButtonType:NSSwitchButton];
     [_preferencesFormattingBarButton setTitle:@"Show Formatting Bar in Edit and Split"];
@@ -15193,6 +15182,9 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
     }
     if (_preferencesFormattingBarButton != nil) {
         [_preferencesFormattingBarButton setState:([self isFormattingBarEnabledPreference] ? NSOnState : NSOffState)];
+    }
+    if (_preferencesSourceFontField != nil) {
+        [_preferencesSourceFontField setStringValue:[self sourceEditorFontDescription]];
     }
     if (_preferencesWordSelectionShimButton != nil) {
         [_preferencesWordSelectionShimButton setState:([self isWordSelectionModifierShimEnabled] ? NSOnState : NSOffState)];
@@ -15658,6 +15650,75 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
         [defaults setObject:[resolved fontName] forKey:OMDSourceEditorFontNameDefaultsKey];
         [defaults setDouble:[resolved pointSize] forKey:OMDSourceEditorFontSizeDefaultsKey];
     }
+    if (_preferencesSourceFontField != nil) {
+        [_preferencesSourceFontField setStringValue:[self sourceEditorFontDescription]];
+    }
+}
+
+// "Noto Sans Mono, 13 pt", for Preferences.
+- (NSString *)sourceEditorFontDescription
+{
+    NSFont *font = [_sourceTextView font];
+    if (font == nil) {
+        return @"";
+    }
+    NSString *name = [font familyName];
+    if ([name length] == 0) {
+        name = [font displayName];
+    }
+    if ([name length] == 0) {
+        name = [font fontName];
+    }
+    return [NSString stringWithFormat:@"%@, %g pt", name, (double)[font pointSize]];
+}
+
+// Zoom acts on the pane being worked in: the source editor's font while it
+// has focus, the preview otherwise.
+- (BOOL)sourceEditorHasFocus
+{
+    return _sourceTextView != nil && _viewerMode != OMDViewerModeRead &&
+           [_window firstResponder] == _sourceTextView;
+}
+
+- (void)setPreviewZoomScale:(CGFloat)scale
+{
+    scale = MAX(0.5, MIN(2.0, scale));
+    _zoomScale = scale;
+    [[NSUserDefaults standardUserDefaults] setDouble:_zoomScale forKey:@"ObjcMarkdownZoomScale"];
+    if (_zoomSlider != nil) {
+        [_zoomSlider setDoubleValue:_zoomScale * 100.0];
+    }
+    [self updateZoomLabel];
+    _lastZoomSliderEventTime = OMDNow();
+    [self cancelPendingInteractiveRender];
+    [self renderCurrentMarkdown];
+}
+
+- (void)zoomIn:(id)sender
+{
+    if ([self sourceEditorHasFocus]) {
+        [self increaseSourceEditorFontSize:sender];
+        return;
+    }
+    [self setPreviewZoomScale:(floor(_zoomScale * 10.0 + 0.5) + 1.0) / 10.0];
+}
+
+- (void)zoomOut:(id)sender
+{
+    if ([self sourceEditorHasFocus]) {
+        [self decreaseSourceEditorFontSize:sender];
+        return;
+    }
+    [self setPreviewZoomScale:(floor(_zoomScale * 10.0 + 0.5) - 1.0) / 10.0];
+}
+
+- (void)zoomToActualSize:(id)sender
+{
+    if ([self sourceEditorHasFocus]) {
+        [self resetSourceEditorFontSize:sender];
+        return;
+    }
+    [self setPreviewZoomScale:1.0];
 }
 
 - (void)increaseSourceEditorFontSize:(id)sender

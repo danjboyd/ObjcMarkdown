@@ -135,6 +135,8 @@ typedef unsigned short mode_t;
     NSButton *_preferencesSourceHighContrastButton;
     NSColorWell *_preferencesSourceAccentColorWell;
     NSButton *_preferencesSourceAccentResetButton;
+    NSTextField *_preferencesSourceFontField;
+    NSButton *_preferencesSourceFontButton;
     NSButton *_preferencesRendererSyntaxHighlightingButton;
     NSTextField *_preferencesRendererSyntaxHighlightingNoteLabel;
     NSTextField *_preferencesExplorerLocalRootField;
