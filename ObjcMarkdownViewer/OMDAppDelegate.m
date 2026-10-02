@@ -702,9 +702,9 @@ static const CGFloat OMDWin11SplitDividerThickness = 3.0;
 static const CGFloat OMDWin11SplitDividerHitThickness = 12.0;
 static const CGFloat OMDUsableWindowWidthPadding = 96.0;
 static const CGFloat OMDPreviewCanvasHorizontalMargin = 32.0;
-static const CGFloat OMDPreviewMaximumLayoutWidth = 920.0;
-static const CGFloat OMDPreviewPageCornerRadius = 10.0;
-static const CGFloat OMDPreviewPageBorderWidth = 1.0;
+// The preview's text column: this many average characters of body text at
+// the current zoom, unless the preview is set to use the full width.
+static const CGFloat OMDPreviewReadableColumnCharacters = 80.0;
 static const CGFloat OMDLinkedScrollViewportAnchor = 0.30;
 static const CGFloat OMDLinkedScrollDeadband = 8.0;
 static const CGFloat OMDScrollSpeedMinimum = 10.0;
@@ -726,6 +726,7 @@ static NSString * const OMDSourceHighlightAccentColorDefaultsKey = @"ObjcMarkdow
 static NSString * const OMDSourceVimKeyBindingsDefaultsKey = @"ObjcMarkdownSourceVimKeyBindingsEnabled";
 static NSString * const OMDRendererSyntaxHighlightingDefaultsKey = @"ObjcMarkdownRendererSyntaxHighlightingEnabled";
 static NSString * const OMDShowFormattingBarDefaultsKey = @"ObjcMarkdownShowFormattingBar";
+static NSString * const OMDPreviewFullWidthDefaultsKey = @"ObjcMarkdownPreviewFullWidth";
 static NSString * const OMDThemeDefaultsKey = @"GSTheme";
 static NSString * const OMDLayoutDensityDefaultsKey = @"ObjcMarkdownLayoutDensityMode";
 static NSString * const OMDScrollSpeedDefaultsKey = @"ObjcMarkdownScrollSpeed";
@@ -4334,6 +4335,10 @@ static OMDRoundedCardView *OMDCreatePreferencesCard(NSRect frame, OMDLayoutMetri
 - (void)setFormattingBarEnabledPreference:(BOOL)enabled;
 - (BOOL)isFormattingBarVisibleInCurrentMode;
 - (void)toggleFormattingBar:(id)sender;
+- (BOOL)isPreviewFullWidth;
+- (void)togglePreviewFullWidth:(id)sender;
+- (NSColor *)previewPageBackgroundColor;
+- (CGFloat)previewReadableColumnWidth;
 - (OMDSplitSyncMode)currentSplitSyncMode;
 - (void)setSplitSyncModePreference:(OMDSplitSyncMode)mode;
 - (void)setSplitSyncModeUnlinked:(id)sender;
@@ -4974,6 +4979,9 @@ static NSMutableArray *OMDSecondaryWindows(void)
                                                                         action:@selector(toggleFormattingBar:)
                                                                  keyEquivalent:@""];
     [_viewShowFormattingBarMenuItem setTarget:self];
+    [[viewMenuWin addItemWithTitle:@"Full-Width Preview"
+                            action:@selector(togglePreviewFullWidth:)
+                     keyEquivalent:@""] setTarget:self];
     [viewMenuItemWin setSubmenu:viewMenuWin];
 
     OMDLogMenuSnapshot(@"setupMainMenu: before setMainMenu", menubar, _window);
@@ -5171,6 +5179,9 @@ static NSMutableArray *OMDSecondaryWindows(void)
                                                                         action:@selector(toggleFormattingBar:)
                                                                  keyEquivalent:@""];
     [_viewShowFormattingBarMenuItem setTarget:self];
+    [[viewMenu addItemWithTitle:@"Full-Width Preview"
+                         action:@selector(togglePreviewFullWidth:)
+                  keyEquivalent:@""] setTarget:self];
 
     [viewMenu addItem:[NSMenuItem separatorItem]];
 
@@ -5333,12 +5344,12 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [_previewScrollView setHasHorizontalScroller:YES];
     [_previewScrollView setAutohidesScrollers:YES];
     [_previewScrollView setDrawsBackground:YES];
-    [_previewScrollView setBackgroundColor:OMDResolvedChromeBackgroundColor()];
+    [_previewScrollView setBackgroundColor:[self previewPageBackgroundColor]];
 
     _previewCanvasView = [[OMDPreviewCanvasView alloc] initWithFrame:[[_previewScrollView contentView] bounds]];
     [_previewCanvasView setAutoresizesSubviews:NO];
     if ([_previewCanvasView isKindOfClass:[OMDFlippedFillView class]]) {
-        [(OMDFlippedFillView *)_previewCanvasView setFillColor:OMDResolvedChromeBackgroundColor()];
+        [(OMDFlippedFillView *)_previewCanvasView setFillColor:[self previewPageBackgroundColor]];
     }
 
     _textView = [[OMDTextView alloc] initWithFrame:[[_previewScrollView contentView] bounds]];
@@ -5354,12 +5365,9 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [_textView setTextContainerInset:NSMakeSize(metrics.previewTextInsetX, metrics.previewTextInsetY)];
     if ([_textView isKindOfClass:[OMDTextView class]]) {
         OMDTextView *previewTextView = (OMDTextView *)_textView;
-        [previewTextView setDocumentBackgroundColor:(OMDSystemAppearanceIsDark()
-                                                     ? [NSColor colorWithCalibratedRed:(13.0 / 255.0) green:(17.0 / 255.0) blue:(23.0 / 255.0) alpha:1.0]
-                                                     : [NSColor whiteColor])];
-        [previewTextView setDocumentBorderColor:OMDResolvedSubtleSeparatorColor()];
-        [previewTextView setDocumentCornerRadius:OMDPreviewPageCornerRadius];
-        [previewTextView setDocumentBorderWidth:OMDPreviewPageBorderWidth];
+        // No card: the whole pane is the page (see -previewPageBackgroundColor).
+        [previewTextView setDocumentBackgroundColor:nil];
+        [previewTextView setDocumentBorderColor:nil];
     }
     NSTextContainer *previewContainer = [_textView textContainer];
     [previewContainer setLineFragmentPadding:0.0];
@@ -6575,6 +6583,11 @@ static NSMutableArray *OMDSecondaryWindows(void)
 
     if (action == @selector(toggleFormattingBar:)) {
         [menuItem setState:([self isFormattingBarEnabledPreference] ? NSOnState : NSOffState)];
+        return YES;
+    }
+
+    if (action == @selector(togglePreviewFullWidth:)) {
+        [menuItem setState:([self isPreviewFullWidth] ? NSOnState : NSOffState)];
         return YES;
     }
 
@@ -8731,13 +8744,10 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [self updatePreviewDocumentGeometry];
     NSTimeInterval postStart = perfLogging ? OMDNow() : 0.0;
     [self updateCodeBlockButtons];
-    NSColor *bg = [_renderer backgroundColor];
     if ([_textView isKindOfClass:[OMDTextView class]]) {
         OMDTextView *codeView = (OMDTextView *)_textView;
-        [codeView setDocumentBackgroundColor:(bg != nil ? bg : [NSColor whiteColor])];
-        [codeView setDocumentBorderColor:OMDResolvedSubtleSeparatorColor()];
-        [codeView setDocumentCornerRadius:OMDPreviewPageCornerRadius];
-        [codeView setDocumentBorderWidth:OMDPreviewPageBorderWidth];
+        [codeView setDocumentBackgroundColor:nil];
+        [codeView setDocumentBorderColor:nil];
         [codeView setCodeBlockRanges:[_renderer codeBlockRanges]];
         OMTheme *theme = [_renderer theme];
         [codeView setCodeBlockBackgroundColor:(theme.codeBackgroundColor != nil
@@ -8762,13 +8772,12 @@ static NSMutableArray *OMDSecondaryWindows(void)
         [codeView setBlockquoteLineWidth:3.0];
         [codeView setNeedsDisplay:YES];
     }
-    if (bg != nil) {
-        [_textView setDrawsBackground:NO];
-        [_previewScrollView setDrawsBackground:YES];
-        [_previewScrollView setBackgroundColor:OMDResolvedChromeBackgroundColor()];
-    } else {
-        [_previewScrollView setDrawsBackground:YES];
-        [_previewScrollView setBackgroundColor:OMDResolvedChromeBackgroundColor()];
+    [_textView setDrawsBackground:NO];
+    [_previewScrollView setDrawsBackground:YES];
+    [_previewScrollView setBackgroundColor:[self previewPageBackgroundColor]];
+    if ([_previewCanvasView isKindOfClass:[OMDFlippedFillView class]]) {
+        [(OMDFlippedFillView *)_previewCanvasView setFillColor:[self previewPageBackgroundColor]];
+        [_previewCanvasView setNeedsDisplay:YES];
     }
     _lastRenderedSourceRevision = revisionAtRenderStart;
     if (_viewerMode == OMDViewerModeSplit) {
@@ -8865,9 +8874,9 @@ static NSMutableArray *OMDSecondaryWindows(void)
     }
 
     [_previewScrollView setDrawsBackground:YES];
-    [_previewScrollView setBackgroundColor:OMDResolvedChromeBackgroundColor()];
+    [_previewScrollView setBackgroundColor:[self previewPageBackgroundColor]];
     if ([_previewCanvasView isKindOfClass:[OMDFlippedFillView class]]) {
-        [(OMDFlippedFillView *)_previewCanvasView setFillColor:OMDResolvedChromeBackgroundColor()];
+        [(OMDFlippedFillView *)_previewCanvasView setFillColor:[self previewPageBackgroundColor]];
     }
 
     NSRect clipBounds = [self currentPreviewClipBounds];
@@ -9155,8 +9164,11 @@ constrainSplitPosition:(CGFloat)proposedPosition
     if (width < 360.0) {
         width = fullWidth;
     }
-    if (width > OMDPreviewMaximumLayoutWidth) {
-        width = OMDPreviewMaximumLayoutWidth;
+    if (![self isPreviewFullWidth]) {
+        CGFloat readable = [self previewReadableColumnWidth];
+        if (readable > 0.0 && width > readable) {
+            width = readable;
+        }
     }
     if (width < 0.0) {
         width = 0.0;
@@ -9283,7 +9295,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
     }
     if (canvasFrameChanged || textFrameChanged) {
         if ([_previewCanvasView isKindOfClass:[OMDFlippedFillView class]]) {
-            [(OMDFlippedFillView *)_previewCanvasView setFillColor:OMDResolvedChromeBackgroundColor()];
+            [(OMDFlippedFillView *)_previewCanvasView setFillColor:[self previewPageBackgroundColor]];
         }
         if (canvasFrameChanged) {
             [_previewCanvasView setNeedsDisplay:YES];
@@ -9504,6 +9516,50 @@ constrainSplitPosition:(CGFloat)proposedPosition
 {
     (void)sender;
     [self setFormattingBarEnabledPreference:![self isFormattingBarEnabledPreference]];
+}
+
+- (BOOL)isPreviewFullWidth
+{
+    return [[NSUserDefaults standardUserDefaults] boolForKey:OMDPreviewFullWidthDefaultsKey];
+}
+
+- (void)togglePreviewFullWidth:(id)sender
+{
+    (void)sender;
+    [[NSUserDefaults standardUserDefaults] setBool:![self isPreviewFullWidth] forKey:OMDPreviewFullWidthDefaultsKey];
+    if ([self isPreviewVisible]) {
+        _lastRenderedLayoutWidth = -1.0;
+        [self requestInteractiveRender];
+    }
+}
+
+// The document's own background, filling the whole preview pane: the text
+// sits on it directly rather than on a card.
+- (NSColor *)previewPageBackgroundColor
+{
+    NSColor *background = [_renderer backgroundColor];
+    if (background != nil) {
+        return background;
+    }
+    return OMDSystemAppearanceIsDark()
+        ? [NSColor colorWithCalibratedRed:(13.0 / 255.0) green:(17.0 / 255.0) blue:(23.0 / 255.0) alpha:1.0]
+        : [NSColor whiteColor];
+}
+
+// About OMDPreviewReadableColumnCharacters of body text at the current zoom.
+- (CGFloat)previewReadableColumnWidth
+{
+    NSFont *base = [[_renderer theme] baseFont];
+    CGFloat size = (base != nil ? [base pointSize] : 16.0) * (_zoomScale > 0.0 ? _zoomScale : 1.0);
+    NSFont *font = base != nil ? [NSFont fontWithName:[base fontName] size:size] : nil;
+    if (font == nil) {
+        font = [NSFont userFontOfSize:size];
+    }
+    NSString *sample = @"The quick brown fox jumps over the lazy dog, 1234567890.";
+    CGFloat sampleWidth = [sample sizeWithAttributes:[NSDictionary dictionaryWithObject:font
+                                                                                 forKey:NSFontAttributeName]].width;
+    CGFloat average = sampleWidth > 0.0 ? sampleWidth / [sample length] : size * 0.5;
+    return ceil(average * OMDPreviewReadableColumnCharacters);
 }
 
 - (void)setupFormattingBar
