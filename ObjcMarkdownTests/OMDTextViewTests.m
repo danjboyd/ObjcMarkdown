@@ -4,6 +4,7 @@
 #import <XCTest/XCTest.h>
 #import <AppKit/AppKit.h>
 #import "OMDTextView.h"
+#import "OMStrikethroughLayoutManager.h"
 #import "OMMarkdownRenderer.h"
 #import "OMRenderedObject.h"
 
@@ -163,6 +164,119 @@
     XCTAssertEqual([textView linkedObjectIndex], index);
     [textView setLinkedObjectIndex:NSNotFound];
     XCTAssertEqual([textView linkedObjectIndex], (NSUInteger)NSNotFound);
+}
+
+// A text view showing text, with strikethrough over the given ranges.
+- (OMDTextView *)textViewWithText:(NSString *)text struckRanges:(NSArray *)ranges width:(CGFloat)width
+{
+    OMDTextView *textView = [[[OMDTextView alloc] initWithFrame:NSMakeRect(0.0, 0.0, width, 400.0)] autorelease];
+    NSFont *font = [NSFont userFontOfSize:14.0];
+    NSMutableAttributedString *string = [[[NSMutableAttributedString alloc]
+        initWithString:text attributes:[NSDictionary dictionaryWithObject:font forKey:NSFontAttributeName]] autorelease];
+    for (NSValue *range in ranges) {
+        [string addAttribute:NSStrikethroughStyleAttributeName
+                       value:[NSNumber numberWithInteger:NSUnderlineStyleSingle]
+                       range:[range rangeValue]];
+    }
+    [[textView textStorage] setAttributedString:string];
+    [[textView layoutManager] glyphRangeForTextContainer:[textView textContainer]];
+    return textView;
+}
+
+- (void)testStrikethroughLineCrossesStruckWordOnly
+{
+    NSString *text = @"plain struck plain";
+    NSRange struck = [text rangeOfString:@"struck"];
+    OMDTextView *textView = [self textViewWithText:text struckRanges:[NSArray arrayWithObject:[NSValue valueWithRange:struck]] width:600.0];
+    OMStrikethroughLayoutManager *layoutManager = (OMStrikethroughLayoutManager *)[textView layoutManager];
+    XCTAssertTrue([layoutManager isKindOfClass:[OMStrikethroughLayoutManager class]]);
+
+    NSRange allGlyphs = NSMakeRange(0, [layoutManager numberOfGlyphs]);
+    NSArray *rects = [layoutManager strikethroughLineRectsForGlyphRange:allGlyphs atPoint:NSZeroPoint];
+    XCTAssertEqual([rects count], (NSUInteger)1);
+    if ([rects count] != 1) {
+        return;
+    }
+    NSRect line = [[rects objectAtIndex:0] rectValue];
+    NSRange struckGlyphs = [layoutManager glyphRangeForCharacterRange:struck actualCharacterRange:NULL];
+    NSRect word = [layoutManager boundingRectForGlyphRange:struckGlyphs inTextContainer:[textView textContainer]];
+    XCTAssertEqualWithAccuracy(NSMinX(line), NSMinX(word), 0.5);
+    XCTAssertEqualWithAccuracy(NSWidth(line), NSWidth(word), 0.5);
+    CGFloat baseline = NSMinY([layoutManager lineFragmentRectForGlyphAtIndex:struckGlyphs.location effectiveRange:NULL]) +
+                       [layoutManager locationForGlyphAtIndex:struckGlyphs.location].y;
+    XCTAssertTrue(NSMaxY(line) < baseline, @"line should sit above the baseline");
+    XCTAssertTrue(NSMinY(line) > baseline - [[NSFont userFontOfSize:14.0] xHeight] - 1.0, @"line should sit within the x-height");
+    XCTAssertTrue(NSHeight(line) >= 1.0);
+}
+
+- (void)testStrikethroughGetsOneLinePerWrappedLine
+{
+    NSString *text = @"alpha beta gamma delta epsilon zeta eta theta iota kappa";
+    OMDTextView *textView = [self textViewWithText:text
+                                      struckRanges:[NSArray arrayWithObject:[NSValue valueWithRange:NSMakeRange(0, [text length])]]
+                                             width:120.0];
+    OMStrikethroughLayoutManager *layoutManager = (OMStrikethroughLayoutManager *)[textView layoutManager];
+    NSRange allGlyphs = NSMakeRange(0, [layoutManager numberOfGlyphs]);
+    NSUInteger lineCount = 0;
+    NSUInteger glyph = 0;
+    while (glyph < NSMaxRange(allGlyphs)) {
+        NSRange fragment;
+        [layoutManager lineFragmentRectForGlyphAtIndex:glyph effectiveRange:&fragment];
+        lineCount += 1;
+        glyph = NSMaxRange(fragment);
+    }
+    XCTAssertTrue(lineCount > 1);
+    NSArray *rects = [layoutManager strikethroughLineRectsForGlyphRange:allGlyphs atPoint:NSZeroPoint];
+    XCTAssertEqual([rects count], lineCount);
+}
+
+- (void)testUnstruckTextHasNoStrikethroughLines
+{
+    OMDTextView *textView = [self textViewWithText:@"nothing struck here\n" struckRanges:[NSArray array] width:600.0];
+    OMStrikethroughLayoutManager *layoutManager = (OMStrikethroughLayoutManager *)[textView layoutManager];
+    NSArray *rects = [layoutManager strikethroughLineRectsForGlyphRange:NSMakeRange(0, [layoutManager numberOfGlyphs])
+                                                                atPoint:NSZeroPoint];
+    XCTAssertEqual([rects count], (NSUInteger)0);
+}
+
+- (void)testStrikethroughHelperDrawsAtMidXHeightInUnflippedContext
+{
+    NSFont *font = [NSFont userFontOfSize:20.0];
+    NSDictionary *attributes = [NSDictionary dictionaryWithObjectsAndKeys:
+                                font, NSFontAttributeName,
+                                [NSNumber numberWithInteger:NSUnderlineStyleSingle], NSStrikethroughStyleAttributeName,
+                                [NSColor blackColor], NSForegroundColorAttributeName, nil];
+    NSAttributedString *string = [[[NSAttributedString alloc] initWithString:@"struck" attributes:attributes] autorelease];
+    NSSize size = NSMakeSize(200.0, 60.0);
+    NSImage *image = [[[NSImage alloc] initWithSize:size] autorelease];
+    [image lockFocus];
+    [[NSColor whiteColor] set];
+    NSRectFill(NSMakeRect(0.0, 0.0, size.width, size.height));
+    // Only the line, no glyphs, so every dark pixel belongs to it.
+    OMDrawStrikethroughForAttributedString(string, NSMakeRect(0.0, 0.0, size.width, size.height), NO);
+    [image unlockFocus];
+
+    NSBitmapImageRep *bitmap = [NSBitmapImageRep imageRepWithData:[image TIFFRepresentation]];
+    XCTAssertNotNil(bitmap);
+    NSInteger top = NSIntegerMax;
+    NSInteger bottom = -1;
+    NSInteger x = 0;
+    for (; x < [bitmap pixelsWide]; x++) {
+        NSInteger y = 0;
+        for (; y < [bitmap pixelsHigh]; y++) {
+            NSColor *color = [[bitmap colorAtX:x y:y] colorUsingColorSpaceName:NSCalibratedRGBColorSpace];
+            if ([color redComponent] < 0.5) {
+                top = MIN(top, y);
+                bottom = MAX(bottom, y);
+            }
+        }
+    }
+    XCTAssertTrue(bottom >= 0, @"the strikethrough line should be drawn");
+    // Bitmap rows count from the top; the text sits at the top of an unflipped rect.
+    CGFloat ascent = [font ascender];
+    CGFloat expectedMiddle = ascent - [font xHeight] * 0.5;
+    XCTAssertTrue(bottom - top <= 3, @"a thin line, not a block");
+    XCTAssertEqualWithAccuracy((top + bottom) * 0.5, expectedMiddle, 4.0);
 }
 
 - (void)testHitTestingFindsObjectOnlyInsideItsBox

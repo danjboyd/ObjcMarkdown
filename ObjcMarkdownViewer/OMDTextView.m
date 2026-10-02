@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #import "OMDTextView.h"
+#import "OMStrikethroughLayoutManager.h"
 #import "OMRenderedObject.h"
 
 @interface OMDTextView ()
@@ -14,6 +15,18 @@
 @end
 
 @implementation OMDTextView
+
+- (instancetype)initWithFrame:(NSRect)frameRect
+{
+    self = [super initWithFrame:frameRect];
+    if (self != nil && ![[self layoutManager] isKindOfClass:[OMStrikethroughLayoutManager class]]) {
+        // Draws strikethrough, which GNUstep's own layout manager skips.
+        OMStrikethroughLayoutManager *layoutManager = [[OMStrikethroughLayoutManager alloc] init];
+        [[self textContainer] replaceLayoutManager:layoutManager];
+        [layoutManager release];
+    }
+    return self;
+}
 
 - (void)dealloc
 {

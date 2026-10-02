@@ -15,6 +15,7 @@
 #include "strikethrough.h"
 #include "table.h"
 #include "OMGFMParser.h"
+#import "OMStrikethroughLayoutManager.h"
 #include <ctype.h>
 #if defined(_WIN32)
 #include <windows.h>
@@ -3024,6 +3025,7 @@ static NSImage *OMPipeTableImageFromRows(NSArray *attributedRows,
 
                 NSRect textRect = NSInsetRect(cellRect, horizontalPadding, verticalPadding);
                 [drawSegment drawInRect:textRect];
+                OMDrawStrikethroughForAttributedString(drawSegment, textRect, NO);
             }
 
             x += cellWidth + borderWidth;
@@ -3170,6 +3172,7 @@ static NSImage *OMPipeTableImageFromRows(NSArray *attributedRows,
                                                                       _horizontalPadding,
                                                                       _verticalPadding));
                 [drawSegment drawInRect:textRect];
+                OMDrawStrikethroughForAttributedString(drawSegment, textRect, flipped);
             }
             x += cellWidth + _borderWidth;
         }
