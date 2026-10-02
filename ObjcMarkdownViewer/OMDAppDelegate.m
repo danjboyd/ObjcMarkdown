@@ -9773,7 +9773,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
     if (showBar) {
         if (_formattingBarView != nil) {
             barHeight = [self layoutFormattingBarControlsForWidth:NSWidth(bounds)
-                                                      applyFrames:YES];
+                                                      applyFrames:NO];
         } else {
             barHeight = metrics.formattingBarHeight;
         }
@@ -9787,6 +9787,10 @@ constrainSplitPosition:(CGFloat)proposedPosition
                                          NSWidth(bounds),
                                          barHeight);
             [_formattingBarView setFrame:NSIntegralRect(barFrame)];
+            // Place the controls after resizing the bar: their autoresizing
+            // would otherwise shift them out of view when the row count changes.
+            [self layoutFormattingBarControlsForWidth:NSWidth(bounds)
+                                          applyFrames:YES];
         }
     }
 
