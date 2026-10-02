@@ -1,0 +1,31 @@
+# Checks each spec example is known to fail (see README.md).
+# Format: <file>:<example> <check>...  # reason
+
+# Raw HTML is shown as its source text (OMMarkdownHTMLPolicyRenderAsText),
+# so elements written as HTML get no styling.
+spec:129 link  # HTML blocks
+spec:132 link  # HTML blocks
+spec:136 del  # HTML blocks
+spec:139 code  # HTML blocks
+spec:635 em  # Raw HTML
+extensions:12 strong  # Embedded HTML
+extensions:22 strong  # HTML tag filter
+
+# An empty destination ("[x]()", "[x]: <>") links nowhere, so no link is made.
+spec:169 link  # Link reference definitions
+spec:495 link  # Links
+spec:496 link  # Links
+spec:575 link  # Links
+
+# Only file, http, https and mailto links are made.
+spec:604 link  # Autolinks: irc
+spec:606 link  # Autolinks: a+b+c
+spec:607 link  # Autolinks: made-up-scheme
+spec:609 link  # Autolinks: localhost
+spec:628 link  # Autolinks: ftp
+extensions:19 link  # Autolinks: xmpp
+
+# Footnote references are styled but not yet links to their definitions.
+extensions:23 link  # Footnotes
+extensions:24 link  # Footnotes used multiple times
+extensions:25 link  # Footnote reference labels

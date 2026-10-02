@@ -3673,6 +3673,7 @@ static void OMRenderPipeTable(NSArray *rows,
                               CGFloat scale,
                               CGFloat layoutWidth,
                               NSString *tableMarkdown,
+                              NSArray *cellNodes,
                               const OMRenderContext *renderContext)
 {
     if (rows == nil || [rows count] == 0 || alignments == nil || [alignments count] == 0) {
@@ -3786,11 +3787,18 @@ static void OMRenderPipeTable(NSArray *rows,
                 [cellAttrs setObject:headerFont forKey:NSFontAttributeName];
             }
 
-            NSMutableAttributedString *cellSegment = OMPipeTableAttributedCellContent(cellText,
-                                                                                       theme,
-                                                                                       cellAttrs,
-                                                                                       scale,
-                                                                                       renderContext);
+            // Render the cell cmark-gfm parsed: it has already unescaped "\|"
+            // and resolved reference links against the whole document.
+            NSArray *rowNodes = rowIndex < [cellNodes count] ? [cellNodes objectAtIndex:rowIndex] : nil;
+            cmark_node *cellNode = colIndex < [rowNodes count]
+                ? (cmark_node *)[[rowNodes objectAtIndex:colIndex] pointerValue] : NULL;
+            NSMutableAttributedString *cellSegment = nil;
+            if (cellNode != NULL) {
+                cellSegment = [[[NSMutableAttributedString alloc] init] autorelease];
+                OMRenderInlines(cellNode, theme, cellSegment, [[cellAttrs mutableCopy] autorelease], scale, renderContext);
+            } else {
+                cellSegment = OMPipeTableAttributedCellContent(cellText, theme, cellAttrs, scale, renderContext);
+            }
             OMPipeTableNormalizeCellSegment(cellSegment);
             if ([cellSegment length] == 0) {
                 OMAppendString(cellSegment, @" ", cellAttrs);
@@ -3907,6 +3915,68 @@ static BOOL OMURLUsesRemoteScheme(NSURL *url)
     return [scheme isEqualToString:@"http"] || [scheme isEqualToString:@"https"];
 }
 
+// A destination as cmark-gfm's HTML renderer writes it into href: UTF-8,
+// with everything but letters, digits and -_.+!*'(),%#@?=;:/&$~ as %XX.
+// cmark hands over destinations unescaped ("my url", "foo\bar"), which
+// NSURL rejects.
+static NSString *OMEscapedURLString(NSString *urlString)
+{
+    static const char *safe = "-_.+!*'(),%#@?=;:/&$~";
+    NSData *bytes = [urlString dataUsingEncoding:NSUTF8StringEncoding];
+    if (bytes == nil) {
+        return urlString;
+    }
+    const unsigned char *utf8 = (const unsigned char *)[bytes bytes];
+    NSUInteger length = [bytes length];
+    NSMutableString *escaped = [NSMutableString stringWithCapacity:length];
+    NSUInteger index = 0;
+    for (; index < length; index++) {
+        unsigned char ch = utf8[index];
+        BOOL keep = (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') ||
+                    (ch != 0 && strchr(safe, ch) != NULL);
+        if (keep) {
+            [escaped appendFormat:@"%c", ch];
+        } else {
+            [escaped appendFormat:@"%%%02X", ch];
+        }
+    }
+    return escaped;
+}
+
+// Whether the destination starts with a URI scheme ("x:"), which CommonMark
+// allows to be 2-32 characters: a letter, then letters, digits, "+", "." or "-".
+static BOOL OMDestinationHasScheme(NSString *urlString)
+{
+    NSUInteger length = [urlString length];
+    NSUInteger index = 0;
+    for (; index < length && index <= 32; index++) {
+        unichar ch = [urlString characterAtIndex:index];
+        BOOL letter = (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z');
+        BOOL other = (ch >= '0' && ch <= '9') || ch == '+' || ch == '.' || ch == '-';
+        if (ch == ':') {
+            return index >= 2;
+        }
+        if (!(letter || (index > 0 && other))) {
+            return NO;
+        }
+    }
+    return NO;
+}
+
+// The destination as an NSURL, escaping it the way cmark-gfm would if NSURL
+// won't take it as written.
+static NSURL *OMURLFromDestination(NSString *urlString, NSURL *baseURL)
+{
+    NSURL *url = baseURL != nil ? [NSURL URLWithString:urlString relativeToURL:baseURL]
+                                : [NSURL URLWithString:urlString];
+    if (url == nil) {
+        NSString *escaped = OMEscapedURLString(urlString);
+        url = baseURL != nil ? [NSURL URLWithString:escaped relativeToURL:baseURL]
+                             : [NSURL URLWithString:escaped];
+    }
+    return url;
+}
+
 static NSURL *OMResolvedImageURL(NSString *urlString,
                                  const OMRenderContext *renderContext)
 {
@@ -3914,7 +3984,7 @@ static NSURL *OMResolvedImageURL(NSString *urlString,
         return nil;
     }
 
-    NSURL *url = [NSURL URLWithString:urlString];
+    NSURL *url = OMURLFromDestination(urlString, nil);
     if (url != nil && [url scheme] != nil) {
         if (!OMURLUsesAllowedImageScheme(url)) {
             return nil;
@@ -3928,7 +3998,7 @@ static NSURL *OMResolvedImageURL(NSString *urlString,
     OMMarkdownParsingOptions *options = OMRenderContextParsingOptions(renderContext);
     NSURL *baseURL = options != nil ? [options baseURL] : nil;
     if (baseURL != nil) {
-        NSURL *resolved = [NSURL URLWithString:urlString relativeToURL:baseURL];
+        NSURL *resolved = OMURLFromDestination(urlString, baseURL);
         if (resolved != nil) {
             return [resolved absoluteURL];
         }
@@ -3992,18 +4062,23 @@ static NSURL *OMResolvedLinkURL(NSString *urlString,
         return fragmentURL;
     }
 
-    NSURL *url = [NSURL URLWithString:urlString];
+    NSURL *url = OMURLFromDestination(urlString, nil);
     if (url != nil && [url scheme] != nil) {
         if (!OMURLUsesAllowedLinkScheme(url)) {
             return nil;
         }
         return [url absoluteURL];
     }
+    // "irc://x" or "made-up-scheme:y" that NSURL won't parse is still not a
+    // file next to the document.
+    if (OMDestinationHasScheme(urlString)) {
+        return nil;
+    }
 
     OMMarkdownParsingOptions *options = OMRenderContextParsingOptions(renderContext);
     NSURL *baseURL = options != nil ? [options baseURL] : nil;
     if (baseURL != nil) {
-        NSURL *resolved = [NSURL URLWithString:urlString relativeToURL:baseURL];
+        NSURL *resolved = OMURLFromDestination(urlString, baseURL);
         if (resolved != nil) {
             return [resolved absoluteURL];
         }
@@ -6562,22 +6637,26 @@ static void OMRenderGFMTable(cmark_node *node,
     }
 
     NSMutableArray *rows = [NSMutableArray array];
+    NSMutableArray *cellNodes = [NSMutableArray array];
     cmark_node *row = cmark_node_first_child(node);
     for (; row != NULL; row = cmark_node_next(row)) {
         if (cmark_node_get_type(row) != CMARK_NODE_TABLE_ROW) {
             continue;
         }
         NSMutableArray *cells = [NSMutableArray arrayWithCapacity:columnCount];
+        NSMutableArray *nodes = [NSMutableArray arrayWithCapacity:columnCount];
         cmark_node *cell = cmark_node_first_child(row);
         for (; cell != NULL && [cells count] < columnCount; cell = cmark_node_next(cell)) {
             if (cmark_node_get_type(cell) == CMARK_NODE_TABLE_CELL) {
                 [cells addObject:OMGFMTableCellMarkdown(cell, renderContext)];
+                [nodes addObject:[NSValue valueWithPointer:cell]];
             }
         }
         while ([cells count] < columnCount) {
             [cells addObject:@""];
         }
         [rows addObject:cells];
+        [cellNodes addObject:nodes];
     }
     if ([rows count] == 0) {
         return;
@@ -6595,6 +6674,7 @@ static void OMRenderGFMTable(cmark_node *node,
                       scale,
                       layoutWidth,
                       tableMarkdown,
+                      cellNodes,
                       renderContext);
     // A table laid out as text is no attachment; anything inside its cells
     // (math, images) is tagged on its own.
