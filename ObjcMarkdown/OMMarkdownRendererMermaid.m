@@ -274,6 +274,8 @@ void OMAppendMermaidDiagnostic(NSString *diagnostic,
                                                                 1.3,
                                                                 diagnosticSize);
     [style setParagraphSpacingBefore:4.0 * scale];
+    // Wrap at the code box's right edge, as the code above does.
+    [style setTailIndent:-20.0 * scale];
     [diagnosticAttrs setObject:style forKey:NSParagraphStyleAttributeName];
 
     OMAppendString(output, diagnostic, diagnosticAttrs);

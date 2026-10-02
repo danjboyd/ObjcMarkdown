@@ -1461,6 +1461,11 @@ static void OMRenderCodeBlock(cmark_node *node,
     if (![code hasSuffix:@"\n"]) {
         OMAppendString(output, @"\n", blockAttrs);
     }
+    // A diagnostic is a caption under the code box, after a blank line the
+    // block gap pass sizes to clear the box's padding.
+    if ([mermaidDiagnostic length] > 0) {
+        OMAppendString(output, @"\n", attributes);
+    }
     OMAppendMermaidDiagnostic(mermaidDiagnostic,
                               theme,
                               output,
