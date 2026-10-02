@@ -50,6 +50,7 @@ TBD: add separate build instructions when macOS target is set up.
 
 ## Structure (expected)
 - `ObjcMarkdown/` library sources
+  - The renderer is split by topic: `OMMarkdownRenderer.m` (the class, block and inline rendering, final passes), `OMMarkdownRendererSource.m` (rendered objects, block anchors, source lines), `OMMarkdownRendererCode.m` (syntax highlighting), `OMMarkdownRendererImages.m`, `OMMarkdownRendererMath.m`, `OMMarkdownRendererTables.m` and `OMMarkdownRendererMermaid.m`. Helpers shared between them are declared in `OMMarkdownRendererInternal.h` (not installed; hidden visibility); everything else stays `static`.
 - `ObjcMarkdownViewer/` app sources
 - `Resources/` theme TOML and assets
 

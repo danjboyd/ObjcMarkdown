@@ -26,7 +26,7 @@ patterns that are already in the tree.
 
 ### 1) Fence-token dispatch already exists
 
-`OMPrimaryFenceToken` (`ObjcMarkdown/OMMarkdownRenderer.m`) lowercases the first
+`OMPrimaryFenceToken` (`ObjcMarkdown/OMMarkdownRendererCode.m`) lowercases the first
 token of a fence info string, and `OMRenderCodeBlock` already receives the
 `cmark_node`. Detecting a `mermaid` fence needs no parser changes and no cmark
 extension.
