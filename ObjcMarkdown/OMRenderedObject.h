@@ -1,0 +1,37 @@
+// ObjcMarkdown
+// SPDX-License-Identifier: LGPL-2.1-or-later
+
+#import <Foundation/Foundation.h>
+
+typedef NS_ENUM(NSInteger, OMRenderedObjectKind) {
+    OMRenderedObjectKindInlineMath = 0,
+    OMRenderedObjectKindDisplayMath = 1,
+    OMRenderedObjectKindDiagram = 2,
+    OMRenderedObjectKindTable = 3,
+    OMRenderedObjectKindImage = 4
+};
+
+// Attribute on the attachment character of each rendered object (math,
+// diagrams, tables, images). The value is an OMRenderedObject.
+FOUNDATION_EXPORT NSString * const OMRenderedObjectAttributeName;
+
+// What a rendered attachment was made from, so it can be copied or traced back.
+@interface OMRenderedObject : NSObject
+
+- (instancetype)initWithKind:(OMRenderedObjectKind)kind
+                      source:(NSString *)source
+                    markdown:(NSString *)markdown
+             sourceLineRange:(NSRange)sourceLineRange;
+
+@property (nonatomic, readonly) OMRenderedObjectKind kind;
+// The object's own source: LaTeX, Mermaid text, table Markdown, or image Markdown.
+@property (nonatomic, readonly, copy) NSString *source;
+// How the object is written in a Markdown document, delimiters included.
+@property (nonatomic, readonly, copy) NSString *markdown;
+// 1-based source lines of the enclosing block; location is NSNotFound if unknown.
+@property (nonatomic, readonly) NSRange sourceLineRange;
+
+// "Equation", "Diagram", "Table" or "Image", for menu titles.
+- (NSString *)kindDisplayName;
+
+@end

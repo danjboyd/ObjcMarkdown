@@ -5,6 +5,7 @@
 #import "OMAppKitSerialization.h"
 #import "OMMermaidERDiagram.h"
 #import "OMMermaidERDrawing.h"
+#import "OMRenderedObject.h"
 #import "OMTheme.h"
 
 #import <dispatch/dispatch.h>
@@ -1186,6 +1187,119 @@ static void OMTightenHardLineBreaks(NSMutableAttributedString *output, NSRange r
         [output removeAttribute:OMHardLineBreakAttributeName range:NSMakeRange(index, 1)];
         segmentStart = index + 1;
         index += 1;
+    }
+}
+
+// Kind, source and Markdown of an object while the document renders; the
+// final pass turns it into an OMRenderedObject once block anchors are known.
+static NSString * const OMPendingRenderedObjectAttributeName = @"OMPendingRenderedObject";
+static NSString * const OMPendingObjectKindKey = @"kind";
+static NSString * const OMPendingObjectSourceKey = @"source";
+static NSString * const OMPendingObjectMarkdownKey = @"markdown";
+
+// Tags the attachment characters appended to output since start.
+static void OMTagAppendedObject(NSMutableAttributedString *output,
+                                NSUInteger start,
+                                OMRenderedObjectKind kind,
+                                NSString *source,
+                                NSString *markdown)
+{
+    if (output == nil || start >= [output length] || source == nil) {
+        return;
+    }
+    NSDictionary *pending = [NSDictionary dictionaryWithObjectsAndKeys:
+                             [NSNumber numberWithInteger:kind], OMPendingObjectKindKey,
+                             source, OMPendingObjectSourceKey,
+                             (markdown != nil ? markdown : source), OMPendingObjectMarkdownKey,
+                             nil];
+    NSString *text = [output string];
+    NSUInteger index = start;
+    for (; index < [output length]; index++) {
+        if ([text characterAtIndex:index] == NSAttachmentCharacter &&
+            [output attribute:NSAttachmentAttributeName atIndex:index effectiveRange:NULL] != nil) {
+            [output addAttribute:OMPendingRenderedObjectAttributeName value:pending range:NSMakeRange(index, 1)];
+        }
+    }
+}
+
+static void OMAppendInlineTextFromNode(cmark_node *node, NSMutableString *buffer);
+
+// The node's raw source lines, joined with newlines.
+static NSString *OMSourceTextForNodeLines(cmark_node *node, const OMRenderContext *renderContext)
+{
+    NSArray *sourceLines = renderContext != NULL ? renderContext->sourceLines : nil;
+    int firstLine = cmark_node_get_start_line(node);
+    int lastLine = cmark_node_get_end_line(node);
+    if (sourceLines == nil || firstLine < 1 || lastLine < firstLine || (NSUInteger)lastLine > [sourceLines count]) {
+        return nil;
+    }
+    NSArray *lines = [sourceLines subarrayWithRange:NSMakeRange((NSUInteger)firstLine - 1,
+                                                                (NSUInteger)(lastLine - firstLine + 1))];
+    return [lines componentsJoinedByString:@"\n"];
+}
+
+static NSString *OMImageMarkdownForNode(cmark_node *imageNode)
+{
+    const char *url = cmark_node_get_url(imageNode);
+    const char *title = cmark_node_get_title(imageNode);
+    NSString *urlString = url != NULL ? [NSString stringWithUTF8String:url] : @"";
+    NSString *titleString = title != NULL ? [NSString stringWithUTF8String:title] : @"";
+    NSMutableString *alt = [NSMutableString string];
+    OMAppendInlineTextFromNode(imageNode, alt);
+    if ([urlString rangeOfCharacterFromSet:[NSCharacterSet whitespaceCharacterSet]].location != NSNotFound) {
+        urlString = [NSString stringWithFormat:@"<%@>", urlString];
+    }
+    if ([titleString length] > 0) {
+        return [NSString stringWithFormat:@"![%@](%@ \"%@\")", alt, urlString,
+                [titleString stringByReplacingOccurrencesOfString:@"\"" withString:@"\\\""]];
+    }
+    return [NSString stringWithFormat:@"![%@](%@)", alt, urlString];
+}
+
+// The smallest block anchor containing location gives the object's source lines.
+static NSRange OMSourceLineRangeForTargetLocation(NSArray *blockAnchors, NSUInteger location)
+{
+    NSRange best = NSMakeRange(NSNotFound, 0);
+    NSUInteger bestLength = NSUIntegerMax;
+    for (NSDictionary *anchor in blockAnchors) {
+        NSUInteger targetStart = [[anchor objectForKey:OMMarkdownRendererAnchorTargetStartKey] unsignedIntegerValue];
+        NSUInteger targetLength = [[anchor objectForKey:OMMarkdownRendererAnchorTargetLengthKey] unsignedIntegerValue];
+        if (location < targetStart || location >= targetStart + targetLength || targetLength >= bestLength) {
+            continue;
+        }
+        NSUInteger startLine = [[anchor objectForKey:OMMarkdownRendererAnchorSourceStartLineKey] unsignedIntegerValue];
+        NSUInteger endLine = [[anchor objectForKey:OMMarkdownRendererAnchorSourceEndLineKey] unsignedIntegerValue];
+        if (startLine == 0 || endLine < startLine) {
+            continue;
+        }
+        best = NSMakeRange(startLine, endLine - startLine + 1);
+        bestLength = targetLength;
+    }
+    return best;
+}
+
+static void OMResolvePendingRenderedObjects(NSMutableAttributedString *output, NSArray *blockAnchors)
+{
+    NSUInteger index = 0;
+    while (index < [output length]) {
+        NSRange effective;
+        NSDictionary *pending = [output attribute:OMPendingRenderedObjectAttributeName
+                                          atIndex:index
+                                   effectiveRange:&effective];
+        if (pending != nil) {
+            NSUInteger location = effective.location;
+            for (; location < NSMaxRange(effective); location++) {
+                OMRenderedObject *object = [[OMRenderedObject alloc]
+                    initWithKind:(OMRenderedObjectKind)[[pending objectForKey:OMPendingObjectKindKey] integerValue]
+                          source:[pending objectForKey:OMPendingObjectSourceKey]
+                        markdown:[pending objectForKey:OMPendingObjectMarkdownKey]
+                 sourceLineRange:OMSourceLineRangeForTargetLocation(blockAnchors, location)];
+                [output addAttribute:OMRenderedObjectAttributeName value:object range:NSMakeRange(location, 1)];
+                [object release];
+            }
+            [output removeAttribute:OMPendingRenderedObjectAttributeName range:effective];
+        }
+        index = NSMaxRange(effective);
     }
 }
 
@@ -5336,7 +5450,13 @@ static void OMAppendTextWithMathSpans(NSString *text,
                                                                                                NO,
                                                                                                renderContext);
                             if (attachment != nil) {
+                                NSUInteger objectStart = [output length];
                                 OMAppendAttributedSegment(output, attachment);
+                                OMTagAppendedObject(output,
+                                                    objectStart,
+                                                    OMRenderedObjectKindInlineMath,
+                                                    formula,
+                                                    [NSString stringWithFormat:@"$%@$", formula]);
                             } else {
                                 NSDictionary *mathAttrs = OMMathAttributes(theme, attributes, scale, NO);
                                 OMAppendString(output, OMReadableMathFallbackString(formula), mathAttrs);
@@ -5382,7 +5502,13 @@ static void OMAppendDisplayMathFormula(NSString *formula,
         if ([segment length] > 0) {
             [segment addAttributes:mathAttrs range:NSMakeRange(0, [segment length])];
         }
+        NSUInteger objectStart = [output length];
         OMAppendAttributedSegment(output, segment);
+        OMTagAppendedObject(output,
+                            objectStart,
+                            OMRenderedObjectKindDisplayMath,
+                            formula,
+                            [NSString stringWithFormat:@"$$\n%@\n$$", OMTrimmedCellText(formula)]);
     } else {
         OMAppendString(output, OMReadableMathFallbackString(formula), mathAttrs);
     }
@@ -5771,6 +5897,7 @@ static cmark_node *OMTryAppendMultiNodeDisplayMath(cmark_node *startNode,
     [self setDiagramBlocks:diagramBlocks];
     OMTrimTrailingNewlines(output);
     [output removeAttribute:OMHardLineBreakAttributeName range:NSMakeRange(0, [output length])];
+    OMResolvePendingRenderedObjects(output, blockAnchors);
     cmark_node_free(document);
     if (perfLogging) {
         NSLog(@"[Perf][Renderer] total=%.1fms parse=%.1fms render=%.1fms charsIn=%lu charsOut=%lu zoom=%.2f width=%.1f math(req=%lu hit=%lu miss=%lu assetHit=%lu assetMiss=%lu ok=%lu fail=%lu total=%.1fms latex=%lums/%lu dvisvgm=%lums/%lu decode=%.1fms)",
@@ -5816,6 +5943,7 @@ static void OMRenderParagraph(cmark_node *node,
     NSArray *tableAlignments = nil;
     if (OMPipeTableDataForParagraphNode(node, renderContext, &tableRows, &tableAlignments)) {
         CGFloat layoutWidth = (renderContext != NULL ? renderContext->layoutWidth : 0.0);
+        NSUInteger objectStart = [output length];
         OMRenderPipeTable(tableRows,
                           tableAlignments,
                           theme,
@@ -5826,6 +5954,10 @@ static void OMRenderParagraph(cmark_node *node,
                           scale,
                           layoutWidth,
                           renderContext);
+        NSString *tableMarkdown = OMSourceTextForNodeLines(node, renderContext);
+        if (tableMarkdown != nil) {
+            OMTagAppendedObject(output, objectStart, OMRenderedObjectKindTable, tableMarkdown, nil);
+        }
         return;
     }
 
@@ -6028,6 +6160,14 @@ static BOOL OMAppendMermaidDiagram(OMMermaidERDiagram *diagram,
 
     NSUInteger diagramStart = [output length];
     OMAppendAttributedSegment(output, attachment);
+    NSString *diagramSource = (source != nil ? source : @"");
+    OMTagAppendedObject(output,
+                        diagramStart,
+                        OMRenderedObjectKindDiagram,
+                        diagramSource,
+                        [NSString stringWithFormat:@"```mermaid\n%@%@```",
+                         diagramSource,
+                         ([diagramSource hasSuffix:@"\n"] ? @"" : @"\n")]);
     if (renderContext != NULL && renderContext->diagramBlocks != nil) {
         NSRange diagramRange = NSMakeRange(diagramStart, [output length] - diagramStart);
         [renderContext->diagramBlocks addObject:
@@ -6570,7 +6710,13 @@ static void OMRenderInlines(cmark_node *node,
                                                                                        scale,
                                                                                        renderContext);
                     if (attachment != nil) {
+                        NSUInteger objectStart = [output length];
                         OMAppendAttributedSegment(output, attachment);
+                        OMTagAppendedObject(output,
+                                            objectStart,
+                                            OMRenderedObjectKindImage,
+                                            OMImageMarkdownForNode(child),
+                                            nil);
                     } else {
                         OMAppendString(output, OMFallbackImageTextForNode(child), attributes);
                     }

@@ -4079,7 +4079,7 @@ static OMDRoundedCardView *OMDCreatePreferencesCard(NSRect frame, OMDLayoutMetri
     return card;
 }
 
-@interface OMDAppDelegate () <GSVVimBindingControllerDelegate>
+@interface OMDAppDelegate () <GSVVimBindingControllerDelegate, OMDTextViewRenderedObjectDelegate>
 - (void)importDocument:(id)sender;
 - (void)newWindow:(id)sender;
 - (void)saveDocument:(id)sender;
@@ -16715,6 +16715,56 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
     }
 
     [self syncSourceSelectionToPreviewSelection];
+}
+
+// Characters of 1-based source lines [location, location + length), or NSNotFound.
+static NSRange OMDCharacterRangeForSourceLines(NSString *source, NSRange lineRange)
+{
+    if (source == nil || lineRange.location == NSNotFound || lineRange.location == 0 || lineRange.length == 0) {
+        return NSMakeRange(NSNotFound, 0);
+    }
+    NSUInteger line = 1;
+    NSUInteger index = 0;
+    NSUInteger start = NSNotFound;
+    NSUInteger lastLine = lineRange.location + lineRange.length - 1;
+    while (index <= [source length]) {
+        NSRange lineChars = [source lineRangeForRange:NSMakeRange(index, 0)];
+        if (line == lineRange.location) {
+            start = lineChars.location;
+        }
+        if (line == lastLine && start != NSNotFound) {
+            NSUInteger end = NSMaxRange(lineChars);
+            // Leave the final line break out of the selection.
+            while (end > start && ([source characterAtIndex:end - 1] == '\n' || [source characterAtIndex:end - 1] == '\r')) {
+                end -= 1;
+            }
+            return NSMakeRange(start, end - start);
+        }
+        if (NSMaxRange(lineChars) <= index || NSMaxRange(lineChars) >= [source length]) {
+            break;
+        }
+        index = NSMaxRange(lineChars);
+        line += 1;
+    }
+    return NSMakeRange(NSNotFound, 0);
+}
+
+- (void)textView:(OMDTextView *)textView revealSourceLineRange:(NSRange)lineRange
+{
+    if (textView != _textView || _sourceTextView == nil || ![self hasLoadedDocument]) {
+        return;
+    }
+    NSRange characters = OMDCharacterRangeForSourceLines([_sourceTextView string], lineRange);
+    if (characters.location == NSNotFound) {
+        NSBeep();
+        return;
+    }
+    if (_viewerMode == OMDViewerModeRead) {
+        [self setViewerMode:OMDViewerModeSplit persistPreference:YES];
+    }
+    [_sourceTextView setSelectedRange:characters];
+    [_sourceTextView scrollRangeToVisible:characters];
+    [[_sourceTextView window] makeFirstResponder:_sourceTextView];
 }
 
 - (BOOL)textView:(NSTextView *)textView clickedOnLink:(id)link

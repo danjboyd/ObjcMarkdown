@@ -5,6 +5,7 @@
 #import <AppKit/AppKit.h>
 #import <dispatch/dispatch.h>
 #import "OMMarkdownRenderer.h"
+#import "OMRenderedObject.h"
 #import "OMAppKitSerialization.h"
 #import "OMMermaidERDrawing.h"
 #import "OMMermaidERLayout.h"
@@ -1657,6 +1658,110 @@ static BOOL OMDMathToolchainAvailable(void)
     [renderer attributedStringFromMarkdown:@"# Just a heading\n"];
     XCTAssertEqual([[renderer diagramBlocks] count], (NSUInteger)0,
                    @"stale diagram ranges would misplace copy buttons");
+}
+
+- (NSArray *)renderedObjectsInString:(NSAttributedString *)rendered
+{
+    NSMutableArray *objects = [NSMutableArray array];
+    NSString *text = [rendered string];
+    NSUInteger index = 0;
+    for (; index < [text length]; index++) {
+        OMRenderedObject *object = [rendered attribute:OMRenderedObjectAttributeName atIndex:index effectiveRange:NULL];
+        if (object != nil) {
+            XCTAssertEqual([text characterAtIndex:index], (unichar)NSAttachmentCharacter);
+            [objects addObject:object];
+        }
+    }
+    return objects;
+}
+
+- (void)testPipeTableCarriesItsMarkdownAsRenderedObject
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    NSString *markdown = @"Intro\n\n| a | b |\n|---|---|\n| 1 | 2 |\n";
+    NSArray *objects = [self renderedObjectsInString:[renderer attributedStringFromMarkdown:markdown]];
+    XCTAssertEqual([objects count], (NSUInteger)1);
+    OMRenderedObject *table = [objects firstObject];
+    XCTAssertEqual([table kind], OMRenderedObjectKindTable);
+    XCTAssertEqualObjects([table source], @"| a | b |\n|---|---|\n| 1 | 2 |");
+    XCTAssertEqualObjects([table markdown], [table source]);
+    XCTAssertEqual([table sourceLineRange].location, (NSUInteger)3);
+    XCTAssertEqual([table sourceLineRange].length, (NSUInteger)3);
+    XCTAssertEqualObjects([table kindDisplayName], @"Table");
+}
+
+- (void)testMermaidDiagramCarriesItsSourceAsRenderedObject
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    NSString *markdown = @"# Model\n\n```mermaid\nerDiagram\n    CUSTOMER ||--o{ ORDER : places\n```\n";
+    NSArray *objects = [self renderedObjectsInString:[renderer attributedStringFromMarkdown:markdown]];
+    XCTAssertEqual([objects count], (NSUInteger)1);
+    OMRenderedObject *diagram = [objects firstObject];
+    XCTAssertEqual([diagram kind], OMRenderedObjectKindDiagram);
+    XCTAssertEqualObjects([diagram source], @"erDiagram\n    CUSTOMER ||--o{ ORDER : places\n");
+    XCTAssertEqualObjects([diagram markdown], @"```mermaid\nerDiagram\n    CUSTOMER ||--o{ ORDER : places\n```");
+    XCTAssertEqual([diagram sourceLineRange].location, (NSUInteger)3);
+    XCTAssertEqual([diagram sourceLineRange].length, (NSUInteger)4);
+}
+
+- (void)testImageCarriesItsMarkdownAsRenderedObject
+{
+    NSString *path = [self writeTemporaryImage];
+    NSString *markdown = [NSString stringWithFormat:@"Text\n\nSee ![a *small* icon](%@ \"Icon\") here.", path];
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    NSArray *objects = [self renderedObjectsInString:[renderer attributedStringFromMarkdown:markdown]];
+    XCTAssertEqual([objects count], (NSUInteger)1);
+    OMRenderedObject *image = [objects firstObject];
+    XCTAssertEqual([image kind], OMRenderedObjectKindImage);
+    NSString *expected = [NSString stringWithFormat:@"![a small icon](%@ \"Icon\")", path];
+    XCTAssertEqualObjects([image source], expected);
+    XCTAssertEqual([image sourceLineRange].location, (NSUInteger)3);
+    [self removeFileIfPresent:path];
+}
+
+- (void)testMathCarriesItsLaTeXAsRenderedObject
+{
+    if (!OMDMathToolchainAvailable()) {
+        return;
+    }
+    OMMarkdownParsingOptions *options = [OMMarkdownParsingOptions defaultOptions];
+    [options setMathRenderingPolicy:OMMarkdownMathRenderingPolicyExternalTools];
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] initWithTheme:nil
+                                                                parsingOptions:options] autorelease];
+    NSString *markdown = @"Inline $a^2$ here.\n\n$$\n\\frac{1}{2}\n$$\n";
+    NSArray *objects = [self renderedObjectsInString:[renderer attributedStringFromMarkdown:markdown]];
+    XCTAssertEqual([objects count], (NSUInteger)2);
+    if ([objects count] != 2) {
+        return;
+    }
+    OMRenderedObject *inlineMath = [objects objectAtIndex:0];
+    XCTAssertEqual([inlineMath kind], OMRenderedObjectKindInlineMath);
+    XCTAssertEqualObjects([inlineMath source], @"a^2");
+    XCTAssertEqualObjects([inlineMath markdown], @"$a^2$");
+    XCTAssertEqual([inlineMath sourceLineRange].location, (NSUInteger)1);
+    OMRenderedObject *displayMath = [objects objectAtIndex:1];
+    XCTAssertEqual([displayMath kind], OMRenderedObjectKindDisplayMath);
+    XCTAssertTrue([[displayMath source] rangeOfString:@"\\frac{1}{2}"].location != NSNotFound);
+    XCTAssertEqualObjects([displayMath markdown], @"$$\n\\frac{1}{2}\n$$");
+    XCTAssertEqual([displayMath sourceLineRange].location, (NSUInteger)3);
+    XCTAssertEqual([displayMath sourceLineRange].length, (NSUInteger)3);
+}
+
+- (void)testCachedMathAttachmentsDoNotShareObjectsAcrossRenders
+{
+    if (!OMDMathToolchainAvailable()) {
+        return;
+    }
+    OMMarkdownParsingOptions *options = [OMMarkdownParsingOptions defaultOptions];
+    [options setMathRenderingPolicy:OMMarkdownMathRenderingPolicyExternalTools];
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] initWithTheme:nil
+                                                                parsingOptions:options] autorelease];
+    NSArray *first = [self renderedObjectsInString:[renderer attributedStringFromMarkdown:@"$x$"]];
+    NSArray *second = [self renderedObjectsInString:[renderer attributedStringFromMarkdown:@"Line\n\n$x$"]];
+    XCTAssertEqual([first count], (NSUInteger)1);
+    XCTAssertEqual([second count], (NSUInteger)1);
+    XCTAssertEqual([[first firstObject] sourceLineRange].location, (NSUInteger)1);
+    XCTAssertEqual([[second firstObject] sourceLineRange].location, (NSUInteger)3);
 }
 
 @end
