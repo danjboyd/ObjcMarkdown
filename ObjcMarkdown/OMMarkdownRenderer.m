@@ -3583,6 +3583,18 @@ static NSURL *OMResolvedLinkURL(NSString *urlString,
         return nil;
     }
 
+    // "#slug" points into this document: keep it relative, so the viewer can
+    // match it against heading anchors instead of resolving it to a folder.
+    if ([urlString hasPrefix:@"#"]) {
+        NSURL *fragmentURL = [NSURL URLWithString:urlString];
+        if (fragmentURL == nil) {
+            NSString *escaped = [[urlString substringFromIndex:1]
+                stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLFragmentAllowedCharacterSet]];
+            fragmentURL = [NSURL URLWithString:[@"#" stringByAppendingString:(escaped != nil ? escaped : @"")]];
+        }
+        return fragmentURL;
+    }
+
     NSURL *url = [NSURL URLWithString:urlString];
     if (url != nil && [url scheme] != nil) {
         if (!OMURLUsesAllowedLinkScheme(url)) {

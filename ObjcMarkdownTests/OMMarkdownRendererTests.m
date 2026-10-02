@@ -2026,4 +2026,28 @@ static BOOL OMDMathToolchainAvailable(void)
     XCTAssertEqualObjects([[headings lastObject] objectForKey:OMMarkdownRendererHeadingTitleKey], @"Setext Code em");
 }
 
+- (void)testFragmentLinksStayInTheDocument
+{
+    OMMarkdownParsingOptions *options = [OMMarkdownParsingOptions defaultOptions];
+    [options setBaseURL:[NSURL fileURLWithPath:@"/tmp/objcmarkdown-frag/" isDirectory:YES]];
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] initWithTheme:nil parsingOptions:options] autorelease];
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:
+        @"See [setup](#setup), [café](#café-notes) and [other](other.md#usage).\n\n## Setup\n"];
+    NSString *text = [rendered string];
+
+    NSURL *setup = [rendered attribute:NSLinkAttributeName atIndex:[text rangeOfString:@"setup"].location effectiveRange:NULL];
+    XCTAssertTrue([setup isKindOfClass:[NSURL class]]);
+    XCTAssertNil([setup scheme]);
+    XCTAssertEqualObjects([setup fragment], @"setup");
+    XCTAssertEqual([[setup path] length], (NSUInteger)0);
+
+    NSURL *cafe = [rendered attribute:NSLinkAttributeName atIndex:[text rangeOfString:@"café"].location effectiveRange:NULL];
+    XCTAssertEqualObjects([[cafe fragment] stringByRemovingPercentEncoding], @"café-notes");
+
+    NSURL *other = [rendered attribute:NSLinkAttributeName atIndex:[text rangeOfString:@"other"].location effectiveRange:NULL];
+    XCTAssertTrue([other isFileURL]);
+    XCTAssertEqualObjects([[other path] lastPathComponent], @"other.md");
+    XCTAssertEqualObjects([other fragment], @"usage");
+}
+
 @end

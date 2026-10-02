@@ -77,6 +77,8 @@ typedef unsigned short mode_t;
     BOOL _explorerSidebarVisible;
     BOOL _outlineVisible;
     OMDOutlineController *_outlineController;
+    // Heading anchor to scroll to once a newly opened document has rendered.
+    NSString *_pendingLinkFragment;
     CGFloat _explorerSidebarLastVisibleWidth;
     NSView *_toolbarPrimaryActionsContainer;
     NSView *_toolbarActionGlyphOverlay;

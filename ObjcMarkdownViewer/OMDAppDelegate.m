@@ -4306,6 +4306,9 @@ static OMDRoundedCardView *OMDCreatePreferencesCard(NSRect frame, OMDLayoutMetri
 - (NSRect)layoutOutlinePanelInBounds:(NSRect)bounds;
 - (void)refreshOutline;
 - (void)updateOutlineCurrentHeading;
+- (void)scrollToHeading:(NSDictionary *)heading;
+- (BOOL)scrollToHeadingAnchor:(NSString *)anchor;
+- (BOOL)followDocumentLink:(NSURL *)url;
 - (void)mathArtifactRenderTimerFired:(NSTimer *)timer;
 - (void)cancelPendingMathArtifactRender;
 - (void)modeControlChanged:(id)sender;
@@ -4674,6 +4677,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [_documentContainer release];
     [_outlineController setDelegate:nil];
     [_outlineController release];
+    [_pendingLinkFragment release];
     [_textView release];
     [_window release];
     [super dealloc];
@@ -16919,6 +16923,13 @@ static NSRange OMDCharacterRangeForSourceLines(NSString *source, NSRange lineRan
         return;
     }
     [_outlineController setHeadings:([self hasLoadedDocument] ? [_renderer headings] : nil)];
+    if (_pendingLinkFragment != nil && [[_renderer headings] count] > 0) {
+        NSString *fragment = [_pendingLinkFragment autorelease];
+        _pendingLinkFragment = nil;
+        if (![self scrollToHeadingAnchor:fragment]) {
+            NSBeep();
+        }
+    }
     if ([[_outlineController view] superview] == nil && _outlineVisible && [self hasLoadedDocument]) {
         [self layoutDocumentViews];
     }
@@ -16972,6 +16983,14 @@ static NSRange OMDCharacterRangeForSourceLines(NSString *source, NSRange lineRan
 
 - (void)outlineController:(OMDOutlineController *)controller didChooseHeading:(NSDictionary *)heading
 {
+    [self scrollToHeading:heading];
+    [controller setCurrentHeadingIndex:[[controller headings] indexOfObject:heading]];
+}
+
+// Brings a heading (one of the renderer's -headings) to the top of the
+// preview and, in Edit and Split, moves the editor caret to its line.
+- (void)scrollToHeading:(NSDictionary *)heading
+{
     NSRange range = [[heading objectForKey:OMMarkdownRendererHeadingRangeKey] rangeValue];
     NSUInteger line = [[heading objectForKey:OMMarkdownRendererHeadingSourceLineKey] unsignedIntegerValue];
     // Scroll both panes directly; linked scrolling would otherwise fight it.
@@ -16992,7 +17011,89 @@ static NSRange OMDCharacterRangeForSourceLines(NSString *source, NSRange lineRan
         }
     }
     _isProgrammaticScrollSync = wasSyncing;
-    [controller setCurrentHeadingIndex:[[controller headings] indexOfObject:heading]];
+    [self updateOutlineCurrentHeading];
+}
+
+// The heading whose anchor matches: exactly, else ignoring case.
+- (NSDictionary *)headingForAnchor:(NSString *)anchor
+{
+    if ([anchor length] == 0) {
+        return nil;
+    }
+    NSArray *headings = [_renderer headings];
+    for (NSDictionary *heading in headings) {
+        if ([[heading objectForKey:OMMarkdownRendererHeadingAnchorKey] isEqualToString:anchor]) {
+            return heading;
+        }
+    }
+    for (NSDictionary *heading in headings) {
+        if ([[heading objectForKey:OMMarkdownRendererHeadingAnchorKey] caseInsensitiveCompare:anchor] == NSOrderedSame) {
+            return heading;
+        }
+    }
+    return nil;
+}
+
+- (BOOL)scrollToHeadingAnchor:(NSString *)anchor
+{
+    NSDictionary *heading = [self headingForAnchor:anchor];
+    if (heading == nil) {
+        return NO;
+    }
+    [self scrollToHeading:heading];
+    return YES;
+}
+
+static NSString *OMDDecodedLinkFragment(NSURL *url)
+{
+    NSString *fragment = [url fragment];
+    NSString *decoded = [fragment stringByRemovingPercentEncoding];
+    return decoded != nil ? decoded : fragment;
+}
+
+static BOOL OMDIsMarkdownPath(NSString *path)
+{
+    NSString *extension = [[path pathExtension] lowercaseString];
+    return [extension isEqualToString:@"md"] || [extension isEqualToString:@"markdown"] ||
+           [extension isEqualToString:@"mdown"];
+}
+
+// In-app handling for links into Markdown documents: "#slug" in this
+// document, and local Markdown files (optionally with "#slug"). Returns NO
+// for links that should open elsewhere.
+- (BOOL)followDocumentLink:(NSURL *)url
+{
+    NSString *fragment = OMDDecodedLinkFragment(url);
+    if ([url scheme] == nil && [[url path] length] == 0 && [fragment length] > 0) {
+        if (![self scrollToHeadingAnchor:fragment]) {
+            NSBeep();
+        }
+        return YES;
+    }
+    if (![url isFileURL] || !OMDIsMarkdownPath([url path])) {
+        return NO;
+    }
+    NSString *path = [[url path] stringByStandardizingPath];
+    if (_currentPath != nil && [path isEqualToString:[_currentPath stringByStandardizingPath]]) {
+        if ([fragment length] > 0 && ![self scrollToHeadingAnchor:fragment]) {
+            NSBeep();
+        }
+        return YES;
+    }
+    if (![[NSFileManager defaultManager] fileExistsAtPath:path]) {
+        return NO;
+    }
+    [_pendingLinkFragment release];
+    _pendingLinkFragment = nil;
+    if (![self openDocumentAtPath:path] || [fragment length] == 0) {
+        return YES;
+    }
+    // Opening resets the viewport to the top after its first render, so
+    // scroll now if that render is done, else when the next one finishes.
+    if (_sourceRevision != _lastRenderedSourceRevision || ![self scrollToHeadingAnchor:fragment]) {
+        _pendingLinkFragment = [fragment copy];
+    }
+    return YES;
 }
 
 // Outlines the preview object whose source holds the editor caret (Split mode).
@@ -17024,6 +17125,10 @@ static NSRange OMDCharacterRangeForSourceLines(NSString *source, NSRange lineRan
         if (url == nil) {
             url = [NSURL fileURLWithPath:linkString];
         }
+    }
+
+    if (url != nil && [self followDocumentLink:url]) {
+        return YES;
     }
 
     if (url != nil) {
