@@ -2257,4 +2257,57 @@ static BOOL OMDMathToolchainAvailable(void)
     XCTAssertEqualWithAccuracy([codeLine firstLineHeadIndent], 20.0, 0.5, @"code text is padded inside a background flush with body text");
 }
 
+- (void)testGitHubAlertsRenderTitleAndColouredBar
+{
+    OMTheme *theme = [OMTheme defaultThemeForDarkAppearance:NO];
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] initWithTheme:theme] autorelease];
+    NSString *markdown = @"> [!NOTE]\n> Useful information.\n\n> [!warning]\n> Careful here.\n\n> [!TIP] not alone on the line\n\n> Plain quote.\n";
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
+    NSString *text = [rendered string];
+    XCTAssertTrue([text rangeOfString:@"[!NOTE]"].location == NSNotFound);
+    XCTAssertTrue([text rangeOfString:@"[!warning]"].location == NSNotFound);
+    XCTAssertTrue([text rangeOfString:@"Note\nUseful information."].location != NSNotFound);
+    XCTAssertTrue([text rangeOfString:@"Warning\nCareful here."].location != NSNotFound);
+    XCTAssertTrue([text rangeOfString:@"[!TIP] not alone on the line"].location != NSNotFound, @"the marker must stand alone");
+
+    NSUInteger body = [text rangeOfString:@"Useful"].location;
+    NSUInteger plain = [text rangeOfString:@"Plain quote"].location;
+    XCTAssertEqualObjects([rendered attribute:NSForegroundColorAttributeName atIndex:body effectiveRange:NULL], [theme baseTextColor]);
+    XCTAssertEqualObjects([rendered attribute:NSForegroundColorAttributeName atIndex:plain effectiveRange:NULL], [theme blockquoteTextColor]);
+
+    NSColor *noteBar = [rendered attribute:OMMarkdownRendererBlockquoteColorAttributeName atIndex:body effectiveRange:NULL];
+    NSColor *warningBar = [rendered attribute:OMMarkdownRendererBlockquoteColorAttributeName
+                                      atIndex:[text rangeOfString:@"Careful"].location
+                               effectiveRange:NULL];
+    XCTAssertNotNil(noteBar);
+    XCTAssertNotNil(warningBar);
+    XCTAssertFalse([noteBar isEqual:warningBar]);
+    XCTAssertNil([rendered attribute:OMMarkdownRendererBlockquoteColorAttributeName atIndex:plain effectiveRange:NULL]);
+
+    NSUInteger title = [text rangeOfString:@"Note\n"].location;
+    XCTAssertEqualObjects([rendered attribute:NSForegroundColorAttributeName atIndex:title effectiveRange:NULL], noteBar);
+}
+
+- (void)testAlertMarkerInsideANestedQuote
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    NSString *text = [[renderer attributedStringFromMarkdown:@"> outer\n>\n> > [!CAUTION]\n> > Inner alert.\n"] string];
+    XCTAssertTrue([text rangeOfString:@"Caution\nInner alert."].location != NSNotFound);
+    XCTAssertTrue([text rangeOfString:@"outer"].location != NSNotFound);
+}
+
+- (void)testRangesOfBlocksEndingTheDocumentStayInsideTheText
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    NSUInteger length = [[renderer attributedStringFromMarkdown:@"Intro\n\n> Last quote.\n"] length];
+    NSArray *quotes = [renderer blockquoteRanges];
+    XCTAssertEqual([quotes count], (NSUInteger)1);
+    XCTAssertTrue(NSMaxRange([[quotes firstObject] rangeValue]) <= length);
+
+    length = [[renderer attributedStringFromMarkdown:@"Intro\n\n```\ncode\n```\n"] length];
+    NSArray *code = [renderer codeBlockRanges];
+    XCTAssertEqual([code count], (NSUInteger)1);
+    XCTAssertTrue(NSMaxRange([[code firstObject] rangeValue]) <= length);
+}
+
 @end

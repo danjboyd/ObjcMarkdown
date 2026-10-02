@@ -23,6 +23,8 @@ FOUNDATION_EXPORT NSString * const OMMarkdownRendererHeadingRangeKey;       // N
 FOUNDATION_EXPORT NSString * const OMMarkdownRendererHeadingSourceLineKey;  // NSNumber, 1-based
 // Attribute on each heading's text: its anchor slug (the target of "#slug" links).
 FOUNDATION_EXPORT NSString * const OMMarkdownRendererHeadingAnchorAttributeName;
+// Attribute on a GitHub alert quote ("> [!NOTE]" ...): the NSColor for its bar.
+FOUNDATION_EXPORT NSString * const OMMarkdownRendererBlockquoteColorAttributeName;
 
 // Keys in the dictionaries returned by -diagramBlocks.
 FOUNDATION_EXPORT NSString * const OMMarkdownRendererDiagramRangeKey;

@@ -41,6 +41,7 @@ NSString * const OMMarkdownRendererHeadingAnchorKey = @"OMMarkdownRendererHeadin
 NSString * const OMMarkdownRendererHeadingRangeKey = @"OMMarkdownRendererHeadingRange";
 NSString * const OMMarkdownRendererHeadingSourceLineKey = @"OMMarkdownRendererHeadingSourceLine";
 NSString * const OMMarkdownRendererHeadingAnchorAttributeName = @"OMMarkdownRendererHeadingAnchor";
+NSString * const OMMarkdownRendererBlockquoteColorAttributeName = @"OMMarkdownRendererBlockquoteColor";
 NSString * const OMMarkdownRendererDiagramRangeKey = @"OMMarkdownRendererDiagramRange";
 NSString * const OMMarkdownRendererDiagramSourceKey = @"OMMarkdownRendererDiagramSource";
 
@@ -72,6 +73,9 @@ typedef struct {
     NSMutableArray *listStack;
     // Hashed source lines for block IDs (see OMBlockSignatureIndex).
     OMBlockSignatureIndex *blockSignatures;
+    // One entry per enclosing block quote: YES for a GitHub alert, whose
+    // text keeps the normal colour instead of the muted quote colour.
+    NSMutableArray *quoteKinds;
     NSMutableArray *consumedDisplayMathLineRanges;
     // Raw source of the current block's formulas, keyed by their unescaped
     // form; see OMPrepareRawMathSources.
@@ -1635,6 +1639,24 @@ static void OMSizeBlockGaps(NSMutableAttributedString *output,
         }
         [output addAttribute:NSParagraphStyleAttributeName value:style range:NSMakeRange(index, 1)];
     }
+}
+
+// Ranges recorded before the trailing newlines were trimmed, cut to the text
+// that remains (a quote or code block ending the document ran past it).
+static NSArray *OMRangesClampedToLength(NSArray *ranges, NSUInteger length)
+{
+    NSMutableArray *clamped = [NSMutableArray arrayWithCapacity:[ranges count]];
+    for (NSValue *value in ranges) {
+        NSRange range = [value rangeValue];
+        if (range.location >= length) {
+            continue;
+        }
+        if (NSMaxRange(range) > length) {
+            range.length = length - range.location;
+        }
+        [clamped addObject:[NSValue valueWithRange:range]];
+    }
+    return clamped;
 }
 
 static void OMTrimTrailingNewlines(NSMutableAttributedString *output)
@@ -6049,6 +6071,7 @@ static cmark_node *OMTryAppendMultiNodeDisplayMath(cmark_node *startNode,
     renderContext.blockAnchors = blockAnchors;
     renderContext.diagramBlocks = diagramBlocks;
     renderContext.listStack = listStack;
+    renderContext.quoteKinds = [NSMutableArray array];
     NSMutableArray *headings = [NSMutableArray array];
     renderContext.headings = headings;
     renderContext.headingSlugCounts = [NSMutableDictionary dictionary];
@@ -6071,12 +6094,12 @@ static cmark_node *OMTryAppendMultiNodeDisplayMath(cmark_node *startNode,
                    self.layoutWidth,
                    &renderContext);
     NSTimeInterval renderMs = perfLogging ? ((OMNow() - renderStart) * 1000.0) : 0.0;
-    [self setCodeBlockRanges:codeRanges];
-    [self setBlockquoteRanges:blockquoteRanges];
     [self setBlockAnchors:blockAnchors];
     [self setDiagramBlocks:diagramBlocks];
     [self setHeadings:headings];
     OMTrimTrailingNewlines(output);
+    [self setCodeBlockRanges:OMRangesClampedToLength(codeRanges, [output length])];
+    [self setBlockquoteRanges:OMRangesClampedToLength(blockquoteRanges, [output length])];
     OMSizeBlockGaps(output,
                     codeRanges,
                     (self.theme.baseFont != nil ? [self.theme.baseFont pointSize] : 14.0) * scale,
@@ -6221,7 +6244,8 @@ static void OMRenderParagraph(cmark_node *node,
     CGFloat fontSize = font != nil ? [font pointSize] : (theme.baseFont != nil ? [theme.baseFont pointSize] * scale : 16.0 * scale);
     NSParagraphStyle *style = OMParagraphStyleWithIndent(indent, indent, 12.0 * scale, 0.0, 1.5, fontSize);
     [paraAttrs setObject:style forKey:NSParagraphStyleAttributeName];
-    if (quoteLevel > 0 && theme.blockquoteTextColor != nil) {
+    BOOL inAlert = (renderContext != NULL && [[renderContext->quoteKinds lastObject] boolValue]);
+    if (quoteLevel > 0 && !inAlert && theme.blockquoteTextColor != nil) {
         [paraAttrs setObject:theme.blockquoteTextColor forKey:NSForegroundColorAttributeName];
     }
 
@@ -6803,6 +6827,121 @@ static void OMRenderListItem(cmark_node *node,
     OMIncrementListIndex(listStack);
 }
 
+// GitHub alerts: a block quote whose first line is exactly "[!NOTE]",
+// "[!TIP]", "[!IMPORTANT]", "[!WARNING]" or "[!CAUTION]".
+static NSString *OMAlertKindForBlockquote(cmark_node *node, const OMRenderContext *renderContext)
+{
+    NSArray *sourceLines = renderContext != NULL ? renderContext->sourceLines : nil;
+    int line = cmark_node_get_start_line(node);
+    if (sourceLines == nil || line < 1 || (NSUInteger)line > [sourceLines count]) {
+        return nil;
+    }
+    // The marker line carries one ">" per enclosing quote.
+    NSUInteger depth = 0;
+    cmark_node *ancestor = node;
+    for (; ancestor != NULL; ancestor = cmark_node_parent(ancestor)) {
+        if (cmark_node_get_type(ancestor) == CMARK_NODE_BLOCK_QUOTE) {
+            depth += 1;
+        }
+    }
+    NSString *text = [sourceLines objectAtIndex:(NSUInteger)line - 1];
+    NSCharacterSet *spaces = [NSCharacterSet whitespaceCharacterSet];
+    NSUInteger index = 0;
+    NSUInteger markers = 0;
+    while (index < [text length]) {
+        unichar ch = [text characterAtIndex:index];
+        if (ch == '>') {
+            markers += 1;
+        } else if (![spaces characterIsMember:ch]) {
+            break;
+        }
+        index += 1;
+    }
+    if (markers != depth) {
+        return nil;
+    }
+    NSString *rest = [[[text substringFromIndex:index] stringByTrimmingCharactersInSet:spaces] uppercaseString];
+    NSArray *kinds = [NSArray arrayWithObjects:@"NOTE", @"TIP", @"IMPORTANT", @"WARNING", @"CAUTION", nil];
+    for (NSString *kind in kinds) {
+        if ([rest isEqualToString:[NSString stringWithFormat:@"[!%@]", kind]]) {
+            return kind;
+        }
+    }
+    return nil;
+}
+
+// Drops the marker line from the quote's first paragraph (the paragraph
+// itself when the marker was all it held).
+static void OMStripAlertMarker(cmark_node *quote)
+{
+    cmark_node *paragraph = cmark_node_first_child(quote);
+    if (paragraph == NULL || cmark_node_get_type(paragraph) != CMARK_NODE_PARAGRAPH) {
+        return;
+    }
+    cmark_node *child = cmark_node_first_child(paragraph);
+    while (child != NULL) {
+        cmark_node *next = cmark_node_next(child);
+        cmark_node_type type = cmark_node_get_type(child);
+        cmark_node_free(child);
+        child = next;
+        if (type == CMARK_NODE_SOFTBREAK || type == CMARK_NODE_LINEBREAK) {
+            break;
+        }
+    }
+    if (cmark_node_first_child(paragraph) == NULL) {
+        cmark_node_free(paragraph);
+    }
+}
+
+// GitHub's alert colours (light and dark palettes) and titles.
+static NSColor *OMAlertColor(NSString *kind, OMTheme *theme)
+{
+    BOOL dark = [theme isDark];
+    NSDictionary *light = [NSDictionary dictionaryWithObjectsAndKeys:
+                           @"#0969da", @"NOTE", @"#1a7f37", @"TIP", @"#8250df", @"IMPORTANT",
+                           @"#9a6700", @"WARNING", @"#d1242f", @"CAUTION", nil];
+    NSDictionary *darkColors = [NSDictionary dictionaryWithObjectsAndKeys:
+                                @"#4493f8", @"NOTE", @"#3fb950", @"TIP", @"#ab7df8", @"IMPORTANT",
+                                @"#d29922", @"WARNING", @"#f85149", @"CAUTION", nil];
+    NSString *hex = [(dark ? darkColors : light) objectForKey:kind];
+    unsigned int value = 0;
+    if (hex == nil || ![[NSScanner scannerWithString:[hex substringFromIndex:1]] scanHexInt:&value]) {
+        return theme.linkColor;
+    }
+    return [NSColor colorWithCalibratedRed:((value >> 16) & 0xff) / 255.0
+                                     green:((value >> 8) & 0xff) / 255.0
+                                      blue:(value & 0xff) / 255.0
+                                     alpha:1.0];
+}
+
+static void OMAppendAlertTitle(NSString *kind,
+                               NSColor *color,
+                               OMTheme *theme,
+                               NSMutableAttributedString *output,
+                               NSMutableDictionary *attributes,
+                               NSUInteger quoteLevel,
+                               CGFloat scale,
+                               const OMRenderContext *renderContext)
+{
+    NSString *title = [[kind substringToIndex:1] stringByAppendingString:[[kind substringFromIndex:1] lowercaseString]];
+    NSMutableDictionary *titleAttrs = [attributes mutableCopy];
+    NSFont *font = [attributes objectForKey:NSFontAttributeName];
+    CGFloat fontSize = font != nil ? [font pointSize] : 14.0 * scale;
+    NSFont *bold = font != nil ? OMFontWithTraits(font, NSBoldFontMask) : [NSFont boldSystemFontOfSize:fontSize];
+    if (bold != nil) {
+        [titleAttrs setObject:bold forKey:NSFontAttributeName];
+    }
+    if (color != nil) {
+        [titleAttrs setObject:color forKey:NSForegroundColorAttributeName];
+    }
+    CGFloat indent = (CGFloat)(quoteLevel * 20.0 * scale) + OMListContentIndent(renderContext, scale);
+    [titleAttrs setObject:OMParagraphStyleWithIndent(indent, indent, 4.0 * scale, 0.0, 1.5, fontSize)
+                   forKey:NSParagraphStyleAttributeName];
+    OMAppendString(output, title, titleAttrs);
+    OMAppendString(output, @"\n", titleAttrs);
+    [titleAttrs release];
+}
+
 // Footnotes come last in the document (cmark-gfm moves them there, in order
 // of first reference): a rule, then each note as a numbered item.
 static void OMRenderFootnoteDefinition(cmark_node *node,
@@ -6865,6 +7004,16 @@ static void OMRenderBlocks(cmark_node *node,
         return;
     }
     if (type == CMARK_NODE_BLOCK_QUOTE) {
+        NSString *alertKind = OMAlertKindForBlockquote(node, renderContext);
+        NSColor *alertColor = nil;
+        if (alertKind != nil) {
+            OMStripAlertMarker(node);
+            alertColor = OMAlertColor(alertKind, theme);
+            OMAppendAlertTitle(alertKind, alertColor, theme, output, attributes, quoteLevel + 1, scale, renderContext);
+        }
+        if (renderContext != NULL) {
+            [renderContext->quoteKinds addObject:[NSNumber numberWithBool:(alertKind != nil)]];
+        }
         cmark_node *child = cmark_node_first_child(node);
         while (child != NULL) {
             OMRenderBlocks(child,
@@ -6890,7 +7039,15 @@ static void OMRenderBlocks(cmark_node *node,
                 barEnd -= 1;
             }
             [blockquoteRanges addObject:[NSValue valueWithRange:NSMakeRange(startLocation, barEnd - startLocation)]];
+            if (alertColor != nil) {
+                [output addAttribute:OMMarkdownRendererBlockquoteColorAttributeName
+                               value:alertColor
+                               range:NSMakeRange(startLocation, barEnd - startLocation)];
+            }
             OMRecordBlockAnchor(node, startLocation, endLocation, renderContext);
+        }
+        if (renderContext != NULL) {
+            [renderContext->quoteKinds removeLastObject];
         }
         return;
     }

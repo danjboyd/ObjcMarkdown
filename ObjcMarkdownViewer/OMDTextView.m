@@ -4,6 +4,7 @@
 #import "OMDTextView.h"
 #import "OMStrikethroughLayoutManager.h"
 #import "OMRenderedObject.h"
+#import "OMMarkdownRenderer.h"
 
 @interface OMDTextView ()
 {
@@ -195,10 +196,11 @@
 
         NSRect blockRect = [layoutManager boundingRectForGlyphRange:glyphRange inTextContainer:container];
 
-        NSUInteger charIndex = charRange.location;
-        if (charIndex < [[self textStorage] length]) {
-            (void)[[self textStorage] attributesAtIndex:charIndex effectiveRange:NULL];
-        }
+        // GitHub alerts colour their bar.
+        NSColor *barColor = [[self textStorage] attribute:OMMarkdownRendererBlockquoteColorAttributeName
+                                                  atIndex:charRange.location
+                                           effectiveRange:NULL];
+        [(barColor != nil ? barColor : self.blockquoteLineColor) setFill];
         CGFloat lineX = origin.x + inset.width - 24.0;
         CGFloat minX = origin.x + inset.width - 20.0;
         if (lineX < minX) {
