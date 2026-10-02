@@ -1583,6 +1583,57 @@ static void OMResolvePendingRenderedObjects(NSMutableAttributedString *output,
     }
 }
 
+// GNUstep's typesetter ignores paragraph spacing and honours only minimum
+// line heights, so the empty line between blocks is what spaces them. Size it
+// like GitHub: 1em between blocks, 1.5em before a heading, plus the code
+// background's padding next to a code block. Blank lines inside code blocks
+// keep their height.
+static void OMSizeBlockGaps(NSMutableAttributedString *output,
+                            NSArray *codeRanges,
+                            CGFloat baseSize,
+                            CGFloat scale)
+{
+    NSString *text = [output string];
+    NSUInteger length = [text length];
+    if (length < 2) {
+        return;
+    }
+    NSMutableIndexSet *code = [NSMutableIndexSet indexSet];
+    for (NSValue *value in codeRanges) {
+        [code addIndexesInRange:[value rangeValue]];
+    }
+    CGFloat codePadding = 14.0 * scale;
+    NSMutableDictionary *styles = [NSMutableDictionary dictionary];
+    NSUInteger index = 1;
+    for (; index < length; index++) {
+        if ([text characterAtIndex:index] != '\n' || [text characterAtIndex:index - 1] != '\n' ||
+            [code containsIndex:index]) {
+            continue;
+        }
+        BOOL beforeHeading = (index + 1 < length &&
+                              [output attribute:OMMarkdownRendererHeadingAnchorAttributeName
+                                        atIndex:index + 1
+                                 effectiveRange:NULL] != nil);
+        CGFloat gap = baseSize * (beforeHeading ? 1.5 : 1.0);
+        if ([code containsIndex:index - 1]) {
+            gap += codePadding;
+        }
+        if (index + 1 < length && [code containsIndex:index + 1]) {
+            gap += codePadding;
+        }
+        gap = floor(gap + 0.5);
+        NSNumber *key = [NSNumber numberWithDouble:gap];
+        NSMutableParagraphStyle *style = [styles objectForKey:key];
+        if (style == nil) {
+            style = [[[NSMutableParagraphStyle alloc] init] autorelease];
+            [style setMinimumLineHeight:gap];
+            [style setMaximumLineHeight:gap];
+            [styles setObject:style forKey:key];
+        }
+        [output addAttribute:NSParagraphStyleAttributeName value:style range:NSMakeRange(index, 1)];
+    }
+}
+
 static void OMTrimTrailingNewlines(NSMutableAttributedString *output)
 {
     while ([output length] > 0) {
@@ -2033,7 +2084,9 @@ static NSString *OMListPrefix(NSMutableArray *listStack)
 
     cmark_list_type type = (cmark_list_type)[[list objectForKey:@"type"] intValue];
     if (type == CMARK_BULLET_LIST) {
-        return @"- ";
+        // Disc, circle, then square with nesting, as GitHub does.
+        NSUInteger depth = [listStack count];
+        return depth <= 1 ? @"\u2022 " : (depth == 2 ? @"\u25E6 " : @"\u25AA ");
     }
 
     NSNumber *index = [list objectForKey:@"index"];
@@ -2058,7 +2111,8 @@ static void OMIncrementListIndex(NSMutableArray *listStack)
 
 static NSDictionary *OMHeadingAttributes(OMTheme *theme, NSUInteger level, CGFloat scale)
 {
-    static const CGFloat scales[6] = { 1.6, 1.4, 1.2, 1.1, 1.0, 0.95 };
+    // GitHub's heading sizes, relative to body text.
+    static const CGFloat scales[6] = { 2.0, 1.5, 1.25, 1.0, 0.875, 0.85 };
     CGFloat baseSize = theme.baseFont != nil ? [theme.baseFont pointSize] : 14.0;
     NSUInteger idx = level > 0 ? level - 1 : 0;
     if (idx > 5) {
@@ -2067,25 +2121,108 @@ static NSDictionary *OMHeadingAttributes(OMTheme *theme, NSUInteger level, CGFlo
     return [theme headingAttributesForSize:(baseSize * scales[idx] * scale)];
 }
 
-static NSString *OMRuleLineString(NSFont *font, CGFloat width)
+// A horizontal rule drawn as a line, replacing rows of box-drawing glyphs
+// (which reflowed badly and were copied as text).
+@interface OMRuleAttachmentCell : NSTextAttachmentCell
 {
-    if (font == nil || width <= 0.0) {
-        return @"────────────────────────────────────────────────────────";
-    }
+    NSColor *_color;
+    NSSize _size;
+    CGFloat _thickness;
+}
+- (instancetype)initWithColor:(NSColor *)color width:(CGFloat)width thickness:(CGFloat)thickness height:(CGFloat)height;
+@end
 
-    NSDictionary *attrs = [NSDictionary dictionaryWithObject:font forKey:NSFontAttributeName];
-    NSSize charSize = [@"─" sizeWithAttributes:attrs];
-    CGFloat charWidth = charSize.width > 0.0 ? charSize.width : 6.0;
-    NSInteger count = (NSInteger)floor(width / charWidth);
-    if (count < 8) {
-        count = 8;
-    }
+@implementation OMRuleAttachmentCell
 
-    NSMutableString *rule = [NSMutableString stringWithCapacity:(NSUInteger)count];
-    for (NSInteger i = 0; i < count; i++) {
-        [rule appendString:@"─"];
+- (instancetype)initWithColor:(NSColor *)color width:(CGFloat)width thickness:(CGFloat)thickness height:(CGFloat)height
+{
+    self = [super initTextCell:@""];
+    if (self != nil) {
+        _color = [(color != nil ? color : [NSColor lightGrayColor]) retain];
+        _thickness = MAX(1.0, thickness);
+        _size = NSMakeSize(MAX(1.0, width), MAX(_thickness, height));
     }
-    return rule;
+    return self;
+}
+
+- (void)dealloc
+{
+    [_color release];
+    [super dealloc];
+}
+
+- (NSSize)cellSize
+{
+    return _size;
+}
+
+- (NSPoint)cellBaselineOffset
+{
+    return NSZeroPoint;
+}
+
+- (void)drawWithFrame:(NSRect)cellFrame inView:(NSView *)controlView
+{
+    NSRect line = NSMakeRect(NSMinX(cellFrame),
+                             floor(NSMidY(cellFrame) - _thickness * 0.5),
+                             NSWidth(cellFrame),
+                             _thickness);
+    [_color set];
+    NSRectFill(line);
+}
+
+- (void)drawWithFrame:(NSRect)cellFrame
+               inView:(NSView *)controlView
+       characterIndex:(NSUInteger)charIndex
+{
+    [self drawWithFrame:cellFrame inView:controlView];
+}
+
+- (void)drawWithFrame:(NSRect)cellFrame
+               inView:(NSView *)controlView
+       characterIndex:(NSUInteger)charIndex
+        layoutManager:(NSLayoutManager *)layoutManager
+{
+    [self drawWithFrame:cellFrame inView:controlView];
+}
+
+@end
+
+// Appends a rule paragraph: one attachment line, thickness tall plus padding.
+static void OMAppendRule(NSMutableAttributedString *output,
+                         NSDictionary *attributes,
+                         NSColor *color,
+                         CGFloat width,
+                         CGFloat thickness,
+                         CGFloat indent,
+                         CGFloat spacingAfter)
+{
+    if (width <= 0.0) {
+        width = 400.0;
+    }
+    CGFloat height = thickness + 2.0;
+    OMRuleAttachmentCell *cell = [[[OMRuleAttachmentCell alloc] initWithColor:color
+                                                                       width:width
+                                                                   thickness:thickness
+                                                                      height:height] autorelease];
+    NSTextAttachment *attachment = [[[NSTextAttachment alloc] initWithFileWrapper:nil] autorelease];
+    [attachment setAttachmentCell:cell];
+    [cell setAttachment:attachment];
+
+    NSMutableDictionary *ruleAttrs = [NSMutableDictionary dictionaryWithDictionary:attributes];
+    NSMutableParagraphStyle *style = [[[NSMutableParagraphStyle alloc] init] autorelease];
+    [style setFirstLineHeadIndent:indent];
+    [style setHeadIndent:indent];
+    [style setMinimumLineHeight:height];
+    [style setMaximumLineHeight:height];
+    [style setParagraphSpacing:spacingAfter];
+    [ruleAttrs setObject:style forKey:NSParagraphStyleAttributeName];
+    [ruleAttrs setObject:[NSFont systemFontOfSize:1.0] forKey:NSFontAttributeName];
+    [ruleAttrs setObject:attachment forKey:NSAttachmentAttributeName];
+    unichar attachmentCharacter = NSAttachmentCharacter;
+    OMAppendString(output, [NSString stringWithCharacters:&attachmentCharacter length:1], ruleAttrs);
+    [ruleAttrs removeObjectForKey:NSAttachmentAttributeName];
+    OMAppendString(output, @"\n", ruleAttrs);
 }
 
 static NSCache *OMImageAttachmentCache(void)
@@ -6000,6 +6137,10 @@ static cmark_node *OMTryAppendMultiNodeDisplayMath(cmark_node *startNode,
     [self setDiagramBlocks:diagramBlocks];
     [self setHeadings:headings];
     OMTrimTrailingNewlines(output);
+    OMSizeBlockGaps(output,
+                    codeRanges,
+                    (self.theme.baseFont != nil ? [self.theme.baseFont pointSize] : 14.0) * scale,
+                    scale);
     [output removeAttribute:OMHardLineBreakAttributeName range:NSMakeRange(0, [output length])];
     OMResolvePendingRenderedObjects(output, blockAnchors, markdown);
     cmark_node_free(document);
@@ -6138,7 +6279,7 @@ static void OMRenderParagraph(cmark_node *node,
     CGFloat indent = (CGFloat)(quoteLevel * 20.0 * scale) + OMListContentIndent(renderContext, scale);
     NSFont *font = [attributes objectForKey:NSFontAttributeName];
     CGFloat fontSize = font != nil ? [font pointSize] : (theme.baseFont != nil ? [theme.baseFont pointSize] * scale : 16.0 * scale);
-    NSParagraphStyle *style = OMParagraphStyleWithIndent(indent, indent, 12.0 * scale, 0.0, 1.725, fontSize);
+    NSParagraphStyle *style = OMParagraphStyleWithIndent(indent, indent, 12.0 * scale, 0.0, 1.5, fontSize);
     [paraAttrs setObject:style forKey:NSParagraphStyleAttributeName];
     if (quoteLevel > 0 && theme.blockquoteTextColor != nil) {
         [paraAttrs setObject:theme.blockquoteTextColor forKey:NSForegroundColorAttributeName];
@@ -6210,9 +6351,12 @@ static void OMRenderHeading(cmark_node *node,
     CGFloat indent = (CGFloat)(quoteLevel * 20.0 * scale) + OMListContentIndent(renderContext, scale);
     NSFont *font = [headingAttrs objectForKey:NSFontAttributeName];
     CGFloat fontSize = font != nil ? [font pointSize] : (theme.baseFont != nil ? [theme.baseFont pointSize] * scale : 16.0 * scale);
-    NSMutableParagraphStyle *style = OMParagraphStyleWithIndent(indent, indent, 14.0 * scale, 0.0, 1.38, fontSize);
-    CGFloat spacingBefore = (level >= 2 && level <= 3) ? 20.0 * scale : 10.0 * scale;
-    [style setParagraphSpacingBefore:spacingBefore];
+    // GitHub: 24px above a heading, 16px below; H1 and H2 are underlined.
+    BOOL underlined = (level <= 2);
+    NSMutableParagraphStyle *style = OMParagraphStyleWithIndent(indent, indent,
+                                                                (underlined ? 6.0 : 12.0) * scale,
+                                                                0.0, 1.25, fontSize);
+    [style setParagraphSpacingBefore:8.0 * scale];
     [headingAttrs setObject:style forKey:NSParagraphStyleAttributeName];
 
     OMPrepareRawMathSources(node, renderContext);
@@ -6236,27 +6380,11 @@ static void OMRenderHeading(cmark_node *node,
     }
     OMAppendString(output, @"\n", attributes);
 
-    if (level <= 3 && theme.hrColor != nil) {
-        NSMutableDictionary *ruleAttrs = [attributes mutableCopy];
-        NSFont *font = [attributes objectForKey:NSFontAttributeName];
-        CGFloat size = font != nil ? [font pointSize] : (theme.baseFont != nil ? [theme.baseFont pointSize] * scale : 16.0 * scale);
-        NSFont *ruleFont = [NSFont systemFontOfSize:MAX(1.0, size * 0.35)];
-        if (ruleFont != nil) {
-            [ruleAttrs setObject:ruleFont forKey:NSFontAttributeName];
-        }
-        [ruleAttrs setObject:theme.hrColor forKey:NSForegroundColorAttributeName];
-        NSMutableParagraphStyle *ruleStyle = OMParagraphStyleWithIndent(indent, indent, 12.0 * scale, 0.0, 1.15, size);
-        [ruleStyle setMinimumLineHeight:MAX(1.0, size * 0.5)];
-        [ruleAttrs setObject:ruleStyle forKey:NSParagraphStyleAttributeName];
-
+    if (underlined && theme.hrColor != nil) {
         CGFloat availableWidth = layoutWidth > 0.0 ? (layoutWidth - indent) : 0.0;
-        NSString *rule = OMRuleLineString(ruleFont, availableWidth);
-        OMAppendString(output, rule, ruleAttrs);
-        OMAppendString(output, @"\n\n", attributes);
-        [ruleAttrs release];
-    } else {
-        OMAppendString(output, @"\n", attributes);
+        OMAppendRule(output, attributes, theme.hrColor, availableWidth, MAX(1.0, floor(scale + 0.5)), indent, 12.0 * scale);
     }
+    OMAppendString(output, @"\n", attributes);
 }
 
 static NSColor *OMMermaidDiagnosticColorForTheme(OMTheme *theme)
@@ -6549,7 +6677,7 @@ static void OMRenderCodeBlock(cmark_node *node,
         [blockAttrs removeObjectForKey:NSBackgroundColorAttributeName];
     }
 
-    CGFloat indent = (CGFloat)(quoteLevel * 20.0 * scale) + OMListContentIndent(renderContext, scale) + 20.0 * scale;
+    CGFloat indent = (CGFloat)(quoteLevel * 20.0 * scale) + OMListContentIndent(renderContext, scale);
     CGFloat padding = 20.0 * scale;
     NSMutableParagraphStyle *style = OMParagraphStyleWithIndent(indent + padding,
                                                                 indent + padding,
@@ -6588,10 +6716,12 @@ static void OMRenderThematicBreak(OMTheme *theme,
                                   NSMutableDictionary *attributes,
                                   CGFloat layoutWidth)
 {
+    // GitHub draws <hr> as a bar a quarter of the text size tall.
     NSFont *font = [attributes objectForKey:NSFontAttributeName];
-    NSString *rule = OMRuleLineString(font, layoutWidth);
-    OMAppendString(output, rule, attributes);
-    OMAppendString(output, @"\n\n", attributes);
+    CGFloat size = font != nil ? [font pointSize] : 14.0;
+    NSColor *color = theme.hrColor != nil ? theme.hrColor : [NSColor lightGrayColor];
+    OMAppendRule(output, attributes, color, layoutWidth, MAX(2.0, floor(size * 0.25 + 0.5)), 0.0, 12.0);
+    OMAppendString(output, @"\n", attributes);
 }
 
 static void OMRenderList(cmark_node *node,
@@ -6674,7 +6804,8 @@ static void OMRenderListItem(cmark_node *node,
     NSString *prefix = OMListPrefix(listStack);
     if (OMGFMNodeIsTaskItem(node)) {
         NSString *box = cmark_gfm_extensions_get_tasklist_item_checked(node) ? @"\u2611 " : @"\u2610 ";
-        prefix = [prefix isEqualToString:@"- "] ? box : [prefix stringByAppendingString:box];
+        BOOL bullet = ((cmark_list_type)[[OMListContext(listStack) objectForKey:@"type"] intValue] == CMARK_BULLET_LIST);
+        prefix = bullet ? box : [prefix stringByAppendingString:box];
     }
     OMAppendString(output, prefix, attributes);
 
@@ -6716,7 +6847,7 @@ static void OMRenderListItem(cmark_node *node,
                                                         baseIndent + listIndent + 20.0 * scale,
                                                         spacingAfter,
                                                         0.0,
-                                                        1.61,
+                                                        1.5,
                                                         fontSize);
     if (endLocation > startLocation) {
         NSString *text = [output string];
@@ -6811,7 +6942,14 @@ static void OMRenderBlocks(cmark_node *node,
         }
         NSUInteger endLocation = [output length];
         if (endLocation > startLocation) {
-            [blockquoteRanges addObject:[NSValue valueWithRange:NSMakeRange(startLocation, endLocation - startLocation)]];
+            // The bar stops at the quote's last line, not in the gap after it.
+            NSUInteger barEnd = endLocation;
+            NSString *text = [output string];
+            while (barEnd > startLocation + 1 && [text characterAtIndex:barEnd - 1] == '\n' &&
+                   [text characterAtIndex:barEnd - 2] == '\n') {
+                barEnd -= 1;
+            }
+            [blockquoteRanges addObject:[NSValue valueWithRange:NSMakeRange(startLocation, barEnd - startLocation)]];
             OMRecordBlockAnchor(node, startLocation, endLocation, renderContext);
         }
         return;

@@ -1906,7 +1906,7 @@ static BOOL OMDMathToolchainAvailable(void)
     NSString *text = [[renderer attributedStringFromMarkdown:@"- [ ] open task\n- [x] done task\n- plain item\n"] string];
     XCTAssertTrue([text rangeOfString:@"☐ open task"].location != NSNotFound);
     XCTAssertTrue([text rangeOfString:@"☑ done task"].location != NSNotFound);
-    XCTAssertTrue([text rangeOfString:@"- plain item"].location != NSNotFound);
+    XCTAssertTrue([text rangeOfString:@"\u2022 plain item"].location != NSNotFound);
     XCTAssertTrue([text rangeOfString:@"[x]"].location == NSNotFound);
     XCTAssertTrue([text rangeOfString:@"[ ]"].location == NSNotFound);
 }
@@ -2176,6 +2176,85 @@ static BOOL OMDMathToolchainAvailable(void)
     if (inked > 0) {
         XCTAssertTrue(inkLuminance / inked > 0.6, @"dark-theme math should be drawn in light ink");
     }
+}
+
+- (NSUInteger)countOfAttachmentsBeforeText:(NSString *)needle inRenderedString:(NSAttributedString *)rendered
+{
+    NSString *text = [rendered string];
+    NSRange limit = [text rangeOfString:needle];
+    NSUInteger count = 0;
+    NSUInteger index = 0;
+    for (; index < limit.location; index++) {
+        if ([text characterAtIndex:index] == NSAttachmentCharacter) {
+            count += 1;
+        }
+    }
+    return count;
+}
+
+- (void)testBulletsChangeShapeWithDepth
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    NSString *text = [[renderer attributedStringFromMarkdown:@"- one\n  - two\n    - three\n"] string];
+    XCTAssertTrue([text rangeOfString:@"• one"].location != NSNotFound);
+    XCTAssertTrue([text rangeOfString:@"◦ two"].location != NSNotFound);
+    XCTAssertTrue([text rangeOfString:@"▪ three"].location != NSNotFound);
+}
+
+- (void)testOnlyH1AndH2GetDrawnUnderlines
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    [renderer setLayoutWidth:500.0];
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:@"# One\n\nalpha\n\n## Two\n\nbeta\n\n### Three\n\ngamma\n\n---\n\ndelta\n"];
+    NSString *text = [rendered string];
+    XCTAssertTrue([text rangeOfString:@"─"].location == NSNotFound, @"rules are drawn, not typed");
+    XCTAssertEqual([self countOfAttachmentsBeforeText:@"alpha" inRenderedString:rendered], (NSUInteger)1);
+    XCTAssertEqual([self countOfAttachmentsBeforeText:@"beta" inRenderedString:rendered], (NSUInteger)2);
+    XCTAssertEqual([self countOfAttachmentsBeforeText:@"gamma" inRenderedString:rendered], (NSUInteger)2);
+    XCTAssertEqual([self countOfAttachmentsBeforeText:@"delta" inRenderedString:rendered], (NSUInteger)3);
+    NSTextAttachment *rule = [self firstAttachmentInRenderedString:rendered];
+    NSSize size = [[rule attachmentCell] cellSize];
+    XCTAssertTrue(size.width > 400.0 && size.width <= 500.0);
+    XCTAssertTrue(size.height <= 4.0);
+}
+
+- (void)testHeadingSizesFollowGitHubScale
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:@"# Big\n\n### Mid\n\nbody text\n"];
+    NSString *text = [rendered string];
+    CGFloat body = [[rendered attribute:NSFontAttributeName atIndex:[text rangeOfString:@"body"].location effectiveRange:NULL] pointSize];
+    CGFloat h1 = [[rendered attribute:NSFontAttributeName atIndex:[text rangeOfString:@"Big"].location effectiveRange:NULL] pointSize];
+    CGFloat h3 = [[rendered attribute:NSFontAttributeName atIndex:[text rangeOfString:@"Mid"].location effectiveRange:NULL] pointSize];
+    XCTAssertEqualWithAccuracy(h1 / body, 2.0, 0.05);
+    XCTAssertEqualWithAccuracy(h3 / body, 1.25, 0.05);
+}
+
+- (void)testBlockGapsAreTightButCodeBlankLinesKeepTheirHeight
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:@"First para.\n\nSecond para.\n\n```\nline one\n\nline three\n```\n"];
+    NSString *text = [rendered string];
+    NSUInteger gap = NSMaxRange([text rangeOfString:@"First para.\n"]);
+    NSParagraphStyle *gapStyle = [rendered attribute:NSParagraphStyleAttributeName atIndex:gap effectiveRange:NULL];
+    CGFloat body = [[rendered attribute:NSFontAttributeName atIndex:0 effectiveRange:NULL] pointSize];
+    XCTAssertEqualWithAccuracy([gapStyle maximumLineHeight], body, 1.0, @"1em between paragraphs");
+
+    NSUInteger beforeCode = NSMaxRange([text rangeOfString:@"Second para.\n"]);
+    NSParagraphStyle *beforeCodeStyle = [rendered attribute:NSParagraphStyleAttributeName atIndex:beforeCode effectiveRange:NULL];
+    XCTAssertTrue([beforeCodeStyle maximumLineHeight] > [gapStyle maximumLineHeight], @"room for the code background");
+
+    NSUInteger codeBlank = NSMaxRange([text rangeOfString:@"line one\n"]);
+    NSParagraphStyle *codeStyle = [rendered attribute:NSParagraphStyleAttributeName atIndex:codeBlank effectiveRange:NULL];
+    XCTAssertTrue([codeStyle maximumLineHeight] == 0.0 || [codeStyle maximumLineHeight] > body, @"code keeps its blank line");
+
+    NSParagraphStyle *paragraph = [rendered attribute:NSParagraphStyleAttributeName atIndex:0 effectiveRange:NULL];
+    XCTAssertEqualWithAccuracy([paragraph lineHeightMultiple], 1.5, 0.01);
+
+    NSParagraphStyle *codeLine = [rendered attribute:NSParagraphStyleAttributeName
+                                             atIndex:[text rangeOfString:@"line one"].location
+                                      effectiveRange:NULL];
+    XCTAssertEqualWithAccuracy([codeLine firstLineHeadIndent], 20.0, 0.5, @"code text is padded inside a background flush with body text");
 }
 
 @end

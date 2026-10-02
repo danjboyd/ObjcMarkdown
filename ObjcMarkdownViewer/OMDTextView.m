@@ -330,6 +330,10 @@
                                            atIndex:(NSUInteger)index
                                     effectiveRange:NULL];
         if (object == nil) {
+            // Drawn decorations (rules) have no source: leave them out.
+            if ([[copy string] characterAtIndex:(NSUInteger)index] == NSAttachmentCharacter) {
+                [copy deleteCharactersInRange:NSMakeRange((NSUInteger)index, 1)];
+            }
             continue;
         }
         NSMutableDictionary *attributes = [[[copy attributesAtIndex:(NSUInteger)index effectiveRange:NULL] mutableCopy] autorelease];
@@ -593,9 +597,23 @@
     return [super writeSelectionToPasteboard:pboard types:types];
 }
 
+// Whether the selection holds any attachment (rendered object or drawn rule).
+- (BOOL)selectionContainsAttachment
+{
+    NSRange selection = [self selectedRange];
+    NSString *text = [[self textStorage] string];
+    if (selection.location == NSNotFound || selection.length == 0 || NSMaxRange(selection) > [text length]) {
+        return NO;
+    }
+    unichar attachmentCharacter = NSAttachmentCharacter;
+    return [text rangeOfString:[NSString stringWithCharacters:&attachmentCharacter length:1]
+                       options:0
+                         range:selection].location != NSNotFound;
+}
+
 - (BOOL)writeSelectionToPasteboard:(NSPasteboard *)pboard type:(NSString *)type
 {
-    if (![self selectionContainsRenderedObject]) {
+    if (![self selectionContainsRenderedObject] && ![self selectionContainsAttachment]) {
         return [super writeSelectionToPasteboard:pboard type:type];
     }
     NSUInteger objectIndex = NSNotFound;
