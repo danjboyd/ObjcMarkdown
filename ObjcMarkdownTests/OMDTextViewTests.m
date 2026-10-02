@@ -7,6 +7,7 @@
 #import "OMStrikethroughLayoutManager.h"
 #import "OMMarkdownRenderer.h"
 #import "OMRenderedObject.h"
+#import "OMTextTable.h"
 
 // The tool tip owner callback OMDTextView implements for its object rects.
 @interface OMDTextView (ToolTipOwner)
@@ -20,6 +21,12 @@
 @end
 
 @implementation OMDTextViewTests
+
+- (void)setUp
+{
+    [super setUp];
+    [NSApplication sharedApplication];
+}
 
 - (OMDTextView *)textViewShowingMarkdown:(NSString *)markdown
 {
@@ -52,9 +59,20 @@
     return @"| a | b |\n|---|---|\n| 1 | 2 |";
 }
 
+// A drawn diagram: the rendered object the tests below work with.
+- (NSString *)objectSource
+{
+    return @"erDiagram\n    A ||--o{ B : has\n";
+}
+
+- (NSString *)objectMarkdown
+{
+    return [NSString stringWithFormat:@"```mermaid\n%@```", [self objectSource]];
+}
+
 - (void)testCopyingMixedSelectionWritesObjectsAsMarkdown
 {
-    NSString *markdown = [NSString stringWithFormat:@"Before\n\n%@\n\nAfter", [self tableMarkdown]];
+    NSString *markdown = [NSString stringWithFormat:@"Before\n\n%@\n\n%@\n\nAfter", [self objectMarkdown], [self tableMarkdown]];
     OMDTextView *textView = [self textViewShowingMarkdown:markdown];
     [textView setSelectedRange:NSMakeRange(0, [[textView textStorage] length])];
 
@@ -63,6 +81,9 @@
     XCTAssertTrue([textView writeSelectionToPasteboard:pboard types:types]);
     NSString *text = [pboard stringForType:NSStringPboardType];
     XCTAssertTrue([text rangeOfString:[self tableMarkdown]].location != NSNotFound);
+    XCTAssertTrue([text rangeOfString:[self objectMarkdown]].location != NSNotFound);
+    NSString *tableThenAfter = [[self tableMarkdown] stringByAppendingString:@"\n\nAfter"];
+    XCTAssertTrue([text rangeOfString:tableThenAfter].location != NSNotFound, @"the table keeps its line break: %@", text);
     XCTAssertTrue([text hasPrefix:@"Before"]);
     XCTAssertTrue([text hasSuffix:@"After"]);
     unichar attachmentCharacter = NSAttachmentCharacter;
@@ -77,7 +98,7 @@
 
 - (void)testCopyingOneObjectWritesItsSourceAndAnImage
 {
-    OMDTextView *textView = [self textViewShowingMarkdown:[self tableMarkdown]];
+    OMDTextView *textView = [self textViewShowingMarkdown:[self objectMarkdown]];
     NSUInteger index = [self firstObjectIndexInTextView:textView];
     XCTAssertTrue(index != NSNotFound);
     if (index == NSNotFound) {
@@ -88,7 +109,7 @@
     NSPasteboard *pboard = [NSPasteboard pasteboardWithUniqueName];
     XCTAssertTrue([textView writeSelectionToPasteboard:pboard
                                                  types:[NSArray arrayWithObject:NSStringPboardType]]);
-    XCTAssertEqualObjects([pboard stringForType:NSStringPboardType], [self tableMarkdown]);
+    XCTAssertEqualObjects([pboard stringForType:NSStringPboardType], [self objectSource]);
     NSData *tiff = [pboard dataForType:NSTIFFPboardType];
     XCTAssertNotNil(tiff);
     NSImage *image = [[[NSImage alloc] initWithData:tiff] autorelease];
@@ -110,7 +131,7 @@
 
 - (void)testEscapeClearsSelectionInReadOnlyPreview
 {
-    OMDTextView *textView = [self textViewShowingMarkdown:[self tableMarkdown]];
+    OMDTextView *textView = [self textViewShowingMarkdown:[self objectMarkdown]];
     NSUInteger index = [self firstObjectIndexInTextView:textView];
     XCTAssertTrue(index != NSNotFound);
     [textView setSelectedRange:NSMakeRange(index, 1)];
@@ -131,7 +152,7 @@
 
 - (void)testToolTipShowsObjectSource
 {
-    OMDTextView *textView = [self textViewShowingMarkdown:[self tableMarkdown]];
+    OMDTextView *textView = [self textViewShowingMarkdown:[self objectMarkdown]];
     NSUInteger index = [self firstObjectIndexInTextView:textView];
     XCTAssertTrue(index != NSNotFound);
     XCTAssertFalse(NSIsEmptyRect([textView viewRectForRenderedObjectAtIndex:index]));
@@ -140,24 +161,24 @@
                       stringForToolTip:0
                                  point:NSZeroPoint
                               userData:(void *)(uintptr_t)index];
-    XCTAssertEqualObjects(tip, [self tableMarkdown]);
+    XCTAssertEqualObjects(tip, @"erDiagram\n    A ||--o{ B : has");
 }
 
 - (void)testSourceLocationFindsItsObject
 {
-    NSString *markdown = [NSString stringWithFormat:@"Intro\n\n%@\n\nOutro", [self tableMarkdown]];
+    NSString *markdown = [NSString stringWithFormat:@"Intro\n\n%@\n\nOutro", [self objectMarkdown]];
     OMDTextView *textView = [self textViewShowingMarkdown:markdown];
     NSUInteger index = [self firstObjectIndexInTextView:textView];
     XCTAssertTrue(index != NSNotFound);
-    NSUInteger insideTable = [markdown rangeOfString:@"| 1 |"].location;
-    XCTAssertEqual([textView renderedObjectIndexContainingSourceLocation:insideTable], index);
+    NSUInteger insideDiagram = [markdown rangeOfString:@"A ||"].location;
+    XCTAssertEqual([textView renderedObjectIndexContainingSourceLocation:insideDiagram], index);
     XCTAssertEqual([textView renderedObjectIndexContainingSourceLocation:2], (NSUInteger)NSNotFound);
     XCTAssertEqual([textView renderedObjectIndexContainingSourceLocation:[markdown length] - 2], (NSUInteger)NSNotFound);
 }
 
 - (void)testLinkedObjectIndexDefaultsToNotFound
 {
-    OMDTextView *textView = [self textViewShowingMarkdown:[self tableMarkdown]];
+    OMDTextView *textView = [self textViewShowingMarkdown:[self objectMarkdown]];
     XCTAssertEqual([textView linkedObjectIndex], (NSUInteger)NSNotFound);
     NSUInteger index = [self firstObjectIndexInTextView:textView];
     [textView setLinkedObjectIndex:index];
@@ -290,7 +311,7 @@
 
 - (void)testHitTestingFindsObjectOnlyInsideItsBox
 {
-    OMDTextView *textView = [self textViewShowingMarkdown:[NSString stringWithFormat:@"Intro\n\n%@", [self tableMarkdown]]];
+    OMDTextView *textView = [self textViewShowingMarkdown:[NSString stringWithFormat:@"Intro\n\n%@", [self objectMarkdown]]];
     NSUInteger index = [self firstObjectIndexInTextView:textView];
     XCTAssertTrue(index != NSNotFound);
     if (index == NSNotFound) {
@@ -306,7 +327,7 @@
     OMRenderedObject *object = [textView renderedObjectAtPoint:inside characterIndex:&hitIndex];
     XCTAssertNotNil(object);
     XCTAssertEqual(hitIndex, index);
-    XCTAssertEqual([object kind], OMRenderedObjectKindTable);
+    XCTAssertEqual([object kind], OMRenderedObjectKindDiagram);
 
     NSPoint outside = NSMakePoint(NSMaxX(box) + origin.x + 40.0, NSMidY(box) + origin.y);
     XCTAssertNil([textView renderedObjectAtPoint:outside characterIndex:NULL]);
@@ -314,4 +335,63 @@
     XCTAssertNil([textView renderedObjectAtPoint:onIntro characterIndex:NULL]);
 }
 
+- (void)testPartOfATableCopiesAsTabSeparatedText
+{
+    OMDTextView *textView = [self textViewShowingMarkdown:@"| a | b |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |"];
+    NSString *text = [[textView textStorage] string];
+    NSRange from = [text rangeOfString:@"1"];
+    NSRange to = [text rangeOfString:@"4"];
+    [textView setSelectedRange:NSMakeRange(from.location, NSMaxRange(to) - from.location)];
+    NSPasteboard *pboard = [NSPasteboard pasteboardWithUniqueName];
+    XCTAssertTrue([textView writeSelectionToPasteboard:pboard
+                                                 types:[NSArray arrayWithObject:NSStringPboardType]]);
+    XCTAssertEqualObjects([pboard stringForType:NSStringPboardType], @"1\t2\n3\t4");
+    [pboard releaseGlobally];
+}
+
+- (void)testWholeTableCopiesAsMarkdown
+{
+    OMDTextView *textView = [self textViewShowingMarkdown:[self tableMarkdown]];
+    NSTextStorage *storage = [textView textStorage];
+    NSRange table;
+    XCTAssertNotNil([storage attribute:OMTextTableAttributeName atIndex:0 longestEffectiveRange:&table
+                               inRange:NSMakeRange(0, [storage length])]);
+    [textView setSelectedRange:table];
+    NSPasteboard *pboard = [NSPasteboard pasteboardWithUniqueName];
+    XCTAssertTrue([textView writeSelectionToPasteboard:pboard
+                                                 types:[NSArray arrayWithObject:NSStringPboardType]]);
+    NSString *copied = [pboard stringForType:NSStringPboardType];
+    XCTAssertTrue([copied hasPrefix:[self tableMarkdown]], @"%@", copied);
+    [pboard releaseGlobally];
+}
+
+- (void)testTableGridIsDrawnAlongItsColumnEdges
+{
+    OMDTextView *textView = [self textViewShowingMarkdown:[self tableMarkdown]];
+    NSLayoutManager *layoutManager = [textView layoutManager];
+    OMTextTable *table = [[textView textStorage] attribute:OMTextTableAttributeName atIndex:0 effectiveRange:NULL];
+    XCTAssertNotNil(table);
+    XCTAssertEqual([[table columnEdges] count], (NSUInteger)3);
+    NSRect used = [layoutManager usedRectForTextContainer:[textView textContainer]];
+    NSSize size = NSMakeSize(ceil(NSMaxX(used)) + 20.0, ceil(NSMaxY(used)) + 4.0);
+    NSImage *image = [[[NSImage alloc] initWithSize:size] autorelease];
+    [image lockFocus];
+    [[NSColor whiteColor] set];
+    NSRectFill(NSMakeRect(0.0, 0.0, size.width, size.height));
+    OMDrawTextTablesForGlyphRange(layoutManager, NSMakeRange(0, [layoutManager numberOfGlyphs]), NSZeroPoint);
+    [image unlockFocus];
+    NSBitmapImageRep *bitmap = [NSBitmapImageRep imageRepWithData:[image TIFFRepresentation]];
+    NSInteger x = (NSInteger)[[[table columnEdges] objectAtIndex:1] doubleValue];
+    NSInteger ruled = 0;
+    NSInteger y = 0;
+    for (; y < [bitmap pixelsHigh]; y++) {
+        NSColor *color = [[bitmap colorAtX:x y:y] colorUsingColorSpaceName:NSCalibratedRGBColorSpace];
+        if ([color redComponent] < 0.9) {
+            ruled += 1;
+        }
+    }
+    XCTAssertTrue(ruled > 30, @"a rule runs down the column edge (%ld px)", (long)ruled);
+}
+
 @end
+

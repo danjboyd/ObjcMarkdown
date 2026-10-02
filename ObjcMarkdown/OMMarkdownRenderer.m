@@ -19,6 +19,7 @@
 #include "table.h"
 #include "OMGFMParser.h"
 #import "OMStrikethroughLayoutManager.h"
+#import "OMTextTable.h"
 #include "OMEmojiShortcodes.inc"
 #include <ctype.h>
 #if defined(_WIN32)
@@ -1590,6 +1591,27 @@ static void OMResolvePendingRenderedObjects(NSMutableAttributedString *output,
             [output removeAttribute:OMPendingRenderedObjectAttributeName range:effective];
         }
         index = NSMaxRange(effective);
+    }
+
+    // Tables laid out as text: where each came from, for copying and revealing.
+    index = 0;
+    while (index < [output length]) {
+        NSRange effective;
+        OMTextTable *table = [output attribute:OMTextTableAttributeName atIndex:index effectiveRange:&effective];
+        index = NSMaxRange(effective);
+        if (table == nil || [table renderedObject] != nil || [table markdown] == nil) {
+            continue;
+        }
+        NSRange lineRange = OMSourceLineRangeForTargetLocation(blockAnchors, effective.location);
+        NSRange span = OMCharacterSpanForLines(markdown, lineStarts, lineRange);
+        OMRenderedObject *object = [[OMRenderedObject alloc]
+            initWithKind:OMRenderedObjectKindTable
+                  source:[table markdown]
+                markdown:[table markdown]
+         sourceLineRange:lineRange
+             sourceRange:OMSourceRangeForPendingObject(markdown, span, OMRenderedObjectKindTable, [table markdown], 0)];
+        [table setRenderedObject:object];
+        [object release];
     }
 }
 
@@ -3453,6 +3475,194 @@ static NSAttributedString *OMPipeTableAttachmentAttributedString(NSArray *attrib
                                             attributes:attachmentAttributes] autorelease];
 }
 
+static CGFloat OMTextTableSegmentWidth(NSAttributedString *segment)
+{
+    return [segment length] > 0 ? ceil([segment size].width) : 0.0;
+}
+
+static NSAttributedString *OMTextTableTrimTrailingSpaces(NSAttributedString *segment)
+{
+    NSString *text = [segment string];
+    NSUInteger end = [text length];
+    while (end > 0 && [text characterAtIndex:end - 1] == ' ') {
+        end -= 1;
+    }
+    return end == [text length] ? segment : [segment attributedSubstringFromRange:NSMakeRange(0, end)];
+}
+
+// A cell's content broken into lines no wider than width: at spaces where it
+// can, inside a word only when the word alone is too wide.
+static NSArray *OMTextTableWrappedCellLines(NSAttributedString *cell, CGFloat width)
+{
+    if ([cell length] == 0 || width <= 0.0 || OMTextTableSegmentWidth(cell) <= width) {
+        return [NSArray arrayWithObject:OMTextTableTrimTrailingSpaces(cell)];
+    }
+    NSString *text = [cell string];
+    NSUInteger length = [text length];
+    NSMutableArray *lines = [NSMutableArray array];
+    NSUInteger lineStart = 0;
+    NSUInteger index = 0;
+    CGFloat lineWidth = 0.0;
+    while (index < length) {
+        // One word and the spaces after it.
+        NSUInteger wordEnd = index;
+        while (wordEnd < length && [text characterAtIndex:wordEnd] != ' ') {
+            wordEnd += 1;
+        }
+        NSUInteger tokenEnd = wordEnd;
+        while (tokenEnd < length && [text characterAtIndex:tokenEnd] == ' ') {
+            tokenEnd += 1;
+        }
+        CGFloat wordWidth = OMTextTableSegmentWidth([cell attributedSubstringFromRange:NSMakeRange(index, wordEnd - index)]);
+        CGFloat tokenWidth = OMTextTableSegmentWidth([cell attributedSubstringFromRange:NSMakeRange(index, tokenEnd - index)]);
+        if (lineWidth > 0.0 && lineWidth + wordWidth > width) {
+            [lines addObject:OMTextTableTrimTrailingSpaces([cell attributedSubstringFromRange:NSMakeRange(lineStart, index - lineStart)])];
+            lineStart = index;
+            lineWidth = 0.0;
+        }
+        if (lineWidth == 0.0 && wordWidth > width) {
+            // Break the word itself, as much per line as fits.
+            NSUInteger cut = index;
+            while (cut < wordEnd) {
+                NSUInteger next = cut + 1;
+                while (next < wordEnd &&
+                       OMTextTableSegmentWidth([cell attributedSubstringFromRange:NSMakeRange(cut, next + 1 - cut)]) <= width) {
+                    next += 1;
+                }
+                if (next >= wordEnd) {
+                    break;
+                }
+                [lines addObject:[cell attributedSubstringFromRange:NSMakeRange(cut, next - cut)]];
+                cut = next;
+            }
+            lineStart = cut;
+            lineWidth = OMTextTableSegmentWidth([cell attributedSubstringFromRange:NSMakeRange(cut, tokenEnd - cut)]);
+            index = tokenEnd;
+            continue;
+        }
+        lineWidth += tokenWidth;
+        index = tokenEnd;
+    }
+    if (lineStart < length) {
+        [lines addObject:OMTextTableTrimTrailingSpaces([cell attributedSubstringFromRange:NSMakeRange(lineStart, length - lineStart)])];
+    }
+    return lines;
+}
+
+// Lays the table out as text: one paragraph per visual line, cells separated
+// by tabs placed (left tab stops only, all GNUstep has) where each cell's
+// alignment puts it, and an OMTextTable describing the grid to draw around them.
+static void OMAppendTextTable(NSArray *attributedRows,
+                              NSArray *alignments,
+                              NSArray *columnWidths,
+                              CGFloat indent,
+                              CGFloat borderWidth,
+                              CGFloat horizontalPadding,
+                              CGFloat verticalPadding,
+                              NSFont *tableFont,
+                              CGFloat lineHeight,
+                              NSColor *borderColor,
+                              NSColor *headerBackgroundColor,
+                              NSColor *bodyBackgroundColor,
+                              NSString *markdown,
+                              NSDictionary *tableAttrs,
+                              NSMutableAttributedString *output)
+{
+    NSUInteger columnCount = [columnWidths count];
+    NSMutableArray *edges = [NSMutableArray arrayWithCapacity:columnCount + 1];
+    CGFloat x = floor(indent);
+    NSUInteger column = 0;
+    for (; column < columnCount; column++) {
+        [edges addObject:[NSNumber numberWithDouble:x]];
+        x += borderWidth + 2.0 * horizontalPadding + ceil([[columnWidths objectAtIndex:column] doubleValue]);
+    }
+    [edges addObject:[NSNumber numberWithDouble:x]];
+    NSUInteger rowCount = [attributedRows count];
+    OMTextTable *table = [[[OMTextTable alloc] initWithColumnEdges:edges
+                                                          rowCount:rowCount
+                                                       borderWidth:borderWidth
+                                                       borderColor:borderColor
+                                             headerBackgroundColor:headerBackgroundColor
+                                               bodyBackgroundColor:bodyBackgroundColor
+                                                          markdown:markdown] autorelease];
+
+    // Text sits on the bottom of a line taller than its font; split that
+    // extra between the row's top and bottom padding.
+    CGFloat natural = tableFont != nil ? ceil([tableFont ascender] - [tableFont descender] + [tableFont leading]) : lineHeight;
+    CGFloat extra = MAX(0.0, lineHeight - natural);
+
+    NSUInteger rowIndex = 0;
+    for (; rowIndex < rowCount; rowIndex++) {
+        NSArray *row = [attributedRows objectAtIndex:rowIndex];
+        NSMutableArray *cellLines = [NSMutableArray arrayWithCapacity:columnCount];
+        NSUInteger lineCount = 1;
+        for (column = 0; column < columnCount; column++) {
+            NSAttributedString *cell = column < [row count] ? [row objectAtIndex:column] : nil;
+            NSArray *lines = cell != nil
+                ? OMTextTableWrappedCellLines(cell, ceil([[columnWidths objectAtIndex:column] doubleValue]))
+                : [NSArray array];
+            [cellLines addObject:lines];
+            lineCount = MAX(lineCount, [lines count]);
+        }
+        NSUInteger rowStart = [output length];
+        NSUInteger lineIndex = 0;
+        for (; lineIndex < lineCount; lineIndex++) {
+            NSMutableAttributedString *line = [[[NSMutableAttributedString alloc] init] autorelease];
+            NSMutableArray *tabStops = [NSMutableArray array];
+            CGFloat firstX = 0.0;
+            for (column = 0; column < columnCount; column++) {
+                NSArray *lines = [cellLines objectAtIndex:column];
+                NSAttributedString *segment = lineIndex < [lines count] ? [lines objectAtIndex:lineIndex] : nil;
+                CGFloat contentX = [[edges objectAtIndex:column] doubleValue] + borderWidth + horizontalPadding;
+                CGFloat contentWidth = ceil([[columnWidths objectAtIndex:column] doubleValue]);
+                CGFloat segmentWidth = OMTextTableSegmentWidth(segment);
+                CGFloat segmentX = contentX;
+                OMPipeTableAlignment alignment = column < [alignments count]
+                    ? (OMPipeTableAlignment)[[alignments objectAtIndex:column] unsignedIntegerValue]
+                    : OMPipeTableAlignmentLeft;
+                if (alignment == OMPipeTableAlignmentCenter) {
+                    segmentX = contentX + floor(MAX(0.0, contentWidth - segmentWidth) / 2.0);
+                } else if (alignment == OMPipeTableAlignmentRight) {
+                    segmentX = contentX + MAX(0.0, contentWidth - segmentWidth);
+                }
+                if (column == 0) {
+                    firstX = segmentX;
+                } else {
+                    OMAppendString(line, @"\t", tableAttrs);
+                    NSTextTab *tab = [[[NSTextTab alloc] initWithType:NSLeftTabStopType location:segmentX] autorelease];
+                    [tabStops addObject:tab];
+                }
+                if (segment != nil) {
+                    [line appendAttributedString:segment];
+                }
+            }
+            if ([line length] == 0) {
+                OMAppendString(line, @" ", tableAttrs);
+            }
+            OMAppendString(line, @"\n", tableAttrs);
+
+            NSMutableParagraphStyle *style = [[[NSMutableParagraphStyle alloc] init] autorelease];
+            [style setFirstLineHeadIndent:firstX];
+            [style setHeadIndent:firstX];
+            [style setTabStops:tabStops];
+            CGFloat minimum = lineHeight;
+            if (lineIndex == 0) {
+                minimum += borderWidth + verticalPadding - floor(extra / 2.0);
+            }
+            [style setMinimumLineHeight:minimum];
+            if (lineIndex + 1 == lineCount) {
+                [style setLineSpacing:verticalPadding + floor(extra / 2.0) +
+                                      (rowIndex + 1 == rowCount ? borderWidth : 0.0)];
+            }
+            [line addAttribute:NSParagraphStyleAttributeName value:style range:NSMakeRange(0, [line length])];
+            [output appendAttributedString:line];
+        }
+        NSRange rowRange = NSMakeRange(rowStart, [output length] - rowStart);
+        [output addAttribute:OMTextTableRowAttributeName value:[NSNumber numberWithUnsignedInteger:rowIndex] range:rowRange];
+        [output addAttribute:OMTextTableAttributeName value:table range:rowRange];
+    }
+}
+
 static void OMRenderPipeTable(NSArray *rows,
                               NSArray *alignments,
                               OMTheme *theme,
@@ -3462,6 +3672,7 @@ static void OMRenderPipeTable(NSArray *rows,
                               NSUInteger quoteLevel,
                               CGFloat scale,
                               CGFloat layoutWidth,
+                              NSString *tableMarkdown,
                               const OMRenderContext *renderContext)
 {
     if (rows == nil || [rows count] == 0 || alignments == nil || [alignments count] == 0) {
@@ -3606,6 +3817,50 @@ static void OMRenderPipeTable(NSArray *rows,
         if (maxTableWidth < 120.0 * scale) {
             maxTableWidth = 120.0 * scale;
         }
+    }
+
+    // As text, so it can be selected, searched and its links clicked; the
+    // drawn attachment stays for tables allowed to run wider than the view.
+    NSMutableArray *textColumnWidths = nil;
+    CGFloat textBorderWidth = 1.0;
+    CGFloat textHorizontalPadding = 0.0;
+    CGFloat textVerticalPadding = 0.0;
+    if (!allowTableHorizontalOverflow &&
+        OMPipeTableComputeLayout(visibleRows,
+                                 attributedRows,
+                                 [attributedRows count],
+                                 columnCount,
+                                 tableFont,
+                                 headerFont,
+                                 scale,
+                                 maxTableWidth,
+                                 &textColumnWidths,
+                                 NULL,
+                                 &textBorderWidth,
+                                 &textHorizontalPadding,
+                                 &textVerticalPadding,
+                                 NULL,
+                                 NULL)) {
+        OMAppendTextTable(attributedRows,
+                          alignments,
+                          textColumnWidths,
+                          indent,
+                          textBorderWidth,
+                          textHorizontalPadding,
+                          textVerticalPadding,
+                          tableFont,
+                          ceil(tableFontSize * 1.5),
+                          borderColor,
+                          headerBackgroundColor,
+                          bodyBackgroundColor,
+                          tableMarkdown,
+                          tableAttrs,
+                          output);
+        [tableAttrs release];
+        if (!OMIsTightList(listStack)) {
+            OMAppendString(output, @"\n", attributes);
+        }
+        return;
     }
 
     NSAttributedString *tableAttachment = OMPipeTableAttachmentAttributedString(attributedRows,
@@ -6329,6 +6584,7 @@ static void OMRenderGFMTable(cmark_node *node,
     }
 
     NSUInteger objectStart = [output length];
+    NSString *tableMarkdown = OMSourceTextForNodeLines(node, renderContext);
     OMRenderPipeTable(rows,
                       alignments,
                       theme,
@@ -6338,9 +6594,13 @@ static void OMRenderGFMTable(cmark_node *node,
                       quoteLevel,
                       scale,
                       layoutWidth,
+                      tableMarkdown,
                       renderContext);
-    NSString *tableMarkdown = OMSourceTextForNodeLines(node, renderContext);
-    if (tableMarkdown != nil) {
+    // A table laid out as text is no attachment; anything inside its cells
+    // (math, images) is tagged on its own.
+    BOOL laidOutAsText = (objectStart < [output length] &&
+                          [output attribute:OMTextTableAttributeName atIndex:objectStart effectiveRange:NULL] != nil);
+    if (tableMarkdown != nil && !laidOutAsText) {
         OMTagAppendedObject(output, objectStart, OMRenderedObjectKindTable, tableMarkdown, nil);
     }
 }

@@ -4,7 +4,8 @@
 #import <AppKit/AppKit.h>
 
 // Draws NSStrikethroughStyleAttributeName, which GNUstep's NSLayoutManager
-// and string drawing accept but never draw. Elsewhere it adds nothing.
+// and string drawing accept but never draw (elsewhere it adds nothing), and
+// the grids of tables laid out as text (OMTextTableAttributeName).
 @interface OMStrikethroughLayoutManager : NSLayoutManager
 
 // Rects (as NSValue, in the coordinates drawGlyphsForGlyphRange:atPoint:

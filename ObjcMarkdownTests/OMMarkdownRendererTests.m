@@ -6,6 +6,7 @@
 #import <dispatch/dispatch.h>
 #import "OMMarkdownRenderer.h"
 #import "OMRenderedObject.h"
+#import "OMTextTable.h"
 #import "OMTheme.h"
 #import "OMAppKitSerialization.h"
 #import "OMMermaidERDrawing.h"
@@ -399,100 +400,146 @@ static BOOL OMDMathToolchainAvailable(void)
     XCTAssertTrue(hasVisibleItalicStyle);
 }
 
-- (void)testPipeTableRendersAsStructuredMultilineContent
+- (OMTextTable *)textTableInRenderedString:(NSAttributedString *)rendered range:(NSRange *)rangeOut
+{
+    NSUInteger index = 0;
+    while (index < [rendered length]) {
+        NSRange effective;
+        OMTextTable *table = [rendered attribute:OMTextTableAttributeName
+                                         atIndex:index
+                           longestEffectiveRange:&effective
+                                         inRange:NSMakeRange(0, [rendered length])];
+        if (table != nil) {
+            if (rangeOut != NULL) {
+                *rangeOut = effective;
+            }
+            return table;
+        }
+        index = NSMaxRange(effective);
+    }
+    return nil;
+}
+
+// The x where the tab before text (or the line, for a first cell) puts it.
+- (CGFloat)cellXForText:(NSString *)text inRenderedString:(NSAttributedString *)rendered
+{
+    NSString *string = [rendered string];
+    NSRange found = [string rangeOfString:text];
+    if (found.location == NSNotFound) {
+        return -1.0;
+    }
+    NSParagraphStyle *style = [rendered attribute:NSParagraphStyleAttributeName atIndex:found.location effectiveRange:NULL];
+    NSRange line = [string lineRangeForRange:found];
+    NSUInteger start = found.location;
+    while (start < NSMaxRange(found) && [string characterAtIndex:start] == '\t') {
+        start += 1;
+    }
+    NSUInteger tabs = 0;
+    NSUInteger index = line.location;
+    for (; index < start; index++) {
+        if ([string characterAtIndex:index] == '\t') {
+            tabs += 1;
+        }
+    }
+    if (tabs == 0) {
+        return [style firstLineHeadIndent];
+    }
+    return [[[style tabStops] objectAtIndex:tabs - 1] location];
+}
+
+- (void)testPipeTableRendersAsSelectableText
 {
     OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
     NSString *markdown = @"| Name | Value |\n| ---- | ----: |\n| alpha | 1 |\n| beta | 23 |";
     NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
-    XCTAssertNotNil(rendered);
-
-    XCTAssertTrue([rendered containsAttachments]);
-    XCTAssertEqual([self attachmentCharacterCountInRenderedString:rendered], (NSUInteger)1);
+    XCTAssertFalse([rendered containsAttachments]);
+    XCTAssertTrue([[rendered string] hasPrefix:@"Name\tValue\nalpha\t1\nbeta\t23"], @"%@", [rendered string]);
+    NSRange range;
+    OMTextTable *table = [self textTableInRenderedString:rendered range:&range];
+    XCTAssertNotNil(table);
+    XCTAssertEqual([table rowCount], (NSUInteger)3);
+    XCTAssertEqual([[table columnEdges] count], (NSUInteger)3);
+    XCTAssertEqualObjects([table markdown], markdown);
+    NSUInteger beta = [[rendered string] rangeOfString:@"beta"].location;
+    XCTAssertEqualObjects([rendered attribute:OMTextTableRowAttributeName atIndex:beta effectiveRange:NULL], @2);
 }
 
 - (void)testPipeTableAcceptsSingleDashSeparators
 {
     OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
     NSAttributedString *rendered = [renderer attributedStringFromMarkdown:@"| a | b |\n|:-|-:|\n| 1 | 2 |"];
-    XCTAssertEqual([self attachmentCharacterCountInRenderedString:rendered], (NSUInteger)1);
+    XCTAssertNotNil([self textTableInRenderedString:rendered range:NULL]);
 }
 
-- (void)testPipeTableRendersAlignedGridRows
+- (void)testPipeTableAlignsCellsWithinTheirColumns
 {
     OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
     [renderer setLayoutWidth:1200.0];
-    NSString *markdown = @"| Name | Value |\n| ---- | ----: |\n| alpha | 1 |\n| beta | 23 |";
+    NSString *markdown = @"| Name | Middle | Value |\n| ---- | :----: | ----: |\n| alpha | x | 1 |\n| beta | wide text | 23456 |";
     NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
-    XCTAssertNotNil(rendered);
-
-    NSTextAttachment *attachment = [self firstAttachmentInRenderedString:rendered];
-    XCTAssertNotNil(attachment);
-    if (attachment != nil) {
-        id cell = [attachment attachmentCell];
-        XCTAssertNotNil(cell);
-        if (cell != nil && [cell respondsToSelector:@selector(cellSize)]) {
-            NSSize size = [cell cellSize];
-            XCTAssertTrue(size.width > 80.0);
-            XCTAssertTrue(size.height > 40.0);
-        }
-    }
+    OMTextTable *table = [self textTableInRenderedString:rendered range:NULL];
+    XCTAssertNotNil(table);
+    NSArray *edges = [table columnEdges];
+    // Left: both at the column's start. Right: the narrower value starts further right.
+    XCTAssertEqualWithAccuracy([self cellXForText:@"alpha" inRenderedString:rendered],
+                               [self cellXForText:@"beta" inRenderedString:rendered], 0.5);
+    XCTAssertTrue([self cellXForText:@"alpha" inRenderedString:rendered] > [[edges objectAtIndex:0] doubleValue]);
+    CGFloat one = [self cellXForText:@"\t1\n" inRenderedString:rendered];
+    CGFloat many = [self cellXForText:@"\t23456" inRenderedString:rendered];
+    XCTAssertTrue(one > many);
+    XCTAssertTrue(one < [[edges objectAtIndex:3] doubleValue]);
+    // Centre: the short cell sits inside the wide one's span.
+    CGFloat x = [self cellXForText:@"\tx\t" inRenderedString:rendered];
+    CGFloat wide = [self cellXForText:@"\twide text" inRenderedString:rendered];
+    XCTAssertTrue(x > wide);
+    XCTAssertTrue(x > [[edges objectAtIndex:1] doubleValue] && x < [[edges objectAtIndex:2] doubleValue]);
 }
 
-- (void)testPipeTableCellFontIsReadable
+- (void)testPipeTableHeaderIsBoldAndCellsReadable
 {
     OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
     [renderer setLayoutWidth:1200.0];
     NSString *markdown = @"Paragraph.\n\n| Name | Value |\n| ---- | ----: |\n| alpha | 1 |";
     NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
-    XCTAssertNotNil(rendered);
-
     NSString *text = [rendered string];
-    NSRange paragraphRange = [text rangeOfString:@"Paragraph"];
-    XCTAssertTrue(paragraphRange.location != NSNotFound);
-    if (paragraphRange.location == NSNotFound) {
-        return;
-    }
-
-    NSDictionary *paragraphAttrs = [rendered attributesAtIndex:paragraphRange.location effectiveRange:NULL];
-    NSFont *paragraphFont = [paragraphAttrs objectForKey:NSFontAttributeName];
-    XCTAssertNotNil(paragraphFont);
-    XCTAssertTrue([rendered containsAttachments]);
-
-    NSTextAttachment *attachment = [self firstAttachmentInRenderedString:rendered];
-    XCTAssertNotNil(attachment);
-    if (attachment != nil) {
-        id cell = [attachment attachmentCell];
-        if (cell != nil && [cell respondsToSelector:@selector(cellSize)]) {
-            NSSize size = [cell cellSize];
-            XCTAssertTrue(size.width > 120.0);
-            XCTAssertTrue(size.height > [paragraphFont pointSize]);
-        }
-    }
+    NSFont *paragraphFont = [rendered attribute:NSFontAttributeName atIndex:0 effectiveRange:NULL];
+    NSFont *headerFont = [rendered attribute:NSFontAttributeName atIndex:[text rangeOfString:@"Name"].location effectiveRange:NULL];
+    NSFont *cellFont = [rendered attribute:NSFontAttributeName atIndex:[text rangeOfString:@"alpha"].location effectiveRange:NULL];
+    XCTAssertTrue(([[NSFontManager sharedFontManager] traitsOfFont:headerFont] & NSBoldFontMask) != 0);
+    XCTAssertEqualWithAccuracy([cellFont pointSize], [paragraphFont pointSize], 0.5);
 }
 
-- (void)testPipeTableWrapsToNarrowPreviewWidth
+- (void)testPipeTableWrapsCellsToNarrowPreviewWidth
 {
     OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
-    [renderer setLayoutWidth:200.0];
+    [renderer setLayoutWidth:300.0];
     NSString *markdown = @"| Area | Notes |\n| --- | --- |\n| Parsing | Handles standard pipe table delimiter row and alignment markers. |\n| Rendering | Output should stay column-aligned and legible on dark theme. |";
     NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
-    XCTAssertNotNil(rendered);
-
+    OMTextTable *table = [self textTableInRenderedString:rendered range:NULL];
+    XCTAssertNotNil(table);
+    XCTAssertTrue([[[table columnEdges] lastObject] doubleValue] <= 300.0);
     NSString *text = [rendered string];
-    XCTAssertTrue([rendered containsAttachments]);
-    XCTAssertEqual([self attachmentCharacterCountInRenderedString:rendered], (NSUInteger)1);
     XCTAssertTrue([text rangeOfString:@"Row 1"].location == NSNotFound);
+    // The long note spans several lines, all in row 1.
+    NSRange row;
+    [rendered attribute:OMTextTableRowAttributeName atIndex:[text rangeOfString:@"Parsing"].location
+  longestEffectiveRange:&row inRange:NSMakeRange(0, [rendered length])];
+    NSString *rowText = [text substringWithRange:row];
+    XCTAssertTrue([[rowText componentsSeparatedByString:@"\n"] count] > 2, @"%@", rowText);
+    XCTAssertTrue([rowText rangeOfString:@"Handles"].location != NSNotFound);
+    XCTAssertTrue([rowText rangeOfString:@"markers."].location != NSNotFound);
+}
 
-    NSTextAttachment *attachment = [self firstAttachmentInRenderedString:rendered];
-    XCTAssertNotNil(attachment);
-    if (attachment != nil) {
-        id cell = [attachment attachmentCell];
-        if (cell != nil && [cell respondsToSelector:@selector(cellSize)]) {
-            NSSize size = [cell cellSize];
-            XCTAssertTrue(size.width <= 200.0);
-            XCTAssertTrue(size.height > 90.0);
-        }
-    }
+- (void)testPipeTableBreaksAWordWiderThanItsColumn
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    [renderer setLayoutWidth:240.0];
+    NSString *markdown = @"| a | b |\n|---|---|\n| x | Supercalifragilisticexpialidocious-and-then-some-more |";
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
+    XCTAssertNotNil([self textTableInRenderedString:rendered range:NULL]);
+    NSString *joined = [[[rendered string] componentsSeparatedByCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]]
+                        componentsJoinedByString:@""];
+    XCTAssertTrue([joined rangeOfString:@"Supercalifragilisticexpialidocious-and-then-some-more"].location != NSNotFound);
 }
 
 - (void)testPipeTableAllowsHorizontalOverflowInsteadOfStackedFallback
@@ -519,55 +566,17 @@ static BOOL OMDMathToolchainAvailable(void)
     }
 }
 
-- (void)testPipeTableKeepsGridLayoutAtComfortablePreviewWidth
-{
-    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
-    [renderer setLayoutWidth:900.0];
-    NSString *markdown = @"| Area | Notes | Status |\n| :--- | :---- | ----: |\n| Parsing | Handles delimiter rows. | 100 |\n| Rendering | Should remain structured. | 95 |";
-    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
-    XCTAssertNotNil(rendered);
-
-    NSString *text = [rendered string];
-    XCTAssertTrue([rendered containsAttachments]);
-    XCTAssertEqual([self attachmentCharacterCountInRenderedString:rendered], (NSUInteger)1);
-    XCTAssertTrue([text rangeOfString:@"Row 1"].location == NSNotFound);
-}
-
-- (void)testPipeTableWrapsLouisianaStrategyStyleProseRows
-{
-    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
-    [renderer setLayoutWidth:900.0];
-    NSString *markdown = @"| category | assessment |\n|---|---|\n| Strengths | Louisiana has public official sources that may expose unit, order, notice, owner-address, well, and production context. Invito already has underwriting discipline, Oklahoma Phase I process patterns, and a state-specific research framework. The strategy aligns with a differentiated non-operated asset pipeline rather than generic leasing. |\n| Threats | Legal, title, and reputational risk are material if Invito contacts owners without enough evidence or if owner rights are misunderstood. Competitors, operators, or brokers may move faster once matters are public. Packet gaps, timing delays, and title ambiguity could erase the timing edge. |";
-    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
-    XCTAssertNotNil(rendered);
-    XCTAssertTrue([rendered containsAttachments]);
-
-    NSTextAttachment *attachment = [self firstAttachmentInRenderedString:rendered];
-    XCTAssertNotNil(attachment);
-    if (attachment != nil) {
-        id cell = [attachment attachmentCell];
-        if (cell != nil && [cell respondsToSelector:@selector(cellSize)]) {
-            NSSize size = [cell cellSize];
-            XCTAssertTrue(size.width <= 900.0);
-            XCTAssertTrue(size.height > 120.0);
-        }
-    }
-}
-
-- (void)testPipeTableCellInlineLinkRendersAsLinkAttribute
+- (void)testPipeTableCellInlineLinkIsClickableText
 {
     OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
     [renderer setLayoutWidth:1200.0];
     NSString *markdown = @"| Label | Link |\n| --- | --- |\n| Repo | [ObjcMarkdown](https://github.com/) |";
     NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
-    XCTAssertNotNil(rendered);
-
-    NSTextAttachment *attachment = [self firstAttachmentInRenderedString:rendered];
-    XCTAssertNotNil(attachment);
-    if (attachment != nil) {
-        id cell = [attachment attachmentCell];
-        XCTAssertNotNil(cell);
-    }
+    NSUInteger link = [[rendered string] rangeOfString:@"ObjcMarkdown"].location;
+    XCTAssertTrue(link != NSNotFound);
+    id value = [rendered attribute:NSLinkAttributeName atIndex:link effectiveRange:NULL];
+    XCTAssertNotNil(value);
+    XCTAssertTrue([[value description] hasPrefix:@"https://github.com"]);
 }
 
 - (void)testInlineMathDollarsAreStyled
@@ -1569,8 +1578,9 @@ static BOOL OMDMathToolchainAvailable(void)
     XCTAssertTrue([text rangeOfString:@"flowchart LR"].location == NSNotFound, @"drawn, not shown as code");
     NSArray *objects = [self renderedObjectsInString:rendered];
     XCTAssertEqual([objects count], (NSUInteger)1);
-    XCTAssertEqual([[objects firstObject] kind], OMRenderedObjectKindDiagram);
-    XCTAssertTrue([[[objects firstObject] source] hasPrefix:@"flowchart LR"]);
+    OMRenderedObject *diagram = [objects firstObject];
+    XCTAssertEqual([diagram kind], OMRenderedObjectKindDiagram);
+    XCTAssertTrue([[diagram source] hasPrefix:@"flowchart LR"]);
     XCTAssertEqual([[renderer diagramBlocks] count], (NSUInteger)1);
 }
 
@@ -1707,15 +1717,26 @@ static BOOL OMDMathToolchainAvailable(void)
 {
     OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
     NSString *markdown = @"Intro\n\n| a | b |\n|---|---|\n| 1 | 2 |\n";
-    NSArray *objects = [self renderedObjectsInString:[renderer attributedStringFromMarkdown:markdown]];
-    XCTAssertEqual([objects count], (NSUInteger)1);
-    OMRenderedObject *table = [objects firstObject];
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
+    XCTAssertEqual([[self renderedObjectsInString:rendered] count], (NSUInteger)0, @"text, not an attachment");
+    OMRenderedObject *table = [[self textTableInRenderedString:rendered range:NULL] renderedObject];
+    XCTAssertNotNil(table);
     XCTAssertEqual([table kind], OMRenderedObjectKindTable);
     XCTAssertEqualObjects([table source], @"| a | b |\n|---|---|\n| 1 | 2 |");
     XCTAssertEqualObjects([table markdown], [table source]);
     XCTAssertEqual([table sourceLineRange].location, (NSUInteger)3);
     XCTAssertEqual([table sourceLineRange].length, (NSUInteger)3);
-    XCTAssertEqualObjects([table kindDisplayName], @"Table");
+    XCTAssertEqual([table sourceRange].location, [markdown rangeOfString:@"| a |"].location);
+}
+
+- (void)testWideTableAllowedToOverflowStaysAnObject
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    [renderer setAllowTableHorizontalOverflow:YES];
+    NSArray *objects = [self renderedObjectsInString:[renderer attributedStringFromMarkdown:@"| a | b |\n|---|---|\n| 1 | 2 |\n"]];
+    XCTAssertEqual([objects count], (NSUInteger)1);
+    OMRenderedObject *table = [objects firstObject];
+    XCTAssertEqual([table kind], OMRenderedObjectKindTable);
 }
 
 - (void)testMermaidDiagramCarriesItsSourceAsRenderedObject
@@ -1859,7 +1880,12 @@ static BOOL OMDMathToolchainAvailable(void)
     NSString *path = [self writeTemporaryImage];
     NSString *markdown = [NSString stringWithFormat:@"See ![one](%@) and ![two](%@ \"T\").\n\n| a | b |\n|---|---|\n| 1 | 2 |\n", path, path];
     OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
-    NSArray *objects = [self renderedObjectsInString:[renderer attributedStringFromMarkdown:markdown]];
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
+    NSMutableArray *objects = [NSMutableArray arrayWithArray:[self renderedObjectsInString:rendered]];
+    OMRenderedObject *table = [[self textTableInRenderedString:rendered range:NULL] renderedObject];
+    if (table != nil) {
+        [objects addObject:table];
+    }
     XCTAssertEqual([objects count], (NSUInteger)3);
     if ([objects count] == 3) {
         XCTAssertEqualObjects([self sourceTextOfObject:[objects objectAtIndex:0] inMarkdown:markdown],
@@ -1903,24 +1929,38 @@ static BOOL OMDMathToolchainAvailable(void)
 }
 
 // Rows of the first table's cells, read from its drawing cell.
+// The first text table's cells, wrapped lines joined, by row.
 - (NSArray *)tableRowsInRenderedString:(NSAttributedString *)rendered
 {
-    NSTextAttachment *attachment = [self firstAttachmentInRenderedString:rendered];
-    id cell = [attachment attachmentCell];
-    if (cell == nil) {
-        return nil;
-    }
-    NSArray *attributedRows = nil;
-    @try {
-        attributedRows = [cell valueForKey:@"attributedRows"];
-    } @catch (NSException *exception) {
+    NSRange tableRange;
+    if ([self textTableInRenderedString:rendered range:&tableRange] == nil) {
         return nil;
     }
     NSMutableArray *rows = [NSMutableArray array];
-    for (NSArray *row in attributedRows) {
+    NSCharacterSet *space = [NSCharacterSet whitespaceAndNewlineCharacterSet];
+    NSUInteger index = tableRange.location;
+    while (index < NSMaxRange(tableRange)) {
+        NSRange rowRange;
+        [rendered attribute:OMTextTableRowAttributeName atIndex:index longestEffectiveRange:&rowRange inRange:tableRange];
+        index = NSMaxRange(rowRange);
         NSMutableArray *cells = [NSMutableArray array];
-        for (NSAttributedString *value in row) {
-            [cells addObject:[[value string] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]]];
+        NSArray *lines = [[[rendered string] substringWithRange:rowRange] componentsSeparatedByString:@"\n"];
+        for (NSString *line in lines) {
+            if ([line length] == 0) {
+                continue;
+            }
+            NSArray *parts = [line componentsSeparatedByString:@"\t"];
+            NSUInteger column = 0;
+            for (; column < [parts count]; column++) {
+                NSString *part = [[parts objectAtIndex:column] stringByTrimmingCharactersInSet:space];
+                if (column >= [cells count]) {
+                    [cells addObject:part];
+                } else if ([part length] > 0) {
+                    NSString *before = [cells objectAtIndex:column];
+                    [cells replaceObjectAtIndex:column withObject:([before length] > 0
+                        ? [NSString stringWithFormat:@"%@ %@", before, part] : part)];
+                }
+            }
         }
         [rows addObject:cells];
     }
@@ -1991,7 +2031,7 @@ static BOOL OMDMathToolchainAvailable(void)
                           nil];
     for (NSString *markdown in documents) {
         NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
-        XCTAssertEqual([self attachmentCharacterCountInRenderedString:rendered], (NSUInteger)1, @"%@", markdown);
+        XCTAssertNotNil([self textTableInRenderedString:rendered range:NULL], @"%@", markdown);
         NSArray *rows = [self tableRowsInRenderedString:rendered];
         XCTAssertEqualObjects(rows, ([NSArray arrayWithObjects:
                                       [NSArray arrayWithObjects:@"a", @"b", nil],
@@ -2011,10 +2051,8 @@ static BOOL OMDMathToolchainAvailable(void)
         XCTAssertEqualObjects([rows objectAtIndex:2], ([NSArray arrayWithObjects:@"café über", @"3", nil]));
         XCTAssertEqualObjects([rows objectAtIndex:3], ([NSArray arrayWithObjects:@"short", @"", nil]));
     }
-    NSArray *attributedRows = [[[self firstAttachmentInRenderedString:rendered] attachmentCell] valueForKey:@"attributedRows"];
-    NSAttributedString *boldCell = [[attributedRows objectAtIndex:1] objectAtIndex:0];
-    NSRange bold = [[boldCell string] rangeOfString:@"bold"];
-    NSFont *font = [boldCell attribute:NSFontAttributeName atIndex:bold.location effectiveRange:NULL];
+    NSRange bold = [[rendered string] rangeOfString:@"bold"];
+    NSFont *font = [rendered attribute:NSFontAttributeName atIndex:bold.location effectiveRange:NULL];
     XCTAssertTrue(([[NSFontManager sharedFontManager] traitsOfFont:font] & NSBoldFontMask) != 0);
 }
 
@@ -2105,14 +2143,10 @@ static BOOL OMDMathToolchainAvailable(void)
     XCTAssertEqualWithAccuracy([second headIndent], contentIndent, 0.5);
     XCTAssertTrue([code firstLineHeadIndent] > contentIndent, @"code sits inside the item, past its text edge");
 
-    NSString *text = [rendered string];
-    unichar attachment = NSAttachmentCharacter;
-    NSRange table = [text rangeOfString:[NSString stringWithCharacters:&attachment length:1]];
-    XCTAssertTrue(table.location != NSNotFound);
-    if (table.location != NSNotFound) {
-        NSParagraphStyle *tableStyle = [rendered attribute:NSParagraphStyleAttributeName atIndex:table.location effectiveRange:NULL];
-        XCTAssertEqualWithAccuracy([tableStyle firstLineHeadIndent], contentIndent, 0.5);
-    }
+    OMTextTable *table = [self textTableInRenderedString:rendered range:NULL];
+    XCTAssertNotNil(table);
+    XCTAssertEqualWithAccuracy([[[table columnEdges] firstObject] doubleValue], floor(contentIndent), 0.5,
+                               @"the table's left edge lines up with the item text");
 
     NSParagraphStyle *outside = [self paragraphStyleAtText:@"Outside paragraph" inRenderedString:rendered];
     XCTAssertEqualWithAccuracy([outside firstLineHeadIndent], 0.0, 0.5);

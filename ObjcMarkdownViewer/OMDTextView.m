@@ -4,12 +4,14 @@
 #import "OMDTextView.h"
 #import "OMStrikethroughLayoutManager.h"
 #import "OMRenderedObject.h"
+#import "OMTextTable.h"
 #import "OMMarkdownRenderer.h"
 
 @interface OMDTextView ()
 {
     NSUInteger _contextObjectIndex;
     OMRenderedObject *_contextObject;
+    OMTextTable *_contextTable;
     // linkedObjectIndex + 1, so a zero-initialised view has no linked object.
     NSUInteger _linkedObjectIndexPlusOne;
 }
@@ -39,6 +41,7 @@
     [_blockquoteRanges release];
     [_blockquoteLineColor release];
     [_contextObject release];
+    [_contextTable release];
     [super dealloc];
 }
 
@@ -321,11 +324,76 @@
     return found;
 }
 
-// The selection with each rendered object replaced by its Markdown.
+// The text of the table laid out as text at characterIndex, or {NSNotFound, 0}.
+- (NSRange)textTableRangeAtCharacterIndex:(NSUInteger)characterIndex table:(OMTextTable **)tableOut
+{
+    NSTextStorage *storage = [self textStorage];
+    if (characterIndex >= [storage length]) {
+        return NSMakeRange(NSNotFound, 0);
+    }
+    NSRange range;
+    OMTextTable *table = [storage attribute:OMTextTableAttributeName
+                                    atIndex:characterIndex
+                      longestEffectiveRange:&range
+                                    inRange:NSMakeRange(0, [storage length])];
+    if (tableOut != NULL) {
+        *tableOut = table;
+    }
+    return table != nil ? range : NSMakeRange(NSNotFound, 0);
+}
+
+// Text tables wholly inside the selection, as NSValue ranges in document order.
+- (NSArray *)textTableRangesInSelection
+{
+    NSMutableArray *ranges = [NSMutableArray array];
+    NSRange selection = [self selectedRange];
+    NSTextStorage *storage = [self textStorage];
+    if (selection.location == NSNotFound || selection.length == 0 || NSMaxRange(selection) > [storage length]) {
+        return ranges;
+    }
+    NSUInteger index = selection.location;
+    while (index < NSMaxRange(selection)) {
+        NSRange effective;
+        id table = [storage attribute:OMTextTableAttributeName
+                              atIndex:index
+                longestEffectiveRange:&effective
+                              inRange:selection];
+        index = NSMaxRange(effective);
+        if (table == nil) {
+            continue;
+        }
+        NSRange whole = [self textTableRangeAtCharacterIndex:effective.location table:NULL];
+        if (whole.location != NSNotFound && NSEqualRanges(NSIntersectionRange(whole, selection), whole)) {
+            [ranges addObject:[NSValue valueWithRange:whole]];
+        }
+    }
+    return ranges;
+}
+
+// The selection with each rendered object, and each table it wholly covers,
+// replaced by its Markdown.
 - (NSAttributedString *)selectionWithObjectsAsMarkdown
 {
     NSRange selection = [self selectedRange];
     NSMutableAttributedString *copy = [[[[self textStorage] attributedSubstringFromRange:selection] mutableCopy] autorelease];
+    for (NSValue *value in [[self textTableRangesInSelection] reverseObjectEnumerator]) {
+        NSRange range = [value rangeValue];
+        range.location -= selection.location;
+        OMTextTable *table = [copy attribute:OMTextTableAttributeName atIndex:range.location effectiveRange:NULL];
+        if ([table markdown] == nil) {
+            continue;
+        }
+        NSMutableDictionary *attributes = [[[copy attributesAtIndex:range.location effectiveRange:NULL] mutableCopy] autorelease];
+        [attributes removeObjectForKey:OMTextTableAttributeName];
+        [attributes removeObjectForKey:OMTextTableRowAttributeName];
+        [attributes removeObjectForKey:NSLinkAttributeName];
+        // The table's last line break stays, keeping what follows on its own line.
+        BOOL endsWithNewline = [[copy string] characterAtIndex:NSMaxRange(range) - 1] == '\n';
+        NSString *markdown = endsWithNewline ? [[table markdown] stringByAppendingString:@"\n"] : [table markdown];
+        NSAttributedString *replacement = [[[NSAttributedString alloc] initWithString:markdown
+                                                                           attributes:attributes] autorelease];
+        [copy replaceCharactersInRange:range withAttributedString:replacement];
+    }
     NSInteger index = (NSInteger)[copy length] - 1;
     for (; index >= 0; index--) {
         OMRenderedObject *object = [copy attribute:OMRenderedObjectAttributeName
@@ -653,7 +721,8 @@
 
 - (BOOL)writeSelectionToPasteboard:(NSPasteboard *)pboard type:(NSString *)type
 {
-    if (![self selectionContainsRenderedObject] && ![self selectionContainsAttachment]) {
+    if (![self selectionContainsRenderedObject] && ![self selectionContainsAttachment] &&
+        [[self textTableRangesInSelection] count] == 0) {
         return [super writeSelectionToPasteboard:pboard type:type];
     }
     NSUInteger objectIndex = NSNotFound;
@@ -729,9 +798,118 @@
     return menu;
 }
 
+// For a table laid out as text: copy it as Markdown, select it, or reveal it.
+- (NSMenu *)textTableMenuForEvent:(NSEvent *)event
+{
+    NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
+    NSLayoutManager *layoutManager = [self layoutManager];
+    NSTextContainer *container = [self textContainer];
+    if (layoutManager == nil || container == nil || [[self textStorage] length] == 0) {
+        return nil;
+    }
+    NSPoint origin = [self textContainerOrigin];
+    NSPoint containerPoint = NSMakePoint(point.x - origin.x, point.y - origin.y);
+    CGFloat fraction = 0.0;
+    NSUInteger glyph = [layoutManager glyphIndexForPoint:containerPoint
+                                         inTextContainer:container
+                          fractionOfDistanceThroughGlyph:&fraction];
+    NSRect fragment = [layoutManager lineFragmentRectForGlyphAtIndex:glyph effectiveRange:NULL];
+    if (!NSPointInRect(containerPoint, fragment)) {
+        return nil;
+    }
+    NSUInteger index = [layoutManager characterIndexForGlyphAtIndex:glyph];
+    OMTextTable *table = nil;
+    [self textTableRangeAtCharacterIndex:index table:&table];
+    if (table == nil) {
+        return nil;
+    }
+    [_contextTable release];
+    _contextTable = [table retain];
+
+    NSMenu *menu = [[[NSMenu alloc] initWithTitle:@"Table"] autorelease];
+    [menu setAutoenablesItems:NO];
+    NSMenuItem *item = nil;
+    if ([self selectedRange].length > 0) {
+        item = (NSMenuItem *)[menu addItemWithTitle:@"Copy" action:@selector(copy:) keyEquivalent:@""];
+        [item setTarget:self];
+    }
+    item = (NSMenuItem *)[menu addItemWithTitle:@"Copy Table as Markdown"
+                                         action:@selector(copyTextTableMarkdown:)
+                                  keyEquivalent:@""];
+    [item setTarget:self];
+    [item setEnabled:([table markdown] != nil)];
+    item = (NSMenuItem *)[menu addItemWithTitle:@"Select Table"
+                                         action:@selector(selectTextTable:)
+                                  keyEquivalent:@""];
+    [item setTarget:self];
+    [menu addItem:[NSMenuItem separatorItem]];
+    item = (NSMenuItem *)[menu addItemWithTitle:@"Reveal in Source"
+                                         action:@selector(revealTextTableSource:)
+                                  keyEquivalent:@""];
+    [item setTarget:self];
+    [item setEnabled:([[table renderedObject] sourceLineRange].location != NSNotFound &&
+                      [[self delegate] respondsToSelector:@selector(textView:revealSourceOfRenderedObject:)])];
+    return menu;
+}
+
+// The table the context menu was opened on, and its current range.
+- (OMTextTable *)contextTextTable:(NSRange *)rangeOut
+{
+    NSTextStorage *storage = [self textStorage];
+    NSUInteger index = 0;
+    while (_contextTable != nil && index < [storage length]) {
+        NSRange effective;
+        id table = [storage attribute:OMTextTableAttributeName atIndex:index effectiveRange:&effective];
+        if (table == _contextTable) {
+            if (rangeOut != NULL) {
+                *rangeOut = [self textTableRangeAtCharacterIndex:effective.location table:NULL];
+            }
+            return _contextTable;
+        }
+        index = NSMaxRange(effective);
+    }
+    return nil;
+}
+
+- (void)copyTextTableMarkdown:(id)sender
+{
+    NSString *markdown = [[self contextTextTable:NULL] markdown];
+    if (markdown == nil) {
+        NSBeep();
+        return;
+    }
+    NSPasteboard *pboard = [NSPasteboard generalPasteboard];
+    [pboard declareTypes:[NSArray arrayWithObject:NSStringPboardType] owner:nil];
+    [pboard setString:markdown forType:NSStringPboardType];
+}
+
+- (void)selectTextTable:(id)sender
+{
+    NSRange range = NSMakeRange(NSNotFound, 0);
+    if ([self contextTextTable:&range] == nil || range.location == NSNotFound) {
+        return;
+    }
+    [self setSelectedRange:range];
+}
+
+- (void)revealTextTableSource:(id)sender
+{
+    OMRenderedObject *object = [[self contextTextTable:NULL] renderedObject];
+    id delegate = [self delegate];
+    if (object == nil || [object sourceLineRange].location == NSNotFound ||
+        ![delegate respondsToSelector:@selector(textView:revealSourceOfRenderedObject:)]) {
+        NSBeep();
+        return;
+    }
+    [delegate textView:self revealSourceOfRenderedObject:object];
+}
+
 - (NSMenu *)menuForEvent:(NSEvent *)event
 {
     NSMenu *menu = [self renderedObjectMenuForEvent:event];
+    if (menu == nil) {
+        menu = [self textTableMenuForEvent:event];
+    }
     return menu != nil ? menu : [super menuForEvent:event];
 }
 
@@ -739,6 +917,9 @@
 - (void)rightMouseDown:(NSEvent *)event
 {
     NSMenu *menu = [self renderedObjectMenuForEvent:event];
+    if (menu == nil) {
+        menu = [self textTableMenuForEvent:event];
+    }
     if (menu == nil) {
         [super rightMouseDown:event];
         return;

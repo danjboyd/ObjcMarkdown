@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
 #import "OMStrikethroughLayoutManager.h"
+#import "OMTextTable.h"
 
 static NSString * const OMStrikeRectKey = @"rect";
 static NSString * const OMStrikeColorKey = @"color";
@@ -94,6 +95,14 @@ static NSString * const OMStrikeColorKey = @"color";
         [rects addObject:[line objectForKey:OMStrikeRectKey]];
     }
     return rects;
+}
+
+// Table backgrounds go under the selection, their rules over it; both under the text.
+- (void)drawBackgroundForGlyphRange:(NSRange)glyphsToShow atPoint:(NSPoint)origin
+{
+    OMDrawTextTableBackgroundsForGlyphRange(self, glyphsToShow, origin);
+    [super drawBackgroundForGlyphRange:glyphsToShow atPoint:origin];
+    OMDrawTextTableRulesForGlyphRange(self, glyphsToShow, origin);
 }
 
 #if defined(GNUSTEP)

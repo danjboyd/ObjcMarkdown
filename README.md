@@ -79,7 +79,7 @@ Currently supported in the renderer:
 - inline and block HTML as safe fallback text by default, with an explicit ignore policy available in code
 - optional math styling for inline and display math
 - optional full LaTeX-backed math artifact rendering when the required external toolchain is available
-- GitHub-style pipe tables, including horizontal overflow for wide tables
+- GitHub-style pipe tables laid out as text: selectable, searchable, with clickable links and cells that wrap to fit (or drawn as an image that may run wider than the view, via `allowTableHorizontalOverflow`)
 - Mermaid `erDiagram` blocks drawn as entity-relationship diagrams, with the diagram source kept one click away
 - optional renderer syntax highlighting for code blocks when the required tooling is available
 
