@@ -54,6 +54,9 @@ typedef struct {
     NSMutableArray *blockAnchors;
     NSMutableArray *diagramBlocks;
     NSMutableArray *consumedDisplayMathLineRanges;
+    // Raw source of the current block's formulas, keyed by their unescaped
+    // form; see OMPrepareRawMathSources.
+    NSMutableDictionary *rawMathSources;
     OMMathPerfStats *mathPerfStats;
     CGFloat layoutWidth;
     BOOL allowTableHorizontalOverflow;
@@ -5623,6 +5626,135 @@ static NSAttributedString *OMMathAttachmentAttributedString(NSString *formula,
     return immutable;
 }
 
+static NSString *OMRawMathKey(NSString *unescapedFormula, BOOL display)
+{
+    return [NSString stringWithFormat:@"%@|%@", display ? @"d" : @"i", unescapedFormula];
+}
+
+static void OMQueueRawMath(NSMutableDictionary *queues, NSString *raw, BOOL display)
+{
+    NSString *key = OMRawMathKey(OMCommonMarkUnescaped(raw), display);
+    NSMutableArray *queue = [queues objectForKey:key];
+    if (queue == nil) {
+        queue = [NSMutableArray array];
+        [queues setObject:queue forKey:key];
+    }
+    [queue addObject:raw];
+}
+
+// Collects a block's $...$ and $$...$$ formulas from its raw source, using
+// the same delimiter rules as OMAppendTextWithMathSpans and skipping code spans.
+static void OMCollectRawMathSources(NSString *raw, NSMutableDictionary *queues)
+{
+    NSUInteger length = [raw length];
+    NSUInteger index = 0;
+    while (index < length) {
+        unichar ch = [raw characterAtIndex:index];
+        if (ch == '\\') {
+            index += 2;
+            continue;
+        }
+        if (ch == '`') {
+            NSUInteger run = 1;
+            while (index + run < length && [raw characterAtIndex:index + run] == '`') {
+                run += 1;
+            }
+            NSString *fence = [raw substringWithRange:NSMakeRange(index, run)];
+            NSRange close = [raw rangeOfString:fence options:0 range:NSMakeRange(index + run, length - index - run)];
+            index = (close.location != NSNotFound) ? NSMaxRange(close) : index + run;
+            continue;
+        }
+        if (ch != '$') {
+            index += 1;
+            continue;
+        }
+        BOOL display = (index + 1 < length && [raw characterAtIndex:index + 1] == '$');
+        if (display) {
+            NSUInteger close = index + 2;
+            while (close + 1 < length) {
+                unichar c = [raw characterAtIndex:close];
+                if (c == '\\') {
+                    close += 2;
+                    continue;
+                }
+                if (c == '$' && [raw characterAtIndex:close + 1] == '$') {
+                    break;
+                }
+                close += 1;
+            }
+            if (close + 1 < length && close > index + 2) {
+                OMQueueRawMath(queues, [raw substringWithRange:NSMakeRange(index + 2, close - index - 2)], YES);
+                index = close + 2;
+            } else {
+                index += 2;
+            }
+            continue;
+        }
+        if (index + 1 >= length || OMCharacterIsWhitespaceOrNewline([raw characterAtIndex:index + 1])) {
+            index += 1;
+            continue;
+        }
+        NSUInteger close = index + 1;
+        BOOL found = NO;
+        while (close < length) {
+            unichar c = [raw characterAtIndex:close];
+            if (c == '\\') {
+                close += 2;
+                continue;
+            }
+            if (c == '$') {
+                BOOL precededByWhitespace = OMCharacterIsWhitespaceOrNewline([raw characterAtIndex:close - 1]);
+                BOOL followedByDigit = (close + 1 < length) ? OMCharacterIsDigit([raw characterAtIndex:close + 1]) : NO;
+                BOOL adjacentToDollar = ([raw characterAtIndex:close - 1] == '$') ||
+                                        (close + 1 < length && [raw characterAtIndex:close + 1] == '$');
+                if (!precededByWhitespace && !followedByDigit && !adjacentToDollar) {
+                    found = YES;
+                    break;
+                }
+            }
+            close += 1;
+        }
+        if (found) {
+            OMQueueRawMath(queues, [raw substringWithRange:NSMakeRange(index + 1, close - index - 1)], NO);
+            index = close + 1;
+        } else {
+            index += 1;
+        }
+    }
+}
+
+// cmark has already dropped backslashes before punctuation in text nodes
+// ("\," becomes ","), so formulas are rendered from the block's raw source.
+static void OMPrepareRawMathSources(cmark_node *node, const OMRenderContext *renderContext)
+{
+    if (renderContext == NULL || renderContext->rawMathSources == nil) {
+        return;
+    }
+    [renderContext->rawMathSources removeAllObjects];
+    if (!OMShouldParseMathSpans(renderContext)) {
+        return;
+    }
+    NSString *raw = OMSourceTextForNodeLines(node, renderContext);
+    if ([raw rangeOfString:@"$"].location != NSNotFound) {
+        OMCollectRawMathSources(raw, renderContext->rawMathSources);
+    }
+}
+
+// The raw source for a formula cut from a cmark text node, or the formula itself.
+static NSString *OMRawMathFormula(NSString *formula, BOOL display, const OMRenderContext *renderContext)
+{
+    if (renderContext == NULL || renderContext->rawMathSources == nil) {
+        return formula;
+    }
+    NSMutableArray *queue = [renderContext->rawMathSources objectForKey:OMRawMathKey(formula, display)];
+    if ([queue count] == 0) {
+        return formula;
+    }
+    NSString *raw = [[[queue objectAtIndex:0] retain] autorelease];
+    [queue removeObjectAtIndex:0];
+    return raw;
+}
+
 static void OMAppendTextWithMathSpans(NSString *text,
                                       OMTheme *theme,
                                       NSMutableAttributedString *output,
@@ -5671,6 +5803,7 @@ static void OMAppendTextWithMathSpans(NSString *text,
                     !OMDollarIsEscaped(text, i)) {
                     if (i > contentStart) {
                         NSString *formula = [text substringWithRange:NSMakeRange(contentStart, i - contentStart)];
+                        formula = OMRawMathFormula(formula, YES, renderContext);
                         OMAppendDisplayMathFormula(formula,
                                                    theme,
                                                    output,
@@ -5695,6 +5828,7 @@ static void OMAppendTextWithMathSpans(NSString *text,
                                             (i + 1 < length && [text characterAtIndex:i + 1] == '$');
                     if (!precededByWhitespace && !followedByDigit && !adjacentToDollar) {
                         NSString *formula = [text substringWithRange:NSMakeRange(dollarLocation + 1, i - (dollarLocation + 1))];
+                        formula = OMRawMathFormula(formula, NO, renderContext);
                         if ([formula length] > 0) {
                             NSAttributedString *attachment = OMMathAttachmentAttributedString(formula,
                                                                                                theme,
@@ -6139,6 +6273,7 @@ static cmark_node *OMTryAppendMultiNodeDisplayMath(cmark_node *startNode,
     renderContext.blockAnchors = blockAnchors;
     renderContext.diagramBlocks = diagramBlocks;
     renderContext.consumedDisplayMathLineRanges = consumedDisplayMathLineRanges;
+    renderContext.rawMathSources = [NSMutableDictionary dictionary];
     renderContext.mathPerfStats = &stats;
     renderContext.layoutWidth = self.layoutWidth;
     renderContext.allowTableHorizontalOverflow = self.allowTableHorizontalOverflow;
@@ -6234,6 +6369,7 @@ static void OMRenderParagraph(cmark_node *node,
     [paraAttrs setObject:style forKey:NSParagraphStyleAttributeName];
 
     NSUInteger paragraphStart = [output length];
+    OMPrepareRawMathSources(node, renderContext);
     OMRenderInlines(node, theme, output, paraAttrs, scale, renderContext);
     [paraAttrs release];
     OMTightenHardLineBreaks(output, NSMakeRange(paragraphStart, [output length] - paragraphStart));
@@ -6267,6 +6403,7 @@ static void OMRenderHeading(cmark_node *node,
     [style setParagraphSpacingBefore:spacingBefore];
     [headingAttrs setObject:style forKey:NSParagraphStyleAttributeName];
 
+    OMPrepareRawMathSources(node, renderContext);
     OMRenderInlines(node, theme, output, headingAttrs, scale, renderContext);
     [headingAttrs release];
     OMAppendString(output, @"\n", attributes);
