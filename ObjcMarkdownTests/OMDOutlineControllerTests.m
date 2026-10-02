@@ -14,6 +14,12 @@
 
 @implementation OMDOutlineControllerTests
 
+- (void)setUp
+{
+    [super setUp];
+    [NSApplication sharedApplication];
+}
+
 - (void)tearDown
 {
     [_chosenHeading release];

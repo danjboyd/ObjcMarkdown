@@ -10,6 +10,12 @@
 
 @implementation OMDPreviewSyncTests
 
+- (void)setUp
+{
+    [super setUp];
+    [NSApplication sharedApplication];
+}
+
 static NSDictionary *OMDAnchorWithBlockID(NSUInteger sourceStartLine,
                                           NSUInteger sourceEndLine,
                                           NSUInteger targetStart,

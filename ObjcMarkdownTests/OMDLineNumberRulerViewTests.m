@@ -15,6 +15,12 @@
 
 @implementation OMDLineNumberRulerViewTests
 
+- (void)setUp
+{
+    [super setUp];
+    [NSApplication sharedApplication];
+}
+
 - (OMDLineNumberRulerView *)newRulerViewWithTextView:(NSTextView **)textViewOut
                                            scrollView:(NSScrollView **)scrollViewOut
 {
