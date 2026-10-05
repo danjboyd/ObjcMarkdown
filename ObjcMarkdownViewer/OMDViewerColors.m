@@ -159,11 +159,6 @@ NSColor *OMDResolvedControlBackgroundColor(void)
     return [NSColor controlBackgroundColor];
 }
 
-NSColor *OMDResolvedPanelCardFillColor(void)
-{
-    return [NSColor controlBackgroundColor];
-}
-
 NSColor *OMDResolvedSubtleSeparatorColor(void)
 {
     return [NSColor controlShadowColor];

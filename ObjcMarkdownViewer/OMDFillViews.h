@@ -13,11 +13,6 @@
 @interface OMDPreviewCanvasView : OMDFlippedFillView
 @end
 
-@interface OMDRoundedCardView : OMDFlippedFillView
-{
-    NSColor *_borderColor;
-    CGFloat _cornerRadius;
-}
-@property (nonatomic, retain) NSColor *borderColor;
-@property (nonatomic, assign) CGFloat cornerRadius;
+// A plain view laid out from the top.
+@interface OMDFlippedView : NSView
 @end

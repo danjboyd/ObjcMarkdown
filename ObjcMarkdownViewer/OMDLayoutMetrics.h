@@ -36,7 +36,6 @@ typedef struct {
     CGFloat preferencesWindowMinHeight;
     CGFloat preferencesOuterPadding;
     CGFloat preferencesColumnGap;
-    CGFloat preferencesCardCornerRadius;
     CGFloat preferencesCardPadding;
     CGFloat preferencesRowGap;
     CGFloat preferencesNoteHeight;

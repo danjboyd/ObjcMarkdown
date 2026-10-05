@@ -18,6 +18,5 @@ BOOL OMDColorIsDark(NSColor *color);
 NSColor *OMDColorByBlending(NSColor *baseColor, NSColor *mixColor, CGFloat fraction);
 NSColor *OMDResolvedControlBackgroundColor(void);
 NSColor *OMDResolvedPanelBackdropColor(void);
-NSColor *OMDResolvedPanelCardFillColor(void);
 NSColor *OMDResolvedPanelCardBorderColor(void);
 NSColor *OMDResolvedMutedTextColor(void);

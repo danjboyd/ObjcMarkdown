@@ -1125,15 +1125,15 @@ static NSMutableArray *OMDSecondaryWindows(void)
     NSRect overlayBounds = [_launchOverlayView bounds];
     CGFloat cardWidth = 420.0;
     CGFloat cardHeight = 110.0;
-    OMDRoundedCardView *launchCard = [[[OMDRoundedCardView alloc]
+    NSBox *launchCard = [[[NSBox alloc]
         initWithFrame:NSMakeRect(floor((NSWidth(overlayBounds) - cardWidth) * 0.5),
                                  floor((NSHeight(overlayBounds) - cardHeight) * 0.5),
                                  cardWidth,
                                  cardHeight)] autorelease];
     [launchCard setAutoresizingMask:(NSViewMinXMargin | NSViewMaxXMargin | NSViewMinYMargin | NSViewMaxYMargin)];
-    [launchCard setFillColor:OMDResolvedPanelCardFillColor()];
-    [launchCard setBorderColor:OMDResolvedPanelCardBorderColor()];
-    [launchCard setCornerRadius:14.0];
+    [launchCard setTitlePosition:NSNoTitle];
+    [launchCard setBorderType:NSLineBorder];
+    [launchCard setContentViewMargins:NSZeroSize];
 
     _launchOverlayTitleLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(22.0, 58.0, cardWidth - 44.0, 24.0)];
     [_launchOverlayTitleLabel setBezeled:NO];
@@ -1143,7 +1143,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [_launchOverlayTitleLabel setAlignment:NSCenterTextAlignment];
     [_launchOverlayTitleLabel setFont:[NSFont boldSystemFontOfSize:16.0]];
     [_launchOverlayTitleLabel setStringValue:@"Loading document..."];
-    [launchCard addSubview:_launchOverlayTitleLabel];
+    [[launchCard contentView] addSubview:_launchOverlayTitleLabel];
 
     _launchOverlayDetailLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(22.0, 30.0, cardWidth - 44.0, 20.0)];
     [_launchOverlayDetailLabel setBezeled:NO];
@@ -1154,7 +1154,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [_launchOverlayDetailLabel setTextColor:[NSColor disabledControlTextColor]];
     [_launchOverlayDetailLabel setFont:[NSFont systemFontOfSize:12.0]];
     [_launchOverlayDetailLabel setStringValue:@""];
-    [launchCard addSubview:_launchOverlayDetailLabel];
+    [[launchCard contentView] addSubview:_launchOverlayDetailLabel];
 
     [_launchOverlayView addSubview:launchCard];
     [_documentContainer addSubview:_launchOverlayView];

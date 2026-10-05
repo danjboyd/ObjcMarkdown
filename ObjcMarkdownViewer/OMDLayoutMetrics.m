@@ -60,7 +60,6 @@ OMDLayoutMetrics OMDLayoutMetricsForMode(OMDLayoutDensityMode mode)
     metrics.preferencesWindowMinHeight = 380.0;
     metrics.preferencesOuterPadding = 20.0;
     metrics.preferencesColumnGap = 16.0;
-    metrics.preferencesCardCornerRadius = 12.0;
     metrics.preferencesCardPadding = 18.0;
     metrics.preferencesRowGap = 12.0;
     metrics.preferencesNoteHeight = 30.0;
@@ -134,7 +133,6 @@ OMDLayoutMetrics OMDLayoutMetricsForMode(OMDLayoutDensityMode mode)
         metrics.preferencesWindowMinHeight = 420.0;
         metrics.preferencesOuterPadding = 24.0;
         metrics.preferencesColumnGap = 20.0;
-        metrics.preferencesCardCornerRadius = 14.0;
         metrics.preferencesCardPadding = 22.0;
         metrics.preferencesRowGap = 14.0;
         metrics.preferencesNoteHeight = 34.0;

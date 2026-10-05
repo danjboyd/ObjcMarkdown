@@ -62,62 +62,11 @@
 
 @end
 
-@implementation OMDRoundedCardView
+@implementation OMDFlippedView
 
-@synthesize borderColor = _borderColor;
-@synthesize cornerRadius = _cornerRadius;
-
-- (id)initWithFrame:(NSRect)frameRect
+- (BOOL)isFlipped
 {
-    self = [super initWithFrame:frameRect];
-    if (self != nil) {
-        [self setFillColor:OMDResolvedPanelCardFillColor()];
-        _borderColor = [OMDResolvedPanelCardBorderColor() retain];
-        _cornerRadius = 12.0;
-    }
-    return self;
-}
-
-- (void)dealloc
-{
-    [_borderColor release];
-    [super dealloc];
-}
-
-- (void)setBorderColor:(NSColor *)borderColor
-{
-    if (_borderColor == borderColor) {
-        return;
-    }
-    [_borderColor release];
-    _borderColor = [borderColor retain];
-    [self setNeedsDisplay:YES];
-}
-
-- (void)setCornerRadius:(CGFloat)cornerRadius
-{
-    if (_cornerRadius == cornerRadius) {
-        return;
-    }
-    _cornerRadius = cornerRadius;
-    [self setNeedsDisplay:YES];
-}
-
-- (void)drawRect:(NSRect)dirtyRect
-{
-    (void)dirtyRect;
-    NSRect bounds = NSInsetRect([self bounds], 0.5, 0.5);
-    NSBezierPath *path = [NSBezierPath bezierPathWithRoundedRect:bounds
-                                                         xRadius:_cornerRadius
-                                                         yRadius:_cornerRadius];
-    NSColor *fill = ([self fillColor] != nil ? [self fillColor] : [NSColor clearColor]);
-    [fill setFill];
-    [path fill];
-    if (_borderColor != nil) {
-        [_borderColor setStroke];
-        [path setLineWidth:1.0];
-        [path stroke];
-    }
+    return YES;
 }
 
 @end

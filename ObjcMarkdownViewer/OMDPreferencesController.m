@@ -153,13 +153,18 @@ static void OMDConfigurePreferencesPopup(NSPopUpButton *popup, OMDLayoutMetrics 
     [popup setNeedsDisplay:YES];
 }
 
-static OMDRoundedCardView *OMDCreatePreferencesCard(NSRect frame, OMDLayoutMetrics metrics)
+// A section of the panel: a theme-drawn box whose content view is flipped,
+// so rows are laid out from the top. Returns the content view.
+static NSView *OMDAddPreferencesCard(NSView *parent, NSRect frame)
 {
-    OMDRoundedCardView *card = [[[OMDRoundedCardView alloc] initWithFrame:frame] autorelease];
-    [card setCornerRadius:metrics.preferencesCardCornerRadius];
-    [card setFillColor:OMDResolvedPanelCardFillColor()];
-    [card setBorderColor:OMDResolvedPanelCardBorderColor()];
-    return card;
+    NSBox *box = [[[NSBox alloc] initWithFrame:frame] autorelease];
+    [box setTitlePosition:NSNoTitle];
+    [box setBorderType:NSLineBorder];
+    [box setContentViewMargins:NSZeroSize];
+    NSView *content = [[[OMDFlippedView alloc] initWithFrame:[[box contentView] frame]] autorelease];
+    [box setContentView:content];
+    [parent addSubview:box];
+    return content;
 }
 
 @interface OMDPreferencesController ()
@@ -382,12 +387,10 @@ static OMDRoundedCardView *OMDCreatePreferencesCard(NSRect frame, OMDLayoutMetri
 
 - (void)buildPreferencesAppearanceSectionInView:(NSView *)view metrics:(OMDLayoutMetrics)metrics
 {
-    OMDRoundedCardView *card = OMDCreatePreferencesCard(NSMakeRect(0.0,
-                                                                   0.0,
-                                                                   NSWidth([view bounds]),
-                                                                   metrics.preferencesAppearanceCardHeight),
-                                                        metrics);
-    [view addSubview:card];
+    NSView *card = OMDAddPreferencesCard(view, NSMakeRect(0.0,
+                                                          0.0,
+                                                          NSWidth([view bounds]),
+                                                          metrics.preferencesAppearanceCardHeight));
 
     CGFloat pad = metrics.preferencesCardPadding;
     CGFloat sectionWidth = NSWidth([card bounds]) - (pad * 2.0);
@@ -486,12 +489,10 @@ static OMDRoundedCardView *OMDCreatePreferencesCard(NSRect frame, OMDLayoutMetri
 
 - (void)buildPreferencesExplorerSectionInView:(NSView *)view metrics:(OMDLayoutMetrics)metrics
 {
-    OMDRoundedCardView *card = OMDCreatePreferencesCard(NSMakeRect(0.0,
-                                                                   0.0,
-                                                                   NSWidth([view bounds]),
-                                                                   metrics.preferencesExplorerCardHeight),
-                                                        metrics);
-    [view addSubview:card];
+    NSView *card = OMDAddPreferencesCard(view, NSMakeRect(0.0,
+                                                          0.0,
+                                                          NSWidth([view bounds]),
+                                                          metrics.preferencesExplorerCardHeight));
 
     CGFloat pad = metrics.preferencesCardPadding;
     CGFloat sectionWidth = NSWidth([card bounds]) - (pad * 2.0);
@@ -625,12 +626,10 @@ static OMDRoundedCardView *OMDCreatePreferencesCard(NSRect frame, OMDLayoutMetri
 - (void)buildPreferencesPreviewSectionInView:(NSView *)view metrics:(OMDLayoutMetrics)metrics
 {
     CGFloat cardHeight = OMDPreferencesPreviewSectionHeightForMetrics(metrics);
-    OMDRoundedCardView *card = OMDCreatePreferencesCard(NSMakeRect(0.0,
-                                                                   0.0,
-                                                                   NSWidth([view bounds]),
-                                                                   cardHeight),
-                                                        metrics);
-    [view addSubview:card];
+    NSView *card = OMDAddPreferencesCard(view, NSMakeRect(0.0,
+                                                          0.0,
+                                                          NSWidth([view bounds]),
+                                                          cardHeight));
 
     CGFloat pad = metrics.preferencesCardPadding;
     CGFloat sectionWidth = NSWidth([card bounds]) - (pad * 2.0);
@@ -788,12 +787,10 @@ static OMDRoundedCardView *OMDCreatePreferencesCard(NSRect frame, OMDLayoutMetri
 
 - (void)buildPreferencesEditorSectionInView:(NSView *)view metrics:(OMDLayoutMetrics)metrics
 {
-    OMDRoundedCardView *card = OMDCreatePreferencesCard(NSMakeRect(0.0,
-                                                                   0.0,
-                                                                   NSWidth([view bounds]),
-                                                                   metrics.preferencesEditingCardHeight),
-                                                        metrics);
-    [view addSubview:card];
+    NSView *card = OMDAddPreferencesCard(view, NSMakeRect(0.0,
+                                                          0.0,
+                                                          NSWidth([view bounds]),
+                                                          metrics.preferencesEditingCardHeight));
 
     CGFloat pad = metrics.preferencesCardPadding;
     CGFloat sectionWidth = NSWidth([card bounds]) - (pad * 2.0);
