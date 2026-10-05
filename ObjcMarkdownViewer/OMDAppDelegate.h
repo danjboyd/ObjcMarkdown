@@ -17,9 +17,10 @@ typedef unsigned short mode_t;
 @class OMDDocumentTabsController;
 @class OMDExplorerController;
 @class OMDPreferencesController;
+@class OMDToolbarController;
 @class OMDOutlineController;
 
-@interface OMDAppDelegate : NSObject <NSApplicationDelegate, NSToolbarDelegate, NSWindowDelegate, NSTextViewDelegate, NSMenuValidation, NSSplitViewDelegate, NSControlTextEditingDelegate, OMDSourceTextViewVimEventHandling>
+@interface OMDAppDelegate : NSObject <NSApplicationDelegate, NSWindowDelegate, NSTextViewDelegate, NSMenuValidation, NSSplitViewDelegate, NSControlTextEditingDelegate, OMDSourceTextViewVimEventHandling>
 {
     NSWindow *_window;
     NSSplitView *_workspaceSplitView;
@@ -49,6 +50,7 @@ typedef unsigned short mode_t;
     OMDDocumentTabsController *_documentTabsController;
     OMDExplorerController *_explorerController;
     OMDPreferencesController *_preferencesController;
+    OMDToolbarController *_toolbarController;
     id _updaterController;
     NSMenu *_fileOpenRecentMenu;
     BOOL _explorerSidebarVisible;
@@ -57,14 +59,6 @@ typedef unsigned short mode_t;
     // Heading anchor to scroll to once a newly opened document has rendered.
     NSString *_pendingLinkFragment;
     CGFloat _explorerSidebarLastVisibleWidth;
-    NSView *_toolbarPrimaryActionsContainer;
-    NSView *_toolbarActionGlyphOverlay;
-    NSSegmentedControl *_toolbarFileActionsControl;
-    NSSegmentedControl *_toolbarUtilityActionsControl;
-    NSSlider *_zoomSlider;
-    NSTextField *_zoomLabel;
-    NSButton *_zoomResetButton;
-    NSView *_zoomContainer;
     CGFloat _zoomScale;
     NSTimer *_interactiveRenderTimer;
     NSTimer *_mathArtifactRenderTimer;
@@ -89,10 +83,6 @@ typedef unsigned short mode_t;
     BOOL _isSecondaryWindow;
     OMDDocumentConverter *_documentConverter;
     GSVVimBindingController *_sourceVimBindingController;
-    NSView *_modeContainer;
-    NSSegmentedControl *_modeControl;
-    NSTextField *_modeLabel;
-    NSTextField *_previewStatusLabel;
     NSInteger _viewerMode;
     CGFloat _splitRatio;
     CGFloat _lastObservedSplitAvailableWidth;
@@ -110,10 +100,6 @@ typedef unsigned short mode_t;
     BOOL _zoomUsesDebouncedRendering;
     BOOL _sourceIsDirty;
     BOOL _sourceVimForceClose;
-    BOOL _lastToolbarHadDocument;
-    BOOL _lastToolbarCanSaveDocument;
-    BOOL _lastToolbarExplorerSidebarVisible;
-    BOOL _hasLastToolbarActionState;
     NSUInteger _sourceRevision;
     NSUInteger _lastRenderedSourceRevision;
     NSUInteger _zoomFastRenderStreak;

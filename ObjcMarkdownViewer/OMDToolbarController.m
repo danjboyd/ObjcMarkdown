@@ -1,0 +1,583 @@
+// ObjcMarkdownViewer
+// SPDX-License-Identifier: GPL-2.0-or-later
+
+#import "OMDToolbarController.h"
+#import "OMDControlSupport.h"
+#import "OMDToolbarViews.h"
+#import "OMDViewerColors.h"
+#import "OMDViewerImages.h"
+
+#include <math.h>
+
+static const CGFloat OMDToolbarLabelHeight = 20.0;
+
+// Off Windows the toolbar is a few GNOME-style buttons around a flexible
+// space; with the Adwaita theme's header bar (GnomeThemeHeaderBarToolbar in
+// the Info.plist) it sits in the title row. Windows keeps its own toolbar.
+static BOOL OMDUsesCompactToolbar(void)
+{
+#if defined(_WIN32)
+    return NO;
+#else
+    return YES;
+#endif
+}
+
+static BOOL OMDShouldUseToolbarFlexibleSpace(void)
+{
+#if defined(_WIN32) || defined(__APPLE__)
+    return YES;
+#else
+    return NO;
+#endif
+}
+
+@interface OMDToolbarController ()
+- (void)toolbarActionControlChanged:(id)sender;
+@end
+
+@implementation OMDToolbarController
+
+- (instancetype)initWithDelegate:(id<OMDToolbarControllerDelegate>)delegate
+{
+    self = [super init];
+    if (self != nil) {
+        _delegate = delegate;
+    }
+    return self;
+}
+
+- (void)dealloc
+{
+    [_toolbarPrimaryActionsContainer release];
+    [_toolbarActionGlyphOverlay release];
+    [_toolbarFileActionsControl release];
+    [_toolbarUtilityActionsControl release];
+    [_zoomSlider release];
+    [_zoomLabel release];
+    [_zoomResetButton release];
+    [_zoomContainer release];
+    [_modeContainer release];
+    [_modeControl release];
+    [_modeLabel release];
+    [_previewStatusLabel release];
+    [super dealloc];
+}
+
+- (NSSegmentedControl *)modeControl
+{
+    return _modeControl;
+}
+
+- (NSTextField *)modeLabel
+{
+    return _modeLabel;
+}
+
+- (NSTextField *)previewStatusLabel
+{
+    return _previewStatusLabel;
+}
+
+- (NSSlider *)zoomSlider
+{
+    return _zoomSlider;
+}
+
+- (NSTextField *)zoomLabel
+{
+    return _zoomLabel;
+}
+
+- (void)installInWindow:(NSWindow *)window
+{
+    NSToolbar *toolbar = [[[NSToolbar alloc] initWithIdentifier:@"ObjcMarkdownViewerToolbar"] autorelease];
+    [toolbar setDelegate:self];
+    [toolbar setAllowsUserCustomization:NO];
+    [toolbar setAutosavesConfiguration:NO];
+    [toolbar setDisplayMode:(OMDUsesCompactToolbar() ? NSToolbarDisplayModeIconOnly : NSToolbarDisplayModeIconAndLabel)];
+    [toolbar setSizeMode:NSToolbarSizeModeRegular];
+    [window setToolbar:toolbar];
+}
+
+- (NSToolbarItem *)toolbar:(NSToolbar *)toolbar
+      itemForItemIdentifier:(NSString *)identifier
+  willBeInsertedIntoToolbar:(BOOL)flag
+{
+    if ([identifier isEqualToString:@"PrimaryActions"]) {
+        CGFloat fileActionsWidth = OMDToolbarActionSegmentWidth * 3.0;
+        CGFloat utilityActionsWidth = OMDToolbarActionSegmentWidth * 3.0;
+        CGFloat containerWidth = fileActionsWidth + OMDToolbarActionGroupSpacing + utilityActionsWidth;
+        if (_toolbarPrimaryActionsContainer == nil) {
+            CGFloat controlY = floor((OMDToolbarItemHeight - OMDToolbarControlHeight) * 0.5);
+            _toolbarPrimaryActionsContainer = [[OMDToolbarToolTipView alloc] initWithFrame:NSMakeRect(0, 0, containerWidth, OMDToolbarItemHeight)];
+
+            _toolbarFileActionsControl = [[NSSegmentedControl alloc] initWithFrame:NSMakeRect(0, controlY, fileActionsWidth, OMDToolbarControlHeight)];
+            [_toolbarFileActionsControl setSegmentCount:3];
+            [_toolbarFileActionsControl setSegmentStyle:NSSegmentStyleRounded];
+            [[_toolbarFileActionsControl cell] setTrackingMode:NSSegmentSwitchTrackingMomentary];
+            [_toolbarFileActionsControl setTarget:self];
+            [_toolbarFileActionsControl setAction:@selector(toolbarActionControlChanged:)];
+            [_toolbarFileActionsControl setTag:1];
+            [_toolbarFileActionsControl setImage:(OMDToolbarThemedImageNamed(@"toolbar-explorer-toggle.png") ?: [NSImage imageNamed:@"NSMenuOnStateTemplate"]) forSegment:0];
+            [_toolbarFileActionsControl setImage:(OMDToolbarThemedImageNamed(@"toolbar-open.png") ?: OMDToolbarImageNamed(@"open-icon.png")) forSegment:1];
+            [_toolbarFileActionsControl setImage:(OMDToolbarThemedImageNamed(@"toolbar-saveas.png") ?: [NSImage imageNamed:@"NSSave"]) forSegment:2];
+            [[_toolbarFileActionsControl cell] setToolTip:@"Show or hide the file explorer" forSegment:0];
+            [[_toolbarFileActionsControl cell] setToolTip:@"Open a Markdown file" forSegment:1];
+            [[_toolbarFileActionsControl cell] setToolTip:@"Save current markdown changes" forSegment:2];
+            [_toolbarFileActionsControl setWidth:OMDToolbarActionSegmentWidth forSegment:0];
+            [_toolbarFileActionsControl setWidth:OMDToolbarActionSegmentWidth forSegment:1];
+            [_toolbarFileActionsControl setWidth:OMDToolbarActionSegmentWidth forSegment:2];
+            [_toolbarPrimaryActionsContainer addSubview:_toolbarFileActionsControl];
+
+            _toolbarUtilityActionsControl = [[NSSegmentedControl alloc] initWithFrame:NSMakeRect(fileActionsWidth + OMDToolbarActionGroupSpacing,
+                                                                                                 controlY,
+                                                                                                 utilityActionsWidth,
+                                                                                                 OMDToolbarControlHeight)];
+            [_toolbarUtilityActionsControl setSegmentCount:3];
+            [_toolbarUtilityActionsControl setSegmentStyle:NSSegmentStyleRounded];
+            [[_toolbarUtilityActionsControl cell] setTrackingMode:NSSegmentSwitchTrackingMomentary];
+            [_toolbarUtilityActionsControl setTarget:self];
+            [_toolbarUtilityActionsControl setAction:@selector(toolbarActionControlChanged:)];
+            [_toolbarUtilityActionsControl setTag:2];
+            [_toolbarUtilityActionsControl setImage:(OMDToolbarThemedImageNamed(@"toolbar-export.png") ?: [NSImage imageNamed:@"NSSave"]) forSegment:0];
+            [_toolbarUtilityActionsControl setImage:(OMDToolbarThemedImageNamed(@"toolbar-print.png") ?: [NSImage imageNamed:@"NSPrint"]) forSegment:1];
+            [_toolbarUtilityActionsControl setImage:(OMDToolbarThemedImageNamed(@"toolbar-preferences.png")
+                                                    ?: [NSImage imageNamed:@"NSPreferencesGeneral"]
+                                                    ?: [NSImage imageNamed:@"preferences"]) forSegment:2];
+            [[_toolbarUtilityActionsControl cell] setToolTip:@"Export the current document as PDF" forSegment:0];
+            [[_toolbarUtilityActionsControl cell] setToolTip:@"Print the current document" forSegment:1];
+            [[_toolbarUtilityActionsControl cell] setToolTip:@"Open Preferences" forSegment:2];
+            [_toolbarUtilityActionsControl setWidth:OMDToolbarActionSegmentWidth forSegment:0];
+            [_toolbarUtilityActionsControl setWidth:OMDToolbarActionSegmentWidth forSegment:1];
+            [_toolbarUtilityActionsControl setWidth:OMDToolbarActionSegmentWidth forSegment:2];
+            [_toolbarPrimaryActionsContainer addSubview:_toolbarUtilityActionsControl];
+
+            _toolbarActionGlyphOverlay = [[OMDToolbarActionGlyphOverlayView alloc] initWithFrame:[_toolbarPrimaryActionsContainer bounds]];
+            [_toolbarActionGlyphOverlay setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable)];
+            [(OMDToolbarActionGlyphOverlayView *)_toolbarActionGlyphOverlay setFileActionsControl:_toolbarFileActionsControl
+                                                                             utilityActionsControl:_toolbarUtilityActionsControl];
+            [(OMDToolbarToolTipView *)_toolbarActionGlyphOverlay setToolTip:@"Show the file explorer"
+                                                                    forRect:NSMakeRect(0.0, controlY, OMDToolbarActionSegmentWidth, OMDToolbarControlHeight)];
+            [(OMDToolbarToolTipView *)_toolbarActionGlyphOverlay setToolTip:@"Open a Markdown file"
+                                                                    forRect:NSMakeRect(OMDToolbarActionSegmentWidth, controlY, OMDToolbarActionSegmentWidth, OMDToolbarControlHeight)];
+            [(OMDToolbarToolTipView *)_toolbarActionGlyphOverlay setToolTip:@"No unsaved changes to save"
+                                                                    forRect:NSMakeRect(OMDToolbarActionSegmentWidth * 2.0, controlY, OMDToolbarActionSegmentWidth, OMDToolbarControlHeight)];
+            [(OMDToolbarToolTipView *)_toolbarActionGlyphOverlay setToolTip:@"Export the current document as PDF"
+                                                                    forRect:NSMakeRect(fileActionsWidth + OMDToolbarActionGroupSpacing, controlY, OMDToolbarActionSegmentWidth, OMDToolbarControlHeight)];
+            [(OMDToolbarToolTipView *)_toolbarActionGlyphOverlay setToolTip:@"Print the current document"
+                                                                    forRect:NSMakeRect(fileActionsWidth + OMDToolbarActionGroupSpacing + OMDToolbarActionSegmentWidth, controlY, OMDToolbarActionSegmentWidth, OMDToolbarControlHeight)];
+            [(OMDToolbarToolTipView *)_toolbarActionGlyphOverlay setToolTip:@"Open Preferences"
+                                                                    forRect:NSMakeRect(fileActionsWidth + OMDToolbarActionGroupSpacing + (OMDToolbarActionSegmentWidth * 2.0), controlY, OMDToolbarActionSegmentWidth, OMDToolbarControlHeight)];
+            [_toolbarPrimaryActionsContainer addSubview:_toolbarActionGlyphOverlay];
+
+            [self updateToolbarActionControlsState];
+        }
+
+        NSToolbarItem *item = [[[NSToolbarItem alloc] initWithItemIdentifier:@"PrimaryActions"] autorelease];
+        [item setView:_toolbarPrimaryActionsContainer];
+        [item setMinSize:NSMakeSize(containerWidth, OMDToolbarItemHeight)];
+        [item setMaxSize:NSMakeSize(containerWidth, OMDToolbarItemHeight)];
+        [item setLabel:@""];
+        [item setPaletteLabel:@"Actions"];
+        return item;
+    }
+
+    if ([identifier isEqualToString:@"ToggleExplorer"]) {
+        NSToolbarItem *item = [[[NSToolbarItem alloc] initWithItemIdentifier:@"ToggleExplorer"] autorelease];
+        [item setLabel:@"Explorer"];
+        [item setPaletteLabel:@"Explorer"];
+        [item setToolTip:@"Show or hide the file explorer"];
+        [item setTarget:_delegate];
+        [item setAction:@selector(toggleExplorerSidebar:)];
+        NSImage *image = OMDToolbarThemedImageNamed(@"toolbar-explorer-toggle.png");
+        if (image == nil) {
+            image = [NSImage imageNamed:@"NSMenuOnStateTemplate"];
+        }
+        OMDSetToolbarItemImage(item, image);
+        return item;
+    }
+
+    if ([identifier isEqualToString:@"OpenDocument"]) {
+        NSToolbarItem *item = [[[NSToolbarItem alloc] initWithItemIdentifier:@"OpenDocument"] autorelease];
+        [item setLabel:@"Open"];
+        [item setPaletteLabel:@"Open"];
+        [item setToolTip:@"Open a Markdown file"];
+        [item setTarget:_delegate];
+        [item setAction:@selector(openDocument:)];
+        NSImage *image = OMDToolbarThemedImageNamed(@"toolbar-open.png");
+        if (image == nil) {
+            image = OMDToolbarImageNamed(@"open-icon.png");
+        }
+        if (image == nil) {
+            image = [NSImage imageNamed:@"NSOpen"];
+        }
+        OMDSetToolbarItemImage(item, image);
+        return item;
+    }
+
+    if ([identifier isEqualToString:@"SaveDocument"]) {
+        NSToolbarItem *item = [[[NSToolbarItem alloc] initWithItemIdentifier:@"SaveDocument"] autorelease];
+        [item setLabel:@"Save"];
+        [item setPaletteLabel:@"Save"];
+        [item setToolTip:@"Save current markdown changes"];
+        [item setTarget:_delegate];
+        [item setAction:@selector(saveDocument:)];
+        NSImage *image = OMDToolbarThemedImageNamed(@"toolbar-saveas.png");
+        if (image == nil) {
+            image = OMDToolbarImageNamed(@"open-icon.png");
+        }
+        if (image == nil) {
+            image = [NSImage imageNamed:@"NSSave"];
+        }
+        OMDSetToolbarItemImage(item, image);
+        return item;
+    }
+
+    if ([identifier isEqualToString:@"Preferences"]) {
+        NSToolbarItem *item = [[[NSToolbarItem alloc] initWithItemIdentifier:@"Preferences"] autorelease];
+        [item setLabel:@"Prefs"];
+        [item setPaletteLabel:@"Preferences"];
+        [item setToolTip:@"Open Preferences"];
+        [item setTarget:_delegate];
+        [item setAction:@selector(showPreferences:)];
+        NSImage *image = OMDToolbarThemedImageNamed(@"toolbar-preferences.png");
+        if (image == nil) {
+            image = [NSImage imageNamed:@"NSPreferencesGeneral"];
+        }
+        if (image == nil) {
+            image = [NSImage imageNamed:@"preferences"];
+        }
+        if (image == nil) {
+            image = [NSImage imageNamed:@"NSAdvanced"];
+        }
+        OMDSetToolbarItemImage(item, image);
+        return item;
+    }
+
+    if ([identifier isEqualToString:@"PrintDocument"]) {
+        NSToolbarItem *item = [[[NSToolbarItem alloc] initWithItemIdentifier:@"PrintDocument"] autorelease];
+        [item setLabel:@"Print"];
+        [item setPaletteLabel:@"Print"];
+        [item setToolTip:@"Print the current document"];
+        [item setTarget:_delegate];
+        [item setAction:@selector(printDocument:)];
+        NSImage *image = OMDToolbarThemedImageNamed(@"toolbar-print.png");
+        if (image == nil) {
+            image = [NSImage imageNamed:@"NSPrint"];
+        }
+        if (image == nil) {
+            image = [NSImage imageNamed:@"common_Printer.tiff"];
+        }
+        OMDSetToolbarItemImage(item, image);
+        return item;
+    }
+
+    if ([identifier isEqualToString:@"ExportDocument"]) {
+        NSToolbarItem *item = [[[NSToolbarItem alloc] initWithItemIdentifier:@"ExportDocument"] autorelease];
+        [item setLabel:@"Export PDF"];
+        [item setPaletteLabel:@"Export PDF"];
+        [item setToolTip:@"Export the current document as PDF (more formats in File > Export)"];
+        [item setTarget:_delegate];
+        [item setAction:@selector(exportDocumentAsPDF:)];
+        NSImage *image = OMDToolbarThemedImageNamed(@"toolbar-export.png");
+        if (image == nil) {
+            image = [NSImage imageNamed:@"NSSave"];
+        }
+        OMDSetToolbarItemImage(item, image);
+        return item;
+    }
+
+    if ([identifier isEqualToString:@"ModeControls"] && OMDUsesCompactToolbar()) {
+        CGFloat statusWidth = 132.0;
+        CGFloat switcherWidth = 182.0;
+        CGFloat containerWidth = statusWidth + 8.0 + switcherWidth;
+        if (_modeContainer == nil) {
+            CGFloat labelY = floor((OMDToolbarItemHeight - OMDToolbarLabelHeight) * 0.5);
+            CGFloat controlY = floor((OMDToolbarItemHeight - OMDToolbarControlHeight) * 0.5);
+            _modeContainer = [[OMDToolbarToolTipView alloc] initWithFrame:NSMakeRect(0, 0, containerWidth, OMDToolbarItemHeight)];
+            // Vim's mode and command line, beside the switcher.
+            _previewStatusLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(0, labelY, statusWidth, OMDToolbarLabelHeight)];
+            [_previewStatusLabel setBezeled:NO];
+            [_previewStatusLabel setEditable:NO];
+            [_previewStatusLabel setSelectable:NO];
+            [_previewStatusLabel setDrawsBackground:NO];
+            [_previewStatusLabel setAlignment:NSRightTextAlignment];
+            [_previewStatusLabel setFont:[NSFont boldSystemFontOfSize:11.0]];
+            [_previewStatusLabel setStringValue:@""];
+            [_previewStatusLabel setHidden:YES];
+            [_modeContainer addSubview:_previewStatusLabel];
+
+            CGFloat switcherX = statusWidth + 8.0;
+            _modeControl = [[NSSegmentedControl alloc] initWithFrame:NSMakeRect(switcherX, controlY, switcherWidth, OMDToolbarControlHeight)];
+            [_modeControl setSegmentCount:3];
+            [_modeControl setLabel:@"Read" forSegment:0];
+            [_modeControl setLabel:@"Edit" forSegment:1];
+            [_modeControl setLabel:@"Split" forSegment:2];
+            [[_modeControl cell] setToolTip:@"Read (Ctrl+1)" forSegment:0];
+            [[_modeControl cell] setToolTip:@"Edit (Ctrl+2)" forSegment:1];
+            [[_modeControl cell] setToolTip:@"Split (Ctrl+3)" forSegment:2];
+            [_modeControl setTarget:_delegate];
+            [_modeControl setAction:@selector(modeControlChanged:)];
+            [_modeContainer addSubview:_modeControl];
+            CGFloat segment = floor(switcherWidth / 3.0);
+            [(OMDToolbarToolTipView *)_modeContainer setToolTip:@"Read (Ctrl+1)"
+                                                        forRect:NSMakeRect(switcherX, controlY, segment, OMDToolbarControlHeight)];
+            [(OMDToolbarToolTipView *)_modeContainer setToolTip:@"Edit (Ctrl+2)"
+                                                        forRect:NSMakeRect(switcherX + segment, controlY, segment, OMDToolbarControlHeight)];
+            [(OMDToolbarToolTipView *)_modeContainer setToolTip:@"Split (Ctrl+3)"
+                                                        forRect:NSMakeRect(switcherX + 2.0 * segment, controlY, switcherWidth - 2.0 * segment, OMDToolbarControlHeight)];
+            [_delegate updateModeControlSelection];
+            [_delegate updatePreviewStatusIndicator];
+        }
+        NSToolbarItem *item = [[[NSToolbarItem alloc] initWithItemIdentifier:@"ModeControls"] autorelease];
+        [item setView:_modeContainer];
+        [item setMinSize:NSMakeSize(containerWidth, OMDToolbarItemHeight)];
+        [item setMaxSize:NSMakeSize(containerWidth, OMDToolbarItemHeight)];
+        [item setLabel:@""];
+        [item setPaletteLabel:@"View"];
+        return item;
+    }
+
+    if ([identifier isEqualToString:@"ModeControls"]) {
+        if (_modeContainer == nil) {
+            CGFloat labelY = floor((OMDToolbarItemHeight - OMDToolbarLabelHeight) * 0.5);
+            CGFloat controlY = floor((OMDToolbarItemHeight - OMDToolbarControlHeight) * 0.5);
+            _modeContainer = [[OMDToolbarToolTipView alloc] initWithFrame:NSMakeRect(0, 0, 356, OMDToolbarItemHeight)];
+            _modeLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(0, labelY, 32, OMDToolbarLabelHeight)];
+            [_modeLabel setBezeled:NO];
+            [_modeLabel setEditable:NO];
+            [_modeLabel setSelectable:NO];
+            [_modeLabel setDrawsBackground:NO];
+            [_modeLabel setAlignment:NSRightTextAlignment];
+            [_modeLabel setFont:[NSFont boldSystemFontOfSize:11.0]];
+            [_modeLabel setTextColor:[_delegate modeLabelTextColor]];
+            [_modeLabel setStringValue:@"View"];
+            [_modeContainer addSubview:_modeLabel];
+
+            _modeControl = [[NSSegmentedControl alloc] initWithFrame:NSMakeRect(36, controlY, 182, OMDToolbarControlHeight)];
+            [_modeControl setSegmentCount:3];
+            [_modeControl setLabel:@"Read" forSegment:0];
+            [_modeControl setLabel:@"Edit" forSegment:1];
+            [_modeControl setLabel:@"Split" forSegment:2];
+            [[_modeControl cell] setToolTip:@"Read mode" forSegment:0];
+            [[_modeControl cell] setToolTip:@"Edit mode" forSegment:1];
+            [[_modeControl cell] setToolTip:@"Split mode" forSegment:2];
+            [_modeControl setTarget:_delegate];
+            [_modeControl setAction:@selector(modeControlChanged:)];
+            [_modeContainer addSubview:_modeControl];
+            [(OMDToolbarToolTipView *)_modeContainer setToolTip:@"Read mode"
+                                                        forRect:NSMakeRect(36.0, controlY, 60.0, OMDToolbarControlHeight)];
+            [(OMDToolbarToolTipView *)_modeContainer setToolTip:@"Edit mode"
+                                                        forRect:NSMakeRect(96.0, controlY, 61.0, OMDToolbarControlHeight)];
+            [(OMDToolbarToolTipView *)_modeContainer setToolTip:@"Split mode"
+                                                        forRect:NSMakeRect(157.0, controlY, 61.0, OMDToolbarControlHeight)];
+
+            _previewStatusLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(224, labelY, 132, OMDToolbarLabelHeight)];
+            [_previewStatusLabel setBezeled:NO];
+            [_previewStatusLabel setEditable:NO];
+            [_previewStatusLabel setSelectable:NO];
+            [_previewStatusLabel setDrawsBackground:NO];
+            [_previewStatusLabel setAlignment:NSLeftTextAlignment];
+            [_previewStatusLabel setFont:[NSFont boldSystemFontOfSize:11.0]];
+            [_previewStatusLabel setStringValue:@""];
+            [_previewStatusLabel setHidden:YES];
+            [_modeContainer addSubview:_previewStatusLabel];
+
+            [_delegate updateModeControlSelection];
+            [_delegate updatePreviewStatusIndicator];
+        }
+        NSToolbarItem *item = [[[NSToolbarItem alloc] initWithItemIdentifier:@"ModeControls"] autorelease];
+        [item setView:_modeContainer];
+        [item setMinSize:NSMakeSize(356, OMDToolbarItemHeight)];
+        [item setMaxSize:NSMakeSize(356, OMDToolbarItemHeight)];
+        [item setLabel:@""];
+        [item setPaletteLabel:@"View"];
+        return item;
+    }
+
+    if ([identifier isEqualToString:@"ZoomControls"]) {
+        if (_zoomContainer == nil) {
+            CGFloat labelY = floor((OMDToolbarItemHeight - OMDToolbarLabelHeight) * 0.5);
+            CGFloat controlY = floor((OMDToolbarItemHeight - OMDToolbarControlHeight) * 0.5);
+            _zoomContainer = [[OMDToolbarToolTipView alloc] initWithFrame:NSMakeRect(0, 0, 300, OMDToolbarItemHeight)];
+
+            _zoomLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(0, labelY, 55, OMDToolbarLabelHeight)];
+            [_zoomLabel setBezeled:NO];
+            [_zoomLabel setEditable:NO];
+            [_zoomLabel setSelectable:NO];
+            [_zoomLabel setDrawsBackground:NO];
+            [_zoomLabel setAlignment:NSRightTextAlignment];
+            [_zoomLabel setFont:[NSFont boldSystemFontOfSize:11.0]];
+            [_zoomLabel setToolTip:@"Current zoom"];
+
+            _zoomSlider = [[NSSlider alloc] initWithFrame:NSMakeRect(60, controlY, 130, OMDToolbarControlHeight)];
+            [_zoomSlider setMinValue:50];
+            [_zoomSlider setMaxValue:200];
+            [_zoomSlider setDoubleValue:[_delegate previewZoomScale] * 100.0];
+            [_zoomSlider setTarget:_delegate];
+            [_zoomSlider setAction:@selector(zoomSliderChanged:)];
+            [_zoomSlider setToolTip:@"Adjust zoom"];
+
+            _zoomResetButton = [[NSButton alloc] initWithFrame:NSMakeRect(205, controlY, 90, OMDToolbarControlHeight)];
+            [_zoomResetButton setTitle:@"100%"];
+            [_zoomResetButton setBezelStyle:NSRoundedBezelStyle];
+            [_zoomResetButton setFont:[NSFont systemFontOfSize:11.0]];
+            [_zoomResetButton setTarget:_delegate];
+            [_zoomResetButton setAction:@selector(zoomReset:)];
+            [_zoomResetButton setToolTip:@"Reset zoom to 100%"];
+
+            [_zoomContainer addSubview:_zoomLabel];
+            [_zoomContainer addSubview:_zoomSlider];
+            [_zoomContainer addSubview:_zoomResetButton];
+            [(OMDToolbarToolTipView *)_zoomContainer setToolTip:@"Current zoom"
+                                                        forRect:NSMakeRect(0.0, labelY, 55.0, OMDToolbarLabelHeight)];
+            [(OMDToolbarToolTipView *)_zoomContainer setToolTip:@"Adjust zoom"
+                                                        forRect:NSMakeRect(60.0, controlY, 130.0, OMDToolbarControlHeight)];
+            [(OMDToolbarToolTipView *)_zoomContainer setToolTip:@"Reset zoom to 100%"
+                                                        forRect:NSMakeRect(205.0, controlY, 90.0, OMDToolbarControlHeight)];
+            [_delegate updateZoomLabel];
+        }
+
+        NSToolbarItem *item = [[[NSToolbarItem alloc] initWithItemIdentifier:@"ZoomControls"] autorelease];
+        [item setView:_zoomContainer];
+        [item setMinSize:NSMakeSize(300, OMDToolbarItemHeight)];
+        [item setMaxSize:NSMakeSize(300, OMDToolbarItemHeight)];
+        return item;
+    }
+
+    return nil;
+}
+
+- (NSArray *)toolbarAllowedItemIdentifiers:(NSToolbar *)toolbar
+{
+    if (OMDUsesCompactToolbar()) {
+        // Export, Print and Preferences are in the menus (the header bar's
+        // main menu with the Adwaita theme); zoom is View > Zoom In / Out.
+        return [NSArray arrayWithObjects:@"ToggleExplorer",
+                                         @"OpenDocument",
+                                         @"SaveDocument",
+                                         NSToolbarFlexibleSpaceItemIdentifier,
+                                         @"ModeControls",
+                                         nil];
+    }
+    NSMutableArray *identifiers = [NSMutableArray arrayWithObjects:
+        @"PrimaryActions",
+        nil];
+    [identifiers addObject:@"ModeControls"];
+    if (OMDShouldUseToolbarFlexibleSpace()) {
+        [identifiers addObject:NSToolbarFlexibleSpaceItemIdentifier];
+    }
+    [identifiers addObject:@"ZoomControls"];
+    return identifiers;
+}
+
+- (NSArray *)toolbarDefaultItemIdentifiers:(NSToolbar *)toolbar
+{
+    return [self toolbarAllowedItemIdentifiers:toolbar];
+}
+
+- (void)toolbarActionControlChanged:(id)sender
+{
+    NSSegmentedControl *control = (NSSegmentedControl *)sender;
+    NSInteger segment = [control selectedSegment];
+    if (segment < 0) {
+        return;
+    }
+
+    if (control == _toolbarFileActionsControl) {
+        switch (segment) {
+            case 0:
+                [_delegate toggleExplorerSidebar:control];
+                break;
+            case 1:
+                [_delegate openDocument:control];
+                break;
+            case 2:
+                [_delegate saveDocument:control];
+                break;
+            default:
+                break;
+        }
+    } else if (control == _toolbarUtilityActionsControl) {
+        switch (segment) {
+            case 0:
+                [_delegate exportDocumentAsPDF:control];
+                break;
+            case 1:
+                [_delegate printDocument:control];
+                break;
+            case 2:
+                [_delegate showPreferences:control];
+                break;
+            default:
+                break;
+        }
+    }
+
+    [control setSelectedSegment:-1];
+    [self updateToolbarActionControlsState];
+}
+
+- (void)updateToolbarActionControlsState
+{
+    BOOL hasDocument = [_delegate hasLoadedDocument];
+    BOOL canSaveDocument = [_delegate canSaveCurrentDocument];
+    if (_hasLastToolbarActionState &&
+        _lastToolbarHadDocument == hasDocument &&
+        _lastToolbarCanSaveDocument == canSaveDocument &&
+        _lastToolbarExplorerSidebarVisible == [_delegate isExplorerSidebarVisible]) {
+        return;
+    }
+    _lastToolbarHadDocument = hasDocument;
+    _lastToolbarCanSaveDocument = canSaveDocument;
+    _lastToolbarExplorerSidebarVisible = [_delegate isExplorerSidebarVisible];
+    _hasLastToolbarActionState = YES;
+
+    NSColor *activeIconTint = OMDResolvedControlTextColor();
+    NSColor *disabledIconTint = OMDResolvedMutedTextColor();
+    if (_toolbarFileActionsControl != nil) {
+        NSImage *saveBaseImage = (OMDImageNamed(@"toolbar-saveas.png") ?: [NSImage imageNamed:@"NSSave"]);
+        [_toolbarFileActionsControl setImage:OMDToolbarTintedImage(saveBaseImage,
+                                                                   (canSaveDocument ? activeIconTint : disabledIconTint))
+                                  forSegment:2];
+        [_toolbarFileActionsControl setEnabled:YES forSegment:0];
+        [_toolbarFileActionsControl setEnabled:YES forSegment:1];
+        [_toolbarFileActionsControl setEnabled:canSaveDocument forSegment:2];
+        [[_toolbarFileActionsControl cell] setToolTip:([_delegate isExplorerSidebarVisible]
+                                                        ? @"Hide the file explorer"
+                                                        : @"Show the file explorer")
+                                           forSegment:0];
+        [[_toolbarFileActionsControl cell] setToolTip:(canSaveDocument
+                                                       ? @"Save current markdown changes"
+                                                       : @"No unsaved changes to save")
+                                           forSegment:2];
+        if ([_toolbarActionGlyphOverlay isKindOfClass:[OMDToolbarToolTipView class]]) {
+            CGFloat controlY = floor((OMDToolbarItemHeight - OMDToolbarControlHeight) * 0.5);
+            [(OMDToolbarToolTipView *)_toolbarActionGlyphOverlay setToolTip:([_delegate isExplorerSidebarVisible]
+                                                                              ? @"Hide the file explorer"
+                                                                              : @"Show the file explorer")
+                                                                    forRect:NSMakeRect(0.0, controlY, OMDToolbarActionSegmentWidth, OMDToolbarControlHeight)];
+            [(OMDToolbarToolTipView *)_toolbarActionGlyphOverlay setToolTip:(canSaveDocument
+                                                                              ? @"Save current markdown changes"
+                                                                              : @"No unsaved changes to save")
+                                                                    forRect:NSMakeRect(OMDToolbarActionSegmentWidth * 2.0, controlY, OMDToolbarActionSegmentWidth, OMDToolbarControlHeight)];
+        }
+    }
+    if (_toolbarUtilityActionsControl != nil) {
+        NSImage *exportBaseImage = (OMDImageNamed(@"toolbar-export.png") ?: [NSImage imageNamed:@"NSSave"]);
+        NSImage *printBaseImage = (OMDImageNamed(@"toolbar-print.png") ?: [NSImage imageNamed:@"NSPrint"]);
+        [_toolbarUtilityActionsControl setImage:OMDToolbarTintedImage(exportBaseImage,
+                                                                      (hasDocument ? activeIconTint : disabledIconTint))
+                                     forSegment:0];
+        [_toolbarUtilityActionsControl setImage:OMDToolbarTintedImage(printBaseImage,
+                                                                      (hasDocument ? activeIconTint : disabledIconTint))
+                                     forSegment:1];
+        [_toolbarUtilityActionsControl setEnabled:hasDocument forSegment:0];
+        [_toolbarUtilityActionsControl setEnabled:hasDocument forSegment:1];
+        [_toolbarUtilityActionsControl setEnabled:YES forSegment:2];
+    }
+    [_toolbarActionGlyphOverlay setNeedsDisplay:YES];
+}
+
+@end
