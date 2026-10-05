@@ -514,6 +514,8 @@ static CGFloat OMDClampedScrollSpeed(CGFloat value)
 - (void)updateLinkedPreviewObject;
 - (NSRect)layoutOutlinePanelInBounds:(NSRect)bounds;
 - (void)refreshOutline;
+- (NSArray *)outlineHeadings;
+- (void)scheduleSourceOutlineRefresh;
 - (void)updateOutlineCurrentHeading;
 - (void)scrollToHeading:(NSDictionary *)heading;
 - (BOOL)scrollToAnchor:(NSString *)anchor;
@@ -715,6 +717,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
 - (void)dealloc
 {
     [self unregisterAsSecondaryWindow];
+    [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(refreshOutline) object:nil];
     [[NSNotificationCenter defaultCenter] removeObserver:self
                                                     name:OMMarkdownRendererMathArtifactsDidWarmNotification
                                                   object:nil];
@@ -1608,7 +1611,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
     _outlineVisible = !_outlineVisible;
     [[NSUserDefaults standardUserDefaults] setBool:_outlineVisible forKey:OMDOutlineVisibleDefaultsKey];
     [self layoutDocumentViews];
-    [self updateOutlineCurrentHeading];
+    [self refreshOutline];
 }
 
 - (void)toggleExplorerSidebar:(id)sender
@@ -4864,6 +4867,9 @@ constrainSplitPosition:(CGFloat)proposedPosition
     [self updateModeControlSelection];
     [self applyViewerModeLayout];
     [self updateWindowTitle];
+    if (_viewerMode == OMDViewerModeEdit) {
+        [self refreshOutline];
+    }
 
     if (_viewerMode == OMDViewerModeEdit) {
         [_renderScheduler cancelPendingInteractiveRender];
@@ -5252,6 +5258,9 @@ constrainSplitPosition:(CGFloat)proposedPosition
     [self applyCurrentDocumentReadOnlyState];
     [self updatePreviewStatusIndicator];
     [self updateWindowTitle];
+    if (![self isPreviewVisible]) {
+        [self refreshOutline];
+    }
 }
 
 - (void)selectDocumentTabAtIndex:(NSInteger)index
@@ -8149,6 +8158,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
         }
         [_renderScheduler scheduleLivePreviewRender];
     }
+    [self scheduleSourceOutlineRefresh];
     NSTimeInterval afterPreview = profiling ? OMDKeyLatencyNow() : 0.0;
     [self requestSourceSyntaxHighlightingRefresh];
     NSTimeInterval afterHighlightRequest = profiling ? OMDKeyLatencyNow() : 0.0;
@@ -8285,7 +8295,7 @@ static NSRange OMDCharacterRangeForSourceLines(NSString *source, NSRange lineRan
     if (_outlineController == nil) {
         return;
     }
-    [_outlineController setHeadings:([self hasLoadedDocument] ? [_renderer headings] : nil)];
+    [_outlineController setHeadings:[self outlineHeadings]];
     if (_pendingLinkFragment != nil && [[_textView textStorage] length] > 0) {
         NSString *fragment = [_pendingLinkFragment autorelease];
         _pendingLinkFragment = nil;
@@ -8297,6 +8307,32 @@ static NSRange OMDCharacterRangeForSourceLines(NSString *source, NSRange lineRan
         [self layoutDocumentViews];
     }
     [self updateOutlineCurrentHeading];
+}
+
+// The rendered headings while the preview is shown; in Edit mode, where
+// nothing is rendered, the ones in the editor's Markdown (#42).
+- (NSArray *)outlineHeadings
+{
+    if (![self hasLoadedDocument]) {
+        return nil;
+    }
+    if ([self isPreviewVisible]) {
+        return [_renderer headings];
+    }
+    if (_currentDocumentRenderMode == OMDDocumentRenderModeVerbatim || _currentMarkdown == nil) {
+        return nil;
+    }
+    return [OMMarkdownRenderer headingsInMarkdown:_currentMarkdown];
+}
+
+// After an edit in Edit mode, once typing pauses.
+- (void)scheduleSourceOutlineRefresh
+{
+    if (!_outlineVisible || [self isPreviewVisible]) {
+        return;
+    }
+    [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(refreshOutline) object:nil];
+    [self performSelector:@selector(refreshOutline) withObject:nil afterDelay:0.3];
 }
 
 // Highlights the heading whose section is at the top of what's being read:

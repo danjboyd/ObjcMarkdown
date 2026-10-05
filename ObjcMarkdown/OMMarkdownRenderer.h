@@ -60,6 +60,10 @@ FOUNDATION_EXPORT NSString * const OMMarkdownRendererDiagramSourceKey;
 // GitHub's anchor slug for a heading title, before de-duplication: lowercase,
 // letters/marks/numbers/"_"/"-"/spaces kept, spaces turned into "-".
 + (NSString *)anchorSlugForHeadingTitle:(NSString *)title;
+// The headings of markdown as -headings lists them after a render (same
+// levels, titles, anchors and source lines), found by parsing only. Their
+// range in a rendered string is unknown: {NSNotFound, 0}.
++ (NSArray *)headingsInMarkdown:(NSString *)markdown;
 // The colours and fonts rendered with; may be changed between renders.
 @property (nonatomic, retain) OMTheme *theme;
 @property (nonatomic, assign) CGFloat zoomScale;

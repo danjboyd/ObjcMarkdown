@@ -1014,6 +1014,9 @@ static void OMAppendTextWithMathSpans(NSString *text,
 }
 
 
+static NSString *OMUniqueHeadingSlug(NSString *title, NSMutableDictionary *counts);
+static void OMPrepareFootnotes(cmark_node *document);
+
 @interface OMMarkdownRenderer ()
 @property (nonatomic, retain) NSArray *codeBlockRanges;
 @property (nonatomic, retain) NSArray *blockquoteRanges;
@@ -1040,6 +1043,42 @@ static void OMAppendTextWithMathSpans(NSString *text,
         NSUInteger next = [[generations objectForKey:formula] unsignedIntegerValue] + 1;
         [generations setObject:[NSNumber numberWithUnsignedInteger:next] forKey:formula];
     }
+}
+
++ (NSArray *)headingsInMarkdown:(NSString *)markdown
+{
+    NSMutableArray *headings = [NSMutableArray array];
+    NSString *markdownForParsing = OMMarkdownByBlankingFrontMatter(markdown);
+    NSData *data = [(markdownForParsing != nil ? markdownForParsing : markdown) dataUsingEncoding:NSUTF8StringEncoding];
+    if (data == nil) {
+        return headings;
+    }
+    cmark_node *document = OMGFMParseDocument([data bytes], [data length], CMARK_OPT_DEFAULT);
+    if (document == NULL) {
+        return headings;
+    }
+    // In the order the render meets them.
+    OMPrepareFootnotes(document);
+    NSMutableDictionary *slugCounts = [NSMutableDictionary dictionary];
+    cmark_iter *iter = cmark_iter_new(document);
+    cmark_event_type event;
+    while ((event = cmark_iter_next(iter)) != CMARK_EVENT_DONE) {
+        cmark_node *node = cmark_iter_get_node(iter);
+        if (event != CMARK_EVENT_ENTER || cmark_node_get_type(node) != CMARK_NODE_HEADING) {
+            continue;
+        }
+        NSString *title = OMInlinePlainText(node);
+        [headings addObject:[NSDictionary dictionaryWithObjectsAndKeys:
+            [NSNumber numberWithInt:cmark_node_get_heading_level(node)], OMMarkdownRendererHeadingLevelKey,
+            (title != nil ? title : @""), OMMarkdownRendererHeadingTitleKey,
+            OMUniqueHeadingSlug(title, slugCounts), OMMarkdownRendererHeadingAnchorKey,
+            [NSValue valueWithRange:NSMakeRange(NSNotFound, 0)], OMMarkdownRendererHeadingRangeKey,
+            [NSNumber numberWithInt:cmark_node_get_start_line(node)], OMMarkdownRendererHeadingSourceLineKey,
+            nil]];
+    }
+    cmark_iter_free(iter);
+    cmark_node_free(document);
+    return headings;
 }
 
 + (NSArray *)localImageURLsInMarkdown:(NSString *)markdown baseURL:(NSURL *)baseURL

@@ -555,6 +555,30 @@ static BOOL OMDMathToolchainAvailable(void)
     XCTAssertTrue(right >= 398.0, @"a wrapped table runs to the end of the line, as a heading rule does");
 }
 
+- (void)testHeadingsInMarkdownMatchTheRenderedHeadings
+{
+    NSString *markdown = @"---\ntitle: x\n---\n\n# Intro\n\nText.\n\nSetext *two*\n------------\n\n"
+                         @"> ## Quoted\n\n# Intro\n\n```\n# not a heading\n```\n\n### Last `code`\n";
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    [renderer attributedStringFromMarkdown:markdown];
+    NSArray *rendered = [renderer headings];
+    NSArray *parsed = [OMMarkdownRenderer headingsInMarkdown:markdown];
+    XCTAssertEqual([parsed count], (NSUInteger)5);
+    XCTAssertEqual([parsed count], [rendered count]);
+    NSArray *keys = [NSArray arrayWithObjects:OMMarkdownRendererHeadingLevelKey, OMMarkdownRendererHeadingTitleKey,
+                                              OMMarkdownRendererHeadingAnchorKey, OMMarkdownRendererHeadingSourceLineKey, nil];
+    NSUInteger index = 0;
+    for (; index < MIN([parsed count], [rendered count]); index++) {
+        for (NSString *key in keys) {
+            XCTAssertEqualObjects([[parsed objectAtIndex:index] objectForKey:key],
+                                  [[rendered objectAtIndex:index] objectForKey:key]);
+        }
+        NSRange range = [[[parsed objectAtIndex:index] objectForKey:OMMarkdownRendererHeadingRangeKey] rangeValue];
+        XCTAssertEqual(range.location, (NSUInteger)NSNotFound);
+    }
+    XCTAssertEqualObjects([[parsed objectAtIndex:3] objectForKey:OMMarkdownRendererHeadingAnchorKey], @"intro-1");
+}
+
 - (void)testPipeTableAllowsHorizontalOverflowInsteadOfStackedFallback
 {
     OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
