@@ -1,0 +1,24 @@
+// ObjcMarkdownViewer
+// SPDX-License-Identifier: GPL-2.0-or-later
+
+#import <AppKit/AppKit.h>
+
+// The GSTheme user default, which names the GNUstep theme.
+extern NSString * const OMDThemeDefaultsKey;
+
+// Chrome colours resolved from the current theme, with fallbacks for themes
+// that leave the system colours unset.
+BOOL OMDSystemAppearanceIsDark(void);
+NSString *OMDColorDefaultsString(NSColor *color);
+NSColor *OMDColorFromDefaultsString(NSString *value);
+NSColor *OMDResolvedControlTextColor(void);
+NSColor *OMDResolvedChromeBackgroundColor(void);
+NSColor *OMDResolvedSubtleSeparatorColor(void);
+NSColor *OMDResolvedAccentColor(void);
+BOOL OMDColorIsDark(NSColor *color);
+NSColor *OMDColorByBlending(NSColor *baseColor, NSColor *mixColor, CGFloat fraction);
+NSColor *OMDResolvedControlBackgroundColor(void);
+NSColor *OMDResolvedPanelBackdropColor(void);
+NSColor *OMDResolvedPanelCardFillColor(void);
+NSColor *OMDResolvedPanelCardBorderColor(void);
+NSColor *OMDResolvedMutedTextColor(void);

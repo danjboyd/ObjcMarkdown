@@ -2,7 +2,7 @@ include $(GNUSTEP_MAKEFILES)/common.make
 
 APP_NAME = MarkdownViewer
 
-MarkdownViewer_OBJC_FILES = main.m OMDAppDelegate.m OMDTextView.m OMDOutlineController.m OMDSourceTextView.m OMDSourceHighlighter.m OMDLineNumberRulerView.m OMDDocumentConverter.m OMDPandocConverter.m OMDPreviewSync.m OMDViewerModeState.m OMDCodeCopyButton.m OMDCopyFeedbackBadgeView.m OMDFormattingBarView.m OMDGitHubClient.m OMDInlineToggle.m OMDPanelSelection.m
+MarkdownViewer_OBJC_FILES = main.m OMDAppDelegate.m OMDTextView.m OMDOutlineController.m OMDSourceTextView.m OMDSourceHighlighter.m OMDLineNumberRulerView.m OMDDocumentConverter.m OMDPandocConverter.m OMDPreviewSync.m OMDViewerModeState.m OMDCodeCopyButton.m OMDCopyFeedbackBadgeView.m OMDFormattingBarView.m OMDGitHubClient.m OMDInlineToggle.m OMDPanelSelection.m OMDViewerDiagnostics.m OMDViewerColors.m OMDWindowsMenuBar.m OMDMainWindow.m OMDFillViews.m OMDToolbarViews.m OMDPreferencesPopup.m OMDWin11SplitView.m
 MarkdownViewer_CPPFLAGS += -I../ObjcMarkdown
 # cmark-gfm is compiled into libObjcMarkdown; the source highlighter uses it too.
 MarkdownViewer_CPPFLAGS += -I../third_party/cmark-gfm/compat -I../third_party/cmark-gfm/src -I../third_party/cmark-gfm/extensions -DCMARK_GFM_STATIC_DEFINE
