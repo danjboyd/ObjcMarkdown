@@ -15,6 +15,8 @@
 - (void)updateZoomLabel;
 - (void)toggleExplorerSidebar:(id)sender;
 - (void)openDocument:(id)sender;
+// A new menu of the recent documents, each item opening its file.
+- (NSMenu *)recentDocumentsMenu;
 - (void)saveDocument:(id)sender;
 - (void)exportDocumentAsPDF:(id)sender;
 - (void)printDocument:(id)sender;

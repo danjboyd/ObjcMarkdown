@@ -32,8 +32,31 @@ static BOOL OMDShouldUseToolbarFlexibleSpace(void)
 #endif
 }
 
+// A small downward chevron, as on a split button's menu half.
+static NSImage *OMDDisclosureArrowImage(NSColor *color)
+{
+    NSColor *drawColor = [color colorUsingColorSpaceName:NSCalibratedRGBColorSpace];
+    if (drawColor == nil) {
+        drawColor = [NSColor colorWithCalibratedWhite:0.2 alpha:1.0];
+    }
+    NSImage *image = [[[NSImage alloc] initWithSize:NSMakeSize(16.0, 16.0)] autorelease];
+    [image lockFocus];
+    NSBezierPath *chevron = [NSBezierPath bezierPath];
+    [chevron moveToPoint:NSMakePoint(4.5, 10.0)];
+    [chevron lineToPoint:NSMakePoint(8.0, 6.5)];
+    [chevron lineToPoint:NSMakePoint(11.5, 10.0)];
+    [chevron setLineWidth:1.5];
+    [chevron setLineCapStyle:NSRoundLineCapStyle];
+    [chevron setLineJoinStyle:NSRoundLineJoinStyle];
+    [drawColor setStroke];
+    [chevron stroke];
+    [image unlockFocus];
+    return image;
+}
+
 @interface OMDToolbarController ()
 - (void)toolbarActionControlChanged:(id)sender;
+- (void)showRecentDocumentsMenu:(id)sender;
 @end
 
 @implementation OMDToolbarController
@@ -62,6 +85,18 @@ static BOOL OMDShouldUseToolbarFlexibleSpace(void)
     [_modeLabel release];
     [_previewStatusLabel release];
     [super dealloc];
+}
+
+- (void)showRecentDocumentsMenu:(id)sender
+{
+    (void)sender;
+    NSMenu *menu = [_delegate recentDocumentsMenu];
+    NSEvent *event = [NSApp currentEvent];
+    NSView *view = [[event window] contentView];
+    if (menu == nil || event == nil || view == nil) {
+        return;
+    }
+    [NSMenu popUpContextMenu:menu withEvent:event forView:view];
 }
 
 - (NSSegmentedControl *)modeControl
@@ -212,7 +247,34 @@ static BOOL OMDShouldUseToolbarFlexibleSpace(void)
         if (image == nil) {
             image = [NSImage imageNamed:@"NSOpen"];
         }
-        OMDSetToolbarItemImage(item, image);
+        if (!OMDUsesCompactToolbar()) {
+            OMDSetToolbarItemImage(item, image);
+            return item;
+        }
+        // In the header bar Open is a split button: the icon opens the
+        // open panel, the arrow beside it lists the recent documents.
+        CGFloat openWidth = 34.0;
+        CGFloat arrowWidth = 16.0;
+        NSView *container = [[[NSView alloc] initWithFrame:NSMakeRect(0.0, 0.0, openWidth + arrowWidth, OMDToolbarItemHeight)] autorelease];
+        NSButton *openButton = [[[NSButton alloc] initWithFrame:NSMakeRect(0.0, 0.0, openWidth, OMDToolbarItemHeight)] autorelease];
+        [openButton setBordered:NO];
+        [openButton setImagePosition:NSImageOnly];
+        [openButton setImage:image];
+        [openButton setToolTip:@"Open a Markdown file"];
+        [openButton setTarget:_delegate];
+        [openButton setAction:@selector(openDocument:)];
+        [container addSubview:openButton];
+        NSButton *arrowButton = [[[NSButton alloc] initWithFrame:NSMakeRect(openWidth, 0.0, arrowWidth, OMDToolbarItemHeight)] autorelease];
+        [arrowButton setBordered:NO];
+        [arrowButton setImagePosition:NSImageOnly];
+        [arrowButton setImage:OMDDisclosureArrowImage(OMDResolvedControlTextColor())];
+        [arrowButton setToolTip:@"Open a recent file"];
+        [arrowButton setTarget:self];
+        [arrowButton setAction:@selector(showRecentDocumentsMenu:)];
+        [container addSubview:arrowButton];
+        [item setView:container];
+        [item setMinSize:[container frame].size];
+        [item setMaxSize:[container frame].size];
         return item;
     }
 

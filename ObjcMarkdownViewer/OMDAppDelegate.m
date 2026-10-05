@@ -1916,14 +1916,15 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
     }
 }
 
-- (void)rebuildOpenRecentMenu
+// Replaces the items of menu with the recent documents and Clear Menu.
+- (void)fillRecentDocumentsMenu:(NSMenu *)menu
 {
-    if (_fileOpenRecentMenu == nil) {
+    if (menu == nil) {
         return;
     }
 
-    while ([_fileOpenRecentMenu numberOfItems] > 0) {
-        [_fileOpenRecentMenu removeItemAtIndex:0];
+    while ([menu numberOfItems] > 0) {
+        [menu removeItemAtIndex:0];
     }
 
     NSArray *recentURLs = [[NSDocumentController sharedDocumentController] recentDocumentURLs];
@@ -1953,7 +1954,7 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
         if ([item respondsToSelector:@selector(setToolTip:)]) {
             [item setToolTip:path];
         }
-        [_fileOpenRecentMenu addItem:item];
+        [menu addItem:item];
         addedCount += 1;
     }
 
@@ -1962,16 +1963,30 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
                                                          action:NULL
                                                   keyEquivalent:@""] autorelease];
         [empty setEnabled:NO];
-        [_fileOpenRecentMenu addItem:empty];
+        [menu addItem:empty];
         return;
     }
 
-    [_fileOpenRecentMenu addItem:[NSMenuItem separatorItem]];
+    [menu addItem:[NSMenuItem separatorItem]];
     NSMenuItem *clearItem = [[[NSMenuItem alloc] initWithTitle:@"Clear Menu"
                                                          action:@selector(clearRecentDocumentsMenu:)
                                                   keyEquivalent:@""] autorelease];
     [clearItem setTarget:self];
-    [_fileOpenRecentMenu addItem:clearItem];
+    [menu addItem:clearItem];
+}
+
+- (void)rebuildOpenRecentMenu
+{
+    [self fillRecentDocumentsMenu:_fileOpenRecentMenu];
+}
+
+// A menu of the recent documents, for the toolbar's Open Recent button.
+- (NSMenu *)recentDocumentsMenu
+{
+    NSMenu *menu = [[[NSMenu alloc] initWithTitle:@"Open Recent"] autorelease];
+    [menu setAutoenablesItems:NO];
+    [self fillRecentDocumentsMenu:menu];
+    return menu;
 }
 
 - (void)noteRecentDocumentAtPathIfAvailable:(NSString *)path
