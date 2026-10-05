@@ -5,7 +5,6 @@
 #import "OMDLayoutMetrics.h"
 
 @class OMDFormattingBarController;
-@class OMDFormattingBarView;
 
 typedef NS_ENUM(NSInteger, OMDFormattingCommandTag) {
     OMDFormattingCommandTagBold = 1001,
@@ -37,7 +36,7 @@ typedef NS_ENUM(NSInteger, OMDFormattingCommandTag) {
 {
     id<OMDFormattingBarControllerDelegate> _delegate;
     NSView *_containerView;
-    OMDFormattingBarView *_formattingBarView;
+    NSView *_formattingBarView;
     NSPopUpButton *_formatHeadingPopup;
     // One segmented control of icons per command group, in bar order.
     NSMutableArray *_formatCommandGroups;

@@ -4,7 +4,6 @@
 #import "OMDFormattingBarController.h"
 #import "OMDControlSupport.h"
 #import "OMDFormattingBarIcons.h"
-#import "OMDFormattingBarView.h"
 #import "OMDViewerColors.h"
 
 #include <math.h>
@@ -132,13 +131,19 @@ static NSString *OMDFormattingCommandName(const OMDFormattingCommand *command)
         return;
     }
 
-    _formattingBarView = [[OMDFormattingBarView alloc] initWithFrame:NSMakeRect(0.0,
-                                                                                 0.0,
-                                                                                 NSWidth([_containerView bounds]),
-                                                                                 metrics.formattingBarHeight)];
+    // The bar sits on the window background; a separator marks its edge.
+    _formattingBarView = [[NSView alloc] initWithFrame:NSMakeRect(0.0,
+                                                                  0.0,
+                                                                  NSWidth([_containerView bounds]),
+                                                                  metrics.formattingBarHeight)];
     [_formattingBarView setAutoresizingMask:(NSViewWidthSizable | NSViewMinYMargin)];
-    [_formattingBarView setFillColor:OMDResolvedControlBackgroundColor()];
-    [_formattingBarView setBorderColor:OMDResolvedSubtleSeparatorColor()];
+    NSBox *separator = [[[NSBox alloc] initWithFrame:NSMakeRect(0.0,
+                                                                0.0,
+                                                                NSWidth([_containerView bounds]),
+                                                                1.0)] autorelease];
+    [separator setBoxType:NSBoxSeparator];
+    [separator setAutoresizingMask:NSViewWidthSizable];
+    [_formattingBarView addSubview:separator];
     [_containerView addSubview:_formattingBarView];
 
     NSFont *buttonFont = [NSFont systemFontOfSize:(metrics.scale > 1.05 ? 11.5 : metrics.formattingBarFontSize)];
