@@ -363,17 +363,6 @@ static OMDViewerMode OMDViewerModeFromInteger(NSInteger value)
     return OMDViewerModeRead;
 }
 
-static NSString *OMDViewerModeTitle(OMDViewerMode mode)
-{
-    if (mode == OMDViewerModeEdit) {
-        return @"Edit";
-    }
-    if (mode == OMDViewerModeSplit) {
-        return @"Split";
-    }
-    return @"Read";
-}
-
 static CGFloat OMDClampedScrollSpeed(CGFloat value)
 {
     if (value < OMDScrollSpeedMinimum) {
@@ -7479,19 +7468,23 @@ constrainSplitPosition:(CGFloat)proposedPosition
 
     [_toolbarController updateToolbarActionControlsState];
 
-    NSString *baseTitle = nil;
-    if (_currentDisplayTitle != nil && [_currentDisplayTitle length] > 0) {
-        baseTitle = _currentDisplayTitle;
-    } else if (_currentPath != nil) {
-        baseTitle = [_currentPath lastPathComponent];
+    // Say what the window shows and let the theme present it: a file's
+    // name and folder, and whether it has unsaved changes. The mode is on
+    // the switcher and "Updating..." in the status label.
+    BOOL showsFile = (_currentPath != nil && [_currentPath length] > 0 &&
+                      (_currentDisplayTitle == nil || [_currentDisplayTitle length] == 0 ||
+                       [_currentDisplayTitle isEqualToString:[_currentPath lastPathComponent]]));
+    if (showsFile) {
+        [_window setTitleWithRepresentedFilename:_currentPath];
     } else {
-        baseTitle = @"Markdown Viewer";
+        [_window setRepresentedFilename:@""];
+        NSString *title = _currentDisplayTitle;
+        if (title == nil || [title length] == 0) {
+            title = (_currentPath != nil ? [_currentPath lastPathComponent] : @"Markdown Viewer");
+        }
+        [_window setTitle:title];
     }
-    NSString *modeTitle = OMDViewerModeTitle(_viewerMode);
-    NSString *readOnlyMarker = _currentDocumentReadOnly ? @" [read-only]" : @"";
-    NSString *dirtyMarker = _sourceIsDirty ? @" *" : @"";
-    NSString *updatingMarker = _previewIsUpdating ? @" [updating]" : @"";
-    [_window setTitle:[NSString stringWithFormat:@"%@%@%@ (%@%@)", baseTitle, readOnlyMarker, dirtyMarker, modeTitle, updatingMarker]];
+    [_window setDocumentEdited:_sourceIsDirty];
 }
 
 // Ranges of the display equations in the preview, in document order.

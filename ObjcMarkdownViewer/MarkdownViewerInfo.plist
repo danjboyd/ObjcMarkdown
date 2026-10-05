@@ -10,9 +10,10 @@
   NSHumanReadableCopyright = "Copyright (C) 2026 Daniel Boyd";
   NSPrincipalClass = NSApplication;
   ApplicationIcon = "markdown_icon.png";
-  /* Adwaita theme: GNOME's main menu button instead of a menu bar, and the
-     toolbar in the header bar's row. Other themes ignore these. */
-  GnomeThemeMenuStyle = primary;
+  /* The toolbar is a few icons around a flexible space, which suits a
+     header bar: themes that have one (Adwaita) may put it in that row.
+     Menu bar or main menu button is the user's choice (GnomeThemeMenuStyle
+     as a user default), so it isn't declared here. */
   GnomeThemeHeaderBarToolbar = YES;
   NSMIMETypes = (
     "text/markdown",
