@@ -305,7 +305,7 @@ static const NSTimeInterval OMDCopyFeedbackDisplayInterval = 0.95;
         return;
     }
 
-    NSImage *copyImage = OMDCodeBlockCopyImage();
+    NSImage *copyImage = OMDSymbolicImageNamed(@"omd-edit-copy-symbolic");
     if (copyImage != nil) {
         [button setImage:copyImage];
         [button setImagePosition:NSImageOnly];
@@ -338,7 +338,7 @@ static const NSTimeInterval OMDCopyFeedbackDisplayInterval = 0.95;
 
     _copyFeedbackButton = [button retain];
 
-    NSImage *checkImage = OMDCodeBlockCopiedCheckImage();
+    NSImage *checkImage = OMDSymbolicImageNamed(@"omd-object-select-symbolic");
     if (checkImage != nil) {
         [_copyFeedbackButton setImage:checkImage];
         [_copyFeedbackButton setImagePosition:NSImageOnly];

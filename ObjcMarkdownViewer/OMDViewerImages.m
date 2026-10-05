@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #import "OMDViewerImages.h"
-#import "OMDViewerColors.h"
 
 static const CGFloat OMDToolbarIconSize = 22.0;
 static const CGFloat OMDToolbarIconInset = 2.0;
@@ -104,19 +103,9 @@ static NSImage *OMDToolbarPreparedImage(NSImage *image)
     return prepared;
 }
 
-void OMDSetToolbarItemImage(NSToolbarItem *item, NSImage *image)
+NSImage *OMDSymbolicImageNamed(NSString *name)
 {
-    if (item == nil || image == nil) {
-        return;
-    }
-
-    NSImage *prepared = OMDToolbarPreparedImage(image);
-    [item setImage:(prepared != nil ? prepared : image)];
-}
-
-NSImage *OMDToolbarImageNamed(NSString *resourceName)
-{
-    return OMDToolbarPreparedImage(OMDImageNamed(resourceName));
+    return [NSImage imageNamed:name];
 }
 
 NSImage *OMDToolbarTintedImage(NSImage *image, NSColor *tint)
@@ -187,50 +176,4 @@ NSImage *OMDToolbarTintedImage(NSImage *image, NSColor *tint)
     [tinted addRepresentation:bitmap];
     [tinted setSize:size];
     return tinted;
-}
-
-NSImage *OMDToolbarThemedImageNamed(NSString *resourceName)
-{
-    return OMDToolbarTintedImage(OMDImageNamed(resourceName), OMDResolvedControlTextColor());
-}
-
-NSImage *OMDCodeBlockCopyImage(void)
-{
-    static NSImage *cached = nil;
-    if (cached != nil) {
-        return cached;
-    }
-
-    NSImage *image = OMDImageNamed(@"code-copy-icon.png");
-    if (image == nil) {
-        return nil;
-    }
-
-    [image setSize:NSMakeSize(16.0, 16.0)];
-    cached = [image retain];
-    return cached;
-}
-
-NSImage *OMDCodeBlockCopiedCheckImage(void)
-{
-    static NSImage *cached = nil;
-    if (cached != nil) {
-        return cached;
-    }
-
-    NSImage *image = [[[NSImage alloc] initWithSize:NSMakeSize(16.0, 16.0)] autorelease];
-    [image lockFocus];
-    [[NSColor colorWithCalibratedRed:0.13 green:0.62 blue:0.30 alpha:1.0] setStroke];
-    NSBezierPath *check = [NSBezierPath bezierPath];
-    [check setLineWidth:2.0];
-    [check setLineCapStyle:NSRoundLineCapStyle];
-    [check setLineJoinStyle:NSRoundLineJoinStyle];
-    [check moveToPoint:NSMakePoint(3.2, 8.2)];
-    [check lineToPoint:NSMakePoint(6.5, 4.8)];
-    [check lineToPoint:NSMakePoint(12.8, 11.2)];
-    [check stroke];
-    [image unlockFocus];
-    [image setSize:NSMakeSize(16.0, 16.0)];
-    cached = [image retain];
-    return cached;
 }

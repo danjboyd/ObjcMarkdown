@@ -32,28 +32,6 @@ static BOOL OMDShouldUseToolbarFlexibleSpace(void)
 #endif
 }
 
-// A small downward chevron, as on a split button's menu half.
-static NSImage *OMDDisclosureArrowImage(NSColor *color)
-{
-    NSColor *drawColor = [color colorUsingColorSpaceName:NSCalibratedRGBColorSpace];
-    if (drawColor == nil) {
-        drawColor = [NSColor colorWithCalibratedWhite:0.2 alpha:1.0];
-    }
-    NSImage *image = [[[NSImage alloc] initWithSize:NSMakeSize(16.0, 16.0)] autorelease];
-    [image lockFocus];
-    NSBezierPath *chevron = [NSBezierPath bezierPath];
-    [chevron moveToPoint:NSMakePoint(4.5, 10.0)];
-    [chevron lineToPoint:NSMakePoint(8.0, 6.5)];
-    [chevron lineToPoint:NSMakePoint(11.5, 10.0)];
-    [chevron setLineWidth:1.5];
-    [chevron setLineCapStyle:NSRoundLineCapStyle];
-    [chevron setLineJoinStyle:NSRoundLineJoinStyle];
-    [drawColor setStroke];
-    [chevron stroke];
-    [image unlockFocus];
-    return image;
-}
-
 @interface OMDToolbarController ()
 - (void)toolbarActionControlChanged:(id)sender;
 - (void)showRecentDocumentsMenu:(id)sender;
@@ -154,9 +132,9 @@ static NSImage *OMDDisclosureArrowImage(NSColor *color)
             [_toolbarFileActionsControl setTarget:self];
             [_toolbarFileActionsControl setAction:@selector(toolbarActionControlChanged:)];
             [_toolbarFileActionsControl setTag:1];
-            [_toolbarFileActionsControl setImage:(OMDToolbarThemedImageNamed(@"toolbar-explorer-toggle.png") ?: [NSImage imageNamed:@"NSMenuOnStateTemplate"]) forSegment:0];
-            [_toolbarFileActionsControl setImage:(OMDToolbarThemedImageNamed(@"toolbar-open.png") ?: OMDToolbarImageNamed(@"open-icon.png")) forSegment:1];
-            [_toolbarFileActionsControl setImage:(OMDToolbarThemedImageNamed(@"toolbar-saveas.png") ?: [NSImage imageNamed:@"NSSave"]) forSegment:2];
+            [_toolbarFileActionsControl setImage:OMDToolbarTintedImage(OMDSymbolicImageNamed(@"omd-sidebar-show-symbolic"), OMDResolvedControlTextColor()) forSegment:0];
+            [_toolbarFileActionsControl setImage:OMDToolbarTintedImage(OMDSymbolicImageNamed(@"omd-document-open-symbolic"), OMDResolvedControlTextColor()) forSegment:1];
+            [_toolbarFileActionsControl setImage:OMDToolbarTintedImage(OMDSymbolicImageNamed(@"omd-document-save-symbolic"), OMDResolvedControlTextColor()) forSegment:2];
             [[_toolbarFileActionsControl cell] setToolTip:@"Show or hide the file explorer" forSegment:0];
             [[_toolbarFileActionsControl cell] setToolTip:@"Open a Markdown file" forSegment:1];
             [[_toolbarFileActionsControl cell] setToolTip:@"Save current markdown changes" forSegment:2];
@@ -175,11 +153,9 @@ static NSImage *OMDDisclosureArrowImage(NSColor *color)
             [_toolbarUtilityActionsControl setTarget:self];
             [_toolbarUtilityActionsControl setAction:@selector(toolbarActionControlChanged:)];
             [_toolbarUtilityActionsControl setTag:2];
-            [_toolbarUtilityActionsControl setImage:(OMDToolbarThemedImageNamed(@"toolbar-export.png") ?: [NSImage imageNamed:@"NSSave"]) forSegment:0];
-            [_toolbarUtilityActionsControl setImage:(OMDToolbarThemedImageNamed(@"toolbar-print.png") ?: [NSImage imageNamed:@"NSPrint"]) forSegment:1];
-            [_toolbarUtilityActionsControl setImage:(OMDToolbarThemedImageNamed(@"toolbar-preferences.png")
-                                                    ?: [NSImage imageNamed:@"NSPreferencesGeneral"]
-                                                    ?: [NSImage imageNamed:@"preferences"]) forSegment:2];
+            [_toolbarUtilityActionsControl setImage:OMDToolbarTintedImage(OMDSymbolicImageNamed(@"omd-document-export-symbolic"), OMDResolvedControlTextColor()) forSegment:0];
+            [_toolbarUtilityActionsControl setImage:OMDToolbarTintedImage(OMDSymbolicImageNamed(@"omd-document-print-symbolic"), OMDResolvedControlTextColor()) forSegment:1];
+            [_toolbarUtilityActionsControl setImage:OMDToolbarTintedImage(OMDSymbolicImageNamed(@"omd-preferences-symbolic"), OMDResolvedControlTextColor()) forSegment:2];
             [[_toolbarUtilityActionsControl cell] setToolTip:@"Export the current document as PDF" forSegment:0];
             [[_toolbarUtilityActionsControl cell] setToolTip:@"Print the current document" forSegment:1];
             [[_toolbarUtilityActionsControl cell] setToolTip:@"Open Preferences" forSegment:2];
@@ -225,11 +201,7 @@ static NSImage *OMDDisclosureArrowImage(NSColor *color)
         [item setToolTip:@"Show or hide the file explorer"];
         [item setTarget:_delegate];
         [item setAction:@selector(toggleExplorerSidebar:)];
-        NSImage *image = OMDToolbarThemedImageNamed(@"toolbar-explorer-toggle.png");
-        if (image == nil) {
-            image = [NSImage imageNamed:@"NSMenuOnStateTemplate"];
-        }
-        OMDSetToolbarItemImage(item, image);
+        [item setImage:OMDSymbolicImageNamed(@"omd-sidebar-show-symbolic")];
         return item;
     }
 
@@ -240,15 +212,9 @@ static NSImage *OMDDisclosureArrowImage(NSColor *color)
         [item setToolTip:@"Open a Markdown file"];
         [item setTarget:_delegate];
         [item setAction:@selector(openDocument:)];
-        NSImage *image = OMDToolbarThemedImageNamed(@"toolbar-open.png");
-        if (image == nil) {
-            image = OMDToolbarImageNamed(@"open-icon.png");
-        }
-        if (image == nil) {
-            image = [NSImage imageNamed:@"NSOpen"];
-        }
+        NSImage *image = OMDSymbolicImageNamed(@"omd-document-open-symbolic");
         if (!OMDUsesCompactToolbar()) {
-            OMDSetToolbarItemImage(item, image);
+            [item setImage:image];
             return item;
         }
         // In the header bar Open is a split button: the icon opens the
@@ -267,7 +233,7 @@ static NSImage *OMDDisclosureArrowImage(NSColor *color)
         NSButton *arrowButton = [[[NSButton alloc] initWithFrame:NSMakeRect(openWidth, 0.0, arrowWidth, OMDToolbarItemHeight)] autorelease];
         [arrowButton setBordered:NO];
         [arrowButton setImagePosition:NSImageOnly];
-        [arrowButton setImage:OMDDisclosureArrowImage(OMDResolvedControlTextColor())];
+        [arrowButton setImage:OMDSymbolicImageNamed(@"omd-pan-down-symbolic")];
         [arrowButton setToolTip:@"Open a recent file"];
         [arrowButton setTarget:self];
         [arrowButton setAction:@selector(showRecentDocumentsMenu:)];
@@ -285,14 +251,7 @@ static NSImage *OMDDisclosureArrowImage(NSColor *color)
         [item setToolTip:@"Save current markdown changes"];
         [item setTarget:_delegate];
         [item setAction:@selector(saveDocument:)];
-        NSImage *image = OMDToolbarThemedImageNamed(@"toolbar-saveas.png");
-        if (image == nil) {
-            image = OMDToolbarImageNamed(@"open-icon.png");
-        }
-        if (image == nil) {
-            image = [NSImage imageNamed:@"NSSave"];
-        }
-        OMDSetToolbarItemImage(item, image);
+        [item setImage:OMDSymbolicImageNamed(@"omd-document-save-symbolic")];
         return item;
     }
 
@@ -303,17 +262,7 @@ static NSImage *OMDDisclosureArrowImage(NSColor *color)
         [item setToolTip:@"Open Preferences"];
         [item setTarget:_delegate];
         [item setAction:@selector(showPreferences:)];
-        NSImage *image = OMDToolbarThemedImageNamed(@"toolbar-preferences.png");
-        if (image == nil) {
-            image = [NSImage imageNamed:@"NSPreferencesGeneral"];
-        }
-        if (image == nil) {
-            image = [NSImage imageNamed:@"preferences"];
-        }
-        if (image == nil) {
-            image = [NSImage imageNamed:@"NSAdvanced"];
-        }
-        OMDSetToolbarItemImage(item, image);
+        [item setImage:OMDSymbolicImageNamed(@"omd-preferences-symbolic")];
         return item;
     }
 
@@ -324,14 +273,7 @@ static NSImage *OMDDisclosureArrowImage(NSColor *color)
         [item setToolTip:@"Print the current document"];
         [item setTarget:_delegate];
         [item setAction:@selector(printDocument:)];
-        NSImage *image = OMDToolbarThemedImageNamed(@"toolbar-print.png");
-        if (image == nil) {
-            image = [NSImage imageNamed:@"NSPrint"];
-        }
-        if (image == nil) {
-            image = [NSImage imageNamed:@"common_Printer.tiff"];
-        }
-        OMDSetToolbarItemImage(item, image);
+        [item setImage:OMDSymbolicImageNamed(@"omd-document-print-symbolic")];
         return item;
     }
 
@@ -342,11 +284,7 @@ static NSImage *OMDDisclosureArrowImage(NSColor *color)
         [item setToolTip:@"Export the current document as PDF (more formats in File > Export)"];
         [item setTarget:_delegate];
         [item setAction:@selector(exportDocumentAsPDF:)];
-        NSImage *image = OMDToolbarThemedImageNamed(@"toolbar-export.png");
-        if (image == nil) {
-            image = [NSImage imageNamed:@"NSSave"];
-        }
-        OMDSetToolbarItemImage(item, image);
+        [item setImage:OMDSymbolicImageNamed(@"omd-document-export-symbolic")];
         return item;
     }
 
@@ -599,7 +537,7 @@ static NSImage *OMDDisclosureArrowImage(NSColor *color)
     NSColor *activeIconTint = OMDResolvedControlTextColor();
     NSColor *disabledIconTint = OMDResolvedMutedTextColor();
     if (_toolbarFileActionsControl != nil) {
-        NSImage *saveBaseImage = (OMDImageNamed(@"toolbar-saveas.png") ?: [NSImage imageNamed:@"NSSave"]);
+        NSImage *saveBaseImage = OMDSymbolicImageNamed(@"omd-document-save-symbolic");
         [_toolbarFileActionsControl setImage:OMDToolbarTintedImage(saveBaseImage,
                                                                    (canSaveDocument ? activeIconTint : disabledIconTint))
                                   forSegment:2];
@@ -627,8 +565,8 @@ static NSImage *OMDDisclosureArrowImage(NSColor *color)
         }
     }
     if (_toolbarUtilityActionsControl != nil) {
-        NSImage *exportBaseImage = (OMDImageNamed(@"toolbar-export.png") ?: [NSImage imageNamed:@"NSSave"]);
-        NSImage *printBaseImage = (OMDImageNamed(@"toolbar-print.png") ?: [NSImage imageNamed:@"NSPrint"]);
+        NSImage *exportBaseImage = OMDSymbolicImageNamed(@"omd-document-export-symbolic");
+        NSImage *printBaseImage = OMDSymbolicImageNamed(@"omd-document-print-symbolic");
         [_toolbarUtilityActionsControl setImage:OMDToolbarTintedImage(exportBaseImage,
                                                                       (hasDocument ? activeIconTint : disabledIconTint))
                                      forSegment:0];

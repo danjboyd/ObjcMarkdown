@@ -2,7 +2,7 @@ include $(GNUSTEP_MAKEFILES)/common.make
 
 APP_NAME = MarkdownViewer
 
-MarkdownViewer_OBJC_FILES = main.m OMDAppDelegate.m OMDTextView.m OMDOutlineController.m OMDSourceTextView.m OMDSourceHighlighter.m OMDLineNumberRulerView.m OMDDocumentConverter.m OMDPandocConverter.m OMDPreviewSync.m OMDViewerModeState.m OMDCodeCopyButton.m OMDGitHubClient.m OMDInlineToggle.m OMDPanelSelection.m OMDViewerDiagnostics.m OMDViewerColors.m OMDWindowsMenuBar.m OMDMainWindow.m OMDFillViews.m OMDToolbarViews.m OMDPreferencesPopup.m OMDWin11SplitView.m OMDTextFileSupport.m OMDExternalTools.m OMDLayoutMetrics.m OMDViewerDefaults.m OMDViewerImages.m OMDExplorerController.m OMDPreferencesController.m OMDControlSupport.m OMDFormattingBarController.m OMDFormattingBarIcons.m OMDDocumentTabsController.m OMDMainMenu.m OMDToolbarController.m OMDCopyButtonsController.m OMDRenderScheduler.m OMDPreviewTextUpdate.m
+MarkdownViewer_OBJC_FILES = main.m OMDAppDelegate.m OMDTextView.m OMDOutlineController.m OMDSourceTextView.m OMDSourceHighlighter.m OMDLineNumberRulerView.m OMDDocumentConverter.m OMDPandocConverter.m OMDPreviewSync.m OMDViewerModeState.m OMDCodeCopyButton.m OMDGitHubClient.m OMDInlineToggle.m OMDPanelSelection.m OMDViewerDiagnostics.m OMDViewerColors.m OMDWindowsMenuBar.m OMDMainWindow.m OMDFillViews.m OMDToolbarViews.m OMDPreferencesPopup.m OMDWin11SplitView.m OMDTextFileSupport.m OMDExternalTools.m OMDLayoutMetrics.m OMDViewerDefaults.m OMDViewerImages.m OMDExplorerController.m OMDPreferencesController.m OMDControlSupport.m OMDFormattingBarController.m OMDDocumentTabsController.m OMDMainMenu.m OMDToolbarController.m OMDCopyButtonsController.m OMDRenderScheduler.m OMDPreviewTextUpdate.m
 MarkdownViewer_CPPFLAGS += -I../ObjcMarkdown
 # cmark-gfm is compiled into libObjcMarkdown; the source highlighter uses it too.
 MarkdownViewer_CPPFLAGS += -I../third_party/cmark-gfm/compat -I../third_party/cmark-gfm/src -I../third_party/cmark-gfm/extensions -DCMARK_GFM_STATIC_DEFINE
@@ -23,7 +23,7 @@ MarkdownViewer_LDFLAGS += -L../third_party/GPUpdaterUI/$(GNUSTEP_OBJ_DIR) -lGPUp
 MarkdownViewer_LDFLAGS += -Wl,-rpath,'$$ORIGIN/../../ObjcMarkdownRuntime'
 MarkdownViewer_LDFLAGS += -Wl,-rpath,'$$ORIGIN/../../../GNUstep/System/Library/Libraries'
 MarkdownViewer_LDFLAGS += -ldispatch
-MarkdownViewer_RESOURCE_FILES = ../Resources/theme-github.toml ../Resources/theme-github-dark.toml ../Resources/markdown_icon.png ../Resources/open-icon.png ../Resources/toolbar-open.png ../Resources/toolbar-import.png ../Resources/toolbar-saveas.png ../Resources/toolbar-export.png ../Resources/toolbar-print.png ../Resources/toolbar-explorer-toggle.png ../Resources/toolbar-preferences.png ../Resources/code-copy-icon.png
+MarkdownViewer_RESOURCE_FILES = ../Resources/theme-github.toml ../Resources/theme-github-dark.toml ../Resources/markdown_icon.png $(wildcard ../Resources/icons/*-symbolic.png)
 MarkdownViewer_APPLICATION_ICON = markdown_icon.png
 MarkdownViewer_GSWAPP_INFO_PLIST = MarkdownViewerInfo.plist
 

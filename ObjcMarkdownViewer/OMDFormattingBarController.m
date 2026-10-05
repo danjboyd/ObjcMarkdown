@@ -3,38 +3,38 @@
 
 #import "OMDFormattingBarController.h"
 #import "OMDControlSupport.h"
-#import "OMDFormattingBarIcons.h"
-#import "OMDViewerColors.h"
+#import "OMDViewerImages.h"
 
 #include <math.h>
 
-// The bar's command groups, in order. Each entry is a command tag and its
-// name; the shortcuts match the Edit menu.
+// The bar's command groups, in order. Each entry is a command tag, its
+// name (the shortcuts match the Edit menu) and its symbolic icon.
 typedef struct {
     NSInteger tag;
     const char *name;
+    NSString *iconName;
 } OMDFormattingCommand;
 
 static const OMDFormattingCommand OMDFormattingInlineCommands[] = {
-    { OMDFormattingCommandTagBold, "Bold (Ctrl+B)" },
-    { OMDFormattingCommandTagItalic, "Italic (Ctrl+I)" },
-    { OMDFormattingCommandTagStrike, "Strikethrough" },
-    { OMDFormattingCommandTagInlineCode, "Inline Code" }
+    { OMDFormattingCommandTagBold, "Bold (Ctrl+B)", @"omd-format-text-bold-symbolic" },
+    { OMDFormattingCommandTagItalic, "Italic (Ctrl+I)", @"omd-format-text-italic-symbolic" },
+    { OMDFormattingCommandTagStrike, "Strikethrough", @"omd-format-text-strikethrough-symbolic" },
+    { OMDFormattingCommandTagInlineCode, "Inline Code", @"omd-format-code-symbolic" }
 };
 static const OMDFormattingCommand OMDFormattingMediaCommands[] = {
-    { OMDFormattingCommandTagLink, "Link" },
-    { OMDFormattingCommandTagImage, "Image" }
+    { OMDFormattingCommandTagLink, "Link", @"omd-insert-link-symbolic" },
+    { OMDFormattingCommandTagImage, "Image", @"omd-insert-image-symbolic" }
 };
 static const OMDFormattingCommand OMDFormattingListCommands[] = {
-    { OMDFormattingCommandTagListBullet, "Bulleted List" },
-    { OMDFormattingCommandTagListNumber, "Numbered List" },
-    { OMDFormattingCommandTagListTask, "Task List" },
-    { OMDFormattingCommandTagBlockQuote, "Quote" }
+    { OMDFormattingCommandTagListBullet, "Bulleted List", @"omd-view-list-bullet-symbolic" },
+    { OMDFormattingCommandTagListNumber, "Numbered List", @"omd-view-list-ordered-symbolic" },
+    { OMDFormattingCommandTagListTask, "Task List", @"omd-view-list-task-symbolic" },
+    { OMDFormattingCommandTagBlockQuote, "Quote", @"omd-format-quote-symbolic" }
 };
 static const OMDFormattingCommand OMDFormattingInsertCommands[] = {
-    { OMDFormattingCommandTagCodeFence, "Code Block" },
-    { OMDFormattingCommandTagTable, "Table" },
-    { OMDFormattingCommandTagHorizontalRule, "Horizontal Rule" }
+    { OMDFormattingCommandTagCodeFence, "Code Block", @"omd-format-code-block-symbolic" },
+    { OMDFormattingCommandTagTable, "Table", @"omd-insert-table-symbolic" },
+    { OMDFormattingCommandTagHorizontalRule, "Horizontal Rule", @"omd-insert-rule-symbolic" }
 };
 
 typedef struct {
@@ -167,7 +167,6 @@ static NSString *OMDFormattingCommandName(const OMDFormattingCommand *command)
     [_formattingBarView addSubview:_formatHeadingPopup];
 
     // Command groups: symbolic icons, each segment with its own tooltip.
-    NSColor *iconColor = OMDResolvedControlTextColor();
     CGFloat segmentWidth = (metrics.scale > 1.05 ? 30.0 : 26.0);
     _formatCommandGroups = [[NSMutableArray alloc] init];
     NSUInteger groupIndex = 0;
@@ -184,7 +183,7 @@ static NSString *OMDFormattingCommandName(const OMDFormattingCommand *command)
         for (; segment < group.count; segment++) {
             const OMDFormattingCommand *command = &group.commands[segment];
             [control setLabel:@"" forSegment:(NSInteger)segment];
-            [control setImage:OMDFormattingBarIcon(command->tag, iconColor) forSegment:(NSInteger)segment];
+            [control setImage:OMDSymbolicImageNamed(command->iconName) forSegment:(NSInteger)segment];
             [control setWidth:segmentWidth forSegment:(NSInteger)segment];
             // Per-segment cell tooltips aren't shown by GNUstep; a tooltip
             // rect per segment is. The string is its own owner.
@@ -293,7 +292,6 @@ static NSString *OMDFormattingCommandName(const OMDFormattingCommand *command)
     while ([_formatOverflowButton numberOfItems] > 1) {
         [_formatOverflowButton removeItemAtIndex:1];
     }
-    NSColor *iconColor = OMDResolvedControlTextColor();
     NSUInteger groupIndex = _formatVisibleGroupCount;
     for (; groupIndex < OMDFormattingCommandGroupCount; groupIndex++) {
         OMDFormattingCommandGroup group = OMDFormattingCommandGroups[groupIndex];
@@ -309,7 +307,7 @@ static NSString *OMDFormattingCommandName(const OMDFormattingCommand *command)
                                                     keyEquivalent:@""] autorelease];
             [item setTarget:self];
             [item setTag:command->tag];
-            [item setImage:OMDFormattingBarIcon(command->tag, iconColor)];
+            [item setImage:OMDSymbolicImageNamed(command->iconName)];
             [[_formatOverflowButton menu] addItem:item];
         }
     }

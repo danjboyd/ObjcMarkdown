@@ -25,33 +25,6 @@ typedef NS_ENUM(NSInteger, OMDExplorerSourceMode) {
     OMDExplorerSourceModeGitHub = 1
 };
 
-static NSImage *OMDExplorerNavigateParentBaseImage(void)
-{
-    static NSImage *cached = nil;
-    if (cached != nil) {
-        return cached;
-    }
-
-    NSImage *image = [[[NSImage alloc] initWithSize:NSMakeSize(16.0, 16.0)] autorelease];
-    [image lockFocus];
-    [[NSColor blackColor] setStroke];
-    NSBezierPath *arrow = [NSBezierPath bezierPath];
-    [arrow setLineWidth:2.0];
-    [arrow setLineCapStyle:NSRoundLineCapStyle];
-    [arrow setLineJoinStyle:NSRoundLineJoinStyle];
-    [arrow moveToPoint:NSMakePoint(12.5, 12.0)];
-    [arrow lineToPoint:NSMakePoint(5.2, 4.7)];
-    [arrow moveToPoint:NSMakePoint(5.2, 4.7)];
-    [arrow lineToPoint:NSMakePoint(5.2, 9.1)];
-    [arrow moveToPoint:NSMakePoint(5.2, 4.7)];
-    [arrow lineToPoint:NSMakePoint(9.6, 4.7)];
-    [arrow stroke];
-    [image unlockFocus];
-    [image setSize:NSMakeSize(16.0, 16.0)];
-    cached = [image retain];
-    return cached;
-}
-
 static BOOL OMDGitErrorLooksLikeLockConflict(NSString *reason)
 {
     NSString *trimmed = OMDTrimmedString(reason);
@@ -665,8 +638,7 @@ static NSString *OMDDefaultCacheDirectory(void)
                                                                            metrics.explorerControlHeight)];
     [_explorerNavigateUpButton setTitle:@""];
     [_explorerNavigateUpButton setBezelStyle:NSRoundedBezelStyle];
-    [_explorerNavigateUpButton setImage:OMDToolbarTintedImage(OMDExplorerNavigateParentBaseImage(),
-                                                              OMDResolvedControlTextColor())];
+    [_explorerNavigateUpButton setImage:OMDSymbolicImageNamed(@"omd-go-up-symbolic")];
 #if defined(_WIN32)
     [_explorerNavigateUpButton setTitle:@"Up"];
     [_explorerNavigateUpButton setFont:labelFont];
@@ -751,9 +723,6 @@ static NSString *OMDDefaultCacheDirectory(void)
                          _explorerLocalRootPath != nil &&
                          ![_explorerLocalCurrentPath isEqualToString:_explorerLocalRootPath]);
     }
-    [_explorerNavigateUpButton setImage:OMDToolbarTintedImage(OMDExplorerNavigateParentBaseImage(),
-                                                              (canNavigateUp ? OMDResolvedControlTextColor()
-                                                                             : OMDResolvedMutedTextColor()))];
     [_explorerNavigateUpButton setEnabled:canNavigateUp];
 }
 
