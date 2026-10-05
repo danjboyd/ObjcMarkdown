@@ -323,12 +323,10 @@
                                                                     action:@selector(toggleBoldFormatting:)
                                                              keyEquivalent:@"b"];
     [toggleBoldItem setTarget:target];
-    [toggleBoldItem setKeyEquivalentModifierMask:NSControlKeyMask];
     NSMenuItem *toggleItalicItem = (NSMenuItem *)[editMenu addItemWithTitle:@"Toggle Italic"
                                                                       action:@selector(toggleItalicFormatting:)
                                                                keyEquivalent:@"i"];
     [toggleItalicItem setTarget:target];
-    [toggleItalicItem setKeyEquivalentModifierMask:NSControlKeyMask];
     [editMenuItem setSubmenu:editMenu];
 
     NSMenuItem *viewMenuItem = [[[NSMenuItem alloc] initWithTitle:@"View"
@@ -388,20 +386,19 @@
 
     [viewMenu addItem:[NSMenuItem separatorItem]];
 
+    // The usual Command mask, like every other shortcut (Ctrl with GNUstep's
+    // default key mapping); OMDMainWindow also takes Command-+ for Zoom In.
     NSMenuItem *zoomInItem = (NSMenuItem *)[viewMenu addItemWithTitle:@"Zoom In"
                                                               action:@selector(zoomIn:)
                                                        keyEquivalent:@"="];
-    [zoomInItem setKeyEquivalentModifierMask:NSControlKeyMask];
     [zoomInItem setTarget:target];
     NSMenuItem *zoomOutItem = (NSMenuItem *)[viewMenu addItemWithTitle:@"Zoom Out"
                                                                action:@selector(zoomOut:)
                                                         keyEquivalent:@"-"];
-    [zoomOutItem setKeyEquivalentModifierMask:NSControlKeyMask];
     [zoomOutItem setTarget:target];
     NSMenuItem *actualSizeItem = (NSMenuItem *)[viewMenu addItemWithTitle:@"Actual Size"
                                                                   action:@selector(zoomToActualSize:)
                                                            keyEquivalent:@"0"];
-    [actualSizeItem setKeyEquivalentModifierMask:NSControlKeyMask];
     [actualSizeItem setTarget:target];
 
     [viewMenuItem setSubmenu:viewMenu];
