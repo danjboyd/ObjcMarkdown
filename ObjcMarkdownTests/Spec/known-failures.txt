@@ -24,8 +24,3 @@ spec:607 link  # Autolinks: made-up-scheme
 spec:609 link  # Autolinks: localhost
 spec:628 link  # Autolinks: ftp
 extensions:19 link  # Autolinks: xmpp
-
-# Footnote references are styled but not yet links to their definitions.
-extensions:23 link  # Footnotes
-extensions:24 link  # Footnotes used multiple times
-extensions:25 link  # Footnote reference labels

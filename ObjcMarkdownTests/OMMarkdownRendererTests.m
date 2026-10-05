@@ -1997,6 +1997,72 @@ static BOOL OMDMathToolchainAvailable(void)
     XCTAssertTrue(first.location < second.location);
 }
 
+// The range carrying a footnote anchor, or {NSNotFound, 0}.
+static NSRange OMFootnoteAnchorRange(NSAttributedString *rendered, NSString *anchor)
+{
+    NSUInteger index = 0;
+    while (index < [rendered length]) {
+        NSRange effective = NSMakeRange(index, 1);
+        id value = [rendered attribute:OMMarkdownRendererFootnoteAnchorAttributeName
+                               atIndex:index
+                        effectiveRange:&effective];
+        if ([value isEqual:anchor]) {
+            return effective;
+        }
+        index = NSMaxRange(effective);
+    }
+    return NSMakeRange(NSNotFound, 0);
+}
+
+- (void)testFootnoteReferencesLinkToNotesAndNotesLinkBack
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:
+        @"One[^note] and again[^note].\n\nCode[^code].\n\n[^note]: The note.\n\n[^code]:\n        code only\n"];
+    NSString *text = [rendered string];
+
+    // Each reference links to its note and carries its own anchor.
+    NSRange first = OMFootnoteAnchorRange(rendered, @"fnref-note");
+    NSRange second = OMFootnoteAnchorRange(rendered, @"fnref-note-2");
+    XCTAssertTrue(first.location != NSNotFound);
+    XCTAssertTrue(second.location != NSNotFound);
+    if (first.location == NSNotFound || second.location == NSNotFound) {
+        return;
+    }
+    XCTAssertTrue(first.location < second.location);
+    NSURL *toNote = [rendered attribute:NSLinkAttributeName atIndex:first.location effectiveRange:NULL];
+    XCTAssertNil([toNote scheme]);
+    XCTAssertEqualObjects([toNote fragment], @"fn-note");
+
+    // The note is anchored and links back to both references.
+    NSRange note = OMFootnoteAnchorRange(rendered, @"fn-note");
+    XCTAssertTrue(note.location != NSNotFound && note.location > second.location);
+    NSRange noteText = [text rangeOfString:@"The note. \u21A9 \u21A92"];
+    XCTAssertTrue(noteText.location != NSNotFound);
+    if (noteText.location != NSNotFound) {
+        NSUInteger backIndex = NSMaxRange(noteText) - 4;
+        NSUInteger secondBackIndex = NSMaxRange(noteText) - 2;
+        NSURL *back = [rendered attribute:NSLinkAttributeName atIndex:backIndex effectiveRange:NULL];
+        NSURL *secondBack = [rendered attribute:NSLinkAttributeName atIndex:secondBackIndex effectiveRange:NULL];
+        XCTAssertEqualObjects([back fragment], @"fnref-note");
+        XCTAssertEqualObjects([secondBack fragment], @"fnref-note-2");
+    }
+
+    // A note ending in a code block gets its link back in a paragraph of its own.
+    NSRange codeNote = OMFootnoteAnchorRange(rendered, @"fn-code");
+    XCTAssertTrue(codeNote.location != NSNotFound);
+    NSRange codeText = [text rangeOfString:@"code only"];
+    XCTAssertTrue(codeText.location != NSNotFound);
+    if (codeText.location != NSNotFound) {
+        NSRange arrow = [text rangeOfString:@"\u21A9" options:0 range:NSMakeRange(NSMaxRange(codeText), [text length] - NSMaxRange(codeText))];
+        XCTAssertTrue(arrow.location != NSNotFound);
+        if (arrow.location != NSNotFound) {
+            NSURL *back = [rendered attribute:NSLinkAttributeName atIndex:arrow.location effectiveRange:NULL];
+            XCTAssertEqualObjects([back fragment], @"fnref-code");
+        }
+    }
+}
+
 - (void)testBareURLsBecomeLinks
 {
     OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];

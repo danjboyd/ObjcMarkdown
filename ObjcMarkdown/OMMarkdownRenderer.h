@@ -23,6 +23,10 @@ FOUNDATION_EXPORT NSString * const OMMarkdownRendererHeadingRangeKey;       // N
 FOUNDATION_EXPORT NSString * const OMMarkdownRendererHeadingSourceLineKey;  // NSNumber, 1-based
 // Attribute on each heading's text: its anchor slug (the target of "#slug" links).
 FOUNDATION_EXPORT NSString * const OMMarkdownRendererHeadingAnchorAttributeName;
+// Attribute marking a footnote anchor (the target of "#fn-label" and
+// "#fnref-label" links): "fn-label" on the note's first character,
+// "fnref-label" on its first reference, then "fnref-label-2" ...
+FOUNDATION_EXPORT NSString * const OMMarkdownRendererFootnoteAnchorAttributeName;
 // Attribute on a GitHub alert quote ("> [!NOTE]" ...): the NSColor for its bar.
 FOUNDATION_EXPORT NSString * const OMMarkdownRendererBlockquoteColorAttributeName;
 

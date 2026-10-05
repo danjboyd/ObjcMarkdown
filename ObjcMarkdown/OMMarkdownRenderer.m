@@ -18,6 +18,7 @@ NSString * const OMMarkdownRendererHeadingAnchorKey = @"OMMarkdownRendererHeadin
 NSString * const OMMarkdownRendererHeadingRangeKey = @"OMMarkdownRendererHeadingRange";
 NSString * const OMMarkdownRendererHeadingSourceLineKey = @"OMMarkdownRendererHeadingSourceLine";
 NSString * const OMMarkdownRendererHeadingAnchorAttributeName = @"OMMarkdownRendererHeadingAnchor";
+NSString * const OMMarkdownRendererFootnoteAnchorAttributeName = @"OMMarkdownRendererFootnoteAnchor";
 NSString * const OMMarkdownRendererBlockquoteColorAttributeName = @"OMMarkdownRendererBlockquoteColor";
 NSString * const OMMarkdownRendererDiagramRangeKey = @"OMMarkdownRendererDiagramRange";
 NSString * const OMMarkdownRendererDiagramSourceKey = @"OMMarkdownRendererDiagramSource";
@@ -1163,6 +1164,9 @@ static void OMAppendTextWithMathSpans(NSString *text,
     NSUInteger cmarkOptions = self.parsingOptions != nil ? [self.parsingOptions cmarkOptions] : (NSUInteger)CMARK_OPT_DEFAULT;
     NSTimeInterval parseStart = perfLogging ? OMNow() : 0.0;
     cmark_node *document = OMGFMParseDocument(bytes, length, (int)cmarkOptions);
+    if (document != NULL) {
+        OMPrepareFootnotes(document);
+    }
     NSTimeInterval parseMs = perfLogging ? ((OMNow() - parseStart) * 1000.0) : 0.0;
     if (document == NULL) {
         if (perfLogging) {
@@ -1744,6 +1748,85 @@ static void OMAppendAlertTitle(NSString *kind,
     [titleAttrs release];
 }
 
+// A footnote's label ("note" for "[^note]"), from its definition.
+static NSString *OMFootnoteLabel(cmark_node *definition)
+{
+    const char *label = definition != NULL ? cmark_node_get_literal(definition) : NULL;
+    return label != NULL ? [NSString stringWithUTF8String:label] : nil;
+}
+
+// Numbers each footnote reference among the references to the same note
+// (in its user data: 1, 2 ... for "fnref-label", "fnref-label-2" ..., as
+// cmark-gfm's HTML has it), and ends each note with a link back to each of
+// its references, in its last paragraph or else a paragraph of their own.
+static void OMPrepareFootnotes(cmark_node *document)
+{
+    BOOL hasReferences = NO;
+    cmark_iter *iter = cmark_iter_new(document);
+    cmark_event_type event;
+    while ((event = cmark_iter_next(iter)) != CMARK_EVENT_DONE) {
+        cmark_node *node = cmark_iter_get_node(iter);
+        if (event != CMARK_EVENT_ENTER || cmark_node_get_type(node) != CMARK_NODE_FOOTNOTE_REFERENCE) {
+            continue;
+        }
+        cmark_node *definition = cmark_node_parent_footnote_def(node);
+        if (definition == NULL) {
+            continue;
+        }
+        intptr_t index = (intptr_t)cmark_node_get_user_data(definition) + 1;
+        cmark_node_set_user_data(definition, (void *)index);
+        cmark_node_set_user_data(node, (void *)index);
+        hasReferences = YES;
+    }
+    cmark_iter_free(iter);
+    if (!hasReferences) {
+        return;
+    }
+
+    cmark_node *definition = cmark_node_first_child(document);
+    for (; definition != NULL; definition = cmark_node_next(definition)) {
+        if (cmark_node_get_type(definition) != CMARK_NODE_FOOTNOTE_DEFINITION) {
+            continue;
+        }
+        intptr_t count = (intptr_t)cmark_node_get_user_data(definition);
+        NSString *label = OMFootnoteLabel(definition);
+        if (count <= 0 || [label length] == 0) {
+            continue;
+        }
+        cmark_node *paragraph = cmark_node_last_child(definition);
+        if (paragraph == NULL || cmark_node_get_type(paragraph) != CMARK_NODE_PARAGRAPH) {
+            paragraph = cmark_node_new(CMARK_NODE_PARAGRAPH);
+            cmark_node_append_child(definition, paragraph);
+        }
+        intptr_t index = 1;
+        for (; index <= count; index++) {
+            if (cmark_node_first_child(paragraph) != NULL) {
+                cmark_node *space = cmark_node_new(CMARK_NODE_TEXT);
+                cmark_node_set_literal(space, " ");
+                cmark_node_append_child(paragraph, space);
+            }
+            NSString *target = (index == 1
+                                ? [NSString stringWithFormat:@"#fnref-%@", label]
+                                : [NSString stringWithFormat:@"#fnref-%@-%ld", label, (long)index]);
+            NSString *title = (index == 1
+                               ? @"Back to reference"
+                               : [NSString stringWithFormat:@"Back to reference %ld", (long)index]);
+            // U+21A9 LEFTWARDS ARROW WITH HOOK, then the reference's number
+            // after the first, as GitHub shows them.
+            NSString *text = (index == 1
+                              ? @"\u21A9"
+                              : [NSString stringWithFormat:@"\u21A9%ld", (long)index]);
+            cmark_node *link = cmark_node_new(CMARK_NODE_LINK);
+            cmark_node_set_url(link, [target UTF8String]);
+            cmark_node_set_title(link, [title UTF8String]);
+            cmark_node *linkText = cmark_node_new(CMARK_NODE_TEXT);
+            cmark_node_set_literal(linkText, [text UTF8String]);
+            cmark_node_append_child(link, linkText);
+            cmark_node_append_child(paragraph, link);
+        }
+    }
+}
+
 // Footnotes come last in the document (cmark-gfm moves them there, in order
 // of first reference): a rule, then each note as a numbered item.
 static void OMRenderFootnoteDefinition(cmark_node *node,
@@ -1773,8 +1856,17 @@ static void OMRenderFootnoteDefinition(cmark_node *node,
     [listInfo setObject:[NSNumber numberWithUnsignedInteger:number] forKey:@"index"];
     [listInfo setObject:[NSNumber numberWithBool:YES] forKey:@"tight"];
     [listStack addObject:listInfo];
+    NSUInteger noteStart = [output length];
     OMRenderListItem(node, theme, output, attributes, codeRanges, blockquoteRanges, listStack, quoteLevel, scale, layoutWidth, renderContext);
     [listStack removeLastObject];
+    // The note's anchor goes on its first character only: references
+    // inside the note keep their own.
+    NSString *label = OMFootnoteLabel(node);
+    if ([label length] > 0 && [output length] > noteStart) {
+        [output addAttribute:OMMarkdownRendererFootnoteAnchorAttributeName
+                       value:[@"fn-" stringByAppendingString:label]
+                       range:NSMakeRange(noteStart, 1)];
+    }
 }
 
 static void OMRenderBlocks(cmark_node *node,
@@ -1982,6 +2074,20 @@ void OMRenderInlines(cmark_node *node,
                 [refAttrs setObject:[NSNumber numberWithInt:1] forKey:NSSuperscriptAttributeName];
                 if (theme.linkColor != nil) {
                     [refAttrs setObject:theme.linkColor forKey:NSForegroundColorAttributeName];
+                }
+                // A link to the note, and this reference's anchor for the
+                // note's link back (see OMPrepareFootnotes).
+                NSString *label = OMFootnoteLabel(cmark_node_parent_footnote_def(child));
+                if ([label length] > 0) {
+                    NSURL *noteURL = OMResolvedLinkURL([@"#fn-" stringByAppendingString:label], renderContext);
+                    if (noteURL != nil) {
+                        [refAttrs setObject:noteURL forKey:NSLinkAttributeName];
+                    }
+                    intptr_t index = (intptr_t)cmark_node_get_user_data(child);
+                    NSString *anchor = (index > 1
+                                        ? [NSString stringWithFormat:@"fnref-%@-%ld", label, (long)index]
+                                        : [@"fnref-" stringByAppendingString:label]);
+                    [refAttrs setObject:anchor forKey:OMMarkdownRendererFootnoteAnchorAttributeName];
                 }
                 OMAppendString(output, number, refAttrs);
                 [refAttrs release];

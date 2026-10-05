@@ -14,7 +14,7 @@ result against the example's expected HTML.
   (`third_party/cmark-gfm/LICENSE`).
 - `known-failures.txt`: the checks each example is known to fail, grouped by
   reason (raw HTML shown as text, empty link destinations, the link scheme
-  allowlist, footnote references not yet linked).
+  allowlist).
 
 ## Checks
 

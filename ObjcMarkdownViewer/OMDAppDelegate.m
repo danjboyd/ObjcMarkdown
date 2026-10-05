@@ -526,7 +526,7 @@ static CGFloat OMDClampedScrollSpeed(CGFloat value)
 - (void)refreshOutline;
 - (void)updateOutlineCurrentHeading;
 - (void)scrollToHeading:(NSDictionary *)heading;
-- (BOOL)scrollToHeadingAnchor:(NSString *)anchor;
+- (BOOL)scrollToAnchor:(NSString *)anchor;
 - (BOOL)followDocumentLink:(NSURL *)url;
 - (void)modeControlChanged:(id)sender;
 - (void)setReadMode:(id)sender;
@@ -8303,10 +8303,10 @@ static NSRange OMDCharacterRangeForSourceLines(NSString *source, NSRange lineRan
         return;
     }
     [_outlineController setHeadings:([self hasLoadedDocument] ? [_renderer headings] : nil)];
-    if (_pendingLinkFragment != nil && [[_renderer headings] count] > 0) {
+    if (_pendingLinkFragment != nil && [[_textView textStorage] length] > 0) {
         NSString *fragment = [_pendingLinkFragment autorelease];
         _pendingLinkFragment = nil;
-        if (![self scrollToHeadingAnchor:fragment]) {
+        if (![self scrollToAnchor:fragment]) {
             NSBeep();
         }
     }
@@ -8414,13 +8414,42 @@ static NSRange OMDCharacterRangeForSourceLines(NSString *source, NSRange lineRan
     return nil;
 }
 
-- (BOOL)scrollToHeadingAnchor:(NSString *)anchor
+// Where a footnote anchor ("fn-label" on a note, "fnref-label" on a
+// reference) is in the preview, or NSNotFound.
+- (NSUInteger)previewLocationOfFootnoteAnchor:(NSString *)anchor
+{
+    NSTextStorage *storage = [_textView textStorage];
+    NSUInteger length = [storage length];
+    NSUInteger index = 0;
+    while (index < length) {
+        NSRange effective = NSMakeRange(index, 1);
+        id value = [storage attribute:OMMarkdownRendererFootnoteAnchorAttributeName
+                              atIndex:index
+                       effectiveRange:&effective];
+        if ([value isEqual:anchor]) {
+            return effective.location;
+        }
+        index = NSMaxRange(effective);
+    }
+    return NSNotFound;
+}
+
+// Scrolls to a "#fragment" target: a heading's slug, else a footnote.
+- (BOOL)scrollToAnchor:(NSString *)anchor
 {
     NSDictionary *heading = [self headingForAnchor:anchor];
-    if (heading == nil) {
+    if (heading != nil) {
+        [self scrollToHeading:heading];
+        return YES;
+    }
+    if (![self isPreviewVisible] || [anchor length] == 0) {
         return NO;
     }
-    [self scrollToHeading:heading];
+    NSUInteger location = [self previewLocationOfFootnoteAnchor:anchor];
+    if (location == NSNotFound) {
+        return NO;
+    }
+    [self scrollPreviewToCharacterIndex:location verticalAnchor:0.06];
     return YES;
 }
 
@@ -8445,7 +8474,7 @@ static BOOL OMDIsMarkdownPath(NSString *path)
 {
     NSString *fragment = OMDDecodedLinkFragment(url);
     if ([url scheme] == nil && [[url path] length] == 0 && [fragment length] > 0) {
-        if (![self scrollToHeadingAnchor:fragment]) {
+        if (![self scrollToAnchor:fragment]) {
             NSBeep();
         }
         return YES;
@@ -8455,7 +8484,7 @@ static BOOL OMDIsMarkdownPath(NSString *path)
     }
     NSString *path = [[url path] stringByStandardizingPath];
     if (_currentPath != nil && [path isEqualToString:[_currentPath stringByStandardizingPath]]) {
-        if ([fragment length] > 0 && ![self scrollToHeadingAnchor:fragment]) {
+        if ([fragment length] > 0 && ![self scrollToAnchor:fragment]) {
             NSBeep();
         }
         return YES;
@@ -8470,7 +8499,7 @@ static BOOL OMDIsMarkdownPath(NSString *path)
     }
     // Opening resets the viewport to the top after its first render, so
     // scroll now if that render is done, else when the next one finishes.
-    if (_sourceRevision != _lastRenderedSourceRevision || ![self scrollToHeadingAnchor:fragment]) {
+    if (_sourceRevision != _lastRenderedSourceRevision || ![self scrollToAnchor:fragment]) {
         _pendingLinkFragment = [fragment copy];
     }
     return YES;
