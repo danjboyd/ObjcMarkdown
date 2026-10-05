@@ -69,6 +69,60 @@
     XCTAssertNil(OMDDecodeTextFromData(nil, NULL));
 }
 
+- (void)testDecodeFallsBackToWindows1252ThenLatin1
+{
+    NSStringEncoding used = 0;
+    // Even and odd lengths: neither may be taken for UTF-16.
+    const unsigned char latin1[] = { 'c', 'a', 'f', 0xE9 };
+    NSString *decoded = OMDDecodeTextFromData([NSData dataWithBytes:latin1 length:sizeof(latin1)], &used);
+    XCTAssertEqualObjects(decoded, @"café");
+    XCTAssertEqual(used, NSWindowsCP1252StringEncoding);
+
+    const unsigned char quotes[] = { 0x93, 'h', 'i', 0x94, ' ', 0x80 };
+    decoded = OMDDecodeTextFromData([NSData dataWithBytes:quotes length:sizeof(quotes)], &used);
+    XCTAssertEqualObjects(decoded, @"“hi” €");
+
+    // 0x81 is undefined in Windows-1252.
+    const unsigned char undefined[] = { 'a', 0x81, 'b' };
+    decoded = OMDDecodeTextFromData([NSData dataWithBytes:undefined length:sizeof(undefined)], &used);
+    XCTAssertEqual([decoded length], (NSUInteger)3);
+    XCTAssertEqual(used, NSISOLatin1StringEncoding);
+}
+
+- (void)testDecodeHonoursByteOrderMarks
+{
+    NSStringEncoding used = 0;
+    const unsigned char utf8[] = { 0xEF, 0xBB, 0xBF, '#', ' ', 'x' };
+    NSString *decoded = OMDDecodeTextFromData([NSData dataWithBytes:utf8 length:sizeof(utf8)], &used);
+    XCTAssertEqualObjects(decoded, @"# x");
+    XCTAssertEqual(used, NSUTF8StringEncoding);
+
+    const unsigned char utf16le[] = { 0xFF, 0xFE, '#', 0, ' ', 0, 0xE9, 0 };
+    decoded = OMDDecodeTextFromData([NSData dataWithBytes:utf16le length:sizeof(utf16le)], &used);
+    XCTAssertEqualObjects(decoded, @"# é");
+    XCTAssertEqual(used, NSUTF16LittleEndianStringEncoding);
+
+    const unsigned char utf16be[] = { 0xFE, 0xFF, 0, '#', 0, 'x' };
+    decoded = OMDDecodeTextFromData([NSData dataWithBytes:utf16be length:sizeof(utf16be)], &used);
+    XCTAssertEqualObjects(decoded, @"#x");
+    XCTAssertEqual(used, NSUTF16BigEndianStringEncoding);
+
+    const unsigned char utf32le[] = { 0xFF, 0xFE, 0, 0, 'x', 0, 0, 0 };
+    decoded = OMDDecodeTextFromData([NSData dataWithBytes:utf32le length:sizeof(utf32le)], &used);
+    XCTAssertEqualObjects(decoded, @"x");
+    XCTAssertEqual(used, NSUTF32LittleEndianStringEncoding);
+}
+
+- (void)testUnicodeTextWithAByteOrderMarkIsNotBinary
+{
+    const unsigned char utf16le[] = { 0xFF, 0xFE, '#', 0, ' ', 0, 'x', 0 };
+    const unsigned char utf32be[] = { 0, 0, 0xFE, 0xFF, 0, 0, 0, 'x' };
+    const unsigned char utf8WithNul[] = { 0xEF, 0xBB, 0xBF, 'a', 0, 'b' };
+    XCTAssertFalse(OMDDataAppearsBinary([NSData dataWithBytes:utf16le length:sizeof(utf16le)]));
+    XCTAssertFalse(OMDDataAppearsBinary([NSData dataWithBytes:utf32be length:sizeof(utf32be)]));
+    XCTAssertTrue(OMDDataAppearsBinary([NSData dataWithBytes:utf8WithNul length:sizeof(utf8WithNul)]));
+}
+
 - (void)testNormalizedRelativePathResolvesDotsAndDropsTheRoot
 {
     XCTAssertEqualObjects(OMDNormalizedRelativePath(@"/docs/./guide/../intro.md"), @"docs/intro.md");
