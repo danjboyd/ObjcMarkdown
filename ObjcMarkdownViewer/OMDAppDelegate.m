@@ -34,6 +34,7 @@
 #import "OMDMainMenu.h"
 #import "OMDToolbarController.h"
 #import "OMDCopyButtonsController.h"
+#import "OMDRenderScheduler.h"
 #import "OMDViewerDefaults.h"
 #import "OMDViewerImages.h"
 #import "OMDDocumentTabsController.h"
@@ -65,11 +66,6 @@
 static const CGFloat OMDPrintExportZoomScale = 0.8;
 static const NSTimeInterval OMDInteractiveRenderDebounceInterval = 0.15;
 static const NSTimeInterval OMDZoomAdaptiveSamplingWindow = 0.35;
-static const NSTimeInterval OMDZoomAdaptiveSlowRenderThresholdMs = 85.0;
-static const NSTimeInterval OMDZoomAdaptiveFastRenderThresholdMs = 42.0;
-static const NSUInteger OMDZoomAdaptiveFastRenderStreakRequired = 4;
-static const NSTimeInterval OMDMathArtifactRefreshDebounceInterval = 0.10;
-static const NSTimeInterval OMDLivePreviewDebounceInterval = 0.12;
 static const NSTimeInterval OMDPreviewStatusUpdatingDelayInterval = 0.30;
 static const NSTimeInterval OMDPreviewStatusUpdatedDisplayInterval = 0.90;
 static const NSTimeInterval OMDLinkedScrollDriverHoldInterval = 0.14;
@@ -389,7 +385,7 @@ static CGFloat OMDClampedScrollSpeed(CGFloat value)
 }
 
 
-@interface OMDAppDelegate () <OMDCopyButtonsControllerDelegate, OMDDocumentTabsControllerDelegate, OMDToolbarControllerDelegate, OMDExplorerControllerDelegate, OMDFormattingBarControllerDelegate, OMDPreferencesControllerDelegate, GSVVimBindingControllerDelegate, OMDTextViewRenderedObjectDelegate, OMDOutlineControllerDelegate>
+@interface OMDAppDelegate () <OMDCopyButtonsControllerDelegate, OMDRenderSchedulerDelegate, OMDDocumentTabsControllerDelegate, OMDToolbarControllerDelegate, OMDExplorerControllerDelegate, OMDFormattingBarControllerDelegate, OMDPreferencesControllerDelegate, GSVVimBindingControllerDelegate, OMDTextViewRenderedObjectDelegate, OMDOutlineControllerDelegate>
 - (void)importDocument:(id)sender;
 - (void)newWindow:(id)sender;
 - (void)saveDocument:(id)sender;
@@ -519,18 +515,12 @@ static CGFloat OMDClampedScrollSpeed(CGFloat value)
 - (void)requestInteractiveRender;
 - (void)requestInteractiveRenderForLayoutWidthIfNeeded;
 - (void)logPreviewStyleDiagnosticsForRenderedString:(NSAttributedString *)rendered;
-- (void)updateAdaptiveZoomDebounceWithRenderDurationMs:(NSTimeInterval)durationMs
-                                     sampledAsZoomRender:(BOOL)isZoomRender;
 - (NSRect)currentPreviewClipBounds;
 - (CGFloat)currentPreviewLayoutWidth;
 - (void)clearPreviewPresentation;
 - (void)updatePreviewDocumentGeometry;
-- (void)scheduleInteractiveRenderAfterDelay:(NSTimeInterval)delay;
-- (void)interactiveRenderTimerFired:(NSTimer *)timer;
-- (void)cancelPendingInteractiveRender;
 - (void)mathArtifactsDidWarm:(NSNotification *)notification;
 - (void)remoteImagesDidWarm:(NSNotification *)notification;
-- (void)scheduleMathArtifactRefresh;
 - (void)updateLinkedPreviewObject;
 - (NSRect)layoutOutlinePanelInBounds:(NSRect)bounds;
 - (void)refreshOutline;
@@ -538,8 +528,6 @@ static CGFloat OMDClampedScrollSpeed(CGFloat value)
 - (void)scrollToHeading:(NSDictionary *)heading;
 - (BOOL)scrollToHeadingAnchor:(NSString *)anchor;
 - (BOOL)followDocumentLink:(NSURL *)url;
-- (void)mathArtifactRenderTimerFired:(NSTimer *)timer;
-- (void)cancelPendingMathArtifactRender;
 - (void)modeControlChanged:(id)sender;
 - (void)setReadMode:(id)sender;
 - (void)setEditMode:(id)sender;
@@ -604,9 +592,6 @@ static CGFloat OMDClampedScrollSpeed(CGFloat value)
 - (void)scrollPreviewToCharacterIndex:(NSUInteger)characterIndex;
 - (void)scrollPreviewToCharacterIndex:(NSUInteger)characterIndex verticalAnchor:(CGFloat)verticalAnchor;
 - (void)scrollSourceToCharacterIndex:(NSUInteger)characterIndex verticalAnchor:(CGFloat)verticalAnchor;
-- (void)scheduleLivePreviewRender;
-- (void)livePreviewRenderTimerFired:(NSTimer *)timer;
-- (void)cancelPendingLivePreviewRender;
 - (void)applySplitViewRatio;
 - (void)persistSplitViewRatio;
 - (BOOL)isPreviewVisible;
@@ -758,9 +743,9 @@ static NSMutableArray *OMDSecondaryWindows(void)
                                                         name:NSViewBoundsDidChangeNotification
                                                       object:[_previewScrollView contentView]];
     }
-    [self cancelPendingInteractiveRender];
-    [self cancelPendingMathArtifactRender];
-    [self cancelPendingLivePreviewRender];
+    [_renderScheduler cancelPendingInteractiveRender];
+    [_renderScheduler cancelPendingMathArtifactRender];
+    [_renderScheduler cancelPendingLivePreviewRender];
     [self cancelPendingPreviewStatusUpdatingVisibility];
     [self cancelPendingPreviewStatusAutoHide];
     [self cancelPendingSourceSyntaxHighlighting];
@@ -799,6 +784,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [_formattingBarController release];
     [_sourceEditorContainer release];
     [_copyButtonsController release];
+    [_renderScheduler release];
     [_documentConverter release];
     [_sourceVimBindingController release];
     [_sourceLineNumberRuler release];
@@ -1003,8 +989,6 @@ static NSMutableArray *OMDSecondaryWindows(void)
     OMDApplyWindowsMenuToWindow(_window);
 
     _zoomScale = 1.0;
-    _zoomUsesDebouncedRendering = NO;
-    _zoomFastRenderStreak = 0;
     _lastZoomSliderEventTime = 0.0;
     NSNumber *savedZoom = [[NSUserDefaults standardUserDefaults] objectForKey:@"ObjcMarkdownZoomScale"];
     if (savedZoom != nil) {
@@ -1015,6 +999,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
     }
     _toolbarController = [[OMDToolbarController alloc] initWithDelegate:self];
     _copyButtonsController = [[OMDCopyButtonsController alloc] initWithDelegate:self];
+    _renderScheduler = [[OMDRenderScheduler alloc] initWithDelegate:self];
     [_toolbarController installInWindow:_window];
     [self updateZoomLabel];
     OMDStartupTrace(@"setupWindow: setupToolbar returned");
@@ -1730,11 +1715,11 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
     [[NSUserDefaults standardUserDefaults] setDouble:_zoomScale forKey:@"ObjcMarkdownZoomScale"];
     [self updateZoomLabel];
     _lastZoomSliderEventTime = OMDNow();
-    if (_zoomUsesDebouncedRendering) {
+    if ([_renderScheduler zoomUsesDebouncedRendering]) {
         [self requestInteractiveRender];
         return;
     }
-    [self cancelPendingInteractiveRender];
+    [_renderScheduler cancelPendingInteractiveRender];
     [self renderCurrentMarkdown];
 }
 
@@ -1746,7 +1731,7 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
     [zoomSlider setDoubleValue:100.0];
     [self updateZoomLabel];
     _lastZoomSliderEventTime = OMDNow();
-    [self cancelPendingInteractiveRender];
+    [_renderScheduler cancelPendingInteractiveRender];
     [self renderCurrentMarkdown];
 }
 
@@ -3998,9 +3983,9 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
     BOOL sampledAsZoomRender = ((renderStart - _lastZoomSliderEventTime) <= OMDZoomAdaptiveSamplingWindow);
     BOOL perfLogging = OMDPerformanceLoggingEnabled();
     NSUInteger revisionAtRenderStart = _sourceRevision;
-    [self cancelPendingInteractiveRender];
-    [self cancelPendingMathArtifactRender];
-    [self cancelPendingLivePreviewRender];
+    [_renderScheduler cancelPendingInteractiveRender];
+    [_renderScheduler cancelPendingMathArtifactRender];
+    [_renderScheduler cancelPendingLivePreviewRender];
     [_renderer setZoomScale:_zoomScale];
     [self updateRendererLayoutWidth];
     NSTimeInterval markdownStart = perfLogging ? OMDNow() : 0.0;
@@ -4062,12 +4047,12 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
     [self updatePreviewStatusIndicator];
     [self updateWindowTitle];
     if (_viewerMode == OMDViewerModeSplit && _sourceRevision > _lastRenderedSourceRevision) {
-        [self scheduleLivePreviewRender];
+        [_renderScheduler scheduleLivePreviewRender];
     } else {
         [self setPreviewUpdating:NO];
     }
     NSTimeInterval totalMs = (OMDNow() - renderStart) * 1000.0;
-    [self updateAdaptiveZoomDebounceWithRenderDurationMs:totalMs sampledAsZoomRender:sampledAsZoomRender];
+    [_renderScheduler updateAdaptiveZoomDebounceWithRenderDurationMs:totalMs sampledAsZoomRender:sampledAsZoomRender];
     if (perfLogging) {
         NSLog(@"[Perf][Viewer] total=%.1fms markdown=%.1fms apply=%.1fms post=%.1fms zoom=%.2f charsIn=%lu charsOut=%lu",
               totalMs,
@@ -4200,36 +4185,6 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
         SendMessageW(hwnd, WM_SETICON, ICON_SMALL, (LPARAM)smallIcon);
     }
 #endif
-}
-
-- (void)updateAdaptiveZoomDebounceWithRenderDurationMs:(NSTimeInterval)durationMs
-                                     sampledAsZoomRender:(BOOL)isZoomRender
-{
-    if (!isZoomRender) {
-        _zoomFastRenderStreak = 0;
-        return;
-    }
-
-    if (durationMs >= OMDZoomAdaptiveSlowRenderThresholdMs) {
-        _zoomUsesDebouncedRendering = YES;
-        _zoomFastRenderStreak = 0;
-        return;
-    }
-
-    if (!_zoomUsesDebouncedRendering) {
-        return;
-    }
-
-    if (durationMs <= OMDZoomAdaptiveFastRenderThresholdMs) {
-        _zoomFastRenderStreak += 1;
-        if (_zoomFastRenderStreak >= OMDZoomAdaptiveFastRenderStreakRequired) {
-            _zoomUsesDebouncedRendering = NO;
-            _zoomFastRenderStreak = 0;
-        }
-        return;
-    }
-
-    _zoomFastRenderStreak = 0;
 }
 
 - (void)updateRendererLayoutWidth
@@ -4395,7 +4350,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
         return;
     }
     // Trailing-edge debounce: rapid UI events collapse to one render.
-    [self scheduleInteractiveRenderAfterDelay:OMDInteractiveRenderDebounceInterval];
+    [_renderScheduler scheduleInteractiveRenderAfterDelay:OMDInteractiveRenderDebounceInterval];
 }
 
 - (void)requestInteractiveRenderForLayoutWidthIfNeeded
@@ -4589,46 +4544,6 @@ constrainSplitPosition:(CGFloat)proposedPosition
     }
 }
 
-- (void)scheduleInteractiveRenderAfterDelay:(NSTimeInterval)delay
-{
-    if (delay < 0.01) {
-        delay = 0.01;
-    }
-
-    if (_interactiveRenderTimer != nil) {
-        [_interactiveRenderTimer invalidate];
-        [_interactiveRenderTimer release];
-        _interactiveRenderTimer = nil;
-    }
-
-    _interactiveRenderTimer = [[NSTimer scheduledTimerWithTimeInterval:delay
-                                                                 target:self
-                                                               selector:@selector(interactiveRenderTimerFired:)
-                                                               userInfo:nil
-                                                                repeats:NO] retain];
-    [self setPreviewUpdating:YES];
-}
-
-- (void)interactiveRenderTimerFired:(NSTimer *)timer
-{
-    if (timer != _interactiveRenderTimer) {
-        return;
-    }
-    [_interactiveRenderTimer invalidate];
-    [_interactiveRenderTimer release];
-    _interactiveRenderTimer = nil;
-    [self renderCurrentMarkdown];
-}
-
-- (void)cancelPendingInteractiveRender
-{
-    if (_interactiveRenderTimer != nil) {
-        [_interactiveRenderTimer invalidate];
-        [_interactiveRenderTimer release];
-        _interactiveRenderTimer = nil;
-    }
-}
-
 - (void)mathArtifactsDidWarm:(NSNotification *)notification
 {
     if (_currentMarkdown == nil) {
@@ -4637,7 +4552,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
     if (![self isPreviewVisible]) {
         return;
     }
-    [self scheduleMathArtifactRefresh];
+    [_renderScheduler scheduleMathArtifactRefresh];
 }
 
 - (void)remoteImagesDidWarm:(NSNotification *)notification
@@ -4650,41 +4565,6 @@ constrainSplitPosition:(CGFloat)proposedPosition
         return;
     }
     [self requestInteractiveRender];
-}
-
-- (void)scheduleMathArtifactRefresh
-{
-    if (_mathArtifactRenderTimer != nil) {
-        [_mathArtifactRenderTimer invalidate];
-        [_mathArtifactRenderTimer release];
-        _mathArtifactRenderTimer = nil;
-    }
-    _mathArtifactRenderTimer = [[NSTimer scheduledTimerWithTimeInterval:OMDMathArtifactRefreshDebounceInterval
-                                                                  target:self
-                                                                selector:@selector(mathArtifactRenderTimerFired:)
-                                                                userInfo:nil
-                                                                 repeats:NO] retain];
-    [self setPreviewUpdating:YES];
-}
-
-- (void)mathArtifactRenderTimerFired:(NSTimer *)timer
-{
-    if (timer != _mathArtifactRenderTimer) {
-        return;
-    }
-    [_mathArtifactRenderTimer invalidate];
-    [_mathArtifactRenderTimer release];
-    _mathArtifactRenderTimer = nil;
-    [self renderCurrentMarkdown];
-}
-
-- (void)cancelPendingMathArtifactRender
-{
-    if (_mathArtifactRenderTimer != nil) {
-        [_mathArtifactRenderTimer invalidate];
-        [_mathArtifactRenderTimer release];
-        _mathArtifactRenderTimer = nil;
-    }
 }
 
 - (void)modeControlChanged:(id)sender
@@ -4969,9 +4849,9 @@ constrainSplitPosition:(CGFloat)proposedPosition
     [self updateWindowTitle];
 
     if (_viewerMode == OMDViewerModeEdit) {
-        [self cancelPendingInteractiveRender];
-        [self cancelPendingMathArtifactRender];
-        [self cancelPendingLivePreviewRender];
+        [_renderScheduler cancelPendingInteractiveRender];
+        [_renderScheduler cancelPendingMathArtifactRender];
+        [_renderScheduler cancelPendingLivePreviewRender];
         [self setPreviewUpdating:NO];
         if (_sourceTextView != nil) {
             if (sourceAnchorLocation != NSNotFound) {
@@ -6378,46 +6258,6 @@ constrainSplitPosition:(CGFloat)proposedPosition
     _isProgrammaticSelectionSync = NO;
 }
 
-- (void)scheduleLivePreviewRender
-{
-    if (![self isPreviewVisible] || _currentMarkdown == nil) {
-        [self setPreviewUpdating:NO];
-        return;
-    }
-
-    if (_livePreviewRenderTimer != nil) {
-        [_livePreviewRenderTimer invalidate];
-        [_livePreviewRenderTimer release];
-        _livePreviewRenderTimer = nil;
-    }
-    _livePreviewRenderTimer = [[NSTimer scheduledTimerWithTimeInterval:OMDLivePreviewDebounceInterval
-                                                                 target:self
-                                                               selector:@selector(livePreviewRenderTimerFired:)
-                                                               userInfo:nil
-                                                                repeats:NO] retain];
-    [self setPreviewUpdating:YES];
-}
-
-- (void)livePreviewRenderTimerFired:(NSTimer *)timer
-{
-    if (timer != _livePreviewRenderTimer) {
-        return;
-    }
-    [_livePreviewRenderTimer invalidate];
-    [_livePreviewRenderTimer release];
-    _livePreviewRenderTimer = nil;
-    [self renderCurrentMarkdown];
-}
-
-- (void)cancelPendingLivePreviewRender
-{
-    if (_livePreviewRenderTimer != nil) {
-        [_livePreviewRenderTimer invalidate];
-        [_livePreviewRenderTimer release];
-        _livePreviewRenderTimer = nil;
-    }
-}
-
 - (void)applySplitViewRatio
 {
     if (_splitView == nil || [[_splitView subviews] count] < 2) {
@@ -6516,9 +6356,9 @@ constrainSplitPosition:(CGFloat)proposedPosition
     [self updateRendererParsingOptionsForSourcePath:_currentPath];
 
     if (_currentMarkdown != nil && [self isPreviewVisible]) {
-        [self cancelPendingInteractiveRender];
-        [self cancelPendingMathArtifactRender];
-        [self cancelPendingLivePreviewRender];
+        [_renderScheduler cancelPendingInteractiveRender];
+        [_renderScheduler cancelPendingMathArtifactRender];
+        [_renderScheduler cancelPendingLivePreviewRender];
         [self renderCurrentMarkdown];
     }
 }
@@ -7198,6 +7038,11 @@ constrainSplitPosition:(CGFloat)proposedPosition
     [_preferencesController layoutDensityDidChange];
 }
 
+- (BOOL)canRenderPreview
+{
+    return [self isPreviewVisible] && _currentMarkdown != nil;
+}
+
 - (NSTextView *)previewTextView
 {
     return _textView;
@@ -7512,7 +7357,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
     }
     [self updateZoomLabel];
     _lastZoomSliderEventTime = OMDNow();
-    [self cancelPendingInteractiveRender];
+    [_renderScheduler cancelPendingInteractiveRender];
     [self renderCurrentMarkdown];
 }
 
@@ -8319,7 +8164,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
         if (_sourceRevision == _lastRenderedSourceRevision) {
             [self syncPreviewToSourceInteractionAnchor];
         }
-        [self scheduleLivePreviewRender];
+        [_renderScheduler scheduleLivePreviewRender];
     }
     NSTimeInterval afterPreview = profiling ? OMDKeyLatencyNow() : 0.0;
     [self requestSourceSyntaxHighlightingRefresh];
@@ -8449,7 +8294,7 @@ static NSRange OMDCharacterRangeForSourceLines(NSString *source, NSRange lineRan
         return;
     }
     [OMMarkdownRenderer invalidateCachedMathForFormula:[object source]];
-    [self scheduleMathArtifactRefresh];
+    [_renderScheduler scheduleMathArtifactRefresh];
 }
 
 - (void)refreshOutline
@@ -8824,9 +8669,9 @@ static BOOL OMDIsMarkdownPath(NSString *path)
 {
     (void)notification;
     [self stopExternalFileMonitor];
-    [self cancelPendingInteractiveRender];
-    [self cancelPendingMathArtifactRender];
-    [self cancelPendingLivePreviewRender];
+    [_renderScheduler cancelPendingInteractiveRender];
+    [_renderScheduler cancelPendingMathArtifactRender];
+    [_renderScheduler cancelPendingLivePreviewRender];
     [self cancelPendingPreviewStatusUpdatingVisibility];
     [self cancelPendingPreviewStatusAutoHide];
     [self cancelPendingRecoveryAutosave];
