@@ -8,12 +8,18 @@ G=$WORK/gsession
 mkdir -p $G/{config,data,cache,state,run,gs/glib-2.0/settings} $WORK/shots
 chmod 700 $G/run
 
-# A private HOME: the real global GNUstep defaults (theme, header bar, menu
-# style) and the user's themes, but a fresh MarkdownViewer domain.
-H=$WORK/home
-mkdir -p $H/GNUstep/Defaults/.lck $H/GNUstep/Library
-[ -e $H/GNUstep/Library/Themes ] || ln -s "$HOME/GNUstep/Library/Themes" $H/GNUstep/Library/Themes
-[ -e $H/GNUstep/Defaults/NSGlobalDomain.plist ] || cp "$HOME/GNUstep/Defaults/NSGlobalDomain.plist" $H/GNUstep/Defaults/
+# Private GNUstep defaults. GNUstep ignores $HOME for its defaults, so the
+# app gets its own GNUstep.conf whose defaults directory is in $WORK, seeded
+# with a copy of the real global domain (theme, header bar, menu style).
+# GNUstep ignores a config file that is group- or world-writable.
+GS=$WORK/gnustep
+mkdir -p $GS/Defaults/.lck
+if [ ! -e $GS/GNUstep.conf ]; then
+  grep -v '^GNUSTEP_USER_DEFAULTS_DIR=' /etc/GNUstep/GNUstep.conf > $GS/GNUstep.conf
+  echo "GNUSTEP_USER_DEFAULTS_DIR=$GS/Defaults" >> $GS/GNUstep.conf
+  chmod 600 $GS/GNUstep.conf
+fi
+[ -e $GS/Defaults/NSGlobalDomain.plist ] || cp "$HOME/GNUstep/Defaults/NSGlobalDomain.plist" $GS/Defaults/
 
 # Light by default; ui-dark.sh flips color-scheme before a launch.
 [ -e $G/gs/glib-2.0/settings/keyfile ] || cat >$G/gs/glib-2.0/settings/keyfile <<'K'

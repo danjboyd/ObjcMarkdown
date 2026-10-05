@@ -3,13 +3,13 @@
 Scripts for checking MarkdownViewer by eye without touching your desktop,
 and for keeping mixed line endings intact. All UI scripts share a work
 directory, `$OMD_UI_WORK` (default `/tmp/omd-ui`), holding the display
-number, a private HOME, screenshots and the app's log.
+number, private GNUstep defaults, screenshots and the app's log.
 
 ## A private GNOME display
 
 ```sh
 tools/dev/ui-session.sh            # Xvfb + GNOME Shell (X11) on :120 or the next free display
-tools/dev/ui-launch.sh doc.md      # the in-tree build, replacing any running copy
+tools/dev/ui-launch.sh doc.md      # the in-tree build, replacing the copy it started before
 tools/dev/ui-shot.sh name          # -> $OMD_UI_WORK/shots/name.png (whole 1600x1000 screen)
 tools/dev/ui-dark.sh on|off        # colour scheme for the next launch
 tools/dev/ui-stop.sh               # stops the app and the session
@@ -17,10 +17,19 @@ tools/dev/ui-stop.sh               # stops the app and the session
 
 Drive it with `xdotool` (`export DISPLAY=$(cat $OMD_UI_WORK/display)`).
 
-- The private HOME copies your global GNUstep defaults (Adwaita, header bar
-  via `GSX11HandlesWindowDecorations NO`, `NSWindows95InterfaceStyle`) and
-  links your themes, but starts MarkdownViewer's own defaults fresh. Read
-  them with `HOME=$OMD_UI_WORK/home defaults read MarkdownViewer`.
+- GNUstep ignores `$HOME` for its defaults, so the app runs with
+  `GNUSTEP_CONFIG_FILE=$OMD_UI_WORK/gnustep/GNUstep.conf`, a copy of
+  `/etc/GNUstep/GNUstep.conf` (mode 600: GNUstep ignores a writable one)
+  whose defaults directory is `$OMD_UI_WORK/gnustep/Defaults`. That starts
+  with a copy of your global domain (theme, header bar via
+  `GSX11HandlesWindowDecorations NO`, `NSWindows95InterfaceStyle`) and a
+  fresh MarkdownViewer domain; your own settings are never read or written.
+  Read them with `GNUSTEP_CONFIG_FILE=$OMD_UI_WORK/gnustep/GNUstep.conf
+  defaults read MarkdownViewer`. Your installed themes are still used.
+- The scripts stop only the MarkdownViewer they started (its process ID is
+  in `$OMD_UI_WORK/app.pid`, checked against the private display). Never
+  stop the app with `pkill -x MarkdownViewer` or `kill` by name: that also
+  closes a copy the user has open on the desktop, unsaved work included.
 - Extra app arguments override defaults for one launch, for example
   `ui-launch.sh doc.md -GnomeThemeHeaderBarToolbar NO`.
 - The Adwaita theme reads the colour scheme only at launch: run `ui-dark.sh`

@@ -42,6 +42,24 @@ Workflow:
   - bundle `WinUITheme` with the installed runtime payload
   - set `WinUITheme` as the default packaged Windows theme unless the user explicitly changes it
 
+## UI design principle
+The app is the app; the theme and the user's theme settings decide whether it looks like GNOME, GNUstep, Windows or anything else. Follow this in every UI change:
+1. Standard controls only: NSButton, NSSegmentedControl, NSPopUpButton, NSColorWell, NSSlider, NSSwitch, NSTextField, plain NSToolbarItems with images, so each theme draws them. No custom views that paint chrome (backgrounds, borders, pills, cards, rounded plates, "active" states). A custom `drawRect:` is fine for the document itself (the rendered preview, a diagram, an image), not for chrome.
+2. System colours only for chrome: `windowBackgroundColor`, `controlBackgroundColor`, `textBackgroundColor`, `controlShadowColor` (lines, borders), `labelColor`/`secondaryLabelColor`/`controlTextColor`, `selectedControlColor`/`keyboardFocusIndicatorColor`, `toolTipColor`/`toolTipTextColor` (transient notices). Never hard-code, blend or pick an accent.
+3. No app-level light/dark setting, no light and dark icon sets, no recolouring icons in the app. Light or dark is the theme's and the desktop's choice. Two settings are allowed in Preferences: the GNUstep theme (it writes the global `GSTheme` default, the same one GNUstep's own preferences use, and takes effect on the next launch) and the layout density (spacing and sizes only). They choose which theme draws the app and how roomy it is; neither may make the app paint itself to imitate a theme.
+4. One monochrome ("symbolic") icon set, named `<name>-symbolic` (or `...Template`) so themes that tint template images find them; when loading from a file, `-setName:` the image with that name. (The Adwaita theme tints images drawn through NSButtonCell, not NSSegmentedControl segments.)
+5. Declare intent and let the theme present it: `-setTitleWithRepresentedFilename:`, a toolbar with a flexible space between start and end items, Info.plist declarations a theme may read (`GnomeThemeHeaderBarToolbar`). Don't declare what is the user's choice (menu bar vs primary menu: `GnomeThemeMenuStyle`).
+6. No theme detection: don't branch on a theme's name, and don't add settings that only make sense for one theme (the theme chooser in rule 3 lists whatever themes are installed). If something truly can't be expressed otherwise, keep it to one small check of a capability, not a name, and file the gap with the theme or GNUstep.
+7. Keep the app usable and native-looking under both GNUstep's default theme and Adwaita, and check UI changes under both.
+
+GNUstep notes for this:
+- Images drawn with `-lockFocus` are window-cached reps and may composite blank; `graphicsContextWithBitmapImageRep:` can stay empty. Prefer a standard control, or write pixels directly.
+- Image-only buttons: don't use rounded/textured bezels, whose padding can squeeze the image to nothing; use plain toolbar items or borderless buttons.
+- NSPopover isn't usable in GNUstep 0.32; a custom popover panel may be an unavoidable exception, drawn in system colours.
+- Custom views in toolbars must handle `-mouseDown:` themselves (or be real NSControls), or a header bar may take the press for a window drag.
+- Instant-apply preferences: no Close/OK buttons (the window's close button closes); confirm destructive actions such as Restore Defaults.
+- Tests and UI checks must not touch the user's settings or running apps: GNUstep ignores `$HOME` for defaults, so `tools/dev/` points `GNUSTEP_CONFIG_FILE` at a private copy of `/etc/GNUstep/GNUstep.conf` (mode 600) with its own defaults directory, and only ever stops the MarkdownViewer it started. Never stop the app by name (`pkill -x MarkdownViewer`).
+
 ## Build (macOS)
 TBD: add separate build instructions when macOS target is set up.
 
