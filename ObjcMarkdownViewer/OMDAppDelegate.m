@@ -552,7 +552,6 @@ static CGFloat OMDClampedScrollSpeed(CGFloat value)
 - (void)updateModeControlSelection;
 - (void)updatePreviewStatusIndicator;
 - (NSString *)sourceVimStatusText;
-- (NSColor *)sourceVimStatusColor;
 - (void)schedulePreviewStatusUpdatingVisibility;
 - (void)previewStatusUpdatingDelayTimerFired:(NSTimer *)timer;
 - (void)cancelPendingPreviewStatusUpdatingVisibility;
@@ -5616,22 +5615,15 @@ constrainSplitPosition:(CGFloat)proposedPosition
 
     if (_sourceVimCommandLine != nil && [_sourceVimCommandLine length] > 0) {
         [previewStatusLabel setStringValue:_sourceVimCommandLine];
-        [previewStatusLabel setTextColor:[NSColor colorWithCalibratedRed:0.85 green:0.50 blue:0.10 alpha:1.0]];
+        [previewStatusLabel setTextColor:[NSColor controlTextColor]];
         [previewStatusLabel setHidden:NO];
         return;
     }
 
     NSString *vimStatusText = [self sourceVimStatusText];
     if (vimStatusText != nil) {
-        NSColor *vimStatusColor = [self sourceVimStatusColor];
-        if (vimStatusColor == nil) {
-            vimStatusColor = [NSColor controlTextColor];
-        }
-        if (vimStatusColor == nil) {
-            vimStatusColor = [NSColor textColor];
-        }
         [previewStatusLabel setStringValue:vimStatusText];
-        [previewStatusLabel setTextColor:vimStatusColor];
+        [previewStatusLabel setTextColor:[NSColor controlTextColor]];
         [previewStatusLabel setHidden:NO];
         return;
     }
@@ -5649,19 +5641,19 @@ constrainSplitPosition:(CGFloat)proposedPosition
         if (_previewStatusUpdatingVisible) {
             showStatus = YES;
             statusText = @"Updating...";
-            statusColor = [NSColor colorWithCalibratedRed:0.85 green:0.50 blue:0.10 alpha:1.0];
+            statusColor = [NSColor secondaryLabelColor];
         }
     } else if ([status isEqualToString:@"Preview Stale"]) {
         _previewStatusShowsUpdated = NO;
         [self cancelPendingPreviewStatusAutoHide];
         showStatus = YES;
         statusText = @"Preview stale";
-        statusColor = [NSColor colorWithCalibratedRed:0.79 green:0.34 blue:0.10 alpha:1.0];
+        statusColor = [NSColor controlTextColor];
     } else if ([status isEqualToString:@"Preview Live"]) {
         if (_previewStatusShowsUpdated) {
             showStatus = YES;
             statusText = @"Updated";
-            statusColor = [NSColor colorWithCalibratedRed:0.12 green:0.56 blue:0.24 alpha:1.0];
+            statusColor = [NSColor secondaryLabelColor];
         }
     } else {
         _previewStatusShowsUpdated = NO;
@@ -5704,24 +5696,6 @@ constrainSplitPosition:(CGFloat)proposedPosition
         modeName = @"NORMAL";
     }
     return [NSString stringWithFormat:@"Vim: %@", modeName];
-}
-
-- (NSColor *)sourceVimStatusColor
-{
-    if (_sourceVimBindingController == nil) {
-        return [NSColor controlTextColor];
-    }
-
-    switch ([_sourceVimBindingController mode]) {
-        case GSVVimModeInsert:
-            return [NSColor colorWithCalibratedRed:0.12 green:0.56 blue:0.24 alpha:1.0];
-        case GSVVimModeVisual:
-        case GSVVimModeVisualLine:
-            return [NSColor colorWithCalibratedRed:0.79 green:0.34 blue:0.10 alpha:1.0];
-        case GSVVimModeNormal:
-        default:
-            return [NSColor colorWithCalibratedRed:0.20 green:0.42 blue:0.70 alpha:1.0];
-    }
 }
 
 - (void)schedulePreviewStatusUpdatingVisibility

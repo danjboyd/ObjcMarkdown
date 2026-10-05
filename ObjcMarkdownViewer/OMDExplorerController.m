@@ -2104,19 +2104,10 @@ objectValueForTableColumn:(NSTableColumn *)tableColumn
     NSDictionary *entry = [_explorerEntries objectAtIndex:row];
     BOOL isDirectory = [[entry objectForKey:@"isDirectory"] boolValue];
     NSInteger colorTier = [[entry objectForKey:@"colorTier"] integerValue];
-    NSColor *textColor = [NSColor controlTextColor];
-
-    if (isDirectory) {
-        textColor = [NSColor controlTextColor];
-    } else if (colorTier == 1) {
-        textColor = [NSColor colorWithCalibratedRed:0.30 green:0.62 blue:0.93 alpha:1.0];
-    } else if (colorTier == 2) {
-        textColor = [NSColor colorWithCalibratedRed:0.82 green:0.62 blue:0.22 alpha:1.0];
-    } else {
-        textColor = [NSColor disabledControlTextColor];
-    }
-
-    [cell setTextColor:textColor];
+    // Folders and the files the viewer opens or converts read normally;
+    // the rest are dimmed.
+    BOOL opens = (isDirectory || colorTier == 1 || colorTier == 2);
+    [cell setTextColor:(opens ? [NSColor controlTextColor] : [NSColor disabledControlTextColor])];
 }
 
 - (void)comboBoxSelectionDidChange:(NSNotification *)notification

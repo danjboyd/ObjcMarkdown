@@ -319,7 +319,7 @@ static const NSTimeInterval OMDCopyFeedbackDisplayInterval = 0.95;
     }
     NSDictionary *buttonAttributes = [NSDictionary dictionaryWithObjectsAndKeys:
                                       buttonFont, NSFontAttributeName,
-                                      [NSColor colorWithCalibratedWhite:0.56 alpha:1.0], NSForegroundColorAttributeName,
+                                      [NSColor secondaryLabelColor], NSForegroundColorAttributeName,
                                       nil];
     NSAttributedString *buttonTitle = [[[NSAttributedString alloc] initWithString:@"copy"
                                                                         attributes:buttonAttributes] autorelease];

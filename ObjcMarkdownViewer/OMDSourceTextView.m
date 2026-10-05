@@ -41,38 +41,6 @@ static double OMDKeyLatencyMS(NSTimeInterval start, NSTimeInterval end)
     return (end - start) * 1000.0;
 }
 
-static NSColor *OMDSourceSelectionBackgroundColorForBackground(NSColor *backgroundColor)
-{
-    NSColor *resolvedBackground = backgroundColor;
-    if (resolvedBackground == nil) {
-        resolvedBackground = [NSColor textBackgroundColor];
-    }
-    if (resolvedBackground == nil) {
-        resolvedBackground = [NSColor whiteColor];
-    }
-
-    NSColor *rgb = nil;
-    @try {
-        rgb = [resolvedBackground colorUsingColorSpaceName:NSCalibratedRGBColorSpace];
-    } @catch (NSException *exception) {
-        (void)exception;
-        rgb = nil;
-    }
-
-    if (rgb == nil) {
-        return [NSColor colorWithCalibratedRed:0.25 green:0.53 blue:0.88 alpha:0.28];
-    }
-
-    CGFloat red = [rgb redComponent];
-    CGFloat green = [rgb greenComponent];
-    CGFloat blue = [rgb blueComponent];
-    CGFloat luminance = (0.2126 * red) + (0.7152 * green) + (0.0722 * blue);
-    if (luminance < 0.45) {
-        return [NSColor colorWithCalibratedRed:0.36 green:0.60 blue:0.92 alpha:0.34];
-    }
-    return [NSColor colorWithCalibratedRed:0.25 green:0.53 blue:0.88 alpha:0.28];
-}
-
 static BOOL OMDIsMarkdownSpace(unichar ch)
 {
     return ch == ' ' || ch == '\t';
@@ -293,9 +261,10 @@ static NSUInteger OMDPositionAfterRemovingRange(NSUInteger position, NSRange rem
 
 - (void)omdApplySelectionStyle
 {
-    NSColor *selectionBackground = OMDSourceSelectionBackgroundColorForBackground([self backgroundColor]);
+    // The theme's selection colour behind the text; the syntax colours are
+    // drawn again over it (omdDrawSelectedSyntaxOverlayInRect:).
     NSDictionary *selectionAttributes = [NSDictionary dictionaryWithObjectsAndKeys:
-                                         selectionBackground, NSBackgroundColorAttributeName,
+                                         [NSColor selectedTextBackgroundColor], NSBackgroundColorAttributeName,
                                          [NSColor clearColor], NSForegroundColorAttributeName,
                                          nil];
     [self setSelectedTextAttributes:selectionAttributes];
