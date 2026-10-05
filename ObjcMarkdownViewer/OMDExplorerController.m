@@ -231,6 +231,7 @@ static NSString *OMDDefaultCacheDirectory(void)
 - (void)setSelectedExplorerSourceModeControlIndex:(NSInteger)index;
 - (void)setupExplorerSidebar;
 - (void)updateExplorerControlsVisibility;
+- (void)updateNavigateUpButton;
 - (void)reloadLocalExplorerEntries;
 - (void)reloadGitHubExplorerEntries;
 - (void)setExplorerLoading:(BOOL)loading message:(NSString *)message;
@@ -738,6 +739,24 @@ static NSString *OMDDefaultCacheDirectory(void)
     [self updateExplorerControlsVisibility];
 }
 
+// Up is available below the local root, or inside a GitHub repository.
+- (void)updateNavigateUpButton
+{
+    BOOL githubMode = (_explorerSourceMode == OMDExplorerSourceModeGitHub);
+    BOOL canNavigateUp = NO;
+    if (githubMode) {
+        canNavigateUp = (_explorerGitHubCurrentPath != nil && [_explorerGitHubCurrentPath length] > 0);
+    } else {
+        canNavigateUp = (_explorerLocalCurrentPath != nil &&
+                         _explorerLocalRootPath != nil &&
+                         ![_explorerLocalCurrentPath isEqualToString:_explorerLocalRootPath]);
+    }
+    [_explorerNavigateUpButton setImage:OMDToolbarTintedImage(OMDExplorerNavigateParentBaseImage(),
+                                                              (canNavigateUp ? OMDResolvedControlTextColor()
+                                                                             : OMDResolvedMutedTextColor()))];
+    [_explorerNavigateUpButton setEnabled:canNavigateUp];
+}
+
 - (void)updateExplorerControlsVisibility
 {
     OMDLayoutMetrics metrics = OMDLayoutMetricsForMode([_delegate effectiveLayoutDensityMode]);
@@ -757,18 +776,7 @@ static NSString *OMDDefaultCacheDirectory(void)
     [_explorerGitHubRepoComboBox setHidden:!githubMode];
     [_explorerGitHubIncludeForkArchivedButton setHidden:!githubMode];
     [_explorerShowHiddenFilesButton setState:([self isExplorerShowHiddenFilesEnabled] ? NSOnState : NSOffState)];
-    BOOL canNavigateUp = NO;
-    if (githubMode) {
-        canNavigateUp = (_explorerGitHubCurrentPath != nil && [_explorerGitHubCurrentPath length] > 0);
-    } else {
-        canNavigateUp = (_explorerLocalCurrentPath != nil &&
-                         _explorerLocalRootPath != nil &&
-                         ![_explorerLocalCurrentPath isEqualToString:_explorerLocalRootPath]);
-    }
-    [_explorerNavigateUpButton setImage:OMDToolbarTintedImage(OMDExplorerNavigateParentBaseImage(),
-                                                              (canNavigateUp ? OMDResolvedControlTextColor()
-                                                                             : OMDResolvedMutedTextColor()))];
-    [_explorerNavigateUpButton setEnabled:canNavigateUp];
+    [self updateNavigateUpButton];
 
     NSRect bounds = [_containerView bounds];
     CGFloat width = NSWidth(bounds);
@@ -1834,6 +1842,7 @@ static NSString *OMDDefaultCacheDirectory(void)
             [_explorerGitHubCurrentPath release];
             _explorerGitHubCurrentPath = [parent copy];
             [self reloadGitHubExplorerEntries];
+            [self updateNavigateUpButton];
         }
         return;
     }
@@ -1852,6 +1861,7 @@ static NSString *OMDDefaultCacheDirectory(void)
     [_explorerLocalCurrentPath release];
     _explorerLocalCurrentPath = [parent copy];
     [self reloadLocalExplorerEntries];
+    [self updateNavigateUpButton];
 }
 
 - (void)explorerGitHubUserChanged:(id)sender
@@ -1966,6 +1976,7 @@ static NSString *OMDDefaultCacheDirectory(void)
             _explorerLocalCurrentPath = [path copy];
             [self reloadLocalExplorerEntries];
         }
+        [self updateNavigateUpButton];
         return;
     }
 
