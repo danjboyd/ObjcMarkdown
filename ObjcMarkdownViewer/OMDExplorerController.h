@@ -54,6 +54,9 @@ static const CGFloat OMDExplorerListDefaultFontSize = 14.0;
     NSInteger _explorerSourceMode;
     NSUInteger _explorerRequestToken;
     BOOL _explorerIsLoading;
+    // A file's single click waits out the double-click interval (#40).
+    NSDictionary *_explorerPendingClickEntry;
+    BOOL _explorerIgnoreDoubleClick;
 }
 
 // The delegate is not retained.

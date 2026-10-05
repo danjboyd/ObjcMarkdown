@@ -221,6 +221,9 @@ static NSString *OMDDefaultCacheDirectory(void)
 - (void)explorerShowHiddenFilesChanged:(id)sender;
 - (void)explorerItemClicked:(id)sender;
 - (void)explorerItemDoubleClicked:(id)sender;
+- (NSDictionary *)explorerClickedEntry;
+- (void)cancelPendingExplorerClick;
+- (void)openPendingExplorerClick;
 - (void)openExplorerEntry:(NSDictionary *)entry inNewTab:(BOOL)inNewTab;
 - (void)openGitHubFileEntry:(NSDictionary *)entry inNewTab:(BOOL)inNewTab;
 - (void)loadGitHubRepositoriesForUser:(NSString *)user;
@@ -263,6 +266,8 @@ static NSString *OMDDefaultCacheDirectory(void)
 
 - (void)dealloc
 {
+    [NSObject cancelPreviousPerformRequestsWithTarget:self];
+    [_explorerPendingClickEntry release];
     [_gitHubClient release];
     [_explorerSourceModeControl release];
     [_explorerLocalRootLabel release];
@@ -1888,6 +1893,50 @@ static NSString *OMDDefaultCacheDirectory(void)
     }
 }
 
+// The time within which a second click makes a double-click. GNUstep's
+// +doubleClickInterval returns 0; its X11 backend counts clicks with the
+// GSDoubleClickTime default, in milliseconds (300 below 200).
+static NSTimeInterval OMDDoubleClickInterval(void)
+{
+    NSTimeInterval interval = [NSEvent doubleClickInterval];
+    if (interval > 0.0) {
+        return interval;
+    }
+    NSInteger milliseconds = [[NSUserDefaults standardUserDefaults] integerForKey:@"GSDoubleClickTime"];
+    return (milliseconds < 200 ? 300 : milliseconds) / 1000.0;
+}
+
+- (NSDictionary *)explorerClickedEntry
+{
+    NSInteger row = [_explorerTableView clickedRow];
+    if (row < 0) {
+        row = [_explorerTableView selectedRow];
+    }
+    if (row < 0 || row >= (NSInteger)[_explorerEntries count]) {
+        return nil;
+    }
+    return [_explorerEntries objectAtIndex:row];
+}
+
+- (void)cancelPendingExplorerClick
+{
+    [NSObject cancelPreviousPerformRequestsWithTarget:self
+                                             selector:@selector(openPendingExplorerClick)
+                                               object:nil];
+    [_explorerPendingClickEntry release];
+    _explorerPendingClickEntry = nil;
+}
+
+- (void)openPendingExplorerClick
+{
+    NSDictionary *entry = [[_explorerPendingClickEntry retain] autorelease];
+    [self cancelPendingExplorerClick];
+    [self openExplorerEntry:entry inNewTab:NO];
+}
+
+// A click on a folder opens it at once. A click on a file opens it in the
+// current tab once the double-click interval has passed without a second
+// click; a double-click opens it in a new tab instead.
 - (void)explorerItemClicked:(id)sender
 {
     (void)sender;
@@ -1895,28 +1944,39 @@ static NSString *OMDDefaultCacheDirectory(void)
     if (event != nil && [event clickCount] > 1) {
         return;
     }
-    NSInteger row = [_explorerTableView clickedRow];
-    if (row < 0) {
-        row = [_explorerTableView selectedRow];
-    }
-    if (row < 0 || row >= (NSInteger)[_explorerEntries count]) {
+    NSDictionary *entry = [self explorerClickedEntry];
+    if (entry == nil) {
         return;
     }
-    NSDictionary *entry = [_explorerEntries objectAtIndex:row];
-    [self openExplorerEntry:entry inNewTab:NO];
+    [self cancelPendingExplorerClick];
+    if ([[entry objectForKey:@"isDirectory"] boolValue]) {
+        // The second click of a double-click would land in the new listing.
+        _explorerIgnoreDoubleClick = YES;
+        [self openExplorerEntry:entry inNewTab:NO];
+        return;
+    }
+    _explorerIgnoreDoubleClick = NO;
+    _explorerPendingClickEntry = [entry retain];
+    [self performSelector:@selector(openPendingExplorerClick)
+               withObject:nil
+               afterDelay:OMDDoubleClickInterval()];
 }
 
 - (void)explorerItemDoubleClicked:(id)sender
 {
     (void)sender;
-    NSInteger row = [_explorerTableView clickedRow];
-    if (row < 0) {
-        row = [_explorerTableView selectedRow];
-    }
-    if (row < 0 || row >= (NSInteger)[_explorerEntries count]) {
+    if (_explorerIgnoreDoubleClick) {
+        _explorerIgnoreDoubleClick = NO;
         return;
     }
-    NSDictionary *entry = [_explorerEntries objectAtIndex:row];
+    NSDictionary *entry = [[_explorerPendingClickEntry retain] autorelease];
+    [self cancelPendingExplorerClick];
+    if (entry == nil) {
+        entry = [self explorerClickedEntry];
+    }
+    if (entry == nil) {
+        return;
+    }
     [self openExplorerEntry:entry inNewTab:YES];
 }
 

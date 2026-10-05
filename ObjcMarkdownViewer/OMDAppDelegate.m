@@ -434,6 +434,7 @@ static CGFloat OMDClampedScrollSpeed(CGFloat value)
 - (void)presentWindowIfNeeded;
 - (void)applyWindowsWindowIconsIfPossible;
 - (void)layoutWorkspaceChrome;
+- (void)documentTabsDidChange;
 - (BOOL)isExplorerSidebarVisiblePreference;
 - (void)setExplorerSidebarVisiblePreference:(BOOL)visible;
 - (void)applyExplorerSidebarVisibility;
@@ -1518,6 +1519,18 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [_documentContainer setFrame:NSIntegralRect(documentFrame)];
     [self layoutDocumentViews];
     [_documentTabsController updateTabStrip];
+}
+
+// After a tab is added or closed: the strip shows only with two or more
+// tabs, so lay the workspace out again when that changes.
+- (void)documentTabsDidChange
+{
+    BOOL stripShouldShow = ([_documentTabsController currentTabStripHeight] > 0.0);
+    if ([[_documentTabsController stripView] isHidden] == stripShouldShow) {
+        [self layoutWorkspaceChrome];
+    } else {
+        [_documentTabsController updateTabStrip];
+    }
 }
 
 - (BOOL)isExplorerSidebarVisiblePreference
@@ -5069,7 +5082,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
         [_documentTabsController setSelectedIndex:-1];
         [self setCurrentMarkdown:nil sourcePath:nil];
         [self clearRecoverySnapshot];
-        [_documentTabsController updateTabStrip];
+        [self documentTabsDidChange];
         [self updateWindowTitle];
         return;
     }
@@ -5095,7 +5108,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
     [_documentTabsController setSelectedIndex:targetSelection];
     NSDictionary *selectedTab = [_documentTabsController tabAtIndex:targetSelection];
     [self applyDocumentTabRecord:selectedTab];
-    [_documentTabsController updateTabStrip];
+    [self documentTabsDidChange];
 }
 
 - (void)captureCurrentStateIntoSelectedTab
@@ -5199,7 +5212,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
     if (resetViewport) {
         [self resetCurrentDocumentViewportToStart];
     }
-    [_documentTabsController updateTabStrip];
+    [self documentTabsDidChange];
 }
 
 - (void)applyDocumentTabRecord:(NSDictionary *)tabRecord
