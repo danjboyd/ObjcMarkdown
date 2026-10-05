@@ -656,7 +656,6 @@ static CGFloat OMDClampedScrollSpeed(CGFloat value)
 - (BOOL)isRendererSyntaxHighlightingEnabled;
 - (void)setRendererSyntaxHighlightingPreferenceEnabled:(BOOL)enabled;
 - (void)toggleRendererSyntaxHighlighting:(id)sender;
-- (NSString *)currentGNUstepThemeName;
 - (OMDLayoutDensityMode)effectiveLayoutDensityMode;
 - (void)setLayoutDensityPreference:(OMDLayoutDensityMode)mode;
 - (void)applyLayoutDensityPreference;
@@ -6985,30 +6984,14 @@ constrainSplitPosition:(CGFloat)proposedPosition
     }
 }
 
-- (NSString *)currentGNUstepThemeName
-{
-    GSTheme *theme = [GSTheme theme];
-    NSString *name = nil;
-    if (theme != nil && [theme respondsToSelector:@selector(name)]) {
-        name = [theme name];
-    }
-    if (name == nil || [name length] == 0) {
-        name = [self themePreference];
-    }
-    return name;
-}
-
 - (OMDLayoutDensityMode)effectiveLayoutDensityMode
 {
     id value = [[NSUserDefaults standardUserDefaults] objectForKey:OMDLayoutDensityDefaultsKey];
     if ([value respondsToSelector:@selector(integerValue)]) {
         return OMDClampedLayoutDensityMode([value integerValue]);
     }
-
-    NSString *themeName = [[self currentGNUstepThemeName] lowercaseString];
-    if (themeName != nil && [themeName rangeOfString:@"adwaita"].location != NSNotFound) {
-        return OMDLayoutDensityModeAdwaita;
-    }
+    // The same default under every theme: the app doesn't look at which
+    // theme is drawing it.
     return OMDLayoutDensityModeBalanced;
 }
 

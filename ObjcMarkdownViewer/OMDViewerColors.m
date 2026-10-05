@@ -61,18 +61,6 @@ NSColor *OMDColorFromDefaultsString(NSString *value)
     return [NSColor colorWithCalibratedRed:red green:green blue:blue alpha:alpha];
 }
 
-static BOOL OMDThemeLikelyLight(void)
-{
-    NSString *themeName = [[NSUserDefaults standardUserDefaults] stringForKey:OMDThemeDefaultsKey];
-    if (themeName == nil || [themeName length] == 0) {
-        return NO;
-    }
-    NSString *lower = [themeName lowercaseString];
-    return ([lower rangeOfString:@"winux"].location != NSNotFound ||
-            [lower rangeOfString:@"windows"].location != NSNotFound ||
-            [lower rangeOfString:@"aqua"].location != NSNotFound);
-}
-
 NSColor *OMDResolvedControlTextColor(void)
 {
     GSTheme *theme = [GSTheme theme];
@@ -94,9 +82,6 @@ NSColor *OMDResolvedControlTextColor(void)
     }
     if (color == nil) {
         color = [NSColor textColor];
-    }
-    if (color == nil) {
-        color = OMDThemeLikelyLight() ? [NSColor blackColor] : [NSColor whiteColor];
     }
     return color;
 }
