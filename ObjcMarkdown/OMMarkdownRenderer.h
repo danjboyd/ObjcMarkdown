@@ -34,6 +34,17 @@ FOUNDATION_EXPORT NSString * const OMMarkdownRendererBlockquoteColorAttributeNam
 FOUNDATION_EXPORT NSString * const OMMarkdownRendererDiagramRangeKey;
 FOUNDATION_EXPORT NSString * const OMMarkdownRendererDiagramSourceKey;
 
+// The cell of a rendered picture. It draws a copy scaled once to its
+// displayed size; -fullImage reads the picture again at full size (for
+// copying), or returns the displayed copy if it can't.
+@interface OMImageAttachmentCell : NSTextAttachmentCell
+{
+    NSURL *_sourceURL;
+}
+- (instancetype)initImageCell:(NSImage *)image sourceURL:(NSURL *)sourceURL;
+- (NSImage *)fullImage;
+@end
+
 @interface OMMarkdownRenderer : NSObject
 
 // Safe to call from any thread. Rendering touches process-global AppKit text

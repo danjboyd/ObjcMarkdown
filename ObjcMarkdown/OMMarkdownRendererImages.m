@@ -48,6 +48,36 @@ static NSString *OMImageAttachmentCacheKey(NSString *urlKey,
             (int)(allowRemoteImages ? 1 : 0)];
 }
 
+@implementation OMImageAttachmentCell
+
+- (instancetype)initImageCell:(NSImage *)image sourceURL:(NSURL *)sourceURL
+{
+    self = [super initImageCell:image];
+    if (self != nil) {
+        _sourceURL = [sourceURL copy];
+    }
+    return self;
+}
+
+- (void)dealloc
+{
+    [_sourceURL release];
+    [super dealloc];
+}
+
+- (NSImage *)fullImage
+{
+    if ([_sourceURL isFileURL]) {
+        NSImage *full = [[[NSImage alloc] initWithContentsOfFile:[_sourceURL path]] autorelease];
+        if (full != nil) {
+            return full;
+        }
+    }
+    return [self image];
+}
+
+@end
+
 static NSImage *OMPreparedImageForAttachment(NSImage *image,
                                              CGFloat scale,
                                              CGFloat layoutWidth)
@@ -78,6 +108,26 @@ static NSImage *OMPreparedImageForAttachment(NSImage *image,
             }
             preparedSize = NSMakeSize(maxWidth, height);
         }
+    }
+    // Drawing a large picture scaled down costs the whole bitmap on every
+    // frame, so scrolling past it stutters; scale it once instead.
+    NSSize pixelSize = imageSize;
+    for (NSImageRep *rep in [image representations]) {
+        if ([rep pixelsWide] > 0 && [rep pixelsHigh] > 0) {
+            pixelSize = NSMakeSize([rep pixelsWide], [rep pixelsHigh]);
+            break;
+        }
+    }
+    if (pixelSize.width > ceil(preparedSize.width) || pixelSize.height > ceil(preparedSize.height)) {
+        NSImage *scaled = [[[NSImage alloc] initWithSize:preparedSize] autorelease];
+        [scaled lockFocus];
+        [[NSGraphicsContext currentContext] setImageInterpolation:NSImageInterpolationDefault];
+        [image drawInRect:NSMakeRect(0.0, 0.0, preparedSize.width, preparedSize.height)
+                 fromRect:NSZeroRect
+                operation:NSCompositeSourceOver
+                 fraction:1.0];
+        [scaled unlockFocus];
+        return scaled;
     }
     if (!NSEqualSizes(preparedSize, imageSize)) {
         [preparedImage setScalesWhenResized:YES];
@@ -392,11 +442,18 @@ NSAttributedString *OMImageAttachmentAttributedString(cmark_node *imageNode,
                                                    scale,
                                                    layoutWidth,
                                                    allowRemoteImages);
+    // A local file is read again once it changes on disk.
+    if ([url isFileURL]) {
+        NSDictionary *fileAttributes = [[NSFileManager defaultManager] attributesOfItemAtPath:[url path] error:NULL];
+        cacheKey = [NSString stringWithFormat:@"%@|%.6f|%llu",
+                    cacheKey,
+                    [[fileAttributes fileModificationDate] timeIntervalSinceReferenceDate],
+                    [fileAttributes fileSize]];
+    }
     NSCache *cache = OMImageAttachmentCache();
     NSImage *cachedImage = nil;
     @synchronized (cache) {
-        // Local files must be read again on refresh, even at the same URL.
-        cachedImage = [url isFileURL] ? nil : [cache objectForKey:cacheKey];
+        cachedImage = [cache objectForKey:cacheKey];
     }
 
     NSImage *preparedImage = nil;
@@ -417,11 +474,14 @@ NSAttributedString *OMImageAttachmentAttributedString(cmark_node *imageNode,
         if (preparedImage == nil) {
             return nil;
         }
+        @synchronized (cache) {
+            [cache setObject:preparedImage forKey:cacheKey];
+        }
 
     }
 
     NSTextAttachment *attachment = [[[NSTextAttachment alloc] initWithFileWrapper:nil] autorelease];
-    NSTextAttachmentCell *cell = [[[NSTextAttachmentCell alloc] initImageCell:preparedImage] autorelease];
+    NSTextAttachmentCell *cell = [[[OMImageAttachmentCell alloc] initImageCell:preparedImage sourceURL:url] autorelease];
     [attachment setAttachmentCell:cell];
 
     NSMutableDictionary *attachmentAttributes = [NSMutableDictionary dictionary];

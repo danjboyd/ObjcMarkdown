@@ -444,7 +444,7 @@ static BOOL OMDMathToolchainAvailable(void)
     if (tabs == 0) {
         return [style firstLineHeadIndent];
     }
-    return [[[style tabStops] objectAtIndex:tabs - 1] location];
+    return [(NSTextTab *)[[style tabStops] objectAtIndex:tabs - 1] location];
 }
 
 - (void)testPipeTableRendersAsSelectableText

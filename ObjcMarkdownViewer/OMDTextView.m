@@ -273,7 +273,11 @@
     if (cell == nil) {
         return nil;
     }
-    // Plain image cells (math, pictures) already hold the image.
+    // Pictures are drawn from a scaled copy; copy the picture itself.
+    if ([(NSObject *)cell isKindOfClass:[OMImageAttachmentCell class]]) {
+        return [(OMImageAttachmentCell *)cell fullImage];
+    }
+    // Plain image cells (math) already hold the image.
     if ([(NSObject *)cell isMemberOfClass:[NSTextAttachmentCell class]] && [(NSCell *)cell image] != nil) {
         return [[[(NSCell *)cell image] copy] autorelease];
     }
