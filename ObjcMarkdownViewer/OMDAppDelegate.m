@@ -13,7 +13,8 @@
 #import "OMDDocumentConverter.h"
 #import "OMDCodeCopyButton.h"
 #import "OMDCopyFeedbackBadgeView.h"
-#import "OMDFormattingBarView.h"
+#import "OMDControlSupport.h"
+#import "OMDFormattingBarController.h"
 #import "OMDPreviewSync.h"
 #import "OMDViewerModeState.h"
 #import "OMDGitHubClient.h"
@@ -268,22 +269,6 @@ typedef NS_ENUM(NSInteger, OMDDocumentRenderMode) {
     OMDDocumentRenderModeVerbatim = 1
 };
 
-typedef NS_ENUM(NSInteger, OMDFormattingCommandTag) {
-    OMDFormattingCommandTagBold = 1001,
-    OMDFormattingCommandTagItalic = 1002,
-    OMDFormattingCommandTagStrike = 1003,
-    OMDFormattingCommandTagInlineCode = 1004,
-    OMDFormattingCommandTagLink = 1005,
-    OMDFormattingCommandTagImage = 1006,
-    OMDFormattingCommandTagListBullet = 1010,
-    OMDFormattingCommandTagListNumber = 1011,
-    OMDFormattingCommandTagListTask = 1012,
-    OMDFormattingCommandTagBlockQuote = 1013,
-    OMDFormattingCommandTagCodeFence = 1014,
-    OMDFormattingCommandTagTable = 1015,
-    OMDFormattingCommandTagHorizontalRule = 1016
-};
-
 typedef NS_ENUM(NSInteger, OMDLinkedScrollDriver) {
     OMDLinkedScrollDriverNone = 0,
     OMDLinkedScrollDriverSource = 1,
@@ -442,47 +427,8 @@ static CGFloat OMDClampedScrollSpeed(CGFloat value)
     return value;
 }
 
-static CGFloat OMDControlWidthForTitle(NSString *title,
-                                       NSFont *font,
-                                       CGFloat minWidth,
-                                       CGFloat horizontalPadding)
-{
-    if (minWidth < 1.0) {
-        minWidth = 1.0;
-    }
-    if (horizontalPadding < 0.0) {
-        horizontalPadding = 0.0;
-    }
-    if (title == nil || [title length] == 0) {
-        return ceil(minWidth);
-    }
-    if (font == nil) {
-        font = [NSFont systemFontOfSize:11.0];
-    }
-    NSDictionary *attributes = [NSDictionary dictionaryWithObjectsAndKeys:
-                                font, NSFontAttributeName,
-                                nil];
-    CGFloat width = ceil([title sizeWithAttributes:attributes].width + (horizontalPadding * 2.0));
-    if (width < minWidth) {
-        width = minWidth;
-    }
-    return width;
-}
 
-static void OMDClearSegmentedControlSelection(NSSegmentedControl *control)
-{
-    if (control == nil) {
-        return;
-    }
-    NSInteger segmentCount = [control segmentCount];
-    NSInteger segmentIndex = 0;
-    for (; segmentIndex < segmentCount; segmentIndex++) {
-        [control setSelected:NO forSegment:segmentIndex];
-    }
-}
-
-
-@interface OMDAppDelegate () <OMDExplorerControllerDelegate, OMDPreferencesControllerDelegate, GSVVimBindingControllerDelegate, OMDTextViewRenderedObjectDelegate, OMDOutlineControllerDelegate>
+@interface OMDAppDelegate () <OMDExplorerControllerDelegate, OMDFormattingBarControllerDelegate, OMDPreferencesControllerDelegate, GSVVimBindingControllerDelegate, OMDTextViewRenderedObjectDelegate, OMDOutlineControllerDelegate>
 - (void)importDocument:(id)sender;
 - (void)newWindow:(id)sender;
 - (void)saveDocument:(id)sender;
@@ -665,15 +611,9 @@ static void OMDClearSegmentedControlSelection(NSSegmentedControl *control)
 - (BOOL)usesCaretSelectionSync;
 - (void)applyViewerModeLayout;
 - (void)layoutDocumentViews;
-- (void)setupFormattingBar;
-- (void)rebuildFormattingBar;
-- (CGFloat)layoutFormattingBarControlsForWidth:(CGFloat)containerWidth
-                                  applyFrames:(BOOL)applyFrames;
 - (void)layoutSourceEditorContainer;
 - (void)normalizeWindowFrameIfNeeded;
 - (void)updateFormattingBarContextState;
-- (void)formattingHeadingControlChanged:(id)sender;
-- (void)formattingCommandGroupChanged:(id)sender;
 - (void)formattingCommandPressed:(id)sender;
 - (void)performFormattingCommandWithTag:(NSInteger)tag;
 - (void)toggleBoldFormatting:(id)sender;
@@ -929,9 +869,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [_modeContainer release];
     [_linkedScrollDriverResetTimer invalidate];
     [_linkedScrollDriverResetTimer release];
-    [_formatHeadingControl release];
-    [_formatCommandButtons release];
-    [_formattingBarView release];
+    [_formattingBarController release];
     [_sourceEditorContainer release];
     [_codeBlockButtons release];
     [_documentConverter release];
@@ -1637,7 +1575,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
     (void)defaults;
     _showFormattingBar = [self isFormattingBarEnabledPreference];
-    [self setupFormattingBar];
+    [_formattingBarController setupInContainer:_sourceEditorContainer];
     [self layoutSourceEditorContainer];
 
     [_splitView addSubview:_sourceEditorContainer];
@@ -1981,6 +1919,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
     _currentDocumentRenderMode = OMDDocumentRenderModeMarkdown;
     _explorerController = [[OMDExplorerController alloc] initWithDelegate:self];
     _preferencesController = [[OMDPreferencesController alloc] initWithDelegate:self];
+    _formattingBarController = [[OMDFormattingBarController alloc] initWithDelegate:self];
     _explorerSidebarVisible = [self isExplorerSidebarVisiblePreference];
     _explorerSidebarLastVisibleWidth = metrics.sidebarDefaultWidth;
 
@@ -5843,328 +5782,6 @@ constrainSplitPosition:(CGFloat)proposedPosition
     return ceil(average * OMDPreviewReadableColumnCharacters);
 }
 
-- (void)setupFormattingBar
-{
-    OMDLayoutMetrics metrics = OMDLayoutMetricsForMode([self effectiveLayoutDensityMode]);
-    if (_sourceEditorContainer == nil) {
-        return;
-    }
-    if (_formattingBarView != nil) {
-        return;
-    }
-
-    _formattingBarView = [[OMDFormattingBarView alloc] initWithFrame:NSMakeRect(0.0,
-                                                                                 0.0,
-                                                                                 NSWidth([_sourceEditorContainer bounds]),
-                                                                                 metrics.formattingBarHeight)];
-    [_formattingBarView setAutoresizingMask:(NSViewWidthSizable | NSViewMinYMargin)];
-    [_formattingBarView setFillColor:OMDResolvedControlBackgroundColor()];
-    [_formattingBarView setBorderColor:OMDResolvedSubtleSeparatorColor()];
-    [_sourceEditorContainer addSubview:_formattingBarView];
-
-    _formatCommandButtons = [[NSMutableDictionary alloc] init];
-
-    CGFloat x = metrics.formattingBarInsetX;
-    NSFont *buttonFont = [NSFont systemFontOfSize:(metrics.scale > 1.05 ? 11.5 : metrics.formattingBarFontSize)];
-    CGFloat compactPadding = (metrics.scale > 1.05 ? 8.0 : 7.0);
-    CGFloat narrowPadding = (metrics.scale > 1.05 ? 7.0 : 6.0);
-
-    CGFloat headingPWidth = OMDControlWidthForTitle(@"P", buttonFont, 30.0, narrowPadding);
-    CGFloat headingLevelWidth = OMDControlWidthForTitle(@"H6", buttonFont, 36.0, narrowPadding);
-    CGFloat headingWidth = headingPWidth + (headingLevelWidth * 6.0);
-    _formatHeadingControl = [[NSSegmentedControl alloc] initWithFrame:NSMakeRect(x,
-                                                                                 0.0,
-                                                                                 headingWidth,
-                                                                                 metrics.formattingBarControlHeight)];
-    [_formatHeadingControl setSegmentCount:7];
-    [_formatHeadingControl setSegmentStyle:NSSegmentStyleRounded];
-    [[_formatHeadingControl cell] setTrackingMode:NSSegmentSwitchTrackingSelectOne];
-    [_formatHeadingControl setLabel:@"P" forSegment:0];
-    [_formatHeadingControl setLabel:@"H1" forSegment:1];
-    [_formatHeadingControl setLabel:@"H2" forSegment:2];
-    [_formatHeadingControl setLabel:@"H3" forSegment:3];
-    [_formatHeadingControl setLabel:@"H4" forSegment:4];
-    [_formatHeadingControl setLabel:@"H5" forSegment:5];
-    [_formatHeadingControl setLabel:@"H6" forSegment:6];
-    [_formatHeadingControl setWidth:headingPWidth forSegment:0];
-    [_formatHeadingControl setWidth:headingLevelWidth forSegment:1];
-    [_formatHeadingControl setWidth:headingLevelWidth forSegment:2];
-    [_formatHeadingControl setWidth:headingLevelWidth forSegment:3];
-    [_formatHeadingControl setWidth:headingLevelWidth forSegment:4];
-    [_formatHeadingControl setWidth:headingLevelWidth forSegment:5];
-    [_formatHeadingControl setWidth:headingLevelWidth forSegment:6];
-    [[_formatHeadingControl cell] setToolTip:@"Paragraph" forSegment:0];
-    [[_formatHeadingControl cell] setToolTip:@"Heading 1" forSegment:1];
-    [[_formatHeadingControl cell] setToolTip:@"Heading 2" forSegment:2];
-    [[_formatHeadingControl cell] setToolTip:@"Heading 3" forSegment:3];
-    [[_formatHeadingControl cell] setToolTip:@"Heading 4" forSegment:4];
-    [[_formatHeadingControl cell] setToolTip:@"Heading 5" forSegment:5];
-    [[_formatHeadingControl cell] setToolTip:@"Heading 6" forSegment:6];
-    if ([_formatHeadingControl respondsToSelector:@selector(setFont:)]) {
-        [_formatHeadingControl setFont:buttonFont];
-    }
-    [_formatHeadingControl setTarget:self];
-    [_formatHeadingControl setAction:@selector(formattingHeadingControlChanged:)];
-    [_formatHeadingControl setAutoresizingMask:NSViewMinYMargin];
-    [_formattingBarView addSubview:_formatHeadingControl];
-
-    x += headingWidth + metrics.formattingBarGroupSpacing;
-
-    CGFloat boldWidth = OMDControlWidthForTitle(@"B", buttonFont, 32.0, narrowPadding);
-    CGFloat italicWidth = OMDControlWidthForTitle(@"I", buttonFont, 32.0, narrowPadding);
-    CGFloat strikeWidth = OMDControlWidthForTitle(@"S", buttonFont, 32.0, narrowPadding);
-    CGFloat inlineCodeWidth = OMDControlWidthForTitle(@"Code", buttonFont, 50.0, compactPadding);
-    CGFloat inlineWidth = boldWidth + italicWidth + strikeWidth + inlineCodeWidth;
-    NSSegmentedControl *inlineControl = [[[NSSegmentedControl alloc] initWithFrame:NSMakeRect(x,
-                                                                                               0.0,
-                                                                                               inlineWidth,
-                                                                                               metrics.formattingBarControlHeight)] autorelease];
-    [inlineControl setSegmentCount:4];
-    [inlineControl setSegmentStyle:NSSegmentStyleRounded];
-    [[inlineControl cell] setTrackingMode:NSSegmentSwitchTrackingMomentary];
-    [inlineControl setLabel:@"B" forSegment:0];
-    [inlineControl setLabel:@"I" forSegment:1];
-    [inlineControl setLabel:@"S" forSegment:2];
-    [inlineControl setLabel:@"Code" forSegment:3];
-    [inlineControl setWidth:boldWidth forSegment:0];
-    [inlineControl setWidth:italicWidth forSegment:1];
-    [inlineControl setWidth:strikeWidth forSegment:2];
-    [inlineControl setWidth:inlineCodeWidth forSegment:3];
-    [[inlineControl cell] setToolTip:@"Bold (Ctrl/Cmd+B)" forSegment:0];
-    [[inlineControl cell] setToolTip:@"Italic (Ctrl/Cmd+I)" forSegment:1];
-    [[inlineControl cell] setToolTip:@"Strikethrough" forSegment:2];
-    [[inlineControl cell] setToolTip:@"Inline code" forSegment:3];
-    if ([inlineControl respondsToSelector:@selector(setFont:)]) {
-        [inlineControl setFont:buttonFont];
-    }
-    [inlineControl setTag:1];
-    [inlineControl setTarget:self];
-    [inlineControl setAction:@selector(formattingCommandGroupChanged:)];
-    [inlineControl setAutoresizingMask:NSViewMinYMargin];
-    [_formattingBarView addSubview:inlineControl];
-    [_formatCommandButtons setObject:inlineControl forKey:@"inline"];
-
-    x += NSWidth([inlineControl frame]) + metrics.formattingBarGroupSpacing;
-
-    NSSegmentedControl *mediaControl = [[[NSSegmentedControl alloc] initWithFrame:NSMakeRect(x,
-                                                                                              0.0,
-                                                                                              0.0,
-                                                                                              metrics.formattingBarControlHeight)] autorelease];
-    [mediaControl setSegmentCount:2];
-    [mediaControl setSegmentStyle:NSSegmentStyleRounded];
-    [[mediaControl cell] setTrackingMode:NSSegmentSwitchTrackingMomentary];
-    [mediaControl setLabel:@"Link" forSegment:0];
-    [mediaControl setLabel:@"Image" forSegment:1];
-    CGFloat linkWidth = OMDControlWidthForTitle(@"Link", buttonFont, 46.0, compactPadding);
-    CGFloat imageWidth = OMDControlWidthForTitle(@"Image", buttonFont, 54.0, compactPadding);
-    [mediaControl setFrame:NSMakeRect(x, 0.0, linkWidth + imageWidth, metrics.formattingBarControlHeight)];
-    [mediaControl setWidth:linkWidth forSegment:0];
-    [mediaControl setWidth:imageWidth forSegment:1];
-    [[mediaControl cell] setToolTip:@"Insert link" forSegment:0];
-    [[mediaControl cell] setToolTip:@"Insert image" forSegment:1];
-    if ([mediaControl respondsToSelector:@selector(setFont:)]) {
-        [mediaControl setFont:buttonFont];
-    }
-    [mediaControl setTag:2];
-    [mediaControl setTarget:self];
-    [mediaControl setAction:@selector(formattingCommandGroupChanged:)];
-    [mediaControl setAutoresizingMask:NSViewMinYMargin];
-    [_formattingBarView addSubview:mediaControl];
-    [_formatCommandButtons setObject:mediaControl forKey:@"media"];
-
-    x += NSWidth([mediaControl frame]) + metrics.formattingBarGroupSpacing;
-
-    NSSegmentedControl *listControl = [[[NSSegmentedControl alloc] initWithFrame:NSMakeRect(x,
-                                                                                             0.0,
-                                                                                             0.0,
-                                                                                             metrics.formattingBarControlHeight)] autorelease];
-    [listControl setSegmentCount:4];
-    [listControl setSegmentStyle:NSSegmentStyleRounded];
-    [[listControl cell] setTrackingMode:NSSegmentSwitchTrackingMomentary];
-    [listControl setLabel:@"-" forSegment:0];
-    [listControl setLabel:@"1." forSegment:1];
-    [listControl setLabel:@"[]" forSegment:2];
-    [listControl setLabel:@">" forSegment:3];
-    CGFloat bulletWidth = OMDControlWidthForTitle(@"-", buttonFont, 32.0, narrowPadding);
-    CGFloat numberWidth = OMDControlWidthForTitle(@"1.", buttonFont, 36.0, narrowPadding);
-    CGFloat taskWidth = OMDControlWidthForTitle(@"[]", buttonFont, 40.0, narrowPadding);
-    CGFloat quoteWidth = OMDControlWidthForTitle(@">", buttonFont, 32.0, narrowPadding);
-    [listControl setFrame:NSMakeRect(x,
-                                     0.0,
-                                     bulletWidth + numberWidth + taskWidth + quoteWidth,
-                                     metrics.formattingBarControlHeight)];
-    [listControl setWidth:bulletWidth forSegment:0];
-    [listControl setWidth:numberWidth forSegment:1];
-    [listControl setWidth:taskWidth forSegment:2];
-    [listControl setWidth:quoteWidth forSegment:3];
-    [[listControl cell] setToolTip:@"Toggle bullet list" forSegment:0];
-    [[listControl cell] setToolTip:@"Toggle numbered list" forSegment:1];
-    [[listControl cell] setToolTip:@"Toggle task list" forSegment:2];
-    [[listControl cell] setToolTip:@"Toggle block quote" forSegment:3];
-    if ([listControl respondsToSelector:@selector(setFont:)]) {
-        [listControl setFont:buttonFont];
-    }
-    [listControl setTag:3];
-    [listControl setTarget:self];
-    [listControl setAction:@selector(formattingCommandGroupChanged:)];
-    [listControl setAutoresizingMask:NSViewMinYMargin];
-    [_formattingBarView addSubview:listControl];
-    [_formatCommandButtons setObject:listControl forKey:@"lists"];
-
-    x += NSWidth([listControl frame]) + metrics.formattingBarGroupSpacing;
-
-    NSSegmentedControl *insertControl = [[[NSSegmentedControl alloc] initWithFrame:NSMakeRect(x,
-                                                                                               0.0,
-                                                                                               0.0,
-                                                                                               metrics.formattingBarControlHeight)] autorelease];
-    [insertControl setSegmentCount:3];
-    [insertControl setSegmentStyle:NSSegmentStyleRounded];
-    [[insertControl cell] setTrackingMode:NSSegmentSwitchTrackingMomentary];
-    [insertControl setLabel:@"{}" forSegment:0];
-    [insertControl setLabel:@"Tbl" forSegment:1];
-    [insertControl setLabel:@"HR" forSegment:2];
-    CGFloat codeBlockWidth = OMDControlWidthForTitle(@"{}", buttonFont, 40.0, narrowPadding);
-    CGFloat tableWidth = OMDControlWidthForTitle(@"Tbl", buttonFont, 42.0, compactPadding);
-    CGFloat ruleWidth = OMDControlWidthForTitle(@"HR", buttonFont, 40.0, narrowPadding);
-    [insertControl setFrame:NSMakeRect(x,
-                                       0.0,
-                                       codeBlockWidth + tableWidth + ruleWidth,
-                                       metrics.formattingBarControlHeight)];
-    [insertControl setWidth:codeBlockWidth forSegment:0];
-    [insertControl setWidth:tableWidth forSegment:1];
-    [insertControl setWidth:ruleWidth forSegment:2];
-    [[insertControl cell] setToolTip:@"Insert fenced code block" forSegment:0];
-    [[insertControl cell] setToolTip:@"Insert table" forSegment:1];
-    [[insertControl cell] setToolTip:@"Insert horizontal rule" forSegment:2];
-    if ([insertControl respondsToSelector:@selector(setFont:)]) {
-        [insertControl setFont:buttonFont];
-    }
-    [insertControl setTag:4];
-    [insertControl setTarget:self];
-    [insertControl setAction:@selector(formattingCommandGroupChanged:)];
-    [insertControl setAutoresizingMask:NSViewMinYMargin];
-    [_formattingBarView addSubview:insertControl];
-    [_formatCommandButtons setObject:insertControl forKey:@"insert"];
-
-    [self updateFormattingBarContextState];
-}
-
-- (CGFloat)layoutFormattingBarControlsForWidth:(CGFloat)containerWidth
-                                  applyFrames:(BOOL)applyFrames
-{
-    OMDLayoutMetrics metrics = OMDLayoutMetricsForMode([self effectiveLayoutDensityMode]);
-    CGFloat controlHeight = metrics.formattingBarControlHeight;
-    CGFloat insetX = metrics.formattingBarInsetX;
-    CGFloat rowInsetY = (metrics.scale > 1.05 ? 6.0 : 5.0);
-    CGFloat rowGap = (metrics.scale > 1.05 ? 6.0 : 4.0);
-    CGFloat availableWidth = containerWidth - (insetX * 2.0);
-
-    NSSegmentedControl *inlineControl = [_formatCommandButtons objectForKey:@"inline"];
-    NSSegmentedControl *mediaControl = [_formatCommandButtons objectForKey:@"media"];
-    NSSegmentedControl *listControl = [_formatCommandButtons objectForKey:@"lists"];
-    NSSegmentedControl *insertControl = [_formatCommandButtons objectForKey:@"insert"];
-
-    CGFloat headingWidth = (_formatHeadingControl != nil ? NSWidth([_formatHeadingControl frame]) : 0.0);
-    CGFloat inlineWidth = (inlineControl != nil ? NSWidth([inlineControl frame]) : 0.0);
-    CGFloat mediaWidth = (mediaControl != nil ? NSWidth([mediaControl frame]) : 0.0);
-    CGFloat listWidth = (listControl != nil ? NSWidth([listControl frame]) : 0.0);
-    CGFloat insertWidth = (insertControl != nil ? NSWidth([insertControl frame]) : 0.0);
-
-    CGFloat oneRowWidth = headingWidth +
-                          inlineWidth +
-                          mediaWidth +
-                          listWidth +
-                          insertWidth +
-                          (metrics.formattingBarGroupSpacing * 4.0);
-    BOOL usesTwoRows = oneRowWidth > availableWidth;
-
-    CGFloat barHeight = rowInsetY + controlHeight + rowInsetY;
-    if (usesTwoRows) {
-        barHeight = rowInsetY + controlHeight + rowGap + controlHeight + rowInsetY;
-    }
-    if (!applyFrames) {
-        return ceil(barHeight);
-    }
-
-    if (usesTwoRows) {
-        CGFloat topRowY = barHeight - rowInsetY - controlHeight;
-        CGFloat bottomRowY = rowInsetY;
-
-        CGFloat topX = insetX;
-        if (_formatHeadingControl != nil) {
-            [_formatHeadingControl setFrame:NSMakeRect(topX,
-                                                       topRowY,
-                                                       headingWidth,
-                                                       controlHeight)];
-            topX += headingWidth + metrics.formattingBarGroupSpacing;
-        }
-        if (inlineControl != nil) {
-            [inlineControl setFrame:NSMakeRect(topX,
-                                               topRowY,
-                                               inlineWidth,
-                                               controlHeight)];
-        }
-
-        CGFloat bottomX = insetX;
-        if (mediaControl != nil) {
-            [mediaControl setFrame:NSMakeRect(bottomX,
-                                              bottomRowY,
-                                              mediaWidth,
-                                              controlHeight)];
-            bottomX += mediaWidth + metrics.formattingBarGroupSpacing;
-        }
-        if (listControl != nil) {
-            [listControl setFrame:NSMakeRect(bottomX,
-                                             bottomRowY,
-                                             listWidth,
-                                             controlHeight)];
-            bottomX += listWidth + metrics.formattingBarGroupSpacing;
-        }
-        if (insertControl != nil) {
-            [insertControl setFrame:NSMakeRect(bottomX,
-                                               bottomRowY,
-                                               insertWidth,
-                                               controlHeight)];
-        }
-    } else {
-        CGFloat controlY = floor((barHeight - controlHeight) / 2.0);
-        CGFloat currentX = insetX;
-        NSArray *orderedControls = [NSArray arrayWithObjects:
-                                    _formatHeadingControl,
-                                    inlineControl,
-                                    mediaControl,
-                                    listControl,
-                                    insertControl,
-                                    nil];
-        NSEnumerator *enumerator = [orderedControls objectEnumerator];
-        NSSegmentedControl *control = nil;
-        while ((control = [enumerator nextObject]) != nil) {
-            CGFloat controlWidth = NSWidth([control frame]);
-            [control setFrame:NSMakeRect(currentX,
-                                         controlY,
-                                         controlWidth,
-                                         controlHeight)];
-            currentX += controlWidth + metrics.formattingBarGroupSpacing;
-        }
-    }
-
-    return ceil(barHeight);
-}
-
-- (void)rebuildFormattingBar
-{
-    [_formatHeadingControl release];
-    _formatHeadingControl = nil;
-    [_formatCommandButtons release];
-    _formatCommandButtons = nil;
-    if (_formattingBarView != nil) {
-        [_formattingBarView removeFromSuperview];
-        [_formattingBarView release];
-        _formattingBarView = nil;
-    }
-    [self setupFormattingBar];
-}
-
 - (void)layoutSourceEditorContainer
 {
     OMDLayoutMetrics metrics = OMDLayoutMetricsForMode([self effectiveLayoutDensityMode]);
@@ -6175,27 +5792,28 @@ constrainSplitPosition:(CGFloat)proposedPosition
     NSRect bounds = [_sourceEditorContainer bounds];
     BOOL showBar = [self isFormattingBarVisibleInCurrentMode];
     CGFloat barHeight = 0.0;
+    NSView *barView = [_formattingBarController barView];
     if (showBar) {
-        if (_formattingBarView != nil) {
-            barHeight = [self layoutFormattingBarControlsForWidth:NSWidth(bounds)
-                                                      applyFrames:NO];
+        if (barView != nil) {
+            barHeight = [_formattingBarController layoutFormattingBarControlsForWidth:NSWidth(bounds)
+                                                                          applyFrames:NO];
         } else {
             barHeight = metrics.formattingBarHeight;
         }
     }
 
-    if (_formattingBarView != nil) {
-        [_formattingBarView setHidden:!showBar];
+    if (barView != nil) {
+        [barView setHidden:!showBar];
         if (showBar) {
             NSRect barFrame = NSMakeRect(NSMinX(bounds),
                                          NSMaxY(bounds) - barHeight,
                                          NSWidth(bounds),
                                          barHeight);
-            [_formattingBarView setFrame:NSIntegralRect(barFrame)];
+            [barView setFrame:NSIntegralRect(barFrame)];
             // Place the controls after resizing the bar: their autoresizing
             // would otherwise shift them out of view when the row count changes.
-            [self layoutFormattingBarControlsForWidth:NSWidth(bounds)
-                                          applyFrames:YES];
+            [_formattingBarController layoutFormattingBarControlsForWidth:NSWidth(bounds)
+                                                              applyFrames:YES];
         }
     }
 
@@ -6214,25 +5832,9 @@ constrainSplitPosition:(CGFloat)proposedPosition
     BOOL enabled = [self isFormattingBarVisibleInCurrentMode] &&
                    _sourceTextView != nil &&
                    !_currentDocumentReadOnly;
-    if (_formatHeadingControl != nil) {
-        [_formatHeadingControl setEnabled:enabled];
-        if (!enabled) {
-            OMDClearSegmentedControlSelection(_formatHeadingControl);
-        }
-    }
-    NSEnumerator *enumerator = [_formatCommandButtons objectEnumerator];
-    id control = nil;
-    while ((control = [enumerator nextObject]) != nil) {
-        if ([control respondsToSelector:@selector(setEnabled:)]) {
-            [control setEnabled:enabled];
-        }
-        if (!enabled &&
-            [control respondsToSelector:@selector(setSelectedSegment:)]) {
-            OMDClearSegmentedControlSelection(control);
-        }
-    }
+    [_formattingBarController setControlsEnabled:enabled];
 
-    if (!enabled || _formatHeadingControl == nil || _sourceTextView == nil) {
+    if (!enabled || [_formattingBarController barView] == nil || _sourceTextView == nil) {
         return;
     }
 
@@ -6264,7 +5866,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
     if (level > 6) {
         level = 6;
     }
-    [_formatHeadingControl setSelectedSegment:level];
+    [_formattingBarController selectHeadingLevel:level];
 }
 
 - (void)setViewerMode:(OMDViewerMode)mode persistPreference:(BOOL)persistPreference
@@ -8710,7 +8312,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
     }
 
     if (_sourceEditorContainer != nil) {
-        [self rebuildFormattingBar];
+        [_formattingBarController rebuildFormattingBar];
         [self layoutSourceEditorContainer];
     }
 
@@ -9942,24 +9544,6 @@ constrainSplitPosition:(CGFloat)proposedPosition
     [self replaceSourceTextInRange:lineRange withString:replacement selectedRange:nextSelection];
 }
 
-- (void)formattingHeadingControlChanged:(id)sender
-{
-    if (sender != _formatHeadingControl) {
-        return;
-    }
-    if (![self isFormattingBarVisibleInCurrentMode]) {
-        return;
-    }
-    if (_currentDocumentReadOnly) {
-        return;
-    }
-    NSInteger index = [_formatHeadingControl selectedSegment];
-    if (index < 0) {
-        return;
-    }
-    [self applyHeadingLevel:index];
-}
-
 - (void)performFormattingCommandWithTag:(NSInteger)tag
 {
     switch (tag) {
@@ -10001,67 +9585,25 @@ constrainSplitPosition:(CGFloat)proposedPosition
     }
 }
 
-- (void)formattingCommandGroupChanged:(id)sender
+- (void)formattingBarController:(OMDFormattingBarController *)controller applyHeadingLevel:(NSInteger)level
 {
-    NSSegmentedControl *control = (NSSegmentedControl *)sender;
-    if (_sourceTextView == nil || ![self isFormattingBarVisibleInCurrentMode]) {
-        OMDClearSegmentedControlSelection(control);
+    (void)controller;
+    if (![self isFormattingBarVisibleInCurrentMode]) {
         return;
     }
     if (_currentDocumentReadOnly) {
-        OMDClearSegmentedControlSelection(control);
         return;
     }
+    [self applyHeadingLevel:level];
+}
 
-    NSInteger segment = [control selectedSegment];
-    if (segment < 0) {
+- (void)formattingBarController:(OMDFormattingBarController *)controller performCommandWithTag:(NSInteger)tag
+{
+    (void)controller;
+    if (_sourceTextView == nil || ![self isFormattingBarVisibleInCurrentMode]) {
         return;
     }
-    NSInteger tag = 0;
-    switch ([control tag]) {
-        case 1:
-            if (segment == 0) {
-                tag = OMDFormattingCommandTagBold;
-            } else if (segment == 1) {
-                tag = OMDFormattingCommandTagItalic;
-            } else if (segment == 2) {
-                tag = OMDFormattingCommandTagStrike;
-            } else if (segment == 3) {
-                tag = OMDFormattingCommandTagInlineCode;
-            }
-            break;
-        case 2:
-            if (segment == 0) {
-                tag = OMDFormattingCommandTagLink;
-            } else if (segment == 1) {
-                tag = OMDFormattingCommandTagImage;
-            }
-            break;
-        case 3:
-            if (segment == 0) {
-                tag = OMDFormattingCommandTagListBullet;
-            } else if (segment == 1) {
-                tag = OMDFormattingCommandTagListNumber;
-            } else if (segment == 2) {
-                tag = OMDFormattingCommandTagListTask;
-            } else if (segment == 3) {
-                tag = OMDFormattingCommandTagBlockQuote;
-            }
-            break;
-        case 4:
-            if (segment == 0) {
-                tag = OMDFormattingCommandTagCodeFence;
-            } else if (segment == 1) {
-                tag = OMDFormattingCommandTagTable;
-            } else if (segment == 2) {
-                tag = OMDFormattingCommandTagHorizontalRule;
-            }
-            break;
-        default:
-            break;
-    }
-    OMDClearSegmentedControlSelection(control);
-    if (tag == 0) {
+    if (_currentDocumentReadOnly) {
         return;
     }
     [self performFormattingCommandWithTag:tag];
