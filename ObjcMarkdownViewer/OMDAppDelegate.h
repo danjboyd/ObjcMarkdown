@@ -18,6 +18,7 @@ typedef unsigned short mode_t;
 @class OMDExplorerController;
 @class OMDPreferencesController;
 @class OMDToolbarController;
+@class OMDCopyButtonsController;
 @class OMDOutlineController;
 
 @interface OMDAppDelegate : NSObject <NSApplicationDelegate, NSWindowDelegate, NSTextViewDelegate, NSMenuValidation, NSSplitViewDelegate, NSControlTextEditingDelegate, OMDSourceTextViewVimEventHandling>
@@ -51,6 +52,7 @@ typedef unsigned short mode_t;
     OMDExplorerController *_explorerController;
     OMDPreferencesController *_preferencesController;
     OMDToolbarController *_toolbarController;
+    OMDCopyButtonsController *_copyButtonsController;
     id _updaterController;
     NSMenu *_fileOpenRecentMenu;
     BOOL _explorerSidebarVisible;
@@ -69,10 +71,6 @@ typedef unsigned short mode_t;
     NSTimer *_sourceSyntaxHighlightTimer;
     NSTimer *_recoveryAutosaveTimer;
     NSTimer *_externalFileMonitorTimer;
-    NSTimer *_copyFeedbackTimer;
-    NSMutableArray *_codeBlockButtons;
-    NSButton *_copyFeedbackButton;
-    NSView *_copyFeedbackHUDView;
     NSView *_launchOverlayView;
     NSTextField *_launchOverlayTitleLabel;
     NSTextField *_launchOverlayDetailLabel;

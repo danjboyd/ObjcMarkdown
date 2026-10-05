@@ -33,6 +33,7 @@
 #import "OMDLayoutMetrics.h"
 #import "OMDMainMenu.h"
 #import "OMDToolbarController.h"
+#import "OMDCopyButtonsController.h"
 #import "OMDViewerDefaults.h"
 #import "OMDViewerImages.h"
 #import "OMDDocumentTabsController.h"
@@ -76,7 +77,6 @@ static const NSTimeInterval OMDSourceSyntaxHighlightDebounceInterval = 0.08;
 static const NSTimeInterval OMDSourceSyntaxHighlightLargeDocDebounceInterval = 0.16;
 static const NSTimeInterval OMDRecoveryAutosaveDebounceInterval = 1.25;
 static const NSTimeInterval OMDExternalFileMonitorInterval = 1.50;
-static const NSTimeInterval OMDCopyFeedbackDisplayInterval = 0.95;
 static const NSUInteger OMDSourceSyntaxIncrementalThreshold = 120000;
 static const NSUInteger OMDSourceSyntaxIncrementalContextChars = 12000;
 static const CGFloat OMDSourceEditorDefaultFontSize = 13.0;
@@ -389,7 +389,7 @@ static CGFloat OMDClampedScrollSpeed(CGFloat value)
 }
 
 
-@interface OMDAppDelegate () <OMDDocumentTabsControllerDelegate, OMDToolbarControllerDelegate, OMDExplorerControllerDelegate, OMDFormattingBarControllerDelegate, OMDPreferencesControllerDelegate, GSVVimBindingControllerDelegate, OMDTextViewRenderedObjectDelegate, OMDOutlineControllerDelegate>
+@interface OMDAppDelegate () <OMDCopyButtonsControllerDelegate, OMDDocumentTabsControllerDelegate, OMDToolbarControllerDelegate, OMDExplorerControllerDelegate, OMDFormattingBarControllerDelegate, OMDPreferencesControllerDelegate, GSVVimBindingControllerDelegate, OMDTextViewRenderedObjectDelegate, OMDOutlineControllerDelegate>
 - (void)importDocument:(id)sender;
 - (void)newWindow:(id)sender;
 - (void)saveDocument:(id)sender;
@@ -620,15 +620,6 @@ static CGFloat OMDClampedScrollSpeed(CGFloat value)
 - (void)setDiagramRenderingPolicyPreference:(OMMarkdownDiagramRenderingPolicy)policy;
 - (void)setDiagramRenderingNative:(id)sender;
 - (void)setDiagramRenderingSourceCode:(id)sender;
-- (void)copyDiagramBlock:(id)sender;
-- (void)addCopyButtonsForRanges:(NSArray *)ranges
-                         action:(SEL)action
-                        toolTip:(NSString *)toolTip
-                  layoutManager:(NSLayoutManager *)layoutManager
-                      container:(NSTextContainer *)container
-                     textOrigin:(NSPoint)textOrigin
-                   blockPadding:(NSSize)blockPadding
-             matchCodeBlockEdge:(BOOL)matchCodeBlockEdge;
 - (BOOL)isAllowRemoteImagesEnabled;
 - (void)setMathRenderingPolicyPreference:(OMMarkdownMathRenderingPolicy)policy;
 - (void)setAllowRemoteImagesPreference:(BOOL)allow;
@@ -701,10 +692,6 @@ static CGFloat OMDClampedScrollSpeed(CGFloat value)
 - (BOOL)writeRecoverySnapshot;
 - (void)clearRecoverySnapshot;
 - (NSString *)recoverySnapshotPath;
-- (void)applyCopyButtonDefaultAppearance:(NSButton *)button;
-- (void)showCopyFeedbackForButton:(NSButton *)button;
-- (void)copyFeedbackTimerFired:(NSTimer *)timer;
-- (void)hideCopyFeedback;
 - (void)replaceSourceTextInRange:(NSRange)range withString:(NSString *)replacement selectedRange:(NSRange)selection;
 - (void)applyInlineWrapWithPrefix:(NSString *)prefix
                            suffix:(NSString *)suffix
@@ -785,7 +772,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
                                              selector:@selector(runDeferredPostPresentationSetup)
                                                object:nil];
     [self stopExternalFileMonitor];
-    [self hideCopyFeedback];
+    [_copyButtonsController hideCopyFeedback];
     [_sourceVimCommandLine release];
     [_pendingLaunchOpenPath release];
     [_currentDocumentSyntaxLanguage release];
@@ -811,7 +798,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [_linkedScrollDriverResetTimer release];
     [_formattingBarController release];
     [_sourceEditorContainer release];
-    [_codeBlockButtons release];
+    [_copyButtonsController release];
     [_documentConverter release];
     [_sourceVimBindingController release];
     [_sourceLineNumberRuler release];
@@ -1027,6 +1014,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
         }
     }
     _toolbarController = [[OMDToolbarController alloc] initWithDelegate:self];
+    _copyButtonsController = [[OMDCopyButtonsController alloc] initWithDelegate:self];
     [_toolbarController installInWindow:_window];
     [self updateZoomLabel];
     OMDStartupTrace(@"setupWindow: setupToolbar returned");
@@ -4031,7 +4019,7 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
     NSTimeInterval applyMs = perfLogging ? ((OMDNow() - applyStart) * 1000.0) : 0.0;
     [self updatePreviewDocumentGeometry];
     NSTimeInterval postStart = perfLogging ? OMDNow() : 0.0;
-    [self updateCodeBlockButtons];
+    [_copyButtonsController updateCodeBlockButtons];
     if ([_textView isKindOfClass:[OMDTextView class]]) {
         OMDTextView *codeView = (OMDTextView *)_textView;
         [codeView setDocumentBackgroundColor:nil];
@@ -4136,13 +4124,8 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
         return;
     }
 
-    [self hideCopyFeedback];
-    if (_codeBlockButtons != nil) {
-        for (NSButton *button in _codeBlockButtons) {
-            [button removeFromSuperview];
-        }
-        [_codeBlockButtons removeAllObjects];
-    }
+    [_copyButtonsController hideCopyFeedback];
+    [_copyButtonsController removeCopyButtons];
 
     _isProgrammaticPreviewUpdate = YES;
     NSAttributedString *empty = [[[NSAttributedString alloc] initWithString:@""] autorelease];
@@ -4396,7 +4379,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
         _lastObservedSplitAvailableWidth = available;
     }
     [self updatePreviewDocumentGeometry];
-    [self updateCodeBlockButtons];
+    [_copyButtonsController updateCodeBlockButtons];
     [self requestInteractiveRenderForLayoutWidthIfNeeded];
     [_splitView setNeedsDisplay:YES];
 }
@@ -5102,7 +5085,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
         [_documentContainer addSubview:_previewScrollView];
         [_previewScrollView setFrame:bounds];
         [self updatePreviewDocumentGeometry];
-        [self updateCodeBlockButtons];
+        [_copyButtonsController updateCodeBlockButtons];
         [self requestInteractiveRenderForLayoutWidthIfNeeded];
         [self layoutSourceEditorContainer];
         [self updateFormattingBarContextState];
@@ -7215,6 +7198,27 @@ constrainSplitPosition:(CGFloat)proposedPosition
     [_preferencesController layoutDensityDidChange];
 }
 
+- (NSTextView *)previewTextView
+{
+    return _textView;
+}
+
+- (OMMarkdownRenderer *)previewRenderer
+{
+    return _renderer;
+}
+
+- (void)previewDidLayoutForCopyButtons
+{
+    if ([_textView isKindOfClass:[OMDTextView class]]) {
+        [(OMDTextView *)_textView updateRenderedObjectToolTips];
+        // Character indexes changed with the new render.
+        [(OMDTextView *)_textView setLinkedObjectIndex:NSNotFound];
+        [self updateLinkedPreviewObject];
+    }
+    [self refreshOutline];
+}
+
 - (CGFloat)previewZoomScale
 {
     return _zoomScale;
@@ -7641,389 +7645,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
     [_window setTitle:[NSString stringWithFormat:@"%@%@%@ (%@%@)", baseTitle, readOnlyMarker, dirtyMarker, modeTitle, updatingMarker]];
 }
 
-- (void)updateCodeBlockButtons
-{
-    [self hideCopyFeedback];
-
-    if (_codeBlockButtons == nil) {
-        _codeBlockButtons = [[NSMutableArray alloc] init];
-    }
-    for (NSButton *button in _codeBlockButtons) {
-        [button removeFromSuperview];
-    }
-    [_codeBlockButtons removeAllObjects];
-
-    NSArray *codeRanges = [_renderer codeBlockRanges];
-    NSArray *diagramBlocks = [_renderer diagramBlocks];
-    NSArray *displayMathRanges = [self displayMathObjectRanges];
-
-    NSLayoutManager *layoutManager = [_textView layoutManager];
-    NSTextContainer *container = [_textView textContainer];
-    if (layoutManager == nil || container == nil) {
-        return;
-    }
-    [layoutManager ensureLayoutForTextContainer:container];
-    if ([_textView isKindOfClass:[OMDTextView class]]) {
-        [(OMDTextView *)_textView updateRenderedObjectToolTips];
-        // Character indexes changed with the new render.
-        [(OMDTextView *)_textView setLinkedObjectIndex:NSNotFound];
-        [self updateLinkedPreviewObject];
-    }
-    [self refreshOutline];
-    if ([codeRanges count] == 0 && [diagramBlocks count] == 0 && [displayMathRanges count] == 0) {
-        return;
-    }
-
-    NSPoint textOrigin = [_textView textContainerOrigin];
-    NSSize blockPadding = NSMakeSize(12.0, 8.0);
-    if ([_textView isKindOfClass:[OMDTextView class]]) {
-        OMDTextView *codeView = (OMDTextView *)_textView;
-        if (codeView.codeBlockPadding.width > 0.0 && codeView.codeBlockPadding.height > 0.0) {
-            blockPadding = codeView.codeBlockPadding;
-        }
-    }
-
-    [self addCopyButtonsForRanges:codeRanges
-                           action:@selector(copyCodeBlock:)
-                          toolTip:@"Copy code block"
-                    layoutManager:layoutManager
-                        container:container
-                       textOrigin:textOrigin
-                     blockPadding:blockPadding
-               matchCodeBlockEdge:NO];
-
-    // Diagrams are centred attachments: their button goes at the code blocks'
-    // right edge, level with the diagram's top.
-    NSMutableArray *diagramRanges = [NSMutableArray arrayWithCapacity:[diagramBlocks count]];
-    for (NSDictionary *block in diagramBlocks) {
-        NSValue *range = [block objectForKey:OMMarkdownRendererDiagramRangeKey];
-        if (range != nil) {
-            [diagramRanges addObject:range];
-        }
-    }
-    [self addCopyButtonsForRanges:diagramRanges
-                           action:@selector(copyDiagramBlock:)
-                          toolTip:@"Copy diagram source"
-                    layoutManager:layoutManager
-                        container:container
-                       textOrigin:textOrigin
-                     blockPadding:blockPadding
-               matchCodeBlockEdge:YES];
-
-    // Equations are narrow and centred: put the button just right of the
-    // formula instead of over its corner (button 20 + 6 inset + 6 gap).
-    [self addCopyButtonsForRanges:displayMathRanges
-                           action:@selector(copyDisplayMathBlock:)
-                          toolTip:@"Copy equation source"
-                    layoutManager:layoutManager
-                        container:container
-                       textOrigin:textOrigin
-                     blockPadding:NSMakeSize(32.0, 0.0)
-               matchCodeBlockEdge:NO];
-}
-
 // Ranges of the display equations in the preview, in document order.
-- (NSArray *)displayMathObjectRanges
-{
-    NSMutableArray *ranges = [NSMutableArray array];
-    NSTextStorage *storage = [_textView textStorage];
-    NSUInteger length = [storage length];
-    NSUInteger index = 0;
-    while (index < length) {
-        NSRange effective;
-        OMRenderedObject *object = [storage attribute:OMRenderedObjectAttributeName
-                                              atIndex:index
-                                       effectiveRange:&effective];
-        if (object != nil && [object kind] == OMRenderedObjectKindDisplayMath) {
-            NSUInteger location = effective.location;
-            for (; location < NSMaxRange(effective); location++) {
-                [ranges addObject:[NSValue valueWithRange:NSMakeRange(location, 1)]];
-            }
-        }
-        index = NSMaxRange(effective);
-    }
-    return ranges;
-}
-
-- (void)copyDisplayMathBlock:(id)sender
-{
-    NSArray *ranges = [self displayMathObjectRanges];
-    NSInteger index = [sender tag];
-    if (index < 0 || index >= (NSInteger)[ranges count]) {
-        return;
-    }
-    NSRange range = [[ranges objectAtIndex:index] rangeValue];
-    OMRenderedObject *object = [[_textView textStorage] attribute:OMRenderedObjectAttributeName
-                                                          atIndex:range.location
-                                                   effectiveRange:NULL];
-    if (object == nil) {
-        return;
-    }
-    NSPasteboard *pasteboard = [NSPasteboard generalPasteboard];
-    [pasteboard declareTypes:[NSArray arrayWithObject:NSStringPboardType] owner:nil];
-    [pasteboard setString:[[object source] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]]
-                  forType:NSStringPboardType];
-    if ([sender isKindOfClass:[NSButton class]]) {
-        [self showCopyFeedbackForButton:(NSButton *)sender];
-    }
-}
-
-- (void)addCopyButtonsForRanges:(NSArray *)ranges
-                         action:(SEL)action
-                        toolTip:(NSString *)toolTip
-                  layoutManager:(NSLayoutManager *)layoutManager
-                      container:(NSTextContainer *)container
-                     textOrigin:(NSPoint)textOrigin
-                   blockPadding:(NSSize)blockPadding
-             matchCodeBlockEdge:(BOOL)matchCodeBlockEdge
-{
-    if ([ranges count] == 0) {
-        return;
-    }
-
-    NSInteger index = 0;
-    for (NSValue *value in ranges) {
-        NSRange charRange = [value rangeValue];
-        if (charRange.length == 0) {
-            index++;
-            continue;
-        }
-
-        NSRange glyphRange = [layoutManager glyphRangeForCharacterRange:charRange actualCharacterRange:NULL];
-        if (glyphRange.length == 0) {
-            index++;
-            continue;
-        }
-
-        NSRect blockRect = [layoutManager boundingRectForGlyphRange:glyphRange inTextContainer:container];
-        if (matchCodeBlockEdge) {
-            // A code block's text runs to the line end less its tail inset.
-            NSRect fragment = [layoutManager lineFragmentRectForGlyphAtIndex:glyphRange.location effectiveRange:NULL];
-            CGFloat codeTailInset = 20.0 * ([_renderer zoomScale] > 0.0 ? [_renderer zoomScale] : 1.0);
-            CGFloat right = NSMaxX(fragment) - [container lineFragmentPadding] - codeTailInset;
-            blockRect.size.width = MAX(1.0, right - NSMinX(blockRect));
-        }
-
-        CGFloat buttonWidth = 20.0;
-        CGFloat buttonHeight = 20.0;
-        NSRect blockBounds = NSMakeRect(textOrigin.x + blockRect.origin.x - blockPadding.width,
-                                        textOrigin.y + blockRect.origin.y - blockPadding.height,
-                                        blockRect.size.width + (blockPadding.width * 2.0),
-                                        blockRect.size.height + (blockPadding.height * 2.0));
-        if (blockBounds.size.width < 1.0 || blockBounds.size.height < 1.0) {
-            index++;
-            continue;
-        }
-
-        CGFloat x = NSMaxX(blockBounds) - buttonWidth - 6.0;
-        CGFloat y = 0.0;
-        if ([_textView isFlipped]) {
-            y = NSMinY(blockBounds) + 4.0;
-        } else {
-            y = NSMaxY(blockBounds) - buttonHeight - 4.0;
-        }
-
-        CGFloat minX = 2.0;
-        CGFloat maxX = NSWidth([_textView bounds]) - buttonWidth - 2.0;
-        if (x < minX) {
-            x = minX;
-        }
-        if (x > maxX) {
-            x = maxX;
-        }
-
-        CGFloat minY = 2.0;
-        CGFloat maxY = NSHeight([_textView bounds]) - buttonHeight - 2.0;
-        if (y < minY) {
-            y = minY;
-        }
-        if (y > maxY) {
-            y = maxY;
-        }
-
-        NSRect buttonFrame = NSIntegralRect(NSMakeRect(x, y, buttonWidth, buttonHeight));
-        OMDCodeCopyButton *button = [[OMDCodeCopyButton alloc] initWithFrame:buttonFrame];
-        [self applyCopyButtonDefaultAppearance:button];
-        [button setButtonType:NSMomentaryChangeButton];
-        [button setBordered:NO];
-        [button setToolTip:toolTip];
-        id buttonCell = [button cell];
-        if (buttonCell != nil && [buttonCell respondsToSelector:@selector(setImageScaling:)]) {
-            [buttonCell setImageScaling:NSImageScaleNone];
-        }
-        if (buttonCell != nil && [buttonCell respondsToSelector:@selector(setHighlightsBy:)]) {
-            [buttonCell setHighlightsBy:NSNoCellMask];
-        }
-        [button setTarget:self];
-        [button setAction:action];
-        [button setTag:index];
-        [_textView addSubview:button];
-        [_codeBlockButtons addObject:button];
-        [button release];
-        index++;
-    }
-}
-
-- (void)copyDiagramBlock:(id)sender
-{
-    NSInteger index = [sender tag];
-    NSArray *blocks = [_renderer diagramBlocks];
-    if (index < 0 || index >= (NSInteger)[blocks count]) {
-        return;
-    }
-
-    NSString *source = [[blocks objectAtIndex:index] objectForKey:OMMarkdownRendererDiagramSourceKey];
-    if (source == nil) {
-        return;
-    }
-
-    NSPasteboard *pasteboard = [NSPasteboard generalPasteboard];
-    [pasteboard declareTypes:[NSArray arrayWithObject:NSStringPboardType] owner:nil];
-    [pasteboard setString:source forType:NSStringPboardType];
-
-    if ([sender isKindOfClass:[NSButton class]]) {
-        [self showCopyFeedbackForButton:(NSButton *)sender];
-    }
-}
-
-- (void)applyCopyButtonDefaultAppearance:(NSButton *)button
-{
-    if (button == nil) {
-        return;
-    }
-
-    NSImage *copyImage = OMDCodeBlockCopyImage();
-    if (copyImage != nil) {
-        [button setImage:copyImage];
-        [button setImagePosition:NSImageOnly];
-        [button setTitle:@""];
-        return;
-    }
-
-    NSFont *buttonFont = [NSFont systemFontOfSize:10.0];
-    if (buttonFont == nil) {
-        buttonFont = [NSFont systemFontOfSize:9.0];
-    }
-    NSDictionary *buttonAttributes = [NSDictionary dictionaryWithObjectsAndKeys:
-                                      buttonFont, NSFontAttributeName,
-                                      [NSColor colorWithCalibratedWhite:0.56 alpha:1.0], NSForegroundColorAttributeName,
-                                      nil];
-    NSAttributedString *buttonTitle = [[[NSAttributedString alloc] initWithString:@"copy"
-                                                                        attributes:buttonAttributes] autorelease];
-    [button setAttributedTitle:buttonTitle];
-    [button setImage:nil];
-    [button setImagePosition:NSNoImage];
-}
-
-- (void)showCopyFeedbackForButton:(NSButton *)button
-{
-    [self hideCopyFeedback];
-    if (button == nil) {
-        return;
-    }
-
-    _copyFeedbackButton = [button retain];
-
-    NSImage *checkImage = OMDCodeBlockCopiedCheckImage();
-    if (checkImage != nil) {
-        [_copyFeedbackButton setImage:checkImage];
-        [_copyFeedbackButton setImagePosition:NSImageOnly];
-        [_copyFeedbackButton setTitle:@""];
-    }
-
-    NSString *feedbackText = @"Copied!";
-    NSFont *font = [NSFont boldSystemFontOfSize:11.0];
-    if (font == nil) {
-        font = [NSFont systemFontOfSize:11.0];
-    }
-    NSSize bubbleSize = [OMDCopyFeedbackBadgeView sizeForText:feedbackText font:font];
-    CGFloat bubbleWidth = bubbleSize.width;
-    CGFloat bubbleHeight = bubbleSize.height;
-    NSRect buttonFrame = [_copyFeedbackButton frame];
-    CGFloat x = NSMinX(buttonFrame) - bubbleWidth - 8.0;
-    if (x < 4.0) {
-        x = NSMaxX(buttonFrame) + 8.0;
-    }
-    CGFloat y = 0.0;
-    if ([_textView isFlipped]) {
-        y = NSMinY(buttonFrame);
-        if (y + bubbleHeight > NSHeight([_textView bounds]) - 4.0) {
-            y = NSHeight([_textView bounds]) - bubbleHeight - 4.0;
-        }
-    } else {
-        y = NSMaxY(buttonFrame) - bubbleHeight;
-        if (y < 4.0) {
-            y = 4.0;
-        }
-    }
-    if (x + bubbleWidth > NSWidth([_textView bounds]) - 4.0) {
-        x = NSWidth([_textView bounds]) - bubbleWidth - 4.0;
-    }
-
-    NSRect hudFrame = NSIntegralRect(NSMakeRect(x, y, bubbleWidth, bubbleHeight));
-    OMDCopyFeedbackBadgeView *hud = [[OMDCopyFeedbackBadgeView alloc] initWithFrame:hudFrame
-                                                                                text:feedbackText
-                                                                                font:font];
-    [_textView addSubview:hud];
-    _copyFeedbackHUDView = hud;
-
-    _copyFeedbackTimer = [[NSTimer scheduledTimerWithTimeInterval:OMDCopyFeedbackDisplayInterval
-                                                           target:self
-                                                         selector:@selector(copyFeedbackTimerFired:)
-                                                         userInfo:nil
-                                                          repeats:NO] retain];
-}
-
-- (void)copyFeedbackTimerFired:(NSTimer *)timer
-{
-    if (timer != _copyFeedbackTimer) {
-        return;
-    }
-    [self hideCopyFeedback];
-}
-
-- (void)hideCopyFeedback
-{
-    if (_copyFeedbackTimer != nil) {
-        [_copyFeedbackTimer invalidate];
-        [_copyFeedbackTimer release];
-        _copyFeedbackTimer = nil;
-    }
-    if (_copyFeedbackHUDView != nil) {
-        [_copyFeedbackHUDView removeFromSuperview];
-        [_copyFeedbackHUDView release];
-        _copyFeedbackHUDView = nil;
-    }
-    if (_copyFeedbackButton != nil) {
-        [self applyCopyButtonDefaultAppearance:_copyFeedbackButton];
-        [_copyFeedbackButton release];
-        _copyFeedbackButton = nil;
-    }
-}
-
-- (void)copyCodeBlock:(id)sender
-{
-    NSInteger index = [sender tag];
-    NSArray *ranges = [_renderer codeBlockRanges];
-    if (index < 0 || index >= (NSInteger)[ranges count]) {
-        return;
-    }
-    NSRange range = [[ranges objectAtIndex:index] rangeValue];
-    NSString *fullText = [[_textView textStorage] string];
-    if (fullText == nil || NSMaxRange(range) > [fullText length]) {
-        return;
-    }
-
-    NSString *snippet = [fullText substringWithRange:range];
-    NSPasteboard *pasteboard = [NSPasteboard generalPasteboard];
-    [pasteboard declareTypes:[NSArray arrayWithObject:NSStringPboardType] owner:nil];
-    [pasteboard setString:snippet forType:NSStringPboardType];
-
-    if ([sender isKindOfClass:[NSButton class]]) {
-        [self showCopyFeedbackForButton:(NSButton *)sender];
-    }
-}
-
 - (void)replaceSourceTextInRange:(NSRange)range withString:(NSString *)replacement selectedRange:(NSRange)selection
 {
     if (_sourceTextView == nil) {
