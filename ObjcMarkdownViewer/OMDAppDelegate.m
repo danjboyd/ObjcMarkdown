@@ -33,6 +33,7 @@
 #import "OMDLayoutMetrics.h"
 #import "OMDViewerDefaults.h"
 #import "OMDViewerImages.h"
+#import "OMDDocumentTabsController.h"
 #import "OMDExplorerController.h"
 #import "OMDPreferencesController.h"
 #import "GSVVimBindingController.h"
@@ -245,24 +246,6 @@ static void OMDLogMenuSnapshot(NSString *label, NSMenu *menu, NSWindow *window)
                                                [titles componentsJoinedByString:@","]]);
 }
 
-static NSString * const OMDTabMarkdownKey = @"markdown";
-static NSString * const OMDTabSourcePathKey = @"sourcePath";
-static NSString * const OMDTabDisplayTitleKey = @"displayTitle";
-static NSString * const OMDTabDirtyKey = @"dirty";
-static NSString * const OMDTabReadOnlyKey = @"readOnly";
-static NSString * const OMDTabIsGitHubKey = @"isGitHub";
-static NSString * const OMDTabGitHubUserKey = @"githubUser";
-static NSString * const OMDTabGitHubRepoKey = @"githubRepo";
-static NSString * const OMDTabGitHubPathKey = @"githubPath";
-static NSString * const OMDTabRenderModeKey = @"renderMode";
-static NSString * const OMDTabSyntaxLanguageKey = @"syntaxLanguage";
-static NSString * const OMDTabLoadedDiskFingerprintKey = @"loadedDiskFingerprint";
-static NSString * const OMDTabObservedDiskFingerprintKey = @"observedDiskFingerprint";
-static NSString * const OMDTabSuppressedDiskFingerprintKey = @"suppressedDiskFingerprint";
-static NSString * const OMDTabImageFingerprintsKey = @"imageFingerprints";
-static NSString * const OMDTabSuppressedImageFingerprintsKey = @"suppressedImageFingerprints";
-static NSString * const OMDTabImageMarkdownKey = @"imageMarkdown";
-static NSString * const OMDTabImageSourcePathKey = @"imageSourcePath";
 
 typedef NS_ENUM(NSInteger, OMDDocumentRenderMode) {
     OMDDocumentRenderModeMarkdown = 0,
@@ -428,7 +411,7 @@ static CGFloat OMDClampedScrollSpeed(CGFloat value)
 }
 
 
-@interface OMDAppDelegate () <OMDExplorerControllerDelegate, OMDFormattingBarControllerDelegate, OMDPreferencesControllerDelegate, GSVVimBindingControllerDelegate, OMDTextViewRenderedObjectDelegate, OMDOutlineControllerDelegate>
+@interface OMDAppDelegate () <OMDDocumentTabsControllerDelegate, OMDExplorerControllerDelegate, OMDFormattingBarControllerDelegate, OMDPreferencesControllerDelegate, GSVVimBindingControllerDelegate, OMDTextViewRenderedObjectDelegate, OMDOutlineControllerDelegate>
 - (void)importDocument:(id)sender;
 - (void)newWindow:(id)sender;
 - (void)saveDocument:(id)sender;
@@ -488,7 +471,6 @@ static CGFloat OMDClampedScrollSpeed(CGFloat value)
 - (void)presentWindowIfNeeded;
 - (void)applyWindowsWindowIconsIfPossible;
 - (void)layoutWorkspaceChrome;
-- (CGFloat)currentTabStripHeight;
 - (BOOL)isExplorerSidebarVisiblePreference;
 - (void)setExplorerSidebarVisiblePreference:(BOOL)visible;
 - (void)applyExplorerSidebarVisibility;
@@ -499,15 +481,8 @@ static CGFloat OMDClampedScrollSpeed(CGFloat value)
 - (NSString *)temporaryPathForRemoteImportWithExtension:(NSString *)extension;
 - (BOOL)ensureOpenFileSizeWithinLimit:(unsigned long long)size
                            descriptor:(NSString *)descriptor;
-- (void)updateTabStrip;
-- (void)tabButtonPressed:(id)sender;
-- (void)tabCloseButtonPressed:(id)sender;
 - (void)closeDocumentTabAtIndex:(NSInteger)index;
 - (void)selectDocumentTabAtIndex:(NSInteger)index;
-- (NSInteger)documentTabIndexForLocalPath:(NSString *)sourcePath;
-- (NSInteger)documentTabIndexForGitHubUser:(NSString *)user
-                                      repo:(NSString *)repo
-                                      path:(NSString *)path;
 - (void)captureCurrentStateIntoSelectedTab;
 - (NSMutableDictionary *)newDocumentTabWithMarkdown:(NSString *)markdown
                                          sourcePath:(NSString *)sourcePath
@@ -844,7 +819,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [_currentLoadedDiskFingerprint release];
     [_currentObservedDiskFingerprint release];
     [_currentSuppressedDiskFingerprint release];
-    [_documentTabs release];
+    [_documentTabsController release];
     [_explorerController release];
     [_preferencesController release];
     [_updaterController release];
@@ -879,7 +854,6 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [_workspaceSplitView release];
     [_workspaceMainContainer release];
     [_sidebarContainer release];
-    [_tabStripView release];
     [_renderer release];
     [_sourceTextView release];
     [_sourceScrollView release];
@@ -1004,7 +978,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
     BOOL shouldDeferForLaunch = (_window == nil ||
                                  _launchWorkScheduled ||
                                  (!_postPresentationSetupComplete &&
-                                  [_documentTabs count] == 0 &&
+                                  [_documentTabsController count] == 0 &&
                                   _currentPath == nil &&
                                   _currentMarkdown == nil));
     if (shouldDeferForLaunch) {
@@ -1024,7 +998,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
         return YES;
     }
 
-    BOOL openInNewTab = !([_documentTabs count] == 0 && _currentPath == nil && _currentMarkdown == nil);
+    BOOL openInNewTab = !([_documentTabsController count] == 0 && _currentPath == nil && _currentMarkdown == nil);
     return [self openDocumentAtPath:(resolvedPath != nil ? resolvedPath : filename)
                            inNewTab:openInNewTab
                 requireDirtyConfirm:!openInNewTab];
@@ -1700,7 +1674,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
     _viewerMode = OMDViewerModeFromInteger([[NSUserDefaults standardUserDefaults] integerForKey:@"ObjcMarkdownViewerMode"]);
     [self setViewerMode:_viewerMode persistPreference:NO];
     OMDStartupTrace(@"setupWindow: viewer mode applied");
-    [self updateTabStrip];
+    [_documentTabsController updateTabStrip];
     OMDStartupTrace(@"setupWindow: tab strip updated");
     OMDStartupTrace(@"setupWindow: complete");
     [self performSelector:@selector(logDelayedMenuSnapshot:)
@@ -1902,9 +1876,8 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [_workspaceSplitView addSubview:_workspaceMainContainer];
     [[_window contentView] addSubview:_workspaceSplitView];
 
-    _tabStripView = [[NSView alloc] initWithFrame:NSZeroRect];
-    [_tabStripView setAutoresizingMask:0];
-    [_workspaceMainContainer addSubview:_tabStripView];
+    _documentTabsController = [[OMDDocumentTabsController alloc] initWithDelegate:self];
+    [_workspaceMainContainer addSubview:[_documentTabsController stripView]];
 
     _documentContainer = [[NSView alloc] initWithFrame:NSZeroRect];
     [_documentContainer setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable)];
@@ -1914,8 +1887,6 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [_outlineController setDelegate:self];
     _outlineVisible = [[NSUserDefaults standardUserDefaults] boolForKey:OMDOutlineVisibleDefaultsKey];
 
-    _documentTabs = [[NSMutableArray alloc] init];
-    _selectedDocumentTabIndex = -1;
     _currentDocumentRenderMode = OMDDocumentRenderModeMarkdown;
     _explorerController = [[OMDExplorerController alloc] initWithDelegate:self];
     _preferencesController = [[OMDPreferencesController alloc] initWithDelegate:self];
@@ -1958,25 +1929,26 @@ static NSMutableArray *OMDSecondaryWindows(void)
 
 - (void)layoutWorkspaceChrome
 {
-    if (_workspaceMainContainer == nil || _documentContainer == nil || _tabStripView == nil) {
+    NSView *tabStripView = [_documentTabsController stripView];
+    if (_workspaceMainContainer == nil || _documentContainer == nil || tabStripView == nil) {
         return;
     }
 
     NSRect bounds = [_workspaceMainContainer bounds];
-    CGFloat tabHeight = [self currentTabStripHeight];
+    CGFloat tabHeight = [_documentTabsController currentTabStripHeight];
     if (tabHeight > NSHeight(bounds)) {
         tabHeight = NSHeight(bounds);
     }
     BOOL tabStripVisible = (tabHeight > 0.0);
-    [_tabStripView setHidden:!tabStripVisible];
+    [tabStripView setHidden:!tabStripVisible];
     if (tabStripVisible) {
         NSRect tabFrame = NSMakeRect(NSMinX(bounds),
                                      NSMaxY(bounds) - tabHeight,
                                      NSWidth(bounds),
                                      tabHeight);
-        [_tabStripView setFrame:NSIntegralRect(tabFrame)];
+        [tabStripView setFrame:NSIntegralRect(tabFrame)];
     } else {
-        [_tabStripView setFrame:NSZeroRect];
+        [tabStripView setFrame:NSZeroRect];
     }
 
     NSRect documentFrame = NSMakeRect(NSMinX(bounds),
@@ -1988,19 +1960,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
     }
     [_documentContainer setFrame:NSIntegralRect(documentFrame)];
     [self layoutDocumentViews];
-    [self updateTabStrip];
-}
-
-- (CGFloat)currentTabStripHeight
-{
-    OMDLayoutMetrics metrics = OMDLayoutMetricsForMode([self effectiveLayoutDensityMode]);
-    if (_documentTabs == nil) {
-        return 0.0;
-    }
-    if ([_documentTabs count] <= 1) {
-        return 0.0;
-    }
-    return metrics.tabStripHeight;
+    [_documentTabsController updateTabStrip];
 }
 
 - (BOOL)isExplorerSidebarVisiblePreference
@@ -2964,7 +2924,7 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
         return;
     }
 
-    BOOL openInNewTab = !([_documentTabs count] == 0 && _currentPath == nil && _currentMarkdown == nil);
+    BOOL openInNewTab = !([_documentTabsController count] == 0 && _currentPath == nil && _currentMarkdown == nil);
     [self openDocumentAtPath:path inNewTab:openInNewTab requireDirtyConfirm:!openInNewTab];
 }
 
@@ -3022,7 +2982,7 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
     }
 
     NSString *path = [filenames objectAtIndex:0];
-    BOOL openInNewTab = !([_documentTabs count] == 0 && _currentPath == nil && _currentMarkdown == nil);
+    BOOL openInNewTab = !([_documentTabsController count] == 0 && _currentPath == nil && _currentMarkdown == nil);
     [self openDocumentAtPath:path inNewTab:openInNewTab requireDirtyConfirm:!openInNewTab];
 }
 
@@ -3063,7 +3023,7 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
     NSString *extension = [[path pathExtension] lowercaseString];
     BOOL supportsFormatNow = [OMDDocumentConverter isSupportedExtension:extension];
 
-    if ([_documentTabs count] == 0 && _currentPath == nil && _currentMarkdown == nil) {
+    if ([_documentTabsController count] == 0 && _currentPath == nil && _currentMarkdown == nil) {
         [self importDocumentAtPath:path];
     } else if (supportsFormatNow) {
         OMDAppDelegate *controller = [[OMDAppDelegate alloc] init];
@@ -3167,8 +3127,8 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
     if ([OMDTrimmedString(_currentPath) length] == 0) {
         return NO;
     }
-    if (_selectedDocumentTabIndex >= 0 && _selectedDocumentTabIndex < (NSInteger)[_documentTabs count]) {
-        NSDictionary *tab = [_documentTabs objectAtIndex:_selectedDocumentTabIndex];
+    NSDictionary *tab = [_documentTabsController selectedTab];
+    if (tab != nil) {
         if ([[tab objectForKey:OMDTabIsGitHubKey] boolValue]) {
             return NO;
         }
@@ -3443,8 +3403,7 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
                                     suppressed:suppressedFingerprint];
     [self captureCurrentStateIntoSelectedTab];
 
-    NSMutableDictionary *tab = (_selectedDocumentTabIndex >= 0 && _selectedDocumentTabIndex < (NSInteger)[_documentTabs count]
-                                ? [_documentTabs objectAtIndex:_selectedDocumentTabIndex] : nil);
+    NSMutableDictionary *tab = [_documentTabsController selectedTab];
     NSMutableDictionary *loadedImages = [[[tab objectForKey:OMDTabImageFingerprintsKey] mutableCopy] autorelease];
     if (loadedImages == nil) {
         loadedImages = [NSMutableDictionary dictionary];
@@ -3904,7 +3863,7 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
     _sourceIsDirty = YES;
     _sourceRevision = 1;
     [self captureCurrentStateIntoSelectedTab];
-    [self updateTabStrip];
+    [_documentTabsController updateTabStrip];
     [self updateWindowTitle];
     [self scheduleRecoveryAutosave];
     return YES;
@@ -3951,7 +3910,7 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
                                       observed:savedFingerprint
                                     suppressed:nil];
     [self captureCurrentStateIntoSelectedTab];
-    [self updateTabStrip];
+    [_documentTabsController updateTabStrip];
     [self clearRecoverySnapshot];
     return YES;
 }
@@ -6093,140 +6052,21 @@ constrainSplitPosition:(CGFloat)proposedPosition
     [self updateToolbarActionControlsState];
 }
 
-- (void)updateTabStrip
-{
-    if (_tabStripView == nil) {
-        return;
-    }
-
-    NSArray *existingSubviews = [[_tabStripView subviews] copy];
-    for (NSView *view in existingSubviews) {
-        [view removeFromSuperview];
-    }
-    [existingSubviews release];
-
-    if ([_tabStripView isHidden] || [self currentTabStripHeight] <= 0.0) {
-        return;
-    }
-
-    NSRect bounds = [_tabStripView bounds];
-    if ([_documentTabs count] == 0) {
-        NSTextField *label = [[[NSTextField alloc] initWithFrame:NSInsetRect(bounds, 8.0, 6.0)] autorelease];
-        [label setBezeled:NO];
-        [label setEditable:NO];
-        [label setSelectable:NO];
-        [label setDrawsBackground:NO];
-        [label setTextColor:[NSColor disabledControlTextColor]];
-        [label setFont:[NSFont systemFontOfSize:11.0]];
-        [label setStringValue:@"No document open"];
-        [_tabStripView addSubview:label];
-        return;
-    }
-
-    CGFloat x = 6.0;
-    CGFloat y = 4.0;
-    CGFloat height = NSHeight(bounds) - 8.0;
-    CGFloat available = NSWidth(bounds) - 6.0;
-    const CGFloat closeButtonSize = 14.0;
-    const CGFloat closeButtonInset = 3.0;
-
-    NSInteger index = 0;
-    for (; index < (NSInteger)[_documentTabs count]; index++) {
-        NSDictionary *tab = [_documentTabs objectAtIndex:index];
-        NSString *title = [tab objectForKey:OMDTabDisplayTitleKey];
-        if (title == nil || [title length] == 0) {
-            NSString *path = [tab objectForKey:OMDTabSourcePathKey];
-            title = (path != nil ? [path lastPathComponent] : @"Untitled");
-        }
-        if ([[tab objectForKey:OMDTabDirtyKey] boolValue]) {
-            title = [title stringByAppendingString:@" *"];
-        }
-        if ([[tab objectForKey:OMDTabReadOnlyKey] boolValue]) {
-            title = [title stringByAppendingString:@" [RO]"];
-        }
-
-        CGFloat width = 30.0 + (CGFloat)[title length] * 6.8;
-        if (width < 108.0) {
-            width = 108.0;
-        }
-        if (width > 240.0) {
-            width = 240.0;
-        }
-        if (x + width > available) {
-            width = available - x;
-        }
-        if (width < 72.0) {
-            break;
-        }
-
-        NSView *tabContainer = [[[NSView alloc] initWithFrame:NSMakeRect(x, y, width, height)] autorelease];
-        [tabContainer setAutoresizingMask:NSViewMinYMargin];
-
-        CGFloat titleWidth = width - closeButtonSize - (closeButtonInset * 2.0);
-        if (titleWidth < 52.0) {
-            titleWidth = width - closeButtonSize - closeButtonInset;
-        }
-        if (titleWidth < 40.0) {
-            break;
-        }
-
-        NSButton *button = [[[NSButton alloc] initWithFrame:NSMakeRect(0.0, 0.0, titleWidth, height)] autorelease];
-        [button setTitle:title];
-        [button setTag:index];
-        [button setButtonType:NSPushOnPushOffButton];
-        [button setBezelStyle:NSRoundedBezelStyle];
-        [button setState:(index == _selectedDocumentTabIndex ? NSOnState : NSOffState)];
-        [button setTarget:self];
-        [button setAction:@selector(tabButtonPressed:)];
-        [button setFont:[NSFont systemFontOfSize:11.0]];
-        [button setAlignment:NSLeftTextAlignment];
-        [tabContainer addSubview:button];
-
-        NSButton *closeButton = [[[NSButton alloc] initWithFrame:NSMakeRect(width - closeButtonSize - closeButtonInset,
-                                                                              floor((height - closeButtonSize) * 0.5),
-                                                                              closeButtonSize,
-                                                                              closeButtonSize)] autorelease];
-        [closeButton setTitle:@"x"];
-        [closeButton setTag:index];
-        [closeButton setButtonType:NSMomentaryPushInButton];
-        [closeButton setBezelStyle:NSRoundRectBezelStyle];
-        [closeButton setTarget:self];
-        [closeButton setAction:@selector(tabCloseButtonPressed:)];
-        [closeButton setFont:[NSFont boldSystemFontOfSize:10.0]];
-        [tabContainer addSubview:closeButton];
-
-        [_tabStripView addSubview:tabContainer];
-        x += width + 4.0;
-    }
-}
-
-- (void)tabButtonPressed:(id)sender
-{
-    NSInteger index = [sender tag];
-    [self selectDocumentTabAtIndex:index];
-}
-
-- (void)tabCloseButtonPressed:(id)sender
-{
-    NSInteger index = [sender tag];
-    [self closeDocumentTabAtIndex:index];
-}
-
 - (void)closeDocumentTabAtIndex:(NSInteger)index
 {
-    NSInteger count = (NSInteger)[_documentTabs count];
+    NSInteger count = (NSInteger)[_documentTabsController count];
     if (index < 0 || index >= count) {
         return;
     }
 
     [self captureCurrentStateIntoSelectedTab];
 
-    NSDictionary *tabRecord = [_documentTabs objectAtIndex:index];
+    NSDictionary *tabRecord = [_documentTabsController tabAtIndex:index];
     BOOL tabIsDirty = [[tabRecord objectForKey:OMDTabDirtyKey] boolValue];
-    NSInteger previousSelection = _selectedDocumentTabIndex;
+    NSInteger previousSelection = [_documentTabsController selectedIndex];
     BOOL switchedToClosingTab = NO;
 
-    if (tabIsDirty && index != _selectedDocumentTabIndex) {
+    if (tabIsDirty && index != [_documentTabsController selectedIndex]) {
         [self selectDocumentTabAtIndex:index];
         switchedToClosingTab = YES;
     }
@@ -6235,7 +6075,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
         if (![self confirmDiscardingUnsavedChangesForAction:@"closing this tab"]) {
             if (switchedToClosingTab &&
                 previousSelection >= 0 &&
-                previousSelection < (NSInteger)[_documentTabs count]) {
+                previousSelection < (NSInteger)[_documentTabsController count]) {
                 [self selectDocumentTabAtIndex:previousSelection];
             }
             return;
@@ -6243,16 +6083,16 @@ constrainSplitPosition:(CGFloat)proposedPosition
         [self captureCurrentStateIntoSelectedTab];
     }
 
-    if (index < 0 || index >= (NSInteger)[_documentTabs count]) {
+    if (index < 0 || index >= (NSInteger)[_documentTabsController count]) {
         return;
     }
-    [_documentTabs removeObjectAtIndex:index];
+    [_documentTabsController removeTabAtIndex:index];
 
-    if ([_documentTabs count] == 0) {
-        _selectedDocumentTabIndex = -1;
+    if ([_documentTabsController count] == 0) {
+        [_documentTabsController setSelectedIndex:-1];
         [self setCurrentMarkdown:nil sourcePath:nil];
         [self clearRecoverySnapshot];
-        [self updateTabStrip];
+        [_documentTabsController updateTabStrip];
         [self updateWindowTitle];
         return;
     }
@@ -6267,7 +6107,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
         targetSelection -= 1;
     }
 
-    NSInteger remainingCount = (NSInteger)[_documentTabs count];
+    NSInteger remainingCount = (NSInteger)[_documentTabsController count];
     if (targetSelection >= remainingCount) {
         targetSelection = remainingCount - 1;
     }
@@ -6275,19 +6115,18 @@ constrainSplitPosition:(CGFloat)proposedPosition
         targetSelection = 0;
     }
 
-    _selectedDocumentTabIndex = targetSelection;
-    NSDictionary *selectedTab = [_documentTabs objectAtIndex:targetSelection];
+    [_documentTabsController setSelectedIndex:targetSelection];
+    NSDictionary *selectedTab = [_documentTabsController tabAtIndex:targetSelection];
     [self applyDocumentTabRecord:selectedTab];
-    [self updateTabStrip];
+    [_documentTabsController updateTabStrip];
 }
 
 - (void)captureCurrentStateIntoSelectedTab
 {
-    if (_selectedDocumentTabIndex < 0 || _selectedDocumentTabIndex >= (NSInteger)[_documentTabs count]) {
+    NSMutableDictionary *tab = [_documentTabsController selectedTab];
+    if (tab == nil) {
         return;
     }
-
-    NSMutableDictionary *tab = [_documentTabs objectAtIndex:_selectedDocumentTabIndex];
     [tab setObject:(_currentMarkdown != nil ? _currentMarkdown : @"") forKey:OMDTabMarkdownKey];
 
     if (_currentPath != nil && [_currentPath length] > 0) {
@@ -6371,19 +6210,19 @@ constrainSplitPosition:(CGFloat)proposedPosition
         return;
     }
 
-    if (inNewTab || _selectedDocumentTabIndex < 0 || _selectedDocumentTabIndex >= (NSInteger)[_documentTabs count]) {
+    if (inNewTab || [_documentTabsController selectedIndex] < 0 || [_documentTabsController selectedIndex] >= (NSInteger)[_documentTabsController count]) {
         [self captureCurrentStateIntoSelectedTab];
-        [_documentTabs addObject:tab];
-        _selectedDocumentTabIndex = (NSInteger)[_documentTabs count] - 1;
+        [_documentTabsController addTab:tab];
+        [_documentTabsController setSelectedIndex:(NSInteger)[_documentTabsController count] - 1];
     } else {
-        [_documentTabs replaceObjectAtIndex:_selectedDocumentTabIndex withObject:tab];
+        [_documentTabsController replaceTabAtIndex:[_documentTabsController selectedIndex] withTab:tab];
     }
 
     [self applyDocumentTabRecord:tab];
     if (resetViewport) {
         [self resetCurrentDocumentViewportToStart];
     }
-    [self updateTabStrip];
+    [_documentTabsController updateTabStrip];
 }
 
 - (void)applyDocumentTabRecord:(NSDictionary *)tabRecord
@@ -6427,87 +6266,19 @@ constrainSplitPosition:(CGFloat)proposedPosition
 
 - (void)selectDocumentTabAtIndex:(NSInteger)index
 {
-    if (index < 0 || index >= (NSInteger)[_documentTabs count]) {
+    if (index < 0 || index >= (NSInteger)[_documentTabsController count]) {
         return;
     }
-    if (index == _selectedDocumentTabIndex) {
+    if (index == [_documentTabsController selectedIndex]) {
         return;
     }
 
     [self captureCurrentStateIntoSelectedTab];
-    _selectedDocumentTabIndex = index;
-    NSDictionary *tab = [_documentTabs objectAtIndex:index];
+    [_documentTabsController setSelectedIndex:index];
+    NSDictionary *tab = [_documentTabsController tabAtIndex:index];
     [self applyDocumentTabRecord:tab];
-    [self updateTabStrip];
+    [_documentTabsController updateTabStrip];
     [self refreshCurrentDocumentDiskStateAllowPrompt:YES];
-}
-
-- (NSInteger)documentTabIndexForLocalPath:(NSString *)sourcePath
-{
-    NSString *targetPath = OMDTrimmedString(sourcePath);
-    if ([targetPath length] == 0) {
-        return -1;
-    }
-    targetPath = [targetPath stringByStandardizingPath];
-
-    NSInteger index = 0;
-    for (; index < (NSInteger)[_documentTabs count]; index++) {
-        NSDictionary *tab = [_documentTabs objectAtIndex:index];
-        NSString *tabPath = OMDTrimmedString([tab objectForKey:OMDTabSourcePathKey]);
-        if ([tabPath length] == 0) {
-            continue;
-        }
-        tabPath = [tabPath stringByStandardizingPath];
-        if ([tabPath isEqualToString:targetPath]) {
-            return index;
-        }
-    }
-    return -1;
-}
-
-- (NSInteger)documentTabIndexForGitHubUser:(NSString *)user
-                                      repo:(NSString *)repo
-                                      path:(NSString *)path
-{
-    NSString *targetUser = [[OMDTrimmedString(user) lowercaseString] copy];
-    NSString *targetRepo = [[OMDTrimmedString(repo) lowercaseString] copy];
-    NSString *targetPath = [OMDNormalizedRelativePath(path) copy];
-    if ([targetUser length] == 0 || [targetRepo length] == 0 || [targetPath length] == 0) {
-        [targetUser release];
-        [targetRepo release];
-        [targetPath release];
-        return -1;
-    }
-
-    NSInteger found = -1;
-    NSInteger index = 0;
-    for (; index < (NSInteger)[_documentTabs count]; index++) {
-        NSDictionary *tab = [_documentTabs objectAtIndex:index];
-        if (![[tab objectForKey:OMDTabIsGitHubKey] boolValue]) {
-            continue;
-        }
-
-        NSString *tabUser = [[OMDTrimmedString([tab objectForKey:OMDTabGitHubUserKey]) lowercaseString] copy];
-        NSString *tabRepo = [[OMDTrimmedString([tab objectForKey:OMDTabGitHubRepoKey]) lowercaseString] copy];
-        NSString *tabPath = [OMDNormalizedRelativePath([tab objectForKey:OMDTabGitHubPathKey]) copy];
-
-        BOOL matches = ([tabUser isEqualToString:targetUser] &&
-                        [tabRepo isEqualToString:targetRepo] &&
-                        [tabPath isEqualToString:targetPath]);
-        [tabUser release];
-        [tabRepo release];
-        [tabPath release];
-
-        if (matches) {
-            found = index;
-            break;
-        }
-    }
-
-    [targetUser release];
-    [targetRepo release];
-    [targetPath release];
-    return found;
 }
 
 - (BOOL)openDocumentWithMarkdown:(NSString *)markdown
@@ -6524,7 +6295,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
     if ([normalizedSourcePath length] > 0) {
         normalizedSourcePath = [normalizedSourcePath stringByStandardizingPath];
         initialDiskFingerprint = [self diskFingerprintForPath:normalizedSourcePath];
-        NSInteger existingIndex = [self documentTabIndexForLocalPath:normalizedSourcePath];
+        NSInteger existingIndex = [_documentTabsController documentTabIndexForLocalPath:normalizedSourcePath];
         if (existingIndex >= 0) {
             [self selectDocumentTabAtIndex:existingIndex];
             [self presentWindowIfNeeded];
@@ -6753,7 +6524,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
 
 - (BOOL)selectDocumentTabForGitHubUser:(NSString *)user repo:(NSString *)repo path:(NSString *)path
 {
-    NSInteger existingIndex = [self documentTabIndexForGitHubUser:user
+    NSInteger existingIndex = [_documentTabsController documentTabIndexForGitHubUser:user
                                                              repo:repo
                                                              path:path];
     if (existingIndex < 0) {
@@ -6830,8 +6601,8 @@ constrainSplitPosition:(CGFloat)proposedPosition
                     syntaxLanguage:syntaxLanguage
                           inNewTab:inNewTab
                requireDirtyConfirm:!inNewTab];
-    if (_selectedDocumentTabIndex >= 0 && _selectedDocumentTabIndex < (NSInteger)[_documentTabs count]) {
-        NSMutableDictionary *tab = [_documentTabs objectAtIndex:_selectedDocumentTabIndex];
+    NSMutableDictionary *tab = [_documentTabsController selectedTab];
+    if (tab != nil) {
         [tab setObject:[NSNumber numberWithBool:YES] forKey:OMDTabIsGitHubKey];
         if (githubUser != nil) {
             [tab setObject:githubUser forKey:OMDTabGitHubUserKey];
@@ -9792,7 +9563,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
     [self captureCurrentStateIntoSelectedTab];
     NSTimeInterval afterCapture = profiling ? OMDKeyLatencyNow() : 0.0;
     if (!wasDirty) {
-        [self updateTabStrip];
+        [_documentTabsController updateTabStrip];
     }
     NSTimeInterval afterTabs = profiling ? OMDKeyLatencyNow() : 0.0;
     [self scheduleRecoveryAutosave];
@@ -10279,8 +10050,8 @@ static BOOL OMDIsMarkdownPath(NSString *path)
     [self captureCurrentStateIntoSelectedTab];
     NSInteger dirtyCount = 0;
     NSInteger index = 0;
-    for (; index < (NSInteger)[_documentTabs count]; index++) {
-        NSDictionary *tab = [_documentTabs objectAtIndex:index];
+    for (; index < (NSInteger)[_documentTabsController count]; index++) {
+        NSDictionary *tab = [_documentTabsController tabAtIndex:index];
         if ([[tab objectForKey:OMDTabDirtyKey] boolValue]) {
             dirtyCount += 1;
         }
