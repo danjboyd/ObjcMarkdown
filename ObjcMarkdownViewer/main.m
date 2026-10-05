@@ -3,8 +3,10 @@
 
 #import "OMDAppDelegate.h"
 
+#if defined(_WIN32)
 static NSString * const OMDMathRenderingPolicyDefaultsKey = @"ObjcMarkdownMathRenderingPolicy";
 static NSInteger const OMDMathRenderingPolicyExternalToolsValue = 2;
+#endif
 static NSString * const OMDMenuInterfaceStyleDefaultsKey = @"NSMenuInterfaceStyle";
 static NSString * const OMDWindowDecorationDefaultsKey = @"GSWindowDecoration";
 static NSString * const OMDBackChecksOffsetsWithoutNetRequestsDefaultsKey = @"GSBackChecksOffsetsWithoutNetRequests";
@@ -52,9 +54,9 @@ static void OMDStartupTrace(NSString *message)
 #endif
 }
 
+#if defined(_WIN32)
 static NSString *OMDWindowsInstallRoot(void)
 {
-#if defined(_WIN32)
     NSString *executablePath = [[NSBundle mainBundle] executablePath];
     if (executablePath == nil || [executablePath length] == 0) {
         return nil;
@@ -62,14 +64,10 @@ static NSString *OMDWindowsInstallRoot(void)
 
     return [[[executablePath stringByDeletingLastPathComponent]
         stringByDeletingLastPathComponent] stringByDeletingLastPathComponent];
-#else
-    return nil;
-#endif
 }
 
 static NSString *OMDWindowsBundledDefaultsToolPath(void)
 {
-#if defined(_WIN32)
     NSString *bundleRoot = OMDWindowsInstallRoot();
     NSArray *relativePaths = [NSArray arrayWithObjects:
         @"runtime\\bin\\defaults.exe",
@@ -82,13 +80,11 @@ static NSString *OMDWindowsBundledDefaultsToolPath(void)
             return defaultsPath;
         }
     }
-#endif
     return @"defaults.exe";
 }
 
 static BOOL OMDWindowsThemeBundleExistsInDirectory(NSString *themesRoot, NSString *themeName)
 {
-#if defined(_WIN32)
     if (themesRoot == nil || [themesRoot length] == 0 || themeName == nil || [themeName length] == 0) {
         return NO;
     }
@@ -98,16 +94,10 @@ static BOOL OMDWindowsThemeBundleExistsInDirectory(NSString *themesRoot, NSStrin
     NSString *dllPath = [bundlePath stringByAppendingPathComponent:[NSString stringWithFormat:@"%@.dll",
                                                                                                themeName]];
     return [[NSFileManager defaultManager] fileExistsAtPath:dllPath];
-#else
-    (void)themesRoot;
-    (void)themeName;
-    return NO;
-#endif
 }
 
 static BOOL OMDWindowsBundledExecutableExists(NSString *relativePath)
 {
-#if defined(_WIN32)
     NSString *bundleRoot = OMDWindowsInstallRoot();
     if (bundleRoot == nil || [bundleRoot length] == 0 ||
         relativePath == nil || [relativePath length] == 0) {
@@ -116,15 +106,10 @@ static BOOL OMDWindowsBundledExecutableExists(NSString *relativePath)
 
     NSString *candidate = [bundleRoot stringByAppendingPathComponent:relativePath];
     return [[NSFileManager defaultManager] isExecutableFileAtPath:candidate];
-#else
-    (void)relativePath;
-    return NO;
-#endif
 }
 
 static NSString *OMDWindowsPreferredThemeName(void)
 {
-#if defined(_WIN32)
     NSString *bundleRoot = OMDWindowsInstallRoot();
     NSMutableArray *bundledThemeRoots = [NSMutableArray array];
     NSString *userThemesRoot = [[[NSHomeDirectory() stringByAppendingPathComponent:@"GNUstep"]
@@ -157,9 +142,8 @@ static NSString *OMDWindowsPreferredThemeName(void)
         }
     }
     return nil;
-#endif
-    return nil;
 }
+#endif
 
 static NSString *OMDPreferredThemeName(void)
 {
@@ -170,21 +154,17 @@ static NSString *OMDPreferredThemeName(void)
 #endif
 }
 
+#if defined(_WIN32)
 static BOOL OMDWindowsBundledExternalMathToolchainAvailable(void)
 {
-#if defined(_WIN32)
     return (OMDWindowsBundledExecutableExists(@"runtime\\texlive\\TinyTeX\\bin\\windows\\latex.exe") ||
             OMDWindowsBundledExecutableExists(@"clang64\\texlive\\TinyTeX\\bin\\windows\\latex.exe")) &&
            (OMDWindowsBundledExecutableExists(@"runtime\\texlive\\TinyTeX\\bin\\windows\\dvipng.exe") ||
             OMDWindowsBundledExecutableExists(@"clang64\\texlive\\TinyTeX\\bin\\windows\\dvipng.exe"));
-#else
-    return NO;
-#endif
 }
 
 static void OMDEnsureWindowsMenuInterfaceStyle(void)
 {
-#if defined(_WIN32)
     NSTask *task = [[[NSTask alloc] init] autorelease];
     @try {
         [task setLaunchPath:OMDWindowsBundledDefaultsToolPath()];
@@ -202,12 +182,10 @@ static void OMDEnsureWindowsMenuInterfaceStyle(void)
                                                    NSStringFromClass([exception class]),
                                                    exception]);
     }
-#endif
 }
 
 static void OMDEnsureWindowsDefaultPreferences(void)
 {
-#if defined(_WIN32)
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
     NSDictionary *globalDomain = [defaults persistentDomainForName:NSGlobalDomain];
     NSMutableDictionary *updatedGlobalDomain = nil;
@@ -270,8 +248,8 @@ static void OMDEnsureWindowsDefaultPreferences(void)
         [defaults synchronize];
         OMDStartupTrace(@"main: cleared stale NSMenuLocations");
     }
-#endif
 }
+#endif
 
 static void OMDEnsureDefaultPreferences(void)
 {

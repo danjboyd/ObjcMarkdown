@@ -1903,17 +1903,17 @@ static BOOL OMDMathToolchainAvailable(void)
     if (!OMDMathToolchainAvailable()) {
         return;
     }
-    NSString *markdown = @"# Heading $p\;q$\n\nArea $x^2\\,dx$, set $\\{a, b\\}$ and `$c\\,d$` code.\n\nInline display $$u\\!v$$ here.\n";
+    NSString *markdown = @"# Heading $p\\;q$\n\nArea $x^2\\,dx$, set $\\{a, b\\}$ and `$c\\,d$` code.\n\nInline display $$u\\!v$$ here.\n";
     NSArray *objects = [self renderedObjectsInString:[[self externalMathRenderer] attributedStringFromMarkdown:markdown]];
     XCTAssertEqual([objects count], (NSUInteger)4);
     if ([objects count] != 4) {
         return;
     }
-    XCTAssertEqualObjects([[objects objectAtIndex:0] source], @"p\;q");
+    XCTAssertEqualObjects([[objects objectAtIndex:0] source], @"p\\;q");
     XCTAssertEqualObjects([[objects objectAtIndex:1] source], @"x^2\\,dx");
     XCTAssertEqualObjects([[objects objectAtIndex:1] markdown], @"$x^2\\,dx$");
     XCTAssertEqualObjects([[objects objectAtIndex:2] source], @"\\{a, b\\}");
-    XCTAssertEqual([[objects objectAtIndex:3] kind], OMRenderedObjectKindDisplayMath);
+    XCTAssertEqual([(OMRenderedObject *)[objects objectAtIndex:3] kind], OMRenderedObjectKindDisplayMath);
     XCTAssertEqualObjects([[objects objectAtIndex:3] source], @"u\\!v");
     XCTAssertEqualObjects([self sourceTextOfObject:[objects objectAtIndex:2] inMarkdown:markdown], @"$\\{a, b\\}$");
 }
