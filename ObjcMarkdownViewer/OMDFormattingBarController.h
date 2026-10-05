@@ -38,8 +38,12 @@ typedef NS_ENUM(NSInteger, OMDFormattingCommandTag) {
     id<OMDFormattingBarControllerDelegate> _delegate;
     NSView *_containerView;
     OMDFormattingBarView *_formattingBarView;
-    NSSegmentedControl *_formatHeadingControl;
-    NSMutableDictionary *_formatCommandButtons;
+    NSPopUpButton *_formatHeadingPopup;
+    // One segmented control of icons per command group, in bar order.
+    NSMutableArray *_formatCommandGroups;
+    // Holds the commands of the groups that don't fit.
+    NSPopUpButton *_formatOverflowButton;
+    NSUInteger _formatVisibleGroupCount;
 }
 
 // The delegate is not retained.
@@ -51,12 +55,12 @@ typedef NS_ENUM(NSInteger, OMDFormattingCommandTag) {
 - (void)rebuildFormattingBar;
 // The bar, or nil before it is built.
 - (NSView *)barView;
-// The bar's height at this width (one row or two), placing the controls
-// when applyFrames is YES.
+// The bar's height, placing the controls in one row at this width when
+// applyFrames is YES. Groups that don't fit move to the overflow menu.
 - (CGFloat)layoutFormattingBarControlsForWidth:(CGFloat)containerWidth
                                   applyFrames:(BOOL)applyFrames;
 - (void)setControlsEnabled:(BOOL)enabled;
-// Selects P (0) or H1-H6 (1-6) in the paragraph style control.
+// Selects Paragraph (0) or Heading 1-6 (1-6) in the paragraph style menu.
 - (void)selectHeadingLevel:(NSInteger)level;
 
 @end

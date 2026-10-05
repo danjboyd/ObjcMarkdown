@@ -5811,7 +5811,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
                                          barHeight);
             [barView setFrame:NSIntegralRect(barFrame)];
             // Place the controls after resizing the bar: their autoresizing
-            // would otherwise shift them out of view when the row count changes.
+            // would otherwise shift them out of view.
             [_formattingBarController layoutFormattingBarControlsForWidth:NSWidth(bounds)
                                                               applyFrames:YES];
         }

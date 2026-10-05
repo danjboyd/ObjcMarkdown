@@ -3,15 +3,65 @@
 
 #import "OMDFormattingBarController.h"
 #import "OMDControlSupport.h"
+#import "OMDFormattingBarIcons.h"
 #import "OMDFormattingBarView.h"
 #import "OMDViewerColors.h"
 
 #include <math.h>
 
+// The bar's command groups, in order. Each entry is a command tag and its
+// name; the shortcuts match the Edit menu.
+typedef struct {
+    NSInteger tag;
+    const char *name;
+} OMDFormattingCommand;
+
+static const OMDFormattingCommand OMDFormattingInlineCommands[] = {
+    { OMDFormattingCommandTagBold, "Bold (Ctrl+B)" },
+    { OMDFormattingCommandTagItalic, "Italic (Ctrl+I)" },
+    { OMDFormattingCommandTagStrike, "Strikethrough" },
+    { OMDFormattingCommandTagInlineCode, "Inline Code" }
+};
+static const OMDFormattingCommand OMDFormattingMediaCommands[] = {
+    { OMDFormattingCommandTagLink, "Link" },
+    { OMDFormattingCommandTagImage, "Image" }
+};
+static const OMDFormattingCommand OMDFormattingListCommands[] = {
+    { OMDFormattingCommandTagListBullet, "Bulleted List" },
+    { OMDFormattingCommandTagListNumber, "Numbered List" },
+    { OMDFormattingCommandTagListTask, "Task List" },
+    { OMDFormattingCommandTagBlockQuote, "Quote" }
+};
+static const OMDFormattingCommand OMDFormattingInsertCommands[] = {
+    { OMDFormattingCommandTagCodeFence, "Code Block" },
+    { OMDFormattingCommandTagTable, "Table" },
+    { OMDFormattingCommandTagHorizontalRule, "Horizontal Rule" }
+};
+
+typedef struct {
+    const OMDFormattingCommand *commands;
+    NSUInteger count;
+} OMDFormattingCommandGroup;
+
+static const OMDFormattingCommandGroup OMDFormattingCommandGroups[] = {
+    { OMDFormattingInlineCommands, 4 },
+    { OMDFormattingMediaCommands, 2 },
+    { OMDFormattingListCommands, 4 },
+    { OMDFormattingInsertCommands, 3 }
+};
+static const NSUInteger OMDFormattingCommandGroupCount = 4;
+
+static NSString *OMDFormattingCommandName(const OMDFormattingCommand *command)
+{
+    return [NSString stringWithUTF8String:command->name];
+}
+
 @interface OMDFormattingBarController ()
 - (void)setupFormattingBar;
+- (void)updateOverflowMenu;
 - (void)formattingHeadingControlChanged:(id)sender;
 - (void)formattingCommandGroupChanged:(id)sender;
+- (void)formattingOverflowItemChosen:(id)sender;
 @end
 
 @implementation OMDFormattingBarController
@@ -27,8 +77,9 @@
 
 - (void)dealloc
 {
-    [_formatHeadingControl release];
-    [_formatCommandButtons release];
+    [_formatHeadingPopup release];
+    [_formatCommandGroups release];
+    [_formatOverflowButton release];
     [_formattingBarView release];
     [super dealloc];
 }
@@ -46,20 +97,18 @@
 
 - (void)setControlsEnabled:(BOOL)enabled
 {
-    if (_formatHeadingControl != nil) {
-        [_formatHeadingControl setEnabled:enabled];
+    if (_formatHeadingPopup != nil) {
+        [_formatHeadingPopup setEnabled:enabled];
         if (!enabled) {
-            OMDClearSegmentedControlSelection(_formatHeadingControl);
+            [_formatHeadingPopup selectItemAtIndex:0];
         }
     }
-    NSEnumerator *enumerator = [_formatCommandButtons objectEnumerator];
-    id control = nil;
+    [_formatOverflowButton setEnabled:enabled];
+    NSEnumerator *enumerator = [_formatCommandGroups objectEnumerator];
+    NSSegmentedControl *control = nil;
     while ((control = [enumerator nextObject]) != nil) {
-        if ([control respondsToSelector:@selector(setEnabled:)]) {
-            [control setEnabled:enabled];
-        }
-        if (!enabled &&
-            [control respondsToSelector:@selector(setSelectedSegment:)]) {
+        [control setEnabled:enabled];
+        if (!enabled) {
             OMDClearSegmentedControlSelection(control);
         }
     }
@@ -67,7 +116,10 @@
 
 - (void)selectHeadingLevel:(NSInteger)level
 {
-    [_formatHeadingControl setSelectedSegment:level];
+    if (level < 0 || level >= [_formatHeadingPopup numberOfItems]) {
+        return;
+    }
+    [_formatHeadingPopup selectItemAtIndex:level];
 }
 
 - (void)setupFormattingBar
@@ -89,189 +141,75 @@
     [_formattingBarView setBorderColor:OMDResolvedSubtleSeparatorColor()];
     [_containerView addSubview:_formattingBarView];
 
-    _formatCommandButtons = [[NSMutableDictionary alloc] init];
-
-    CGFloat x = metrics.formattingBarInsetX;
     NSFont *buttonFont = [NSFont systemFontOfSize:(metrics.scale > 1.05 ? 11.5 : metrics.formattingBarFontSize)];
     CGFloat compactPadding = (metrics.scale > 1.05 ? 8.0 : 7.0);
-    CGFloat narrowPadding = (metrics.scale > 1.05 ? 7.0 : 6.0);
 
-    CGFloat headingPWidth = OMDControlWidthForTitle(@"P", buttonFont, 30.0, narrowPadding);
-    CGFloat headingLevelWidth = OMDControlWidthForTitle(@"H6", buttonFont, 36.0, narrowPadding);
-    CGFloat headingWidth = headingPWidth + (headingLevelWidth * 6.0);
-    _formatHeadingControl = [[NSSegmentedControl alloc] initWithFrame:NSMakeRect(x,
-                                                                                 0.0,
-                                                                                 headingWidth,
-                                                                                 metrics.formattingBarControlHeight)];
-    [_formatHeadingControl setSegmentCount:7];
-    [_formatHeadingControl setSegmentStyle:NSSegmentStyleRounded];
-    [[_formatHeadingControl cell] setTrackingMode:NSSegmentSwitchTrackingSelectOne];
-    [_formatHeadingControl setLabel:@"P" forSegment:0];
-    [_formatHeadingControl setLabel:@"H1" forSegment:1];
-    [_formatHeadingControl setLabel:@"H2" forSegment:2];
-    [_formatHeadingControl setLabel:@"H3" forSegment:3];
-    [_formatHeadingControl setLabel:@"H4" forSegment:4];
-    [_formatHeadingControl setLabel:@"H5" forSegment:5];
-    [_formatHeadingControl setLabel:@"H6" forSegment:6];
-    [_formatHeadingControl setWidth:headingPWidth forSegment:0];
-    [_formatHeadingControl setWidth:headingLevelWidth forSegment:1];
-    [_formatHeadingControl setWidth:headingLevelWidth forSegment:2];
-    [_formatHeadingControl setWidth:headingLevelWidth forSegment:3];
-    [_formatHeadingControl setWidth:headingLevelWidth forSegment:4];
-    [_formatHeadingControl setWidth:headingLevelWidth forSegment:5];
-    [_formatHeadingControl setWidth:headingLevelWidth forSegment:6];
-    [[_formatHeadingControl cell] setToolTip:@"Paragraph" forSegment:0];
-    [[_formatHeadingControl cell] setToolTip:@"Heading 1" forSegment:1];
-    [[_formatHeadingControl cell] setToolTip:@"Heading 2" forSegment:2];
-    [[_formatHeadingControl cell] setToolTip:@"Heading 3" forSegment:3];
-    [[_formatHeadingControl cell] setToolTip:@"Heading 4" forSegment:4];
-    [[_formatHeadingControl cell] setToolTip:@"Heading 5" forSegment:5];
-    [[_formatHeadingControl cell] setToolTip:@"Heading 6" forSegment:6];
-    if ([_formatHeadingControl respondsToSelector:@selector(setFont:)]) {
-        [_formatHeadingControl setFont:buttonFont];
+    // Paragraph style: one menu instead of a button per heading level.
+    NSArray *styles = [NSArray arrayWithObjects:@"Paragraph", @"Heading 1", @"Heading 2", @"Heading 3",
+                                                @"Heading 4", @"Heading 5", @"Heading 6", nil];
+    CGFloat popupWidth = OMDControlWidthForTitle(@"Paragraph", buttonFont, 96.0, compactPadding) + 24.0;
+    _formatHeadingPopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(0.0,
+                                                                          0.0,
+                                                                          popupWidth,
+                                                                          metrics.formattingBarControlHeight)
+                                                     pullsDown:NO];
+    [_formatHeadingPopup addItemsWithTitles:styles];
+    [_formatHeadingPopup setFont:buttonFont];
+    [_formatHeadingPopup setToolTip:@"Paragraph style"];
+    [_formatHeadingPopup setTarget:self];
+    [_formatHeadingPopup setAction:@selector(formattingHeadingControlChanged:)];
+    [_formatHeadingPopup setAutoresizingMask:NSViewMinYMargin];
+    [_formattingBarView addSubview:_formatHeadingPopup];
+
+    // Command groups: symbolic icons, each segment with its own tooltip.
+    NSColor *iconColor = OMDResolvedControlTextColor();
+    CGFloat segmentWidth = (metrics.scale > 1.05 ? 30.0 : 26.0);
+    _formatCommandGroups = [[NSMutableArray alloc] init];
+    NSUInteger groupIndex = 0;
+    for (; groupIndex < OMDFormattingCommandGroupCount; groupIndex++) {
+        OMDFormattingCommandGroup group = OMDFormattingCommandGroups[groupIndex];
+        NSSegmentedControl *control = [[[NSSegmentedControl alloc] initWithFrame:NSMakeRect(0.0,
+                                                                                            0.0,
+                                                                                            segmentWidth * group.count,
+                                                                                            metrics.formattingBarControlHeight)] autorelease];
+        [control setSegmentCount:(NSInteger)group.count];
+        [control setSegmentStyle:NSSegmentStyleRounded];
+        [[control cell] setTrackingMode:NSSegmentSwitchTrackingMomentary];
+        NSUInteger segment = 0;
+        for (; segment < group.count; segment++) {
+            const OMDFormattingCommand *command = &group.commands[segment];
+            [control setLabel:@"" forSegment:(NSInteger)segment];
+            [control setImage:OMDFormattingBarIcon(command->tag, iconColor) forSegment:(NSInteger)segment];
+            [control setWidth:segmentWidth forSegment:(NSInteger)segment];
+            // Per-segment cell tooltips aren't shown by GNUstep; a tooltip
+            // rect per segment is. The string is its own owner.
+            [control addToolTipRect:NSMakeRect(segmentWidth * segment,
+                                               0.0,
+                                               segmentWidth,
+                                               metrics.formattingBarControlHeight)
+                              owner:OMDFormattingCommandName(command)
+                           userData:NULL];
+        }
+        [control setTag:(NSInteger)groupIndex];
+        [control setTarget:self];
+        [control setAction:@selector(formattingCommandGroupChanged:)];
+        [control setAutoresizingMask:NSViewMinYMargin];
+        [_formattingBarView addSubview:control];
+        [_formatCommandGroups addObject:control];
     }
-    [_formatHeadingControl setTarget:self];
-    [_formatHeadingControl setAction:@selector(formattingHeadingControlChanged:)];
-    [_formatHeadingControl setAutoresizingMask:NSViewMinYMargin];
-    [_formattingBarView addSubview:_formatHeadingControl];
 
-    x += headingWidth + metrics.formattingBarGroupSpacing;
-
-    CGFloat boldWidth = OMDControlWidthForTitle(@"B", buttonFont, 32.0, narrowPadding);
-    CGFloat italicWidth = OMDControlWidthForTitle(@"I", buttonFont, 32.0, narrowPadding);
-    CGFloat strikeWidth = OMDControlWidthForTitle(@"S", buttonFont, 32.0, narrowPadding);
-    CGFloat inlineCodeWidth = OMDControlWidthForTitle(@"Code", buttonFont, 50.0, compactPadding);
-    CGFloat inlineWidth = boldWidth + italicWidth + strikeWidth + inlineCodeWidth;
-    NSSegmentedControl *inlineControl = [[[NSSegmentedControl alloc] initWithFrame:NSMakeRect(x,
-                                                                                               0.0,
-                                                                                               inlineWidth,
-                                                                                               metrics.formattingBarControlHeight)] autorelease];
-    [inlineControl setSegmentCount:4];
-    [inlineControl setSegmentStyle:NSSegmentStyleRounded];
-    [[inlineControl cell] setTrackingMode:NSSegmentSwitchTrackingMomentary];
-    [inlineControl setLabel:@"B" forSegment:0];
-    [inlineControl setLabel:@"I" forSegment:1];
-    [inlineControl setLabel:@"S" forSegment:2];
-    [inlineControl setLabel:@"Code" forSegment:3];
-    [inlineControl setWidth:boldWidth forSegment:0];
-    [inlineControl setWidth:italicWidth forSegment:1];
-    [inlineControl setWidth:strikeWidth forSegment:2];
-    [inlineControl setWidth:inlineCodeWidth forSegment:3];
-    [[inlineControl cell] setToolTip:@"Bold (Ctrl/Cmd+B)" forSegment:0];
-    [[inlineControl cell] setToolTip:@"Italic (Ctrl/Cmd+I)" forSegment:1];
-    [[inlineControl cell] setToolTip:@"Strikethrough" forSegment:2];
-    [[inlineControl cell] setToolTip:@"Inline code" forSegment:3];
-    if ([inlineControl respondsToSelector:@selector(setFont:)]) {
-        [inlineControl setFont:buttonFont];
-    }
-    [inlineControl setTag:1];
-    [inlineControl setTarget:self];
-    [inlineControl setAction:@selector(formattingCommandGroupChanged:)];
-    [inlineControl setAutoresizingMask:NSViewMinYMargin];
-    [_formattingBarView addSubview:inlineControl];
-    [_formatCommandButtons setObject:inlineControl forKey:@"inline"];
-
-    x += NSWidth([inlineControl frame]) + metrics.formattingBarGroupSpacing;
-
-    NSSegmentedControl *mediaControl = [[[NSSegmentedControl alloc] initWithFrame:NSMakeRect(x,
-                                                                                              0.0,
-                                                                                              0.0,
-                                                                                              metrics.formattingBarControlHeight)] autorelease];
-    [mediaControl setSegmentCount:2];
-    [mediaControl setSegmentStyle:NSSegmentStyleRounded];
-    [[mediaControl cell] setTrackingMode:NSSegmentSwitchTrackingMomentary];
-    [mediaControl setLabel:@"Link" forSegment:0];
-    [mediaControl setLabel:@"Image" forSegment:1];
-    CGFloat linkWidth = OMDControlWidthForTitle(@"Link", buttonFont, 46.0, compactPadding);
-    CGFloat imageWidth = OMDControlWidthForTitle(@"Image", buttonFont, 54.0, compactPadding);
-    [mediaControl setFrame:NSMakeRect(x, 0.0, linkWidth + imageWidth, metrics.formattingBarControlHeight)];
-    [mediaControl setWidth:linkWidth forSegment:0];
-    [mediaControl setWidth:imageWidth forSegment:1];
-    [[mediaControl cell] setToolTip:@"Insert link" forSegment:0];
-    [[mediaControl cell] setToolTip:@"Insert image" forSegment:1];
-    if ([mediaControl respondsToSelector:@selector(setFont:)]) {
-        [mediaControl setFont:buttonFont];
-    }
-    [mediaControl setTag:2];
-    [mediaControl setTarget:self];
-    [mediaControl setAction:@selector(formattingCommandGroupChanged:)];
-    [mediaControl setAutoresizingMask:NSViewMinYMargin];
-    [_formattingBarView addSubview:mediaControl];
-    [_formatCommandButtons setObject:mediaControl forKey:@"media"];
-
-    x += NSWidth([mediaControl frame]) + metrics.formattingBarGroupSpacing;
-
-    NSSegmentedControl *listControl = [[[NSSegmentedControl alloc] initWithFrame:NSMakeRect(x,
-                                                                                             0.0,
-                                                                                             0.0,
-                                                                                             metrics.formattingBarControlHeight)] autorelease];
-    [listControl setSegmentCount:4];
-    [listControl setSegmentStyle:NSSegmentStyleRounded];
-    [[listControl cell] setTrackingMode:NSSegmentSwitchTrackingMomentary];
-    [listControl setLabel:@"-" forSegment:0];
-    [listControl setLabel:@"1." forSegment:1];
-    [listControl setLabel:@"[]" forSegment:2];
-    [listControl setLabel:@">" forSegment:3];
-    CGFloat bulletWidth = OMDControlWidthForTitle(@"-", buttonFont, 32.0, narrowPadding);
-    CGFloat numberWidth = OMDControlWidthForTitle(@"1.", buttonFont, 36.0, narrowPadding);
-    CGFloat taskWidth = OMDControlWidthForTitle(@"[]", buttonFont, 40.0, narrowPadding);
-    CGFloat quoteWidth = OMDControlWidthForTitle(@">", buttonFont, 32.0, narrowPadding);
-    [listControl setFrame:NSMakeRect(x,
-                                     0.0,
-                                     bulletWidth + numberWidth + taskWidth + quoteWidth,
-                                     metrics.formattingBarControlHeight)];
-    [listControl setWidth:bulletWidth forSegment:0];
-    [listControl setWidth:numberWidth forSegment:1];
-    [listControl setWidth:taskWidth forSegment:2];
-    [listControl setWidth:quoteWidth forSegment:3];
-    [[listControl cell] setToolTip:@"Toggle bullet list" forSegment:0];
-    [[listControl cell] setToolTip:@"Toggle numbered list" forSegment:1];
-    [[listControl cell] setToolTip:@"Toggle task list" forSegment:2];
-    [[listControl cell] setToolTip:@"Toggle block quote" forSegment:3];
-    if ([listControl respondsToSelector:@selector(setFont:)]) {
-        [listControl setFont:buttonFont];
-    }
-    [listControl setTag:3];
-    [listControl setTarget:self];
-    [listControl setAction:@selector(formattingCommandGroupChanged:)];
-    [listControl setAutoresizingMask:NSViewMinYMargin];
-    [_formattingBarView addSubview:listControl];
-    [_formatCommandButtons setObject:listControl forKey:@"lists"];
-
-    x += NSWidth([listControl frame]) + metrics.formattingBarGroupSpacing;
-
-    NSSegmentedControl *insertControl = [[[NSSegmentedControl alloc] initWithFrame:NSMakeRect(x,
-                                                                                               0.0,
-                                                                                               0.0,
-                                                                                               metrics.formattingBarControlHeight)] autorelease];
-    [insertControl setSegmentCount:3];
-    [insertControl setSegmentStyle:NSSegmentStyleRounded];
-    [[insertControl cell] setTrackingMode:NSSegmentSwitchTrackingMomentary];
-    [insertControl setLabel:@"{}" forSegment:0];
-    [insertControl setLabel:@"Tbl" forSegment:1];
-    [insertControl setLabel:@"HR" forSegment:2];
-    CGFloat codeBlockWidth = OMDControlWidthForTitle(@"{}", buttonFont, 40.0, narrowPadding);
-    CGFloat tableWidth = OMDControlWidthForTitle(@"Tbl", buttonFont, 42.0, compactPadding);
-    CGFloat ruleWidth = OMDControlWidthForTitle(@"HR", buttonFont, 40.0, narrowPadding);
-    [insertControl setFrame:NSMakeRect(x,
-                                       0.0,
-                                       codeBlockWidth + tableWidth + ruleWidth,
-                                       metrics.formattingBarControlHeight)];
-    [insertControl setWidth:codeBlockWidth forSegment:0];
-    [insertControl setWidth:tableWidth forSegment:1];
-    [insertControl setWidth:ruleWidth forSegment:2];
-    [[insertControl cell] setToolTip:@"Insert fenced code block" forSegment:0];
-    [[insertControl cell] setToolTip:@"Insert table" forSegment:1];
-    [[insertControl cell] setToolTip:@"Insert horizontal rule" forSegment:2];
-    if ([insertControl respondsToSelector:@selector(setFont:)]) {
-        [insertControl setFont:buttonFont];
-    }
-    [insertControl setTag:4];
-    [insertControl setTarget:self];
-    [insertControl setAction:@selector(formattingCommandGroupChanged:)];
-    [insertControl setAutoresizingMask:NSViewMinYMargin];
-    [_formattingBarView addSubview:insertControl];
-    [_formatCommandButtons setObject:insertControl forKey:@"insert"];
+    _formatOverflowButton = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(0.0,
+                                                                            0.0,
+                                                                            segmentWidth + 14.0,
+                                                                            metrics.formattingBarControlHeight)
+                                                       pullsDown:YES];
+    [_formatOverflowButton addItemWithTitle:@"»"];
+    [_formatOverflowButton setFont:buttonFont];
+    [_formatOverflowButton setToolTip:@"More formatting"];
+    [_formatOverflowButton setAutoresizingMask:NSViewMinYMargin];
+    [_formatOverflowButton setHidden:YES];
+    [_formattingBarView addSubview:_formatOverflowButton];
+    _formatVisibleGroupCount = OMDFormattingCommandGroupCount;
 
     [_delegate updateFormattingBarContextState];
 }
@@ -283,107 +221,103 @@
     CGFloat controlHeight = metrics.formattingBarControlHeight;
     CGFloat insetX = metrics.formattingBarInsetX;
     CGFloat rowInsetY = (metrics.scale > 1.05 ? 6.0 : 5.0);
-    CGFloat rowGap = (metrics.scale > 1.05 ? 6.0 : 4.0);
+    CGFloat spacing = metrics.formattingBarGroupSpacing;
+    CGFloat barHeight = ceil(rowInsetY + controlHeight + rowInsetY);
+    if (!applyFrames || _formatHeadingPopup == nil) {
+        return barHeight;
+    }
+
     CGFloat availableWidth = containerWidth - (insetX * 2.0);
+    CGFloat headingWidth = NSWidth([_formatHeadingPopup frame]);
+    CGFloat overflowWidth = NSWidth([_formatOverflowButton frame]);
 
-    NSSegmentedControl *inlineControl = [_formatCommandButtons objectForKey:@"inline"];
-    NSSegmentedControl *mediaControl = [_formatCommandButtons objectForKey:@"media"];
-    NSSegmentedControl *listControl = [_formatCommandButtons objectForKey:@"lists"];
-    NSSegmentedControl *insertControl = [_formatCommandButtons objectForKey:@"insert"];
-
-    CGFloat headingWidth = (_formatHeadingControl != nil ? NSWidth([_formatHeadingControl frame]) : 0.0);
-    CGFloat inlineWidth = (inlineControl != nil ? NSWidth([inlineControl frame]) : 0.0);
-    CGFloat mediaWidth = (mediaControl != nil ? NSWidth([mediaControl frame]) : 0.0);
-    CGFloat listWidth = (listControl != nil ? NSWidth([listControl frame]) : 0.0);
-    CGFloat insertWidth = (insertControl != nil ? NSWidth([insertControl frame]) : 0.0);
-
-    CGFloat oneRowWidth = headingWidth +
-                          inlineWidth +
-                          mediaWidth +
-                          listWidth +
-                          insertWidth +
-                          (metrics.formattingBarGroupSpacing * 4.0);
-    BOOL usesTwoRows = oneRowWidth > availableWidth;
-
-    CGFloat barHeight = rowInsetY + controlHeight + rowInsetY;
-    if (usesTwoRows) {
-        barHeight = rowInsetY + controlHeight + rowGap + controlHeight + rowInsetY;
+    // Every group if they all fit; otherwise as many as fit beside the
+    // overflow button.
+    CGFloat allWidth = headingWidth;
+    NSEnumerator *enumerator = [_formatCommandGroups objectEnumerator];
+    NSSegmentedControl *control = nil;
+    while ((control = [enumerator nextObject]) != nil) {
+        allWidth += spacing + NSWidth([control frame]);
     }
-    if (!applyFrames) {
-        return ceil(barHeight);
-    }
-
-    if (usesTwoRows) {
-        CGFloat topRowY = barHeight - rowInsetY - controlHeight;
-        CGFloat bottomRowY = rowInsetY;
-
-        CGFloat topX = insetX;
-        if (_formatHeadingControl != nil) {
-            [_formatHeadingControl setFrame:NSMakeRect(topX,
-                                                       topRowY,
-                                                       headingWidth,
-                                                       controlHeight)];
-            topX += headingWidth + metrics.formattingBarGroupSpacing;
-        }
-        if (inlineControl != nil) {
-            [inlineControl setFrame:NSMakeRect(topX,
-                                               topRowY,
-                                               inlineWidth,
-                                               controlHeight)];
-        }
-
-        CGFloat bottomX = insetX;
-        if (mediaControl != nil) {
-            [mediaControl setFrame:NSMakeRect(bottomX,
-                                              bottomRowY,
-                                              mediaWidth,
-                                              controlHeight)];
-            bottomX += mediaWidth + metrics.formattingBarGroupSpacing;
-        }
-        if (listControl != nil) {
-            [listControl setFrame:NSMakeRect(bottomX,
-                                             bottomRowY,
-                                             listWidth,
-                                             controlHeight)];
-            bottomX += listWidth + metrics.formattingBarGroupSpacing;
-        }
-        if (insertControl != nil) {
-            [insertControl setFrame:NSMakeRect(bottomX,
-                                               bottomRowY,
-                                               insertWidth,
-                                               controlHeight)];
-        }
-    } else {
-        CGFloat controlY = floor((barHeight - controlHeight) / 2.0);
-        CGFloat currentX = insetX;
-        NSArray *orderedControls = [NSArray arrayWithObjects:
-                                    _formatHeadingControl,
-                                    inlineControl,
-                                    mediaControl,
-                                    listControl,
-                                    insertControl,
-                                    nil];
-        NSEnumerator *enumerator = [orderedControls objectEnumerator];
-        NSSegmentedControl *control = nil;
-        while ((control = [enumerator nextObject]) != nil) {
-            CGFloat controlWidth = NSWidth([control frame]);
-            [control setFrame:NSMakeRect(currentX,
-                                         controlY,
-                                         controlWidth,
-                                         controlHeight)];
-            currentX += controlWidth + metrics.formattingBarGroupSpacing;
+    NSUInteger visibleCount = [_formatCommandGroups count];
+    if (allWidth > availableWidth) {
+        CGFloat used = headingWidth + spacing + overflowWidth;
+        visibleCount = 0;
+        while (visibleCount < [_formatCommandGroups count]) {
+            CGFloat groupWidth = NSWidth([[_formatCommandGroups objectAtIndex:visibleCount] frame]);
+            if (used + spacing + groupWidth > availableWidth) {
+                break;
+            }
+            used += spacing + groupWidth;
+            visibleCount++;
         }
     }
 
-    return ceil(barHeight);
+    CGFloat controlY = floor((barHeight - controlHeight) / 2.0);
+    CGFloat x = insetX;
+    [_formatHeadingPopup setFrame:NSMakeRect(x, controlY, headingWidth, controlHeight)];
+    x += headingWidth;
+    NSUInteger index = 0;
+    for (; index < [_formatCommandGroups count]; index++) {
+        control = [_formatCommandGroups objectAtIndex:index];
+        BOOL visible = index < visibleCount;
+        [control setHidden:!visible];
+        if (visible) {
+            CGFloat width = NSWidth([control frame]);
+            x += spacing;
+            [control setFrame:NSMakeRect(x, controlY, width, controlHeight)];
+            x += width;
+        }
+    }
+    BOOL overflowing = visibleCount < [_formatCommandGroups count];
+    [_formatOverflowButton setHidden:!overflowing];
+    if (overflowing) {
+        [_formatOverflowButton setFrame:NSMakeRect(x + spacing, controlY, overflowWidth, controlHeight)];
+    }
+    if (visibleCount != _formatVisibleGroupCount) {
+        _formatVisibleGroupCount = visibleCount;
+        [self updateOverflowMenu];
+    }
+
+    return barHeight;
+}
+
+// Lists the commands of the hidden groups, after the pull-down's title item.
+- (void)updateOverflowMenu
+{
+    while ([_formatOverflowButton numberOfItems] > 1) {
+        [_formatOverflowButton removeItemAtIndex:1];
+    }
+    NSColor *iconColor = OMDResolvedControlTextColor();
+    NSUInteger groupIndex = _formatVisibleGroupCount;
+    for (; groupIndex < OMDFormattingCommandGroupCount; groupIndex++) {
+        OMDFormattingCommandGroup group = OMDFormattingCommandGroups[groupIndex];
+        if (groupIndex > _formatVisibleGroupCount) {
+            [[_formatOverflowButton menu] addItem:[NSMenuItem separatorItem]];
+        }
+        NSUInteger index = 0;
+        for (; index < group.count; index++) {
+            const OMDFormattingCommand *command = &group.commands[index];
+            // Items added to the menu directly carry their own action.
+            NSMenuItem *item = [[[NSMenuItem alloc] initWithTitle:OMDFormattingCommandName(command)
+                                                           action:@selector(formattingOverflowItemChosen:)
+                                                    keyEquivalent:@""] autorelease];
+            [item setTarget:self];
+            [item setTag:command->tag];
+            [item setImage:OMDFormattingBarIcon(command->tag, iconColor)];
+            [[_formatOverflowButton menu] addItem:item];
+        }
+    }
 }
 
 - (void)rebuildFormattingBar
 {
-    [_formatHeadingControl release];
-    _formatHeadingControl = nil;
-    [_formatCommandButtons release];
-    _formatCommandButtons = nil;
+    [_formatHeadingPopup release];
+    _formatHeadingPopup = nil;
+    [_formatCommandGroups release];
+    _formatCommandGroups = nil;
+    [_formatOverflowButton release];
+    _formatOverflowButton = nil;
     if (_formattingBarView != nil) {
         [_formattingBarView removeFromSuperview];
         [_formattingBarView release];
@@ -394,10 +328,10 @@
 
 - (void)formattingHeadingControlChanged:(id)sender
 {
-    if (sender != _formatHeadingControl) {
+    if (sender != _formatHeadingPopup) {
         return;
     }
-    NSInteger index = [_formatHeadingControl selectedSegment];
+    NSInteger index = [_formatHeadingPopup indexOfSelectedItem];
     if (index < 0) {
         return;
     }
@@ -407,55 +341,22 @@
 - (void)formattingCommandGroupChanged:(id)sender
 {
     NSSegmentedControl *control = (NSSegmentedControl *)sender;
-
     NSInteger segment = [control selectedSegment];
-    if (segment < 0) {
+    NSInteger groupIndex = [control tag];
+    OMDClearSegmentedControlSelection(control);
+    if (segment < 0 || groupIndex < 0 || (NSUInteger)groupIndex >= OMDFormattingCommandGroupCount) {
         return;
     }
-    NSInteger tag = 0;
-    switch ([control tag]) {
-        case 1:
-            if (segment == 0) {
-                tag = OMDFormattingCommandTagBold;
-            } else if (segment == 1) {
-                tag = OMDFormattingCommandTagItalic;
-            } else if (segment == 2) {
-                tag = OMDFormattingCommandTagStrike;
-            } else if (segment == 3) {
-                tag = OMDFormattingCommandTagInlineCode;
-            }
-            break;
-        case 2:
-            if (segment == 0) {
-                tag = OMDFormattingCommandTagLink;
-            } else if (segment == 1) {
-                tag = OMDFormattingCommandTagImage;
-            }
-            break;
-        case 3:
-            if (segment == 0) {
-                tag = OMDFormattingCommandTagListBullet;
-            } else if (segment == 1) {
-                tag = OMDFormattingCommandTagListNumber;
-            } else if (segment == 2) {
-                tag = OMDFormattingCommandTagListTask;
-            } else if (segment == 3) {
-                tag = OMDFormattingCommandTagBlockQuote;
-            }
-            break;
-        case 4:
-            if (segment == 0) {
-                tag = OMDFormattingCommandTagCodeFence;
-            } else if (segment == 1) {
-                tag = OMDFormattingCommandTagTable;
-            } else if (segment == 2) {
-                tag = OMDFormattingCommandTagHorizontalRule;
-            }
-            break;
-        default:
-            break;
+    OMDFormattingCommandGroup group = OMDFormattingCommandGroups[groupIndex];
+    if ((NSUInteger)segment >= group.count) {
+        return;
     }
-    OMDClearSegmentedControlSelection(control);
+    [_delegate formattingBarController:self performCommandWithTag:group.commands[segment].tag];
+}
+
+- (void)formattingOverflowItemChosen:(id)sender
+{
+    NSInteger tag = [sender tag];
     if (tag == 0) {
         return;
     }
