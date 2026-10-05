@@ -14,6 +14,17 @@ static const NSUInteger OMMermaidFlowchartMaximumEdges = 160;
 @interface OMMermaidFlowNode ()
 - (instancetype)initWithIdentifier:(NSString *)identifier;
 - (void)setLabel:(NSString *)label shape:(OMMermaidFlowNodeShape)shape;
+- (void)addClassName:(NSString *)className;
+- (NSArray *)classNames;
+- (void)setStyleProperties:(NSDictionary *)properties;
+@end
+
+@interface OMMermaidFlowSubgraph ()
+- (instancetype)initWithIdentifier:(NSString *)identifier title:(NSString *)title parent:(NSString *)parent;
+- (void)addNodeIdentifier:(NSString *)identifier;
+- (void)addClassName:(NSString *)className;
+- (NSArray *)classNames;
+- (void)setStyleProperties:(NSDictionary *)properties;
 @end
 
 @implementation OMMermaidFlowNode
@@ -21,6 +32,7 @@ static const NSUInteger OMMermaidFlowchartMaximumEdges = 160;
 @synthesize identifier = _identifier;
 @synthesize label = _label;
 @synthesize shape = _shape;
+@synthesize styleProperties = _styleProperties;
 
 - (instancetype)initWithIdentifier:(NSString *)identifier
 {
@@ -37,6 +49,8 @@ static const NSUInteger OMMermaidFlowchartMaximumEdges = 160;
 {
     [_identifier release];
     [_label release];
+    [_classNames release];
+    [_styleProperties release];
     [super dealloc];
 }
 
@@ -46,6 +60,84 @@ static const NSUInteger OMMermaidFlowchartMaximumEdges = 160;
     [_label release];
     _label = copied;
     _shape = shape;
+}
+
+- (void)addClassName:(NSString *)className
+{
+    if (_classNames == nil) {
+        _classNames = [[NSMutableArray alloc] init];
+    }
+    [_classNames addObject:className];
+}
+
+- (NSArray *)classNames
+{
+    return _classNames;
+}
+
+- (void)setStyleProperties:(NSDictionary *)properties
+{
+    NSDictionary *copied = [properties count] > 0 ? [properties copy] : nil;
+    [_styleProperties release];
+    _styleProperties = copied;
+}
+
+@end
+
+@implementation OMMermaidFlowSubgraph
+
+@synthesize identifier = _identifier;
+@synthesize title = _title;
+@synthesize parentIdentifier = _parentIdentifier;
+@synthesize nodeIdentifiers = _nodeIdentifiers;
+@synthesize styleProperties = _styleProperties;
+
+- (instancetype)initWithIdentifier:(NSString *)identifier title:(NSString *)title parent:(NSString *)parent
+{
+    self = [super init];
+    if (self != nil) {
+        _identifier = [identifier copy];
+        _title = [title copy];
+        _parentIdentifier = [parent copy];
+        _nodeIdentifiers = [[NSMutableArray alloc] init];
+    }
+    return self;
+}
+
+- (void)dealloc
+{
+    [_identifier release];
+    [_title release];
+    [_parentIdentifier release];
+    [_nodeIdentifiers release];
+    [_classNames release];
+    [_styleProperties release];
+    [super dealloc];
+}
+
+- (void)addNodeIdentifier:(NSString *)identifier
+{
+    [_nodeIdentifiers addObject:identifier];
+}
+
+- (void)addClassName:(NSString *)className
+{
+    if (_classNames == nil) {
+        _classNames = [[NSMutableArray alloc] init];
+    }
+    [_classNames addObject:className];
+}
+
+- (NSArray *)classNames
+{
+    return _classNames;
+}
+
+- (void)setStyleProperties:(NSDictionary *)properties
+{
+    NSDictionary *copied = [properties count] > 0 ? [properties copy] : nil;
+    [_styleProperties release];
+    _styleProperties = copied;
 }
 
 @end
@@ -151,6 +243,8 @@ static NSArray *OMFlowStatementsInLine(NSString *line)
     NSMutableArray *_nodes;
     NSMutableDictionary *_nodesByIdentifier;
     NSMutableArray *_edges;
+    // Identifiers the current statement mentions, in order.
+    NSMutableArray *_mentioned;
     NSString *_text;
     NSUInteger _position;
 }
@@ -165,6 +259,7 @@ static NSArray *OMFlowStatementsInLine(NSString *line)
         _nodes = [[NSMutableArray alloc] init];
         _nodesByIdentifier = [[NSMutableDictionary alloc] init];
         _edges = [[NSMutableArray alloc] init];
+        _mentioned = [[NSMutableArray alloc] init];
     }
     return self;
 }
@@ -174,6 +269,7 @@ static NSArray *OMFlowStatementsInLine(NSString *line)
     [_nodes release];
     [_nodesByIdentifier release];
     [_edges release];
+    [_mentioned release];
     [_text release];
     [super dealloc];
 }
@@ -264,6 +360,7 @@ static NSArray *OMFlowStatementsInLine(NSString *line)
         return nil;
     }
     OMMermaidFlowNode *node = [self nodeForIdentifier:identifier];
+    [_mentioned addObject:identifier];
     // Opener, closer, shape: longer openers first.
     static const struct { const char *open; const char *close; OMMermaidFlowNodeShape shape; } shapes[] = {
         { "([", "])", OMMermaidFlowNodeShapeStadium },
@@ -292,10 +389,12 @@ static NSArray *OMFlowStatementsInLine(NSString *line)
         [node setLabel:label shape:shapes[index].shape];
         break;
     }
-    // ":::className" styling is ignored.
     if ([self hasPrefix:@":::"]) {
         _position += 3;
-        [self parseIdentifier];
+        NSString *className = [self parseIdentifier];
+        if (className != nil) {
+            [node addClassName:className];
+        }
     }
     return identifier;
 }
@@ -378,6 +477,7 @@ static BOOL OMFlowTokenHasArrow(NSString *token)
     [_text release];
     _text = [statement copy];
     _position = 0;
+    [_mentioned removeAllObjects];
     NSArray *previous = [self parseNodeGroup];
     if (previous == nil) {
         return NO;
@@ -408,6 +508,84 @@ static BOOL OMFlowTokenHasArrow(NSString *token)
 
 @end
 
+// Splits text on separator outside parentheses ("rgb(1,2,3)" stays whole).
+static NSArray *OMFlowSplitOutsideParentheses(NSString *text, unichar separator)
+{
+    NSMutableArray *parts = [NSMutableArray array];
+    NSInteger depth = 0;
+    NSUInteger start = 0;
+    NSUInteger index = 0;
+    for (; index < [text length]; index++) {
+        unichar ch = [text characterAtIndex:index];
+        if (ch == '(') {
+            depth += 1;
+        } else if (ch == ')') {
+            depth = MAX(0, depth - 1);
+        } else if (ch == separator && depth == 0) {
+            [parts addObject:OMFlowTrimmed([text substringWithRange:NSMakeRange(start, index - start)])];
+            start = index + 1;
+        }
+    }
+    [parts addObject:OMFlowTrimmed([text substringFromIndex:start])];
+    return parts;
+}
+
+// "fill:#f9f,stroke:#333,stroke-width:4px" as {"fill": "#f9f", ...}.
+static NSDictionary *OMFlowStyleProperties(NSString *text)
+{
+    NSMutableDictionary *properties = [NSMutableDictionary dictionary];
+    for (NSString *part in OMFlowSplitOutsideParentheses(text, ',')) {
+        NSRange colon = [part rangeOfString:@":"];
+        if (colon.location == NSNotFound) {
+            continue;
+        }
+        NSString *key = [OMFlowTrimmed([part substringToIndex:colon.location]) lowercaseString];
+        NSString *value = OMFlowTrimmed([part substringFromIndex:NSMaxRange(colon)]);
+        if ([key length] > 0 && [value length] > 0) {
+            [properties setObject:value forKey:key];
+        }
+    }
+    return properties;
+}
+
+// The text after the first word of statement, trimmed.
+static NSString *OMFlowRestAfterFirstWord(NSString *statement)
+{
+    NSRange space = [statement rangeOfCharacterFromSet:[NSCharacterSet whitespaceCharacterSet]];
+    return space.location == NSNotFound ? @"" : OMFlowTrimmed([statement substringFromIndex:space.location]);
+}
+
+static NSString *OMFlowUnquoted(NSString *text)
+{
+    text = OMFlowTrimmed(text);
+    if ([text length] >= 2 && [text hasPrefix:@"\""] && [text hasSuffix:@"\""]) {
+        return [text substringWithRange:NSMakeRange(1, [text length] - 2)];
+    }
+    return text;
+}
+
+// "subgraph id[Title]", "subgraph id", "subgraph \"Title\"" or "subgraph Some title".
+static BOOL OMFlowSubgraphHeader(NSString *rest, NSString **identifier, NSString **title)
+{
+    static NSRegularExpression *bracketed = nil;
+    if (bracketed == nil) {
+        bracketed = [[NSRegularExpression alloc] initWithPattern:@"^([\\w-]+)\\s*\\[(.*)\\]$" options:0 error:NULL];
+    }
+    NSTextCheckingResult *match = [bracketed firstMatchInString:rest options:0 range:NSMakeRange(0, [rest length])];
+    if (match != nil) {
+        *identifier = [rest substringWithRange:[match rangeAtIndex:1]];
+        *title = OMFlowUnquoted([rest substringWithRange:[match rangeAtIndex:2]]);
+        return YES;
+    }
+    NSString *text = OMFlowUnquoted(rest);
+    if ([text length] == 0) {
+        return NO;
+    }
+    *identifier = text;
+    *title = text;
+    return YES;
+}
+
 static NSError *OMFlowError(NSUInteger line, NSString *message)
 {
     NSMutableDictionary *info = [NSMutableDictionary dictionaryWithObject:message forKey:NSLocalizedDescriptionKey];
@@ -422,7 +600,9 @@ static NSError *OMFlowError(NSUInteger line, NSString *message)
 @synthesize direction = _direction;
 @synthesize nodes = _nodes;
 @synthesize edges = _edges;
+@synthesize subgraphs = _subgraphs;
 @synthesize skippedStatementCount = _skippedStatementCount;
+@synthesize clickStatementCount = _clickStatementCount;
 
 + (BOOL)sourceDeclaresFlowchart:(NSString *)source
 {
@@ -439,8 +619,14 @@ static NSError *OMFlowError(NSUInteger line, NSString *message)
     OMMermaidFlowParser *parser = [[[OMMermaidFlowParser alloc] init] autorelease];
     BOOL sawHeader = NO;
     NSUInteger lineNumber = 0;
-    NSSet *skipped = [NSSet setWithObjects:@"subgraph", @"end", @"classDef", @"class", @"style",
-                      @"linkStyle", @"click", @"direction", @"accTitle", @"accDescr", nil];
+    NSSet *skipped = [NSSet setWithObjects:@"linkStyle", @"click", @"direction", @"accTitle", @"accDescr", nil];
+    NSMutableArray *subgraphs = [NSMutableArray array];
+    NSMutableDictionary *subgraphsByIdentifier = [NSMutableDictionary dictionary];
+    NSMutableArray *openSubgraphs = [NSMutableArray array];
+    NSMutableSet *groupedNodes = [NSMutableSet set];
+    NSMutableDictionary *classDefinitions = [NSMutableDictionary dictionary];
+    NSMutableArray *classAssignments = [NSMutableArray array]; // [identifier, class]
+    NSMutableArray *styleStatements = [NSMutableArray array];  // [identifier, properties]
     for (NSString *rawLine in [source componentsSeparatedByString:@"\n"]) {
         lineNumber += 1;
         NSString *line = OMFlowTrimmed(OMFlowWithoutComment(rawLine));
@@ -478,8 +664,71 @@ static NSError *OMFlowError(NSUInteger line, NSString *message)
                 continue;
             }
             NSString *firstWord = [[statement componentsSeparatedByCharactersInSet:[NSCharacterSet whitespaceCharacterSet]] objectAtIndex:0];
+            if ([firstWord hasSuffix:@":"]) {
+                firstWord = [firstWord substringToIndex:[firstWord length] - 1];
+            }
+            NSString *rest = OMFlowRestAfterFirstWord(statement);
             if ([skipped containsObject:firstWord]) {
                 chart->_skippedStatementCount += 1;
+                if ([firstWord isEqualToString:@"click"]) {
+                    chart->_clickStatementCount += 1;
+                }
+                continue;
+            }
+            if ([firstWord isEqualToString:@"subgraph"]) {
+                NSString *identifier = nil;
+                NSString *title = nil;
+                if (!OMFlowSubgraphHeader(rest, &identifier, &title)) {
+                    if (error != NULL) {
+                        *error = OMFlowError(lineNumber, @"a subgraph needs a name");
+                    }
+                    return nil;
+                }
+                OMMermaidFlowSubgraph *subgraph = [subgraphsByIdentifier objectForKey:identifier];
+                if (subgraph == nil) {
+                    subgraph = [[[OMMermaidFlowSubgraph alloc] initWithIdentifier:identifier
+                                                                            title:title
+                                                                           parent:[[openSubgraphs lastObject] identifier]] autorelease];
+                    [subgraphs addObject:subgraph];
+                    [subgraphsByIdentifier setObject:subgraph forKey:identifier];
+                }
+                [openSubgraphs addObject:subgraph];
+                continue;
+            }
+            if ([firstWord isEqualToString:@"end"] && [rest length] == 0) {
+                [openSubgraphs removeLastObject];
+                continue;
+            }
+            if ([firstWord isEqualToString:@"classDef"] || [firstWord isEqualToString:@"class"] ||
+                [firstWord isEqualToString:@"style"]) {
+                NSRange space = [rest rangeOfCharacterFromSet:[NSCharacterSet whitespaceCharacterSet]];
+                if ([firstWord isEqualToString:@"class"]) {
+                    // "class A,B name": the last word is the class.
+                    space = [rest rangeOfCharacterFromSet:[NSCharacterSet whitespaceCharacterSet] options:NSBackwardsSearch];
+                }
+                if (space.location == NSNotFound) {
+                    chart->_skippedStatementCount += 1;
+                    continue;
+                }
+                NSArray *names = OMFlowSplitOutsideParentheses([rest substringToIndex:space.location], ',');
+                NSString *value = OMFlowTrimmed([rest substringFromIndex:space.location]);
+                for (NSString *name in names) {
+                    if ([name length] == 0) {
+                        continue;
+                    }
+                    if ([firstWord isEqualToString:@"classDef"]) {
+                        NSMutableDictionary *definition = [classDefinitions objectForKey:name];
+                        if (definition == nil) {
+                            definition = [NSMutableDictionary dictionary];
+                            [classDefinitions setObject:definition forKey:name];
+                        }
+                        [definition addEntriesFromDictionary:OMFlowStyleProperties(value)];
+                    } else if ([firstWord isEqualToString:@"class"]) {
+                        [classAssignments addObject:[NSArray arrayWithObjects:name, value, nil]];
+                    } else {
+                        [styleStatements addObject:[NSArray arrayWithObjects:name, OMFlowStyleProperties(value), nil]];
+                    }
+                }
                 continue;
             }
             if (![parser parseStatement:statement]) {
@@ -488,6 +737,17 @@ static NSError *OMFlowError(NSUInteger line, NSString *message)
                 }
                 return nil;
             }
+            // A node belongs to the first subgraph it is mentioned in, even
+            // if it was mentioned outside before (as in Mermaid).
+            OMMermaidFlowSubgraph *open = [openSubgraphs lastObject];
+            if (open != nil) {
+                for (NSString *identifier in parser->_mentioned) {
+                    if (![groupedNodes containsObject:identifier] && [subgraphsByIdentifier objectForKey:identifier] == nil) {
+                        [groupedNodes addObject:identifier];
+                        [open addNodeIdentifier:identifier];
+                    }
+                }
+            }
         }
     }
     if (!sawHeader) {
@@ -495,6 +755,57 @@ static NSError *OMFlowError(NSUInteger line, NSString *message)
             *error = OMFlowError(0, @"expected \"flowchart\" or \"graph\"");
         }
         return nil;
+    }
+    // A link to a subgraph's name ends at the subgraph, not at a node.
+    NSUInteger nodeIndex = [parser->_nodes count];
+    while (nodeIndex > 0) {
+        nodeIndex -= 1;
+        if ([subgraphsByIdentifier objectForKey:[[parser->_nodes objectAtIndex:nodeIndex] identifier]] != nil) {
+            [parser->_nodes removeObjectAtIndex:nodeIndex];
+        }
+    }
+    // Styles: the "default" class, the node's classes in order, then style lines.
+    for (NSArray *assignment in classAssignments) {
+        NSString *identifier = [assignment objectAtIndex:0];
+        id target = [subgraphsByIdentifier objectForKey:identifier];
+        if (target == nil) {
+            target = [parser->_nodesByIdentifier objectForKey:identifier];
+        }
+        [target addClassName:[assignment objectAtIndex:1]];
+    }
+    for (OMMermaidFlowNode *node in parser->_nodes) {
+        NSMutableDictionary *properties = [NSMutableDictionary dictionary];
+        NSDictionary *defaults = [classDefinitions objectForKey:@"default"];
+        if (defaults != nil) {
+            [properties addEntriesFromDictionary:defaults];
+        }
+        for (NSString *className in [node classNames]) {
+            NSDictionary *definition = [classDefinitions objectForKey:className];
+            if (definition != nil) {
+                [properties addEntriesFromDictionary:definition];
+            }
+        }
+        for (NSArray *styleStatement in styleStatements) {
+            if ([[styleStatement objectAtIndex:0] isEqualToString:[node identifier]]) {
+                [properties addEntriesFromDictionary:[styleStatement objectAtIndex:1]];
+            }
+        }
+        [node setStyleProperties:properties];
+    }
+    for (OMMermaidFlowSubgraph *subgraph in subgraphs) {
+        NSMutableDictionary *properties = [NSMutableDictionary dictionary];
+        for (NSString *className in [subgraph classNames]) {
+            NSDictionary *definition = [classDefinitions objectForKey:className];
+            if (definition != nil) {
+                [properties addEntriesFromDictionary:definition];
+            }
+        }
+        for (NSArray *styleStatement in styleStatements) {
+            if ([[styleStatement objectAtIndex:0] isEqualToString:[subgraph identifier]]) {
+                [properties addEntriesFromDictionary:[styleStatement objectAtIndex:1]];
+            }
+        }
+        [subgraph setStyleProperties:properties];
     }
     if ([parser->_nodes count] == 0) {
         if (error != NULL) {
@@ -511,6 +822,7 @@ static NSError *OMFlowError(NSUInteger line, NSString *message)
     }
     chart->_nodes = [parser->_nodes copy];
     chart->_edges = [parser->_edges copy];
+    chart->_subgraphs = [subgraphs copy];
     return chart;
 }
 
@@ -518,7 +830,18 @@ static NSError *OMFlowError(NSUInteger line, NSString *message)
 {
     [_nodes release];
     [_edges release];
+    [_subgraphs release];
     [super dealloc];
+}
+
+- (OMMermaidFlowSubgraph *)subgraphWithIdentifier:(NSString *)identifier
+{
+    for (OMMermaidFlowSubgraph *subgraph in _subgraphs) {
+        if ([[subgraph identifier] isEqualToString:identifier]) {
+            return subgraph;
+        }
+    }
+    return nil;
 }
 
 - (OMMermaidFlowNode *)nodeWithIdentifier:(NSString *)identifier

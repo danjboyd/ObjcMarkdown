@@ -34,6 +34,133 @@ static NSSize OMFlowTextSize(NSString *text, NSFont *font)
     return NSMakeSize(ceil(width), lineHeight * (CGFloat)MAX((NSUInteger)1, [lines count]));
 }
 
+// A Mermaid style colour: "#rgb", "#rgba", "#rrggbb", "#rrggbbaa",
+// "rgb(r, g, b)", "rgba(r, g, b, a)", "none"/"transparent" or a common
+// CSS name. nil when not understood.
+static NSColor *OMFlowColorFromCSS(NSString *value)
+{
+    NSString *text = [[value stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]] lowercaseString];
+    if ([text hasSuffix:@"!important"]) {
+        text = [[text substringToIndex:[text length] - 10] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+    }
+    if ([text length] == 0) {
+        return nil;
+    }
+    if ([text isEqualToString:@"none"] || [text isEqualToString:@"transparent"]) {
+        return [NSColor colorWithCalibratedWhite:0.0 alpha:0.0];
+    }
+    if ([text hasPrefix:@"#"]) {
+        NSString *hex = [text substringFromIndex:1];
+        if ([hex length] == 3 || [hex length] == 4) {
+            NSMutableString *expanded = [NSMutableString string];
+            NSUInteger index = 0;
+            for (; index < [hex length]; index++) {
+                unichar ch = [hex characterAtIndex:index];
+                [expanded appendFormat:@"%C%C", ch, ch];
+            }
+            hex = expanded;
+        }
+        if ([hex length] != 6 && [hex length] != 8) {
+            return nil;
+        }
+        unsigned int components[4] = { 0, 0, 0, 255 };
+        NSUInteger index = 0;
+        for (; index < [hex length] / 2; index++) {
+            NSScanner *scanner = [NSScanner scannerWithString:[hex substringWithRange:NSMakeRange(index * 2, 2)]];
+            if (![scanner scanHexInt:&components[index]]) {
+                return nil;
+            }
+        }
+        return [NSColor colorWithCalibratedRed:components[0] / 255.0 green:components[1] / 255.0
+                                          blue:components[2] / 255.0 alpha:components[3] / 255.0];
+    }
+    if ([text hasPrefix:@"rgb"]) {
+        NSRange open = [text rangeOfString:@"("];
+        NSRange close = [text rangeOfString:@")" options:NSBackwardsSearch];
+        if (open.location == NSNotFound || close.location == NSNotFound || close.location < open.location) {
+            return nil;
+        }
+        NSArray *parts = [[text substringWithRange:NSMakeRange(NSMaxRange(open), close.location - NSMaxRange(open))]
+                          componentsSeparatedByString:@","];
+        if ([parts count] < 3) {
+            return nil;
+        }
+        CGFloat alpha = [parts count] > 3 ? [[parts objectAtIndex:3] doubleValue] : 1.0;
+        return [NSColor colorWithCalibratedRed:[[parts objectAtIndex:0] doubleValue] / 255.0
+                                         green:[[parts objectAtIndex:1] doubleValue] / 255.0
+                                          blue:[[parts objectAtIndex:2] doubleValue] / 255.0
+                                         alpha:MAX(0.0, MIN(1.0, alpha))];
+    }
+    static NSDictionary *names = nil;
+    if (names == nil) {
+        names = [[NSDictionary alloc] initWithObjectsAndKeys:
+            @"#000000", @"black", @"#ffffff", @"white", @"#808080", @"gray", @"#808080", @"grey",
+            @"#d3d3d3", @"lightgray", @"#d3d3d3", @"lightgrey", @"#a9a9a9", @"darkgray", @"#a9a9a9", @"darkgrey",
+            @"#ff0000", @"red", @"#008000", @"green", @"#0000ff", @"blue", @"#ffff00", @"yellow",
+            @"#ffa500", @"orange", @"#800080", @"purple", @"#ffc0cb", @"pink", @"#a52a2a", @"brown",
+            @"#00ffff", @"cyan", @"#ff00ff", @"magenta", @"#add8e6", @"lightblue", @"#90ee90", @"lightgreen",
+            @"#00008b", @"darkblue", @"#006400", @"darkgreen", @"#8b0000", @"darkred", @"#ffd700", @"gold",
+            @"#f5f5dc", @"beige", @"#e6e6fa", @"lavender", @"#000080", @"navy", @"#008080", @"teal",
+            @"#808000", @"olive", @"#800000", @"maroon", @"#00ff00", @"lime", @"#c0c0c0", @"silver", nil];
+    }
+    NSString *hex = [names objectForKey:text];
+    return hex != nil ? OMFlowColorFromCSS(hex) : nil;
+}
+
+// A style length such as "4px" or "2", in points; fallback when absent.
+static CGFloat OMFlowLengthFromCSS(NSString *value, CGFloat fallback)
+{
+    if ([value length] == 0) {
+        return fallback;
+    }
+    CGFloat length = [value doubleValue];
+    return length > 0.0 ? length : fallback;
+}
+
+// "5 5" or "5,5" as a dash pattern; NO when absent or not a pattern.
+static BOOL OMFlowDashFromCSS(NSString *value, CGFloat dash[2])
+{
+    NSArray *parts = [[value stringByReplacingOccurrencesOfString:@"," withString:@" "]
+                      componentsSeparatedByCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+    NSMutableArray *numbers = [NSMutableArray array];
+    for (NSString *part in parts) {
+        if ([part doubleValue] > 0.0) {
+            [numbers addObject:part];
+        }
+    }
+    if ([numbers count] == 0) {
+        return NO;
+    }
+    dash[0] = [[numbers objectAtIndex:0] doubleValue];
+    dash[1] = [numbers count] > 1 ? [[numbers objectAtIndex:1] doubleValue] : dash[0];
+    return YES;
+}
+
+static NSColor *OMFlowBlend(NSColor *base, NSColor *mix, CGFloat fraction)
+{
+    NSColor *a = [base colorUsingColorSpaceName:NSCalibratedRGBColorSpace];
+    NSColor *b = [mix colorUsingColorSpaceName:NSCalibratedRGBColorSpace];
+    if (a == nil || b == nil) {
+        return base;
+    }
+    return [NSColor colorWithCalibratedRed:[a redComponent] + ([b redComponent] - [a redComponent]) * fraction
+                                     green:[a greenComponent] + ([b greenComponent] - [a greenComponent]) * fraction
+                                      blue:[a blueComponent] + ([b blueComponent] - [a blueComponent]) * fraction
+                                     alpha:1.0];
+}
+
+// Text on a styled fill with no styled text colour: dark on a light fill,
+// light on a dark one, so a light fill stays readable in the dark theme.
+static NSColor *OMFlowTextColorOnFill(NSColor *fill, NSColor *fallback)
+{
+    NSColor *rgb = [fill colorUsingColorSpaceName:NSCalibratedRGBColorSpace];
+    if (rgb == nil || [rgb alphaComponent] < 0.5) {
+        return fallback;
+    }
+    CGFloat luminance = 0.2126 * [rgb redComponent] + 0.7152 * [rgb greenComponent] + 0.0722 * [rgb blueComponent];
+    return luminance > 0.55 ? [NSColor colorWithCalibratedWhite:0.12 alpha:1.0] : [NSColor colorWithCalibratedWhite:0.96 alpha:1.0];
+}
+
 @implementation OMMermaidFlowStyleMeasurer
 
 - (instancetype)initWithStyle:(OMMermaidERDrawingStyle *)style
@@ -214,12 +341,23 @@ static NSSize OMFlowTextSize(NSString *text, NSFont *font)
         NSRect box = [self om_rect:[nodeLayout frame] inFrame:frame flipped:flipped];
         OMMermaidFlowNodeShape shape = [[nodeLayout node] shape];
         NSBezierPath *path = [self om_pathForShape:shape inRect:box];
-        if (fill != nil) {
-            [fill setFill];
+        NSDictionary *properties = [[nodeLayout node] styleProperties];
+        NSColor *nodeFill = OMFlowColorFromCSS([properties objectForKey:@"fill"]);
+        NSColor *nodeStroke = OMFlowColorFromCSS([properties objectForKey:@"stroke"]);
+        NSColor *nodeText = OMFlowColorFromCSS([properties objectForKey:@"color"]);
+        CGFloat strokeWidth = OMFlowLengthFromCSS([properties objectForKey:@"stroke-width"], [_style borderWidth]);
+        if (nodeFill != nil || fill != nil) {
+            [(nodeFill != nil ? nodeFill : fill) setFill];
             [path fill];
         }
-        [[_style borderColor] set];
-        [path setLineWidth:MAX(1.0, [_style borderWidth] * _drawScale)];
+        [(nodeStroke != nil ? nodeStroke : [_style borderColor]) set];
+        [path setLineWidth:MAX(1.0, strokeWidth * _drawScale)];
+        CGFloat dash[2];
+        if (OMFlowDashFromCSS([properties objectForKey:@"stroke-dasharray"], dash)) {
+            dash[0] *= _drawScale;
+            dash[1] *= _drawScale;
+            [path setLineDash:dash count:2 phase:0.0];
+        }
         [path stroke];
         if (shape == OMMermaidFlowNodeShapeSubroutine) {
             CGFloat inset = 7.0 * _drawScale;
@@ -231,15 +369,77 @@ static NSSize OMFlowTextSize(NSString *text, NSFont *font)
             [bars setLineWidth:MAX(1.0, [_style borderWidth] * _drawScale)];
             [bars stroke];
         }
-        [self om_drawText:[nodeLayout text] font:font color:[_style textColor] inRect:box];
+        if (nodeText == nil && nodeFill != nil) {
+            nodeText = OMFlowTextColorOnFill(nodeFill, [_style textColor]);
+        }
+        [self om_drawText:[nodeLayout text] font:font color:(nodeText != nil ? nodeText : [_style textColor]) inRect:box];
+    }
+}
+
+// A subgraph's fill: its style's, else a faint tint of the border on the page.
+- (NSColor *)om_fillForSubgraph:(OMMermaidFlowSubgraph *)subgraph
+{
+    NSColor *fill = OMFlowColorFromCSS([[subgraph styleProperties] objectForKey:@"fill"]);
+    if (fill != nil) {
+        return fill;
+    }
+    NSColor *background = [_style bodyBackgroundColor] != nil ? [_style bodyBackgroundColor] : [NSColor whiteColor];
+    NSColor *border = [_style borderColor] != nil ? [_style borderColor] : [NSColor grayColor];
+    return OMFlowBlend(background, border, 0.12);
+}
+
+// Subgraph frames, outermost first, so nested ones sit on top.
+- (void)om_drawSubgraphsInFrame:(NSRect)frame flipped:(BOOL)flipped
+{
+    NSColor *border = [_style borderColor] != nil ? [_style borderColor] : [NSColor grayColor];
+    for (OMMermaidFlowSubgraphLayout *subgraphLayout in [_layout subgraphLayouts]) {
+        NSDictionary *properties = [[subgraphLayout subgraph] styleProperties];
+        NSColor *stroke = OMFlowColorFromCSS([properties objectForKey:@"stroke"]);
+        NSRect box = [self om_rect:[subgraphLayout frame] inFrame:frame flipped:flipped];
+        NSBezierPath *path = [NSBezierPath bezierPathWithRoundedRect:box xRadius:4.0 * _drawScale yRadius:4.0 * _drawScale];
+        [[self om_fillForSubgraph:[subgraphLayout subgraph]] setFill];
+        [path fill];
+        [(stroke != nil ? stroke : border) set];
+        [path setLineWidth:MAX(1.0, OMFlowLengthFromCSS([properties objectForKey:@"stroke-width"], [_style borderWidth]) * _drawScale)];
+        CGFloat dash[2];
+        if (OMFlowDashFromCSS([properties objectForKey:@"stroke-dasharray"], dash)) {
+            dash[0] *= _drawScale;
+            dash[1] *= _drawScale;
+            [path setLineDash:dash count:2 phase:0.0];
+        }
+        [path stroke];
+    }
+}
+
+// Titles go over the edges, each on a patch of its frame's fill.
+- (void)om_drawSubgraphTitlesInFrame:(NSRect)frame flipped:(BOOL)flipped
+{
+    NSFont *titleFont = [self om_scaledFont:[_style labelFont]];
+    for (OMMermaidFlowSubgraphLayout *subgraphLayout in [_layout subgraphLayouts]) {
+        OMMermaidFlowSubgraph *subgraph = [subgraphLayout subgraph];
+        NSString *title = OMMermaidFlowDisplayText([subgraph title]);
+        NSRect titleRect = [self om_rect:[subgraphLayout titleFrame] inFrame:frame flipped:flipped];
+        NSSize size = OMFlowTextSize(title, titleFont);
+        CGFloat width = MIN(NSWidth(titleRect), size.width + 6.0 * _drawScale);
+        [[self om_fillForSubgraph:subgraph] setFill];
+        NSRectFill(NSMakeRect(NSMidX(titleRect) - width / 2.0, NSMidY(titleRect) - size.height / 2.0, width, size.height));
+        NSColor *text = OMFlowColorFromCSS([[subgraph styleProperties] objectForKey:@"color"]);
+        NSColor *styledFill = OMFlowColorFromCSS([[subgraph styleProperties] objectForKey:@"fill"]);
+        if (text == nil && styledFill != nil) {
+            text = OMFlowTextColorOnFill(styledFill, [_style textColor]);
+        }
+        [self om_drawText:title font:titleFont color:(text != nil ? text : [_style textColor]) inRect:titleRect];
     }
 }
 
 - (void)om_drawInFrame:(NSRect)frame flipped:(BOOL)flipped
 {
     [NSGraphicsContext saveGraphicsState];
-    // Edges first, so nodes sit on top of their ends.
+    // Subgraphs behind everything; edges before nodes, so nodes sit on
+    // top of their ends.
+    [self om_drawSubgraphsInFrame:frame flipped:flipped];
     [self om_drawEdgesInFrame:frame flipped:flipped];
+    [self om_drawSubgraphTitlesInFrame:frame flipped:flipped];
     [self om_drawNodesInFrame:frame flipped:flipped];
     [NSGraphicsContext restoreGraphicsState];
 }

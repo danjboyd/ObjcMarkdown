@@ -94,9 +94,11 @@ static OMMermaidERDrawingStyle *OMMermaidStyleForTheme(OMTheme *theme,
 
 // Draws a parsed erDiagram as a block attachment. Returns NO when the diagram
 // cannot be laid out, which leaves the caller on the code-block path.
-// diagram is an OMMermaidERDiagram or an OMMermaidFlowchart.
+// diagram is an OMMermaidERDiagram or an OMMermaidFlowchart; note, if any,
+// is a caption under the drawing.
 static BOOL OMAppendMermaidDiagram(id diagram,
                                    NSString *source,
+                                   NSString *note,
                                    OMTheme *theme,
                                    NSMutableAttributedString *output,
                                    NSMutableDictionary *attributes,
@@ -155,6 +157,22 @@ static BOOL OMAppendMermaidDiagram(id diagram,
                 nil]];
     }
     OMAppendString(output, @"\n", diagramAttributes);
+    if ([note length] > 0) {
+        NSFont *font = [attributes objectForKey:NSFontAttributeName];
+        CGFloat noteSize = (font != nil ? [font pointSize] : 14.0 * scale) * 0.85;
+        NSUInteger noteStart = [output length];
+        OMAppendMermaidDiagnostic(note, theme, output, attributes, indent, noteSize, scale);
+        // Centred under the drawing.
+        NSRange noteRange = NSMakeRange(noteStart, [output length] - noteStart);
+        NSMutableParagraphStyle *noteStyle = [[[output attribute:NSParagraphStyleAttributeName
+                                                         atIndex:noteStart
+                                                  effectiveRange:NULL] mutableCopy] autorelease];
+        if (noteStyle != nil) {
+            [noteStyle setAlignment:NSCenterTextAlignment];
+            [noteStyle setTailIndent:0.0];
+            [output addAttribute:NSParagraphStyleAttributeName value:noteStyle range:noteRange];
+        }
+    }
     // A blank line after the diagram, as after code blocks and paragraphs.
     OMAppendString(output, @"\n", attributes);
     [diagramAttributes release];
@@ -190,7 +208,12 @@ BOOL OMTryRenderMermaidDiagram(cmark_node *node,
         NSError *flowError = nil;
         OMMermaidFlowchart *flowchart = [OMMermaidFlowchart flowchartWithSource:code error:&flowError];
         if (flowchart != nil &&
-            OMAppendMermaidDiagram(flowchart, code, theme, output, attributes, quoteLevel, scale, renderContext)) {
+            OMAppendMermaidDiagram(flowchart,
+                                   code,
+                                   ([flowchart clickStatementCount] > 0
+                                    ? @"mermaid flowchart: click actions aren't followed here."
+                                    : nil),
+                                   theme, output, attributes, quoteLevel, scale, renderContext)) {
             return YES;
         }
         if (diagnosticOut != NULL) {
@@ -225,7 +248,7 @@ BOOL OMTryRenderMermaidDiagram(cmark_node *node,
         return NO;
     }
 
-    if (OMAppendMermaidDiagram(diagram, code, theme, output, attributes, quoteLevel, scale, renderContext)) {
+    if (OMAppendMermaidDiagram(diagram, code, nil, theme, output, attributes, quoteLevel, scale, renderContext)) {
         return YES;
     }
 

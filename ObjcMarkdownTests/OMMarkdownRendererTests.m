@@ -579,6 +579,18 @@ static BOOL OMDMathToolchainAvailable(void)
     XCTAssertEqualObjects([[parsed objectAtIndex:3] objectForKey:OMMarkdownRendererHeadingAnchorKey], @"intro-1");
 }
 
+- (void)testDrawnFlowchartSaysClickActionsArentFollowed
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    NSString *withClick = @"```mermaid\nflowchart TD\n  A --> B\n  click A \"https://example.com\"\n```\n";
+    NSString *withoutClick = @"```mermaid\nflowchart TD\n  A --> B\n```\n";
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:withClick];
+    XCTAssertNotNil([self firstAttachmentInRenderedString:rendered]);
+    XCTAssertTrue([[rendered string] rangeOfString:@"click actions aren't followed"].location != NSNotFound);
+    rendered = [renderer attributedStringFromMarkdown:withoutClick];
+    XCTAssertTrue([[rendered string] rangeOfString:@"click"].location == NSNotFound);
+}
+
 - (void)testPipeTableAllowsHorizontalOverflowInsteadOfStackedFallback
 {
     OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];

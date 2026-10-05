@@ -104,7 +104,125 @@
     XCTAssertNotNil([self edgeFrom:@"C" to:@"D" inChart:chart]);
     XCTAssertNotNil([self edgeFrom:@"my-node" to:@"D" inChart:chart]);
     XCTAssertNotNil([self edgeFrom:@"D" to:@"A" inChart:chart]);
-    XCTAssertEqual([chart skippedStatementCount], (NSUInteger)4);
+    XCTAssertEqual([chart skippedStatementCount], (NSUInteger)0);
+    XCTAssertEqual([[chart subgraphs] count], (NSUInteger)1);
+}
+
+- (void)testSubgraphsNestAndHoldTheNodesMentionedInThem
+{
+    OMMermaidFlowchart *chart = [self parse:
+        @"flowchart TD\n"
+         "  X --> A\n"
+         "  subgraph outer[\"Outer title\"]\n"
+         "    A --> B\n"
+         "    subgraph inner\n"
+         "      C\n"
+         "    end\n"
+         "    B --> C\n"
+         "  end\n"
+         "  subgraph Some words\n"
+         "    D\n"
+         "  end\n"
+         "  C --> outer\n"
+         "  click A \"https://example.com\"\n"
+         "  linkStyle 0 stroke:#f00\n"];
+    NSArray *subgraphs = [chart subgraphs];
+    XCTAssertEqual([subgraphs count], (NSUInteger)3);
+    OMMermaidFlowSubgraph *outer = [chart subgraphWithIdentifier:@"outer"];
+    OMMermaidFlowSubgraph *inner = [chart subgraphWithIdentifier:@"inner"];
+    OMMermaidFlowSubgraph *words = [chart subgraphWithIdentifier:@"Some words"];
+    XCTAssertEqualObjects([outer title], @"Outer title");
+    XCTAssertNil([outer parentIdentifier]);
+    XCTAssertEqualObjects([inner parentIdentifier], @"outer");
+    XCTAssertEqualObjects([words title], @"Some words");
+    // As in Mermaid, A joins outer though it was mentioned outside first;
+    // C belongs to inner, the first subgraph it was mentioned in.
+    XCTAssertEqualObjects([outer nodeIdentifiers], ([NSArray arrayWithObjects:@"A", @"B", nil]));
+    XCTAssertEqualObjects([inner nodeIdentifiers], [NSArray arrayWithObject:@"C"]);
+    XCTAssertEqualObjects([words nodeIdentifiers], [NSArray arrayWithObject:@"D"]);
+    // A link to a subgraph is kept, and the subgraph isn't a node.
+    XCTAssertNotNil([self edgeFrom:@"C" to:@"outer" inChart:chart]);
+    XCTAssertNil([chart nodeWithIdentifier:@"outer"]);
+    XCTAssertEqual([chart clickStatementCount], (NSUInteger)1);
+    XCTAssertEqual([chart skippedStatementCount], (NSUInteger)2);
+}
+
+- (void)testClassDefClassAndStyleCombineInOrder
+{
+    OMMermaidFlowchart *chart = [self parse:
+        @"flowchart LR\n"
+         "  classDef default fill:#eee,stroke:#999\n"
+         "  classDef hot,warm fill:rgb(255, 0, 0),color:white\n"
+         "  classDef thick stroke-width:4px\n"
+         "  A:::hot --> B --> C\n"
+         "  class B,C thick\n"
+         "  style C fill:#0f0,stroke-dasharray: 5 5\n"
+         "  subgraph group\n"
+         "    D\n"
+         "  end\n"
+         "  style group fill:none\n"];
+    NSDictionary *a = [[chart nodeWithIdentifier:@"A"] styleProperties];
+    XCTAssertEqualObjects([a objectForKey:@"fill"], @"rgb(255, 0, 0)");
+    XCTAssertEqualObjects([a objectForKey:@"stroke"], @"#999");
+    XCTAssertEqualObjects([a objectForKey:@"color"], @"white");
+    NSDictionary *b = [[chart nodeWithIdentifier:@"B"] styleProperties];
+    XCTAssertEqualObjects([b objectForKey:@"fill"], @"#eee");
+    XCTAssertEqualObjects([b objectForKey:@"stroke-width"], @"4px");
+    NSDictionary *c = [[chart nodeWithIdentifier:@"C"] styleProperties];
+    XCTAssertEqualObjects([c objectForKey:@"fill"], @"#0f0");
+    XCTAssertEqualObjects([c objectForKey:@"stroke-dasharray"], @"5 5");
+    XCTAssertEqualObjects([[[chart subgraphWithIdentifier:@"group"] styleProperties] objectForKey:@"fill"], @"none");
+}
+
+- (void)testSubgraphFramesHoldTheirNodesAndLinksStopAtThem
+{
+    OMFlowFixedMeasurer *measurer = [[[OMFlowFixedMeasurer alloc] init] autorelease];
+    NSArray *directions = [NSArray arrayWithObjects:@"TD", @"LR", @"BT", @"RL", nil];
+    for (NSString *direction in directions) {
+        OMMermaidFlowchart *chart = [self parse:[NSString stringWithFormat:
+            @"flowchart %@\n"
+             "  start --> A\n"
+             "  start --> Z\n"
+             "  subgraph one[First group]\n"
+             "    A --> B\n"
+             "    subgraph two\n"
+             "      C\n"
+             "    end\n"
+             "    B --> C\n"
+             "  end\n"
+             "  Z --> Y\n"
+             "  Y --> one\n", direction]];
+        OMMermaidFlowchartLayout *layout = [OMMermaidFlowchartLayout layoutForFlowchart:chart measurer:measurer];
+        XCTAssertEqual([[layout subgraphLayouts] count], (NSUInteger)2);
+        NSRect one = NSZeroRect;
+        NSRect two = NSZeroRect;
+        for (OMMermaidFlowSubgraphLayout *group in [layout subgraphLayouts]) {
+            if ([[[group subgraph] identifier] isEqualToString:@"one"]) {
+                one = [group frame];
+                XCTAssertTrue(NSContainsRect(one, [group titleFrame]));
+            } else {
+                two = [group frame];
+            }
+        }
+        XCTAssertTrue(NSContainsRect(one, two), @"%@", direction);
+        for (NSString *member in [NSArray arrayWithObjects:@"A", @"B", @"C", nil]) {
+            XCTAssertTrue(NSContainsRect(one, [[layout layoutForNodeIdentifier:member] frame]), @"%@ %@", direction, member);
+        }
+        XCTAssertTrue(NSContainsRect(two, [[layout layoutForNodeIdentifier:@"C"] frame]), @"%@", direction);
+        for (NSString *outsider in [NSArray arrayWithObjects:@"start", @"Z", @"Y", nil]) {
+            XCTAssertFalse(NSIntersectsRect(one, [[layout layoutForNodeIdentifier:outsider] frame]), @"%@ %@", direction, outsider);
+        }
+        XCTAssertTrue(NSContainsRect(NSMakeRect(0.0, 0.0, [layout size].width, [layout size].height), one));
+        // Y --> one ends on the frame's outline, not inside it.
+        for (OMMermaidFlowEdgeLayout *edgeLayout in [layout edgeLayouts]) {
+            if (![[[edgeLayout edge] toIdentifier] isEqualToString:@"one"]) {
+                continue;
+            }
+            NSPoint end = [[[edgeLayout points] lastObject] pointValue];
+            XCTAssertTrue(NSPointInRect(end, NSInsetRect(one, -1.0, -1.0)), @"%@", direction);
+            XCTAssertFalse(NSPointInRect(end, NSInsetRect(one, 1.0, 1.0)), @"%@", direction);
+        }
+    }
 }
 
 - (void)testErrorsCarryLineNumbers

@@ -6,6 +6,7 @@
 @class OMMermaidFlowchart;
 @class OMMermaidFlowNode;
 @class OMMermaidFlowEdge;
+@class OMMermaidFlowSubgraph;
 
 // Geometry is in diagram coordinates: origin top left, y growing down.
 
@@ -13,6 +14,7 @@
 @protocol OMMermaidFlowTextMeasuring <NSObject>
 // label may hold several lines separated by "\n".
 - (NSSize)mermaidFlowSizeForNodeLabel:(NSString *)label;
+// Also used for subgraph titles.
 - (NSSize)mermaidFlowSizeForEdgeLabel:(NSString *)label;
 @end
 
@@ -41,10 +43,23 @@
 @property (nonatomic, readonly) NSRect labelFrame;
 @end
 
+@interface OMMermaidFlowSubgraphLayout : NSObject
+{
+    OMMermaidFlowSubgraph *_subgraph;
+    NSRect _frame;
+    NSRect _titleFrame;
+}
+@property (nonatomic, readonly) OMMermaidFlowSubgraph *subgraph;
+// Around its nodes and nested subgraphs, with its title along the top.
+@property (nonatomic, readonly) NSRect frame;
+@property (nonatomic, readonly) NSRect titleFrame;
+@end
+
 @interface OMMermaidFlowchartLayout : NSObject
 {
     NSArray *_nodeLayouts;
     NSArray *_edgeLayouts;
+    NSArray *_subgraphLayouts;
     NSSize _size;
 }
 
@@ -53,6 +68,8 @@
 
 @property (nonatomic, readonly) NSArray *nodeLayouts;
 @property (nonatomic, readonly) NSArray *edgeLayouts;
+// Subgraphs with at least one node, parents before their children.
+@property (nonatomic, readonly) NSArray *subgraphLayouts;
 @property (nonatomic, readonly) NSSize size;
 
 - (OMMermaidFlowNodeLayout *)layoutForNodeIdentifier:(NSString *)identifier;

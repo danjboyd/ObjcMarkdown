@@ -13,6 +13,8 @@ static const CGFloat OMFlowSiblingGap = 28.0;
 static const CGFloat OMFlowLabelPadding = 4.0;
 static const CGFloat OMFlowMargin = 10.0;
 static const CGFloat OMFlowSelfLoopReach = 18.0;
+// Between a subgraph's frame and what it holds.
+static const CGFloat OMFlowGroupPadding = 12.0;
 
 NSString *OMMermaidFlowDisplayText(NSString *label)
 {
@@ -45,6 +47,31 @@ NSString *OMMermaidFlowDisplayText(NSString *label)
 {
     [_node release];
     [_text release];
+    [super dealloc];
+}
+
+@end
+
+@implementation OMMermaidFlowSubgraphLayout
+
+@synthesize subgraph = _subgraph;
+@synthesize frame = _frame;
+@synthesize titleFrame = _titleFrame;
+
+- (instancetype)initWithSubgraph:(OMMermaidFlowSubgraph *)subgraph frame:(NSRect)frame titleFrame:(NSRect)titleFrame
+{
+    self = [super init];
+    if (self != nil) {
+        _subgraph = [subgraph retain];
+        _frame = frame;
+        _titleFrame = titleFrame;
+    }
+    return self;
+}
+
+- (void)dealloc
+{
+    [_subgraph release];
     [super dealloc];
 }
 
@@ -100,16 +127,59 @@ static NSPoint OMFlowBoundaryPoint(NSRect frame, OMMermaidFlowNodeShape shape, N
     return NSMakePoint(center.x + dx * t, center.y + dy * t);
 }
 
+// The polyline cut where it first enters rect, keeping the part outside:
+// atEnd, the part before it reaches rect; otherwise the part after it
+// leaves rect. Empty if that end starts inside rect.
+static NSArray *OMFlowPolylineClippedAtRect(NSArray *points, NSRect rect, BOOL atEnd)
+{
+    if (NSIsEmptyRect(rect) || [points count] < 2) {
+        return points;
+    }
+    NSArray *ordered = atEnd ? points : [[points reverseObjectEnumerator] allObjects];
+    if (NSPointInRect([[ordered objectAtIndex:0] pointValue], rect)) {
+        return [NSArray array];
+    }
+    NSMutableArray *kept = [NSMutableArray arrayWithObject:[ordered objectAtIndex:0]];
+    NSUInteger index = 1;
+    for (; index < [ordered count]; index++) {
+        NSPoint outside = [[ordered objectAtIndex:index - 1] pointValue];
+        NSPoint next = [[ordered objectAtIndex:index] pointValue];
+        if (!NSPointInRect(next, rect)) {
+            [kept addObject:[ordered objectAtIndex:index]];
+            continue;
+        }
+        // Bisect for the crossing.
+        CGFloat low = 0.0;
+        CGFloat high = 1.0;
+        NSUInteger step = 0;
+        for (; step < 24; step++) {
+            CGFloat middle = (low + high) / 2.0;
+            NSPoint probe = NSMakePoint(outside.x + (next.x - outside.x) * middle, outside.y + (next.y - outside.y) * middle);
+            if (NSPointInRect(probe, rect)) {
+                high = middle;
+            } else {
+                low = middle;
+            }
+        }
+        [kept addObject:[NSValue valueWithPoint:NSMakePoint(outside.x + (next.x - outside.x) * low,
+                                                            outside.y + (next.y - outside.y) * low)]];
+        break;
+    }
+    return atEnd ? kept : [[kept reverseObjectEnumerator] allObjects];
+}
+
 @implementation OMMermaidFlowchartLayout
 
 @synthesize nodeLayouts = _nodeLayouts;
 @synthesize edgeLayouts = _edgeLayouts;
+@synthesize subgraphLayouts = _subgraphLayouts;
 @synthesize size = _size;
 
 - (void)dealloc
 {
     [_nodeLayouts release];
     [_edgeLayouts release];
+    [_subgraphLayouts release];
     [super dealloc];
 }
 
@@ -137,11 +207,74 @@ static NSPoint OMFlowBoundaryPoint(NSRect frame, OMMermaidFlowNodeShape shape, N
         [indexOf setObject:[NSNumber numberWithUnsignedInteger:i] forKey:[[nodes objectAtIndex:i] identifier]];
     }
 
+    // Subgraphs: each node's chain of them, outermost first, and the node
+    // that stands in for a subgraph when a link names it.
+    NSArray *subgraphs = [flowchart subgraphs];
+    NSUInteger subgraphCount = [subgraphs count];
+    NSMutableDictionary *subgraphIndexOf = [NSMutableDictionary dictionaryWithCapacity:subgraphCount];
+    for (i = 0; i < subgraphCount; i++) {
+        [subgraphIndexOf setObject:[NSNumber numberWithUnsignedInteger:i] forKey:[[subgraphs objectAtIndex:i] identifier]];
+    }
+    NSInteger *parentOf = (NSInteger *)calloc(subgraphCount + 1, sizeof(NSInteger));
+    NSInteger *representative = (NSInteger *)calloc(subgraphCount + 1, sizeof(NSInteger));
+    for (i = 0; i < subgraphCount; i++) {
+        NSString *parent = [[subgraphs objectAtIndex:i] parentIdentifier];
+        NSNumber *parentIndex = parent != nil ? [subgraphIndexOf objectForKey:parent] : nil;
+        parentOf[i] = parentIndex != nil ? [parentIndex integerValue] : -1;
+        representative[i] = -1;
+    }
+    NSMutableArray *paths = [NSMutableArray array]; // per laid-out node, waypoints too
+    {
+        NSInteger *innermost = (NSInteger *)calloc(count, sizeof(NSInteger));
+        for (i = 0; i < count; i++) {
+            innermost[i] = -1;
+        }
+        for (i = 0; i < subgraphCount; i++) {
+            for (NSString *identifier in [[subgraphs objectAtIndex:i] nodeIdentifiers]) {
+                NSNumber *member = [indexOf objectForKey:identifier];
+                if (member != nil) {
+                    innermost[[member unsignedIntegerValue]] = (NSInteger)i;
+                }
+            }
+        }
+        for (i = 0; i < count; i++) {
+            NSMutableArray *path = [NSMutableArray array];
+            NSInteger group = innermost[i];
+            NSUInteger guard = 0;
+            while (group >= 0 && guard++ <= subgraphCount) {
+                [path insertObject:[NSNumber numberWithInteger:group] atIndex:0];
+                if (representative[group] < 0) {
+                    representative[group] = (NSInteger)i;
+                }
+                group = parentOf[group];
+            }
+            [paths addObject:path];
+        }
+        free(innermost);
+    }
+    // A link end: a node's index, or a subgraph's stand-in (cluster set to
+    // the subgraph, else -1); nil if it names neither or an empty subgraph.
+    NSNumber *(^endpoint)(NSString *, NSInteger *) = ^NSNumber *(NSString *identifier, NSInteger *cluster) {
+        *cluster = -1;
+        NSNumber *node = [indexOf objectForKey:identifier];
+        if (node != nil) {
+            return node;
+        }
+        NSNumber *group = [subgraphIndexOf objectForKey:identifier];
+        if (group == nil || representative[[group integerValue]] < 0) {
+            return nil;
+        }
+        *cluster = [group integerValue];
+        return [NSNumber numberWithInteger:representative[[group integerValue]]];
+    };
+
     // Links between distinct nodes, as index pairs.
     NSMutableArray *links = [NSMutableArray array];
     for (OMMermaidFlowEdge *edge in [flowchart edges]) {
-        NSNumber *from = [indexOf objectForKey:[edge fromIdentifier]];
-        NSNumber *to = [indexOf objectForKey:[edge toIdentifier]];
+        NSInteger fromCluster = -1;
+        NSInteger toCluster = -1;
+        NSNumber *from = endpoint([edge fromIdentifier], &fromCluster);
+        NSNumber *to = endpoint([edge toIdentifier], &toCluster);
         if (from != nil && to != nil && ![from isEqual:to]) {
             [links addObject:[NSArray arrayWithObjects:from, to, nil]];
         }
@@ -272,6 +405,7 @@ static NSPoint OMFlowBoundaryPoint(NSRect frame, OMMermaidFlowNodeShape shape, N
     NSMutableArray *chainReversed = [NSMutableArray array];
     NSMutableArray *labelNode = [NSMutableArray array];    // per edge: waypoint index carrying the label, or -1
     NSMutableArray *labelSizes = [NSMutableArray array];
+    NSMutableArray *edgeClusters = [NSMutableArray array];  // per edge: [from cluster, to cluster]
     for (OMMermaidFlowEdge *edge in [flowchart edges]) {
         NSSize labelSize = NSZeroSize;
         if ([edge label] != nil) {
@@ -280,8 +414,12 @@ static NSPoint OMFlowBoundaryPoint(NSRect frame, OMMermaidFlowNodeShape shape, N
             labelSize.height += 2.0 * OMFlowLabelPadding;
         }
         [labelSizes addObject:[NSValue valueWithSize:labelSize]];
-        NSNumber *fromNumber = [indexOf objectForKey:[edge fromIdentifier]];
-        NSNumber *toNumber = [indexOf objectForKey:[edge toIdentifier]];
+        NSInteger fromCluster = -1;
+        NSInteger toCluster = -1;
+        NSNumber *fromNumber = endpoint([edge fromIdentifier], &fromCluster);
+        NSNumber *toNumber = endpoint([edge toIdentifier], &toCluster);
+        [edgeClusters addObject:[NSArray arrayWithObjects:[NSNumber numberWithInteger:fromCluster],
+                                                          [NSNumber numberWithInteger:toCluster], nil]];
         if (fromNumber == nil || toNumber == nil || [fromNumber isEqual:toNumber]) {
             [chains addObject:[NSNull null]];
             [chainReversed addObject:[NSNumber numberWithBool:NO]];
@@ -296,10 +434,20 @@ static NSPoint OMFlowBoundaryPoint(NSRect frame, OMMermaidFlowNodeShape shape, N
         NSMutableArray *chain = [NSMutableArray arrayWithObject:[NSNumber numberWithUnsignedInteger:low]];
         NSUInteger r = rank[low] + 1;
         NSUInteger firstWaypoint = [sizeValues count];
+        // Waypoints belong to the subgraphs both ends share.
+        NSArray *lowPath = [paths objectAtIndex:low];
+        NSArray *highPath = [paths objectAtIndex:high];
+        NSUInteger shared = 0;
+        while (shared < [lowPath count] && shared < [highPath count] &&
+               [[lowPath objectAtIndex:shared] isEqual:[highPath objectAtIndex:shared]]) {
+            shared += 1;
+        }
+        NSArray *waypointPath = [lowPath subarrayWithRange:NSMakeRange(0, shared)];
         for (; r < rank[high]; r++) {
             [chain addObject:[NSNumber numberWithUnsignedInteger:[sizeValues count]]];
             [rankOf addObject:[NSNumber numberWithUnsignedInteger:r]];
             [sizeValues addObject:[NSValue valueWithSize:NSMakeSize(6.0, 6.0)]];
+            [paths addObject:waypointPath];
         }
         [chain addObject:[NSNumber numberWithUnsignedInteger:high]];
         NSInteger carrier = -1;
@@ -333,9 +481,30 @@ static NSPoint OMFlowBoundaryPoint(NSRect frame, OMMermaidFlowNodeShape shape, N
     // Along the flow ("main") and across it ("cross").
     CGFloat (^mainSize)(NSUInteger) = ^CGFloat(NSUInteger n) { return vertical ? sizes[n].height : sizes[n].width; };
     CGFloat (^crossSize)(NSUInteger) = ^CGFloat(NSUInteger n) { return vertical ? sizes[n].width : sizes[n].height; };
+    // Subgraph titles, as tall as the tallest.
+    CGFloat titleHeight = 0.0;
+    for (OMMermaidFlowSubgraph *subgraph in subgraphs) {
+        titleHeight = MAX(titleHeight, [measurer mermaidFlowSizeForEdgeLabel:OMMermaidFlowDisplayText([subgraph title])].height);
+    }
+    titleHeight = ceil(titleHeight) + 4.0;
+    // The subgraph frames between a and b, side by side across the flow
+    // (b after a); titles sit on the top edge.
+    CGFloat (^groupGap)(NSUInteger, NSUInteger) = ^CGFloat(NSUInteger a, NSUInteger b) {
+        NSArray *pathA = [paths objectAtIndex:a];
+        NSArray *pathB = [paths objectAtIndex:b];
+        NSUInteger shared = 0;
+        while (shared < [pathA count] && shared < [pathB count] &&
+               [[pathA objectAtIndex:shared] isEqual:[pathB objectAtIndex:shared]]) {
+            shared += 1;
+        }
+        CGFloat closing = (CGFloat)([pathA count] - shared);
+        CGFloat opening = (CGFloat)([pathB count] - shared);
+        return (closing + opening) * OMFlowGroupPadding + (vertical ? 0.0 : opening * titleHeight);
+    };
     CGFloat (^gapBetween)(NSUInteger, NSUInteger) = ^CGFloat(NSUInteger a, NSUInteger b) {
         // Waypoints sit closer to their neighbours than real nodes do.
-        return (a >= count || b >= count) ? OMFlowSiblingGap / 2.0 : OMFlowSiblingGap;
+        CGFloat gap = (a >= count || b >= count) ? OMFlowSiblingGap / 2.0 : OMFlowSiblingGap;
+        return gap + groupGap(a, b);
     };
 
     // Order within ranks: first mention, then barycentre sweeps.
@@ -381,7 +550,47 @@ static NSPoint OMFlowBoundaryPoint(NSRect frame, OMMermaidFlowNodeShape shape, N
                 }
                 [barycentres setObject:[NSNumber numberWithDouble:(neighbours > 0 ? sum / neighbours : position[node])] forKey:n];
             }
+            // Members of a subgraph stay together: compare by the mean of
+            // each group the two are in, outermost first, then by their own.
+            NSMutableDictionary *groupSums = [NSMutableDictionary dictionary];
+            for (NSNumber *n in row) {
+                for (NSNumber *group in [paths objectAtIndex:[n unsignedIntegerValue]]) {
+                    NSArray *sum = [groupSums objectForKey:group];
+                    double total = [[sum objectAtIndex:0] doubleValue] + [[barycentres objectForKey:n] doubleValue];
+                    NSUInteger members = [[sum objectAtIndex:1] unsignedIntegerValue] + 1;
+                    [groupSums setObject:[NSArray arrayWithObjects:[NSNumber numberWithDouble:total],
+                                                                   [NSNumber numberWithUnsignedInteger:members], nil]
+                                  forKey:group];
+                }
+            }
             [row sortWithOptions:NSSortStable usingComparator:^NSComparisonResult(id first, id second) {
+                NSArray *pathA = [paths objectAtIndex:[first unsignedIntegerValue]];
+                NSArray *pathB = [paths objectAtIndex:[second unsignedIntegerValue]];
+                NSUInteger level = 0;
+                for (; level < [pathA count] || level < [pathB count]; level++) {
+                    id groupA = level < [pathA count] ? [pathA objectAtIndex:level] : nil;
+                    id groupB = level < [pathB count] ? [pathB objectAtIndex:level] : nil;
+                    if (groupA != nil && [groupA isEqual:groupB]) {
+                        continue;
+                    }
+                    NSArray *sumA = groupA != nil ? [groupSums objectForKey:groupA] : nil;
+                    NSArray *sumB = groupB != nil ? [groupSums objectForKey:groupB] : nil;
+                    double meanA = sumA != nil ? [[sumA objectAtIndex:0] doubleValue] / [[sumA objectAtIndex:1] doubleValue]
+                                               : [[barycentres objectForKey:first] doubleValue];
+                    double meanB = sumB != nil ? [[sumB objectAtIndex:0] doubleValue] / [[sumB objectAtIndex:1] doubleValue]
+                                               : [[barycentres objectForKey:second] doubleValue];
+                    if (meanA < meanB) {
+                        return NSOrderedAscending;
+                    }
+                    if (meanA > meanB) {
+                        return NSOrderedDescending;
+                    }
+                    // Tied: a group before a lone node, then by group number.
+                    if (groupA != nil && groupB != nil) {
+                        return [groupA compare:groupB];
+                    }
+                    return groupA != nil ? NSOrderedAscending : NSOrderedDescending;
+                }
                 return [[barycentres objectForKey:first] compare:[barycentres objectForKey:second]];
             }];
             recordPositions();
@@ -408,6 +617,27 @@ static NSPoint OMFlowBoundaryPoint(NSRect frame, OMMermaidFlowNodeShape shape, N
         NSUInteger low = allRank[[[chain objectAtIndex:0] unsignedIntegerValue]];
         CGFloat need = (vertical ? labelSize.height : labelSize.width) + 16.0;
         gapAfter[low] = MAX(gapAfter[low], need);
+    }
+    // Room for subgraph frames between ranks, their titles on the top edge.
+    BOOL bottomUp = ([flowchart direction] == OMMermaidFlowDirectionBottomUp);
+    for (NSUInteger group = 0; group < subgraphCount; group++) {
+        NSUInteger first = NSNotFound;
+        NSUInteger last = 0;
+        for (i = 0; i < count; i++) {
+            if ([[paths objectAtIndex:i] containsObject:[NSNumber numberWithUnsignedInteger:group]]) {
+                first = MIN(first, rank[i]);
+                last = MAX(last, rank[i]);
+            }
+        }
+        if (first == NSNotFound) {
+            continue;
+        }
+        if (first > 0) {
+            gapAfter[first - 1] += OMFlowGroupPadding + ((vertical && !bottomUp) ? titleHeight : 0.0);
+        }
+        if (last + 1 < rankCount) {
+            gapAfter[last] += OMFlowGroupPadding + ((vertical && bottomUp) ? titleHeight : 0.0);
+        }
     }
     CGFloat *rankStart = (CGFloat *)calloc(rankCount, sizeof(CGFloat));
     CGFloat mainCursor = 0.0;
@@ -490,8 +720,43 @@ static NSPoint OMFlowBoundaryPoint(NSRect frame, OMMermaidFlowNodeShape shape, N
         frames[i] = NSMakeRect(x - sizes[i].width / 2.0, y - sizes[i].height / 2.0, sizes[i].width, sizes[i].height);
     }
 
+    // Subgraph frames, innermost first: around their nodes (and waypoints)
+    // and nested frames, with the title along the top.
+    NSRect *groupFrames = (NSRect *)calloc(subgraphCount + 1, sizeof(NSRect));
+    NSRect *titleFrames = (NSRect *)calloc(subgraphCount + 1, sizeof(NSRect));
+    NSInteger group = (NSInteger)subgraphCount - 1;
+    for (; group >= 0; group--) {
+        NSRect box = NSZeroRect;
+        for (i = 0; i < total; i++) {
+            NSArray *path = [paths objectAtIndex:i];
+            if ([path count] > 0 && [[path lastObject] integerValue] == group) {
+                box = NSIsEmptyRect(box) ? frames[i] : NSUnionRect(box, frames[i]);
+            }
+        }
+        NSUInteger child = 0;
+        for (; child < subgraphCount; child++) {
+            if (parentOf[child] == group && !NSIsEmptyRect(groupFrames[child])) {
+                box = NSIsEmptyRect(box) ? groupFrames[child] : NSUnionRect(box, groupFrames[child]);
+            }
+        }
+        if (NSIsEmptyRect(box)) {
+            continue;
+        }
+        NSSize titleSize = [measurer mermaidFlowSizeForEdgeLabel:OMMermaidFlowDisplayText([[subgraphs objectAtIndex:(NSUInteger)group] title])];
+        NSRect frame = NSInsetRect(box, -OMFlowGroupPadding, -OMFlowGroupPadding);
+        frame.origin.y -= titleHeight;
+        frame.size.height += titleHeight;
+        CGFloat needed = ceil(titleSize.width) + 2.0 * OMFlowGroupPadding;
+        if (NSWidth(frame) < needed) {
+            frame = NSInsetRect(frame, -(needed - NSWidth(frame)) / 2.0, 0.0);
+        }
+        groupFrames[group] = frame;
+        titleFrames[group] = NSMakeRect(NSMinX(frame) + OMFlowGroupPadding / 2.0, NSMinY(frame) + 3.0,
+                                        NSWidth(frame) - OMFlowGroupPadding, titleHeight);
+    }
+
     // Edge polylines: outline to outline through the waypoints' centres;
-    // self links loop out to the side.
+    // self links loop out to the side; a link to a subgraph stops at its frame.
     NSMutableArray *edgePoints = [NSMutableArray array];
     NSMutableArray *edgeLabels = [NSMutableArray array];
     edgeIndex = 0;
@@ -500,6 +765,7 @@ static NSPoint OMFlowBoundaryPoint(NSRect frame, OMMermaidFlowNodeShape shape, N
         NSSize labelSize = [[labelSizes objectAtIndex:edgeIndex] sizeValue];
         NSInteger carrier = [[labelNode objectAtIndex:edgeIndex] integerValue];
         BOOL backwards = [[chainReversed objectAtIndex:edgeIndex] boolValue];
+        NSArray *clusters = [edgeClusters objectAtIndex:edgeIndex];
         edgeIndex += 1;
         NSNumber *fromNumber = [indexOf objectForKey:[edge fromIdentifier]];
         NSArray *points = [NSArray array];
@@ -533,8 +799,18 @@ static NSPoint OMFlowBoundaryPoint(NSRect frame, OMMermaidFlowNodeShape shape, N
             if (backwards) {
                 path = [NSMutableArray arrayWithArray:[[path reverseObjectEnumerator] allObjects]];
             }
+            NSInteger fromCluster = [[clusters objectAtIndex:0] integerValue];
+            NSInteger toCluster = [[clusters objectAtIndex:1] integerValue];
+            if (toCluster >= 0) {
+                path = [NSMutableArray arrayWithArray:OMFlowPolylineClippedAtRect(path, groupFrames[toCluster], YES)];
+            }
+            if (fromCluster >= 0 && [path count] >= 2) {
+                path = [NSMutableArray arrayWithArray:OMFlowPolylineClippedAtRect(path, groupFrames[fromCluster], NO)];
+            }
             points = path;
-            if (carrier >= 0) {
+            if ([points count] < 2) {
+                points = [NSArray array];
+            } else if (carrier >= 0) {
                 NSRect f = frames[carrier];
                 labelCenter = NSMakePoint(NSMidX(f), NSMidY(f));
             } else {
@@ -575,6 +851,14 @@ static NSPoint OMFlowBoundaryPoint(NSRect frame, OMMermaidFlowNodeShape shape, N
         minX = MIN(minX, NSMinX(rect)); maxX = MAX(maxX, NSMaxX(rect));
         minY = MIN(minY, NSMinY(rect)); maxY = MAX(maxY, NSMaxY(rect));
     }
+    for (i = 0; i < subgraphCount; i++) {
+        NSRect rect = groupFrames[i];
+        if (NSIsEmptyRect(rect)) {
+            continue;
+        }
+        minX = MIN(minX, NSMinX(rect)); maxX = MAX(maxX, NSMaxX(rect));
+        minY = MIN(minY, NSMinY(rect)); maxY = MAX(maxY, NSMaxY(rect));
+    }
     CGFloat dx = OMFlowMargin - minX;
     CGFloat dy = OMFlowMargin - minY;
 
@@ -603,9 +887,20 @@ static NSPoint OMFlowBoundaryPoint(NSRect frame, OMMermaidFlowNodeShape shape, N
         }
     }
 
+    NSMutableArray *subgraphLayouts = [NSMutableArray array];
+    for (i = 0; i < subgraphCount; i++) {
+        if (NSIsEmptyRect(groupFrames[i])) {
+            continue;
+        }
+        [subgraphLayouts addObject:[[[OMMermaidFlowSubgraphLayout alloc] initWithSubgraph:[subgraphs objectAtIndex:i]
+                                                                                     frame:NSOffsetRect(groupFrames[i], dx, dy)
+                                                                                titleFrame:NSOffsetRect(titleFrames[i], dx, dy)] autorelease]];
+    }
+
     OMMermaidFlowchartLayout *layout = [[[self alloc] init] autorelease];
     layout->_nodeLayouts = [nodeLayouts copy];
     layout->_edgeLayouts = [edgeLayouts copy];
+    layout->_subgraphLayouts = [subgraphLayouts copy];
     layout->_size = NSMakeSize(ceil(maxX - minX + 2.0 * OMFlowMargin), ceil(maxY - minY + 2.0 * OMFlowMargin));
 
     free(rank);
@@ -617,6 +912,10 @@ static NSPoint OMFlowBoundaryPoint(NSRect frame, OMMermaidFlowNodeShape shape, N
     free(rankStart);
     free(crossCenter);
     free(frames);
+    free(groupFrames);
+    free(titleFrames);
+    free(parentOf);
+    free(representative);
     return layout;
 }
 
