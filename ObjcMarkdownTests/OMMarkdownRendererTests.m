@@ -542,6 +542,19 @@ static BOOL OMDMathToolchainAvailable(void)
     XCTAssertTrue([joined rangeOfString:@"Supercalifragilisticexpialidocious-and-then-some-more"].location != NSNotFound);
 }
 
+- (void)testWrappedTextTableFillsTheLineLikeAHeadingRule
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    [renderer setLayoutWidth:400.0];
+    NSString *markdown = @"| Name | Description |\n|---|---|\n"
+                         @"| Alpha | A long description that has to wrap inside its column to fit the table in the line |";
+    OMTextTable *table = [self textTableInRenderedString:[renderer attributedStringFromMarkdown:markdown] range:NULL];
+    XCTAssertNotNil(table);
+    CGFloat right = [[[table columnEdges] lastObject] doubleValue] + [table borderWidth];
+    XCTAssertTrue(right <= 400.0, @"the table must fit the line");
+    XCTAssertTrue(right >= 398.0, @"a wrapped table runs to the end of the line, as a heading rule does");
+}
+
 - (void)testPipeTableAllowsHorizontalOverflowInsteadOfStackedFallback
 {
     OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];

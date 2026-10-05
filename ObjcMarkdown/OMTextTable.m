@@ -76,6 +76,45 @@ static BOOL OMTextTableRowExtent(NSLayoutManager *layoutManager, NSRange glyphs,
     return found;
 }
 
+// The selection starts at a line's first glyph, which in a table is past
+// the first cell's padding; fill that padding too on each line of the row
+// whose first character is selected, so the selection has no gap.
+static void OMFillSelectedRowPadding(NSLayoutManager *layoutManager, NSRange rowGlyphs, CGFloat left, NSPoint origin)
+{
+    NSTextView *textView = [layoutManager firstTextView];
+    NSArray *selection = [textView selectedRanges];
+    if (textView == nil || [selection count] == 0) {
+        return;
+    }
+    NSColor *color = [[textView selectedTextAttributes] objectForKey:NSBackgroundColorAttributeName];
+    if (color == nil) {
+        color = [NSColor selectedTextBackgroundColor];
+    }
+    NSUInteger glyph = rowGlyphs.location;
+    while (glyph < NSMaxRange(rowGlyphs)) {
+        NSRange fragmentGlyphs;
+        NSRect fragment = [layoutManager lineFragmentRectForGlyphAtIndex:glyph effectiveRange:&fragmentGlyphs];
+        if (fragmentGlyphs.length == 0) {
+            break;
+        }
+        NSUInteger character = [layoutManager characterIndexForGlyphAtIndex:fragmentGlyphs.location];
+        BOOL selected = NO;
+        for (NSValue *range in selection) {
+            if (NSLocationInRange(character, [range rangeValue])) {
+                selected = YES;
+                break;
+            }
+        }
+        CGFloat textX = origin.x + NSMinX(fragment) + [layoutManager locationForGlyphAtIndex:fragmentGlyphs.location].x;
+        if (selected && textX > left) {
+            // A pixel into the selection, so their edges leave no seam.
+            [color set];
+            NSRectFill(NSMakeRect(left, origin.y + NSMinY(fragment), ceil(textX) + 1.0 - left, NSHeight(fragment)));
+        }
+        glyph = NSMaxRange(fragmentGlyphs);
+    }
+}
+
 static void OMDrawTextTables(NSLayoutManager *layoutManager, NSRange glyphRange, NSPoint origin, BOOL fills, BOOL rules)
 {
     NSTextStorage *storage = [layoutManager textStorage];
@@ -130,6 +169,9 @@ static void OMDrawTextTables(NSLayoutManager *layoutManager, NSRange glyphRange,
             if (fills && fill != nil) {
                 [fill set];
                 NSRectFill(NSMakeRect(left, minY, right - left, maxY - minY));
+            }
+            if (fills) {
+                OMFillSelectedRowPadding(layoutManager, rowGlyphs, left, origin);
             }
             if (rules) {
                 [[table borderColor] set];

@@ -1280,6 +1280,9 @@ static void OMRenderPipeTable(NSArray *rows,
     CGFloat textBorderWidth = 1.0;
     CGFloat textHorizontalPadding = 0.0;
     CGFloat textVerticalPadding = 0.0;
+    // Text fills the line, as far as a heading's rule; the drawn
+    // attachment below keeps a margin.
+    CGFloat textTableWidth = MAX(layoutWidth - indent, 120.0 * scale);
     if (!allowTableHorizontalOverflow &&
         OMPipeTableComputeLayout(visibleRows,
                                  attributedRows,
@@ -1288,7 +1291,7 @@ static void OMRenderPipeTable(NSArray *rows,
                                  tableFont,
                                  headerFont,
                                  scale,
-                                 maxTableWidth,
+                                 (layoutWidth > 0.0 ? textTableWidth : maxTableWidth),
                                  &textColumnWidths,
                                  NULL,
                                  &textBorderWidth,
