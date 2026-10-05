@@ -632,6 +632,26 @@ static NSDictionary *OMHeadingAttributes(OMTheme *theme, NSUInteger level, CGFlo
     return _size;
 }
 
+// Rules drawn alike are equal, so the viewer can tell an unchanged rule in
+// a new render from a changed one.
+- (BOOL)isEqual:(id)object
+{
+    if (object == self) {
+        return YES;
+    }
+    if (![object isKindOfClass:[OMRuleAttachmentCell class]]) {
+        return NO;
+    }
+    OMRuleAttachmentCell *other = (OMRuleAttachmentCell *)object;
+    return NSEqualSizes(_size, other->_size) && _thickness == other->_thickness &&
+           [_color isEqual:other->_color];
+}
+
+- (NSUInteger)hash
+{
+    return (NSUInteger)_size.width ^ ((NSUInteger)_size.height << 16) ^ [_color hash];
+}
+
 - (NSPoint)cellBaselineOffset
 {
     return NSZeroPoint;

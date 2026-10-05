@@ -35,6 +35,7 @@
 #import "OMDToolbarController.h"
 #import "OMDCopyButtonsController.h"
 #import "OMDRenderScheduler.h"
+#import "OMDPreviewTextUpdate.h"
 #import "OMDViewerDefaults.h"
 #import "OMDViewerImages.h"
 #import "OMDDocumentTabsController.h"
@@ -3997,8 +3998,10 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
                                                (unsigned long)[previewMarkdown length]]);
     NSTimeInterval markdownMs = perfLogging ? ((OMDNow() - markdownStart) * 1000.0) : 0.0;
     NSTimeInterval applyStart = perfLogging ? OMDNow() : 0.0;
+    // Only the part that changed is replaced, so the layout manager keeps
+    // the layout of the rest.
     _isProgrammaticPreviewUpdate = YES;
-    [[_textView textStorage] setAttributedString:rendered];
+    OMDApplyRenderedString([_textView textStorage], rendered);
     _isProgrammaticPreviewUpdate = NO;
     [self logPreviewStyleDiagnosticsForRenderedString:rendered];
     NSTimeInterval applyMs = perfLogging ? ((OMDNow() - applyStart) * 1000.0) : 0.0;

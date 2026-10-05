@@ -54,6 +54,15 @@ NSString * const OMRenderedObjectAttributeName = @"OMRenderedObject";
     return _kind == OMRenderedObjectKindInlineMath || _kind == OMRenderedObjectKindDisplayMath;
 }
 
+- (void)updateSourcePositionsFromObject:(OMRenderedObject *)object
+{
+    if (object == nil) {
+        return;
+    }
+    _sourceLineRange = [object sourceLineRange];
+    _sourceRange = [object sourceRange];
+}
+
 - (NSString *)kindDisplayName
 {
     switch (_kind) {

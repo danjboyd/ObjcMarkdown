@@ -45,4 +45,9 @@ FOUNDATION_EXPORT NSString * const OMRenderedObjectAttributeName;
 // "Equation", "Diagram", "Table" or "Image", for menu titles.
 - (NSString *)kindDisplayName;
 
+// Takes the source line range and source range of the same object in a
+// later render, after an edit above it moved it. For a viewer that keeps
+// the earlier render's text for what didn't change.
+- (void)updateSourcePositionsFromObject:(OMRenderedObject *)object;
+
 @end
