@@ -3,7 +3,6 @@
 
 #import "OMDCopyButtonsController.h"
 #import "OMDCodeCopyButton.h"
-#import "OMDCopyFeedbackBadgeView.h"
 #import "OMDTextView.h"
 #import "OMDViewerColors.h"
 #import "OMDViewerImages.h"
@@ -346,14 +345,21 @@ static const NSTimeInterval OMDCopyFeedbackDisplayInterval = 0.95;
         [_copyFeedbackButton setTitle:@""];
     }
 
-    NSString *feedbackText = @"Copied!";
-    NSFont *font = [NSFont boldSystemFontOfSize:11.0];
-    if (font == nil) {
-        font = [NSFont systemFontOfSize:11.0];
-    }
-    NSSize bubbleSize = [OMDCopyFeedbackBadgeView sizeForText:feedbackText font:font];
-    CGFloat bubbleWidth = bubbleSize.width;
-    CGFloat bubbleHeight = bubbleSize.height;
+    // A label in the theme's tooltip colours beside the button.
+    NSTextField *hud = [[NSTextField alloc] initWithFrame:NSZeroRect];
+    [hud setStringValue:@"Copied!"];
+    [hud setFont:[NSFont toolTipsFontOfSize:0.0]];
+    [hud setTextColor:[NSColor toolTipTextColor]];
+    [hud setBackgroundColor:[NSColor toolTipColor]];
+    [hud setDrawsBackground:YES];
+    [hud setBezeled:NO];
+    [hud setBordered:NO];
+    [hud setEditable:NO];
+    [hud setSelectable:NO];
+    [hud setAlignment:NSCenterTextAlignment];
+    [hud sizeToFit];
+    CGFloat bubbleWidth = ceil(NSWidth([hud frame]) + 12.0);
+    CGFloat bubbleHeight = ceil(NSHeight([hud frame]) + 4.0);
     NSRect buttonFrame = [_copyFeedbackButton frame];
     CGFloat x = NSMinX(buttonFrame) - bubbleWidth - 8.0;
     if (x < 4.0) {
@@ -376,9 +382,7 @@ static const NSTimeInterval OMDCopyFeedbackDisplayInterval = 0.95;
     }
 
     NSRect hudFrame = NSIntegralRect(NSMakeRect(x, y, bubbleWidth, bubbleHeight));
-    OMDCopyFeedbackBadgeView *hud = [[OMDCopyFeedbackBadgeView alloc] initWithFrame:hudFrame
-                                                                                text:feedbackText
-                                                                                font:font];
+    [hud setFrame:hudFrame];
     [textView addSubview:hud];
     _copyFeedbackHUDView = hud;
 

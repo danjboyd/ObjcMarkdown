@@ -12,7 +12,6 @@
 #import "OMDLineNumberRulerView.h"
 #import "OMDDocumentConverter.h"
 #import "OMDCodeCopyButton.h"
-#import "OMDCopyFeedbackBadgeView.h"
 #import "OMDControlSupport.h"
 #import "OMDFormattingBarController.h"
 #import "OMDPreviewSync.h"
