@@ -872,6 +872,36 @@ static BOOL OMDMathToolchainAvailable(void)
     [self removeFileIfPresent:path];
 }
 
+- (void)testLargePictureIsScaledOnceToItsDisplaySize
+{
+    NSString *path = [self writeTemporaryImageWithSize:NSMakeSize(400.0, 200.0)];
+    NSString *markdown = [NSString stringWithFormat:@"![big](%@)", path];
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    [renderer setLayoutWidth:124.0];
+
+    NSTextAttachment *attachment = [self firstAttachmentInRenderedString:[renderer attributedStringFromMarkdown:markdown]];
+    NSImage *image = [(NSCell *)[attachment attachmentCell] image];
+    XCTAssertNotNil(image);
+    XCTAssertEqualWithAccuracy([image size].width, 100.0, 0.01);
+    XCTAssertEqualWithAccuracy([image size].height, 50.0, 0.01);
+    // Its pixels are the picture's, at the display size.
+    NSBitmapImageRep *bitmap = nil;
+    for (NSImageRep *rep in [image representations]) {
+        if ([rep isKindOfClass:[NSBitmapImageRep class]]) {
+            bitmap = (NSBitmapImageRep *)rep;
+        }
+    }
+    XCTAssertNotNil(bitmap);
+    XCTAssertEqual([bitmap pixelsWide], (NSInteger)100);
+    XCTAssertEqual([bitmap pixelsHigh], (NSInteger)50);
+    NSColor *pixel = [[bitmap colorAtX:50 y:25] colorUsingColorSpaceName:NSCalibratedRGBColorSpace];
+    XCTAssertEqualWithAccuracy([pixel redComponent], 0.15, 0.02);
+    XCTAssertEqualWithAccuracy([pixel greenComponent], 0.45, 0.02);
+    XCTAssertEqualWithAccuracy([pixel blueComponent], 0.85, 0.02);
+    XCTAssertEqualWithAccuracy([pixel alphaComponent], 1.0, 0.01);
+    [self removeFileIfPresent:path];
+}
+
 - (void)testMathPolicyDisabledPreservesDollarSyntax
 {
     OMMarkdownParsingOptions *options = [OMMarkdownParsingOptions defaultOptions];

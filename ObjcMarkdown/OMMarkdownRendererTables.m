@@ -673,100 +673,6 @@ static BOOL OMPipeTableComputeLayout(NSArray *visibleRows,
     return YES;
 }
 
-static NSImage *OMPipeTableImageFromRows(NSArray *attributedRows,
-                                         NSArray *visibleRows,
-                                         NSArray *alignments,
-                                         NSFont *tableFont,
-                                         NSFont *headerFont,
-                                         NSColor *borderColor,
-                                         NSColor *headerBackgroundColor,
-                                         NSColor *bodyBackgroundColor,
-                                         CGFloat scale,
-                                         CGFloat maxWidth)
-{
-    if (attributedRows == nil || [attributedRows count] == 0 ||
-        alignments == nil || [alignments count] == 0) {
-        return nil;
-    }
-
-    NSUInteger rowCount = [attributedRows count];
-    NSUInteger columnCount = [alignments count];
-
-    NSMutableArray *columnWidths = nil;
-    NSMutableArray *rowHeights = nil;
-    CGFloat borderWidth = 0.0;
-    CGFloat horizontalPadding = 0.0;
-    CGFloat verticalPadding = 0.0;
-    CGFloat totalWidth = 0.0;
-    CGFloat totalHeight = 0.0;
-    if (!OMPipeTableComputeLayout(visibleRows,
-                                  attributedRows,
-                                  rowCount,
-                                  columnCount,
-                                  tableFont,
-                                  headerFont,
-                                  scale,
-                                  maxWidth,
-                                  &columnWidths,
-                                  &rowHeights,
-                                  &borderWidth,
-                                  &horizontalPadding,
-                                  &verticalPadding,
-                                  &totalWidth,
-                                  &totalHeight)) {
-        return nil;
-    }
-
-    NSImage *image = [[[NSImage alloc] initWithSize:NSMakeSize(totalWidth, totalHeight)] autorelease];
-    [image lockFocus];
-
-    NSColor *resolvedBorderColor = (borderColor != nil ? borderColor : [NSColor lightGrayColor]);
-    [resolvedBorderColor setFill];
-    NSRectFill(NSMakeRect(0.0, 0.0, totalWidth, totalHeight));
-
-    CGFloat y = totalHeight - borderWidth;
-    NSUInteger rowIndex = 0;
-    for (; rowIndex < rowCount; rowIndex++) {
-        CGFloat rowHeight = [[rowHeights objectAtIndex:rowIndex] doubleValue];
-        y -= rowHeight;
-
-        NSColor *rowBackground = (rowIndex == 0 ? headerBackgroundColor : bodyBackgroundColor);
-        if (rowBackground == nil) {
-            rowBackground = [NSColor whiteColor];
-        }
-
-        CGFloat x = borderWidth;
-        NSUInteger colIndex = 0;
-        for (; colIndex < columnCount; colIndex++) {
-            CGFloat contentWidth = [[columnWidths objectAtIndex:colIndex] doubleValue];
-            CGFloat cellWidth = contentWidth + (horizontalPadding * 2.0);
-            NSRect cellRect = NSMakeRect(x, y, cellWidth, rowHeight);
-            [rowBackground setFill];
-            NSRectFill(cellRect);
-
-            NSArray *rowSegments = [attributedRows objectAtIndex:rowIndex];
-            NSAttributedString *segment = (colIndex < [rowSegments count] ? [rowSegments objectAtIndex:colIndex] : nil);
-            if (segment != nil && [segment length] > 0) {
-                OMPipeTableAlignment alignment = (OMPipeTableAlignment)[[alignments objectAtIndex:colIndex] unsignedIntegerValue];
-                NSMutableAttributedString *drawSegment = OMPipeTableDrawableSegment(segment,
-                                                                                    alignment,
-                                                                                    NSLineBreakByWordWrapping);
-
-                NSRect textRect = NSInsetRect(cellRect, horizontalPadding, verticalPadding);
-                [drawSegment drawInRect:textRect];
-                OMDrawStrikethroughForAttributedString(drawSegment, textRect, NO);
-            }
-
-            x += cellWidth + borderWidth;
-        }
-
-        y -= borderWidth;
-    }
-
-    [image unlockFocus];
-    return image;
-}
-
 @interface OMPipeTableAttachmentCell : NSTextAttachmentCell
 {
     NSArray *_attributedRows;
@@ -999,25 +905,10 @@ static NSAttributedString *OMPipeTableAttachmentAttributedString(NSArray *attrib
                                                                                  horizontalPadding:horizontalPadding
                                                                                    verticalPadding:verticalPadding
                                                                                          tableSize:NSMakeSize(totalWidth, totalHeight)] autorelease];
-    if (cell != nil) {
-        [attachment setAttachmentCell:cell];
-    } else {
-        NSImage *tableImage = OMPipeTableImageFromRows(attributedRows,
-                                                       visibleRows,
-                                                       alignments,
-                                                       tableFont,
-                                                       headerFont,
-                                                       borderColor,
-                                                       headerBackgroundColor,
-                                                       bodyBackgroundColor,
-                                                       scale,
-                                                       maxWidth);
-        if (tableImage == nil) {
-            return nil;
-        }
-        NSTextAttachmentCell *imageCell = [[[NSTextAttachmentCell alloc] initImageCell:tableImage] autorelease];
-        [attachment setAttachmentCell:imageCell];
+    if (cell == nil) {
+        return nil;
     }
+    [attachment setAttachmentCell:cell];
 
     NSMutableDictionary *attachmentAttributes = [NSMutableDictionary dictionary];
     if (attributes != nil) {

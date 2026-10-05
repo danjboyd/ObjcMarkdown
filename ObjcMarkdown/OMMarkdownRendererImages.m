@@ -78,6 +78,128 @@ static NSString *OMImageAttachmentCacheKey(NSString *urlKey,
 
 @end
 
+// The bitmap behind image, if it is 8 bits per sample, meshed, in grey or
+// RGB with or without alpha: the formats pictures load as.
+static NSBitmapImageRep *OMEightBitBitmapForImage(NSImage *image)
+{
+    NSBitmapImageRep *bitmap = nil;
+    for (NSImageRep *rep in [image representations]) {
+        if ([rep isKindOfClass:[NSBitmapImageRep class]]) {
+            bitmap = (NSBitmapImageRep *)rep;
+            break;
+        }
+    }
+    if (bitmap == nil) {
+        NSData *tiff = [image TIFFRepresentation];
+        bitmap = (tiff != nil ? [NSBitmapImageRep imageRepWithData:tiff] : nil);
+    }
+    if (bitmap == nil || [bitmap bitsPerSample] != 8 || [bitmap isPlanar] ||
+        ([bitmap bitmapFormat] & NSFloatingPointSamplesBitmapFormat) != 0 ||
+        [bitmap bitmapData] == NULL) {
+        return nil;
+    }
+    NSInteger samples = [bitmap samplesPerPixel];
+    BOOL alpha = [bitmap hasAlpha];
+    if (samples != (alpha ? 2 : 1) && samples != (alpha ? 4 : 3)) {
+        return nil;
+    }
+    if ([bitmap bitsPerPixel] != samples * 8) {
+        return nil;
+    }
+    return bitmap;
+}
+
+// A copy of image scaled down to size points (one pixel each), averaging
+// the source pixels under each new one. Writes the pixels itself rather
+// than drawing, since an image drawn into with -lockFocus can come out
+// blank on some backends. Returns nil for a bitmap format it doesn't read.
+static NSImage *OMDownscaledImage(NSImage *image, NSSize size)
+{
+    NSBitmapImageRep *source = OMEightBitBitmapForImage(image);
+    NSInteger width = (NSInteger)ceil(size.width);
+    NSInteger height = (NSInteger)ceil(size.height);
+    if (source == nil || width < 1 || height < 1) {
+        return nil;
+    }
+    NSInteger sourceWidth = [source pixelsWide];
+    NSInteger sourceHeight = [source pixelsHigh];
+    if (sourceWidth < width || sourceHeight < height) {
+        return nil;
+    }
+
+    NSInteger samples = [source samplesPerPixel];
+    BOOL hasAlpha = [source hasAlpha];
+    BOOL grey = (samples <= 2);
+    NSBitmapFormat format = [source bitmapFormat];
+    BOOL alphaFirst = hasAlpha && (format & NSAlphaFirstBitmapFormat) != 0;
+    BOOL premultiplied = !hasAlpha || (format & NSAlphaNonpremultipliedBitmapFormat) == 0;
+    NSInteger colorOffset = alphaFirst ? 1 : 0;
+    NSInteger alphaOffset = alphaFirst ? 0 : samples - 1;
+    NSInteger sourceRowBytes = [source bytesPerRow];
+    const unsigned char *sourceData = [source bitmapData];
+
+    NSBitmapImageRep *scaled = [[[NSBitmapImageRep alloc] initWithBitmapDataPlanes:NULL
+                                                                        pixelsWide:width
+                                                                        pixelsHigh:height
+                                                                     bitsPerSample:8
+                                                                   samplesPerPixel:4
+                                                                          hasAlpha:YES
+                                                                          isPlanar:NO
+                                                                    colorSpaceName:NSCalibratedRGBColorSpace
+                                                                       bytesPerRow:width * 4
+                                                                      bitsPerPixel:32] autorelease];
+    unsigned char *scaledData = [scaled bitmapData];
+    if (scaled == nil || scaledData == NULL) {
+        return nil;
+    }
+
+    NSInteger y = 0;
+    for (; y < height; y++) {
+        NSInteger top = (y * sourceHeight) / height;
+        NSInteger bottom = MAX(top + 1, ((y + 1) * sourceHeight) / height);
+        NSInteger x = 0;
+        for (; x < width; x++) {
+            NSInteger left = (x * sourceWidth) / width;
+            NSInteger right = MAX(left + 1, ((x + 1) * sourceWidth) / width);
+            // Sums of premultiplied colour and of alpha.
+            unsigned long red = 0;
+            unsigned long green = 0;
+            unsigned long blue = 0;
+            unsigned long alpha = 0;
+            NSInteger row = top;
+            for (; row < bottom; row++) {
+                const unsigned char *pixel = sourceData + (row * sourceRowBytes) + (left * samples);
+                NSInteger column = left;
+                for (; column < right; column++, pixel += samples) {
+                    unsigned long a = hasAlpha ? pixel[alphaOffset] : 255;
+                    unsigned long r = pixel[colorOffset];
+                    unsigned long g = grey ? r : pixel[colorOffset + 1];
+                    unsigned long b = grey ? r : pixel[colorOffset + 2];
+                    if (!premultiplied) {
+                        r = (r * a + 127) / 255;
+                        g = (g * a + 127) / 255;
+                        b = (b * a + 127) / 255;
+                    }
+                    red += r;
+                    green += g;
+                    blue += b;
+                    alpha += a;
+                }
+            }
+            unsigned long count = (unsigned long)((bottom - top) * (right - left));
+            unsigned char *out = scaledData + (y * width * 4) + (x * 4);
+            out[0] = (unsigned char)((red + count / 2) / count);
+            out[1] = (unsigned char)((green + count / 2) / count);
+            out[2] = (unsigned char)((blue + count / 2) / count);
+            out[3] = (unsigned char)((alpha + count / 2) / count);
+        }
+    }
+
+    NSImage *result = [[[NSImage alloc] initWithSize:size] autorelease];
+    [result addRepresentation:scaled];
+    return result;
+}
+
 static NSImage *OMPreparedImageForAttachment(NSImage *image,
                                              CGFloat scale,
                                              CGFloat layoutWidth)
@@ -119,15 +241,10 @@ static NSImage *OMPreparedImageForAttachment(NSImage *image,
         }
     }
     if (pixelSize.width > ceil(preparedSize.width) || pixelSize.height > ceil(preparedSize.height)) {
-        NSImage *scaled = [[[NSImage alloc] initWithSize:preparedSize] autorelease];
-        [scaled lockFocus];
-        [[NSGraphicsContext currentContext] setImageInterpolation:NSImageInterpolationDefault];
-        [image drawInRect:NSMakeRect(0.0, 0.0, preparedSize.width, preparedSize.height)
-                 fromRect:NSZeroRect
-                operation:NSCompositeSourceOver
-                 fraction:1.0];
-        [scaled unlockFocus];
-        return scaled;
+        NSImage *scaled = OMDownscaledImage(image, preparedSize);
+        if (scaled != nil) {
+            return scaled;
+        }
     }
     if (!NSEqualSizes(preparedSize, imageSize)) {
         [preparedImage setScalesWhenResized:YES];
