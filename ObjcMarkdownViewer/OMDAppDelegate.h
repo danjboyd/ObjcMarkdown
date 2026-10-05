@@ -14,10 +14,10 @@ typedef unsigned short mode_t;
 @class OMDLineNumberRulerView;
 @class OMDFormattingBarView;
 @class GSVVimBindingController;
-@class OMDGitHubClient;
+@class OMDExplorerController;
 @class OMDOutlineController;
 
-@interface OMDAppDelegate : NSObject <NSApplicationDelegate, NSToolbarDelegate, NSWindowDelegate, NSTextViewDelegate, NSMenuValidation, NSSplitViewDelegate, NSTableViewDataSource, NSTableViewDelegate, NSComboBoxDelegate, NSControlTextEditingDelegate, OMDSourceTextViewVimEventHandling>
+@interface OMDAppDelegate : NSObject <NSApplicationDelegate, NSToolbarDelegate, NSWindowDelegate, NSTextViewDelegate, NSMenuValidation, NSSplitViewDelegate, NSControlTextEditingDelegate, OMDSourceTextViewVimEventHandling>
 {
     NSWindow *_window;
     NSSplitView *_workspaceSplitView;
@@ -47,33 +47,11 @@ typedef unsigned short mode_t;
     BOOL _currentDocumentReadOnly;
     NSMutableArray *_documentTabs;
     NSInteger _selectedDocumentTabIndex;
-    OMDGitHubClient *_gitHubClient;
+    OMDExplorerController *_explorerController;
     id _updaterController;
     NSMenu *_fileOpenRecentMenu;
     NSMenuItem *_viewShowExplorerMenuItem;
     NSMenuItem *_viewShowOutlineMenuItem;
-    NSControl *_explorerSourceModeControl;
-    NSTextField *_explorerLocalRootLabel;
-    NSTextField *_explorerGitHubUserLabel;
-    NSComboBox *_explorerGitHubUserComboBox;
-    NSComboBox *_explorerGitHubRepoComboBox;
-    NSButton *_explorerGitHubIncludeForkArchivedButton;
-    NSButton *_explorerShowHiddenFilesButton;
-    NSButton *_explorerNavigateUpButton;
-    NSTextField *_explorerPathLabel;
-    NSScrollView *_explorerScrollView;
-    NSTableView *_explorerTableView;
-    NSMutableArray *_explorerEntries;
-    NSArray *_explorerGitHubRepos;
-    NSString *_explorerLocalRootPath;
-    NSString *_explorerLocalCurrentPath;
-    NSString *_explorerGitHubUser;
-    NSString *_explorerGitHubRepo;
-    NSString *_explorerGitHubCurrentPath;
-    NSString *_explorerGitHubRepoCachePath;
-    NSInteger _explorerSourceMode;
-    NSUInteger _explorerRequestToken;
-    BOOL _explorerIsLoading;
     BOOL _explorerSidebarVisible;
     BOOL _outlineVisible;
     OMDOutlineController *_outlineController;
