@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #import <Foundation/Foundation.h>
+#import "OMMarkdownRenderer.h"
 
 // User defaults keys for the viewer's settings.
 extern NSString * const OMDSourceEditorFontNameDefaultsKey;
@@ -28,3 +29,20 @@ extern NSString * const OMDExplorerShowHiddenFilesDefaultsKey;
 extern NSString * const OMDExplorerSidebarVisibleDefaultsKey;
 extern NSString * const OMDOutlineVisibleDefaultsKey;
 extern NSString * const OMDExplorerGitHubTokenDefaultsKey;
+
+// How the editor and preview follow each other in Split mode.
+typedef NS_ENUM(NSInteger, OMDSplitSyncMode) {
+    OMDSplitSyncModeUnlinked = 0,
+    OMDSplitSyncModeLinkedScrolling = 1,
+    OMDSplitSyncModeCaretSelectionFollow = 2
+};
+
+// Range and default of the scroll speed setting.
+static const CGFloat OMDScrollSpeedMinimum = 10.0;
+static const CGFloat OMDScrollSpeedMaximum = 40.0;
+static const CGFloat OMDScrollSpeedDefault = 20.0;
+
+// Stored setting values, with anything unknown mapped to the default.
+OMMarkdownDiagramRenderingPolicy OMDDiagramRenderingPolicyFromInteger(NSInteger value);
+OMMarkdownMathRenderingPolicy OMDMathRenderingPolicyFromInteger(NSInteger value);
+OMDSplitSyncMode OMDSplitSyncModeFromInteger(NSInteger value);

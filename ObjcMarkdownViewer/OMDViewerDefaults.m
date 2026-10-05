@@ -27,3 +27,33 @@ NSString * const OMDExplorerShowHiddenFilesDefaultsKey = @"ObjcMarkdownExplorerS
 NSString * const OMDExplorerSidebarVisibleDefaultsKey = @"ObjcMarkdownExplorerSidebarVisible";
 NSString * const OMDOutlineVisibleDefaultsKey = @"ObjcMarkdownOutlineVisible";
 NSString * const OMDExplorerGitHubTokenDefaultsKey = @"ObjcMarkdownGitHubToken";
+
+OMMarkdownDiagramRenderingPolicy OMDDiagramRenderingPolicyFromInteger(NSInteger value)
+{
+    if (value == OMMarkdownDiagramRenderingPolicySourceCode) {
+        return OMMarkdownDiagramRenderingPolicySourceCode;
+    }
+    return OMMarkdownDiagramRenderingPolicyNative;
+}
+
+OMMarkdownMathRenderingPolicy OMDMathRenderingPolicyFromInteger(NSInteger value)
+{
+    if (value == OMMarkdownMathRenderingPolicyDisabled) {
+        return OMMarkdownMathRenderingPolicyDisabled;
+    }
+    if (value == OMMarkdownMathRenderingPolicyExternalTools) {
+        return OMMarkdownMathRenderingPolicyExternalTools;
+    }
+    return OMMarkdownMathRenderingPolicyStyledText;
+}
+
+OMDSplitSyncMode OMDSplitSyncModeFromInteger(NSInteger value)
+{
+    if (value == OMDSplitSyncModeUnlinked) {
+        return OMDSplitSyncModeUnlinked;
+    }
+    if (value == OMDSplitSyncModeCaretSelectionFollow) {
+        return OMDSplitSyncModeCaretSelectionFollow;
+    }
+    return OMDSplitSyncModeLinkedScrolling;
+}
