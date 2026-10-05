@@ -7171,6 +7171,10 @@ constrainSplitPosition:(CGFloat)proposedPosition
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
     NSDictionary *globalDomain = [defaults persistentDomainForName:NSGlobalDomain];
     id value = [globalDomain objectForKey:OMDThemeDefaultsKey];
+    // "GNUstep" is the built-in theme, which the menu lists as no theme.
+    if ([value isEqual:@"GNUstep"]) {
+        return nil;
+    }
     if ([value isKindOfClass:[NSString class]] && [(NSString *)value length] > 0) {
         return (NSString *)value;
     }
@@ -7200,13 +7204,12 @@ constrainSplitPosition:(CGFloat)proposedPosition
     // same global domain GNUstep's own preferences pane uses.
     [defaults removeObjectForKey:OMDThemeDefaultsKey];
 
+    // GNUstep's own theme is stored by name rather than by removing the
+    // key: at launch a missing GSTheme means "never chosen" and becomes
+    // Adwaita (OMDEnsureDefaultPreferences in main.m).
     if (themeName == nil || [themeName length] == 0) {
-        [globalDomain removeObjectForKey:OMDThemeDefaultsKey];
-        [defaults setPersistentDomain:globalDomain forName:NSGlobalDomain];
-        [defaults synchronize];
-        return;
+        themeName = @"GNUstep";
     }
-
     [globalDomain setObject:themeName forKey:OMDThemeDefaultsKey];
     [defaults setPersistentDomain:globalDomain forName:NSGlobalDomain];
     [defaults synchronize];
