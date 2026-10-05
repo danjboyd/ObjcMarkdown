@@ -6,6 +6,7 @@ Notable archived material here includes:
 
 - `Roadmap-internal.md`: the longer milestone-oriented working roadmap that previously lived in the repo root
 - dated milestone handoffs (`omd-milestone*.md`)
+- `handoff-2026-10-05.md`: state after the 2026-10-02 audit batch (issues #1-#31), remaining work, architecture and GNUstep notes
 - validation and parity checklists used during UI and renderer work
 
 The root of the repo is now reserved for user-facing docs such as:
