@@ -27,6 +27,10 @@
 #import "OMDToolbarViews.h"
 #import "OMDPreferencesPopup.h"
 #import "OMDWin11SplitView.h"
+#import "OMDTextFileSupport.h"
+#import "OMDExternalTools.h"
+#import "OMDLayoutMetrics.h"
+#import "OMDViewerDefaults.h"
 #import "GSVVimBindingController.h"
 #import "GSVVimConfigLoader.h"
 #import "GSOpenSave.h"
@@ -42,39 +46,6 @@
 #include <stdio.h>
 #endif
 #include <math.h>
-
-static BOOL OMDKeyLatencyProfilingEnabled(void)
-{
-    static NSInteger enabled = -1;
-    if (enabled < 0) {
-        NSString *value = [[[NSProcessInfo processInfo] environment] objectForKey:@"OMD_KEYLATENCY"];
-        enabled = ([value length] > 0 && ![value isEqualToString:@"0"]) ? 1 : 0;
-    }
-    return enabled == 1;
-}
-
-static NSTimeInterval OMDKeyLatencyNow(void)
-{
-    return [NSDate timeIntervalSinceReferenceDate];
-}
-
-static double OMDKeyLatencyThresholdMS(void)
-{
-    static double threshold = -1.0;
-    if (threshold < 0.0) {
-        NSString *value = [[[NSProcessInfo processInfo] environment] objectForKey:@"OMD_KEYLATENCY_THRESHOLD_MS"];
-        threshold = [value length] > 0 ? [value doubleValue] : 4.0;
-        if (threshold < 0.0) {
-            threshold = 0.0;
-        }
-    }
-    return threshold;
-}
-
-static double OMDKeyLatencyMS(NSTimeInterval start, NSTimeInterval end)
-{
-    return (end - start) * 1000.0;
-}
 
 @interface GPStandardUpdaterController : NSObject
 - (instancetype)initWithPackagedConfiguration:(NSError **)error;
@@ -101,19 +72,9 @@ static const NSTimeInterval OMDExternalFileMonitorInterval = 1.50;
 static const NSTimeInterval OMDCopyFeedbackDisplayInterval = 0.95;
 static const NSUInteger OMDSourceSyntaxIncrementalThreshold = 120000;
 static const NSUInteger OMDSourceSyntaxIncrementalContextChars = 12000;
-static const CGFloat OMDFormattingBarHeight = 32.0;
-static const CGFloat OMDFormattingBarInsetX = 8.0;
-static const CGFloat OMDFormattingBarControlHeight = 22.0;
-static const CGFloat OMDFormattingBarPopupWidth = 84.0;
-static const CGFloat OMDFormattingBarButtonWidth = 22.0;
-static const CGFloat OMDFormattingBarButtonWideWidth = 24.0;
-static const CGFloat OMDFormattingBarControlSpacing = 2.0;
-static const CGFloat OMDFormattingBarGroupSpacing = 6.0;
 static const CGFloat OMDSourceEditorDefaultFontSize = 13.0;
 static const CGFloat OMDSourceEditorMinFontSize = 9.0;
 static const CGFloat OMDSourceEditorMaxFontSize = 32.0;
-static const CGFloat OMDExplorerSidebarDefaultWidth = 300.0;
-static const CGFloat OMDTabStripHeight = 30.0;
 static const CGFloat OMDExplorerListDefaultFontSize = 14.0;
 static const CGFloat OMDExplorerListMinFontSize = 10.0;
 static const CGFloat OMDExplorerListMaxFontSize = 20.0;
@@ -124,7 +85,6 @@ static const CGFloat OMDToolbarIconInset = 2.0;
 static const CGFloat OMDToolbarModeControlsWidth = 356.0;
 static const CGFloat OMDToolbarZoomControlsWidth = 300.0;
 static const CGFloat OMDUsableWindowWidthPadding = 96.0;
-static const CGFloat OMDPreviewCanvasHorizontalMargin = 32.0;
 // The preview's text column: this many average characters of body text at
 // the current zoom, unless the preview is set to use the full width.
 static const CGFloat OMDPreviewReadableColumnCharacters = 80.0;
@@ -136,30 +96,6 @@ static const CGFloat OMDScrollSpeedDefault = 20.0;
 static const NSTimeInterval OMDGitLockRetryDelaySeconds = 0.20;
 static const NSTimeInterval OMDGitStaleLockMinimumAgeSeconds = 2.0;
 static NSString * const OMDTextFileErrorDomain = @"OMDTextFileErrorDomain";
-static NSString * const OMDSourceEditorFontNameDefaultsKey = @"ObjcMarkdownSourceEditorFontName";
-static NSString * const OMDSourceEditorFontSizeDefaultsKey = @"ObjcMarkdownSourceEditorFontSize";
-static NSString * const OMDMathRenderingPolicyDefaultsKey = @"ObjcMarkdownMathRenderingPolicy";
-static NSString * const OMDDiagramRenderingPolicyDefaultsKey = @"ObjcMarkdownDiagramRenderingPolicy";
-static NSString * const OMDAllowRemoteImagesDefaultsKey = @"ObjcMarkdownAllowRemoteImages";
-static NSString * const OMDSplitSyncModeDefaultsKey = @"ObjcMarkdownSplitSyncMode";
-static NSString * const OMDWordSelectionModifierShimDefaultsKey = @"ObjcMarkdownWordSelectionShimEnabled";
-static NSString * const OMDSourceSyntaxHighlightingDefaultsKey = @"ObjcMarkdownSourceSyntaxHighlightingEnabled";
-static NSString * const OMDSourceHighlightHighContrastDefaultsKey = @"ObjcMarkdownSourceHighlightHighContrastEnabled";
-static NSString * const OMDSourceHighlightAccentColorDefaultsKey = @"ObjcMarkdownSourceHighlightAccentColor";
-static NSString * const OMDSourceVimKeyBindingsDefaultsKey = @"ObjcMarkdownSourceVimKeyBindingsEnabled";
-static NSString * const OMDRendererSyntaxHighlightingDefaultsKey = @"ObjcMarkdownRendererSyntaxHighlightingEnabled";
-static NSString * const OMDShowFormattingBarDefaultsKey = @"ObjcMarkdownShowFormattingBar";
-static NSString * const OMDPreviewFullWidthDefaultsKey = @"ObjcMarkdownPreviewFullWidth";
-static NSString * const OMDLayoutDensityDefaultsKey = @"ObjcMarkdownLayoutDensityMode";
-static NSString * const OMDScrollSpeedDefaultsKey = @"ObjcMarkdownScrollSpeed";
-static NSString * const OMDExplorerLocalRootPathDefaultsKey = @"ObjcMarkdownExplorerLocalRootPath";
-static NSString * const OMDExplorerMaxFileSizeMBDefaultsKey = @"ObjcMarkdownExplorerMaxFileSizeMB";
-static NSString * const OMDExplorerListFontSizeDefaultsKey = @"ObjcMarkdownExplorerListFontSize";
-static NSString * const OMDExplorerIncludeForkArchivedDefaultsKey = @"ObjcMarkdownExplorerIncludeForkArchived";
-static NSString * const OMDExplorerShowHiddenFilesDefaultsKey = @"ObjcMarkdownExplorerShowHiddenFiles";
-static NSString * const OMDExplorerSidebarVisibleDefaultsKey = @"ObjcMarkdownExplorerSidebarVisible";
-static NSString * const OMDOutlineVisibleDefaultsKey = @"ObjcMarkdownOutlineVisible";
-static NSString * const OMDExplorerGitHubTokenDefaultsKey = @"ObjcMarkdownGitHubToken";
 static NSString * const OMDGitHubCacheErrorDomain = @"OMDGitHubCacheErrorDomain";
 
 static NSUInteger OMDCountAttachmentsInAttributedString(NSAttributedString *attributedString)
@@ -188,39 +124,6 @@ static NSUInteger OMDCountAttachmentsInAttributedString(NSAttributedString *attr
 
     return count;
 }
-
-#if defined(_WIN32)
-static NSString *OMDWindowsInstallRoot(void)
-{
-    NSString *executablePath = [[NSBundle mainBundle] executablePath];
-    if (executablePath == nil || [executablePath length] == 0) {
-        return nil;
-    }
-
-    return [[[executablePath stringByDeletingLastPathComponent]
-        stringByDeletingLastPathComponent] stringByDeletingLastPathComponent];
-}
-
-static BOOL OMDWindowsBundledExecutableExists(NSString *relativePath)
-{
-    NSString *installRoot = OMDWindowsInstallRoot();
-    if (installRoot == nil || [installRoot length] == 0 ||
-        relativePath == nil || [relativePath length] == 0) {
-        return NO;
-    }
-
-    NSString *candidate = [installRoot stringByAppendingPathComponent:relativePath];
-    return [[NSFileManager defaultManager] isExecutableFileAtPath:candidate];
-}
-
-static BOOL OMDWindowsBundledExternalMathToolchainAvailable(void)
-{
-    return (OMDWindowsBundledExecutableExists(@"runtime\\texlive\\TinyTeX\\bin\\windows\\latex.exe") ||
-            OMDWindowsBundledExecutableExists(@"clang64\\texlive\\TinyTeX\\bin\\windows\\latex.exe")) &&
-           (OMDWindowsBundledExecutableExists(@"runtime\\texlive\\TinyTeX\\bin\\windows\\dvipng.exe") ||
-            OMDWindowsBundledExecutableExists(@"clang64\\texlive\\TinyTeX\\bin\\windows\\dvipng.exe"));
-}
-#endif
 
 static void OMDApplyWindowsMenuToWindow(NSWindow *window)
 {
@@ -369,165 +272,6 @@ static NSString * const OMDTabSuppressedImageFingerprintsKey = @"suppressedImage
 static NSString * const OMDTabImageMarkdownKey = @"imageMarkdown";
 static NSString * const OMDTabImageSourcePathKey = @"imageSourcePath";
 
-static NSString *OMDTrimmedString(NSString *value);
-
-#if defined(_WIN32)
-static NSString *OMDHTMLEscapedString(NSString *value);
-#endif
-
-static NSArray *OMDExecutableCandidateNames(NSString *name)
-{
-    if (name == nil || [name length] == 0) {
-        return [NSArray array];
-    }
-#if defined(_WIN32)
-    return [NSArray arrayWithObjects:name,
-                                      [name stringByAppendingString:@".exe"],
-                                      [name stringByAppendingString:@".cmd"],
-                                      [name stringByAppendingString:@".bat"],
-                                      nil];
-#else
-    return [NSArray arrayWithObject:name];
-#endif
-}
-
-static NSArray *OMDExecutableSearchDirectories(void)
-{
-    NSMutableArray *directories = [NSMutableArray array];
-    NSDictionary *environment = [[NSProcessInfo processInfo] environment];
-    NSString *pathValue = [environment objectForKey:@"PATH"];
-    if (pathValue != nil && [pathValue length] > 0) {
-#if defined(_WIN32)
-        NSArray *searchPaths = [pathValue componentsSeparatedByString:@";"];
-#else
-        NSArray *searchPaths = [pathValue componentsSeparatedByString:@":"];
-#endif
-        for (NSString *searchPath in searchPaths) {
-            if (searchPath != nil && [searchPath length] > 0) {
-                [directories addObject:searchPath];
-            }
-        }
-    }
-
-#if defined(_WIN32)
-    [directories addObjectsFromArray:@[
-        @"C:/msys64/usr/bin",
-        @"C:/msys64/clang64/bin",
-        @"C:/clang64/bin"
-    ]];
-#else
-    [directories addObject:@"/usr/bin"];
-#endif
-
-    return directories;
-}
-
-static NSString *OMDExecutablePathNamed(NSString *name)
-{
-    if (name == nil || [name length] == 0) {
-        return nil;
-    }
-
-    NSFileManager *fileManager = [NSFileManager defaultManager];
-    NSArray *candidateNames = OMDExecutableCandidateNames(name);
-    NSArray *searchPaths = OMDExecutableSearchDirectories();
-    for (NSString *searchPath in searchPaths) {
-        if (searchPath == nil || [searchPath length] == 0) {
-            continue;
-        }
-        for (NSString *candidateName in candidateNames) {
-            NSString *candidate = [searchPath stringByAppendingPathComponent:candidateName];
-            if ([fileManager isExecutableFileAtPath:candidate]) {
-                return candidate;
-            }
-        }
-    }
-
-    return nil;
-}
-
-static BOOL OMDLooksLikeWindowsAbsolutePath(NSString *path)
-{
-#if defined(_WIN32)
-    if (path == nil || [path length] < 2) {
-        return NO;
-    }
-
-    unichar first = [path characterAtIndex:0];
-    unichar second = [path characterAtIndex:1];
-    if (((first >= 'A' && first <= 'Z') || (first >= 'a' && first <= 'z')) &&
-        second == ':') {
-        return YES;
-    }
-
-    if ([path hasPrefix:@"\\\\"] || [path hasPrefix:@"//"]) {
-        return YES;
-    }
-#else
-    (void)path;
-#endif
-    return NO;
-}
-
-static NSString *OMDNormalizedExternalLocalPath(NSString *path)
-{
-    NSString *trimmed = OMDTrimmedString(path);
-    if ([trimmed length] == 0) {
-        return nil;
-    }
-
-    if ([trimmed hasPrefix:@"file://"]) {
-        NSURL *url = [NSURL URLWithString:trimmed];
-        if (url != nil && [url isFileURL]) {
-            NSString *urlPath = [url path];
-            if ([urlPath length] > 0) {
-                trimmed = urlPath;
-            }
-        }
-    }
-
-#if defined(_WIN32)
-    if ([trimmed rangeOfString:@"\\"].location != NSNotFound) {
-        trimmed = [trimmed stringByReplacingOccurrencesOfString:@"\\" withString:@"/"];
-    }
-#endif
-
-    return trimmed;
-}
-
-#if defined(_WIN32)
-static NSString *OMDHTMLEscapedString(NSString *value)
-{
-    if (value == nil) {
-        return @"";
-    }
-
-    NSString *escaped = [value stringByReplacingOccurrencesOfString:@"&" withString:@"&amp;"];
-    escaped = [escaped stringByReplacingOccurrencesOfString:@"<" withString:@"&lt;"];
-    escaped = [escaped stringByReplacingOccurrencesOfString:@">" withString:@"&gt;"];
-    escaped = [escaped stringByReplacingOccurrencesOfString:@"\"" withString:@"&quot;"];
-    return escaped;
-}
-#endif
-
-static BOOL OMDPreviewStyleDiagnosticsEnabled(void)
-{
-    NSDictionary *environment = [[NSProcessInfo processInfo] environment];
-    NSString *flag = [environment objectForKey:@"OMD_LOG_PREVIEW_STYLE_ATTRS"];
-    if (flag == nil || [flag length] == 0) {
-        flag = [environment objectForKey:@"OBJCMARKDOWN_LOG_PREVIEW_STYLE_ATTRS"];
-    }
-    if (flag == nil || [flag length] == 0) {
-        return [[NSUserDefaults standardUserDefaults] boolForKey:@"ObjcMarkdownLogPreviewStyleAttrs"];
-    }
-
-    NSString *lower = [[flag stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] lowercaseString];
-    return [lower isEqualToString:@"1"] ||
-           [lower isEqualToString:@"true"] ||
-           [lower isEqualToString:@"yes"] ||
-           [lower isEqualToString:@"on"];
-}
-
 typedef NS_ENUM(NSInteger, OMDSplitSyncMode) {
     OMDSplitSyncModeUnlinked = 0,
     OMDSplitSyncModeLinkedScrolling = 1,
@@ -537,12 +281,6 @@ typedef NS_ENUM(NSInteger, OMDSplitSyncMode) {
 typedef NS_ENUM(NSInteger, OMDExplorerSourceMode) {
     OMDExplorerSourceModeLocal = 0,
     OMDExplorerSourceModeGitHub = 1
-};
-
-typedef NS_ENUM(NSInteger, OMDLayoutDensityMode) {
-    OMDLayoutDensityModeCompact = 0,
-    OMDLayoutDensityModeBalanced = 1,
-    OMDLayoutDensityModeAdwaita = 2
 };
 
 typedef NS_ENUM(NSInteger, OMDPreferencesSection) {
@@ -579,48 +317,6 @@ typedef NS_ENUM(NSInteger, OMDLinkedScrollDriver) {
     OMDLinkedScrollDriverPreview = 2
 };
 
-typedef struct {
-    CGFloat scale;
-    CGFloat sidebarDefaultWidth;
-    CGFloat previewCanvasMargin;
-    CGFloat previewTextInsetX;
-    CGFloat previewTextInsetY;
-    CGFloat sourceTextInsetX;
-    CGFloat sourceTextInsetY;
-    CGFloat tabStripHeight;
-    CGFloat explorerTopPadding;
-    CGFloat explorerSidePadding;
-    CGFloat explorerControlHeight;
-    CGFloat explorerMinorControlHeight;
-    CGFloat explorerRowPadding;
-    CGFloat formattingBarHeight;
-    CGFloat formattingBarInsetX;
-    CGFloat formattingBarControlHeight;
-    CGFloat formattingBarPopupWidth;
-    CGFloat formattingBarButtonWidth;
-    CGFloat formattingBarButtonWideWidth;
-    CGFloat formattingBarControlSpacing;
-    CGFloat formattingBarGroupSpacing;
-    CGFloat formattingBarFontSize;
-    CGFloat preferencesWindowWidth;
-    CGFloat preferencesWindowMinHeight;
-    CGFloat preferencesOuterPadding;
-    CGFloat preferencesColumnGap;
-    CGFloat preferencesCardCornerRadius;
-    CGFloat preferencesCardPadding;
-    CGFloat preferencesRowGap;
-    CGFloat preferencesNoteHeight;
-    CGFloat preferencesLabelWidth;
-    CGFloat preferencesControlHeight;
-    CGFloat preferencesSmallFieldWidth;
-    CGFloat preferencesSmallButtonWidth;
-    CGFloat preferencesAppearanceCardHeight;
-    CGFloat preferencesExplorerCardHeight;
-    CGFloat preferencesPreviewCardHeight;
-    CGFloat preferencesRenderingCardHeight;
-    CGFloat preferencesEditingCardHeight;
-} OMDLayoutMetrics;
-
 #ifndef NSAlertFirstButtonReturn
 #define NSAlertFirstButtonReturn NSAlertDefaultReturn
 #endif
@@ -633,122 +329,6 @@ typedef struct {
 #ifndef NSModalResponseCancel
 #define NSModalResponseCancel (-1000)
 #endif
-
-static id OMDInfoValueForKey(NSString *key)
-{
-    if (key == nil || [key length] == 0) {
-        return nil;
-    }
-
-    NSBundle *bundle = [NSBundle mainBundle];
-    id value = [bundle objectForInfoDictionaryKey:key];
-    if (value != nil) {
-        return value;
-    }
-
-    NSDictionary *info = [bundle infoDictionary];
-    return [info objectForKey:key];
-}
-
-static NSString *OMDInfoStringForKey(NSString *key)
-{
-    id value = OMDInfoValueForKey(key);
-    return [value isKindOfClass:[NSString class]] ? (NSString *)value : nil;
-}
-
-static NSTimeInterval OMDNow(void)
-{
-    return [NSDate timeIntervalSinceReferenceDate];
-}
-
-static BOOL OMDTruthyFlagValue(NSString *value)
-{
-    if (value == nil) {
-        return NO;
-    }
-    NSString *lower = [[value stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] lowercaseString];
-    return [lower isEqualToString:@"1"] ||
-           [lower isEqualToString:@"true"] ||
-           [lower isEqualToString:@"yes"] ||
-           [lower isEqualToString:@"on"];
-}
-
-static BOOL OMDPerformanceLoggingEnabled(void)
-{
-    static BOOL resolved = NO;
-    static BOOL enabled = NO;
-    if (!resolved) {
-        NSDictionary *environment = [[NSProcessInfo processInfo] environment];
-        NSString *flag = [environment objectForKey:@"OMD_PERF_LOG"];
-        if (flag == nil || [flag length] == 0) {
-            flag = [environment objectForKey:@"OBJCMARKDOWN_PERF_LOG"];
-        }
-        if (flag != nil && [flag length] > 0) {
-            enabled = OMDTruthyFlagValue(flag);
-        } else {
-            enabled = [[NSUserDefaults standardUserDefaults] boolForKey:@"ObjcMarkdownPerfLog"];
-        }
-        resolved = YES;
-    }
-    return enabled;
-}
-
-static BOOL OMDPrintDiagnosticsEnabled(void)
-{
-    static BOOL resolved = NO;
-    static BOOL enabled = NO;
-    if (!resolved) {
-        NSDictionary *environment = [[NSProcessInfo processInfo] environment];
-        NSString *flag = [environment objectForKey:@"OMD_PRINT_DIAGNOSTICS"];
-        if (flag == nil || [flag length] == 0) {
-            flag = [environment objectForKey:@"OBJCMARKDOWN_PRINT_DIAGNOSTICS"];
-        }
-        if (flag != nil && [flag length] > 0) {
-            enabled = OMDTruthyFlagValue(flag);
-        } else {
-            enabled = [[NSUserDefaults standardUserDefaults] boolForKey:@"ObjcMarkdownPrintDiagnostics"];
-        }
-        resolved = YES;
-    }
-    return enabled;
-}
-
-static BOOL OMDLaunchPrintAutomationEnabled(void)
-{
-    static BOOL resolved = NO;
-    static BOOL enabled = NO;
-    if (!resolved) {
-        NSDictionary *environment = [[NSProcessInfo processInfo] environment];
-        NSString *flag = [environment objectForKey:@"OMD_AUTOMATION_PRINT_ON_LAUNCH"];
-        if (flag == nil || [flag length] == 0) {
-            flag = [environment objectForKey:@"OBJCMARKDOWN_AUTOMATION_PRINT_ON_LAUNCH"];
-        }
-        enabled = OMDTruthyFlagValue(flag);
-        resolved = YES;
-    }
-    return enabled;
-}
-
-static NSString *OMDLaunchPDFExportAutomationPath(void)
-{
-    NSDictionary *environment = [[NSProcessInfo processInfo] environment];
-    NSString *path = [environment objectForKey:@"OMD_AUTOMATION_EXPORT_PDF_PATH"];
-    if (path == nil || [path length] == 0) {
-        path = [environment objectForKey:@"OBJCMARKDOWN_AUTOMATION_EXPORT_PDF_PATH"];
-    }
-    if (path == nil || [path length] == 0) {
-        return nil;
-    }
-    return [[path stringByExpandingTildeInPath] stringByStandardizingPath];
-}
-
-static void OMDLogPrintDiagnostics(NSString *message)
-{
-    if (!OMDPrintDiagnosticsEnabled() || message == nil || [message length] == 0) {
-        return;
-    }
-    NSLog(@"OMDPrint: %@", message);
-}
 
 static NSString *OMDCUPSDefaultPrinterName(void)
 {
@@ -856,64 +436,6 @@ static void OMDDisableSelectableTextFieldsInView(NSView *view)
     }
 }
 
-static BOOL OMDOpenURLUsingXDGOpen(NSURL *url)
-{
-#if defined(__APPLE__)
-    (void)url;
-    return NO;
-#else
-    if (url == nil) {
-        return NO;
-    }
-
-    NSString *xdgOpenPath = @"/usr/bin/xdg-open";
-    if (![[NSFileManager defaultManager] isExecutableFileAtPath:xdgOpenPath]) {
-        return NO;
-    }
-
-    NSString *urlString = [url absoluteString];
-    if (urlString == nil || [urlString length] == 0) {
-        return NO;
-    }
-
-    NSTask *task = [[[NSTask alloc] init] autorelease];
-    [task setLaunchPath:xdgOpenPath];
-    [task setArguments:[NSArray arrayWithObject:urlString]];
-
-    BOOL launched = YES;
-    @try {
-        [task launch];
-        [task waitUntilExit];
-    } @catch (NSException *exception) {
-        launched = NO;
-    }
-
-    return launched && [task terminationStatus] == 0;
-#endif
-}
-
-static NSSet *OMDAllowedLinkSchemes(void)
-{
-    static NSSet *schemes = nil;
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        schemes = [[NSSet alloc] initWithObjects:@"file", @"http", @"https", @"mailto", nil];
-    });
-    return schemes;
-}
-
-static BOOL OMDShouldOpenURLForUserNavigation(NSURL *url)
-{
-    if (url == nil) {
-        return NO;
-    }
-    NSString *scheme = [[url scheme] lowercaseString];
-    if (scheme == nil || [scheme length] == 0) {
-        return NO;
-    }
-    return [OMDAllowedLinkSchemes() containsObject:scheme];
-}
-
 static OMDViewerMode OMDViewerModeFromInteger(NSInteger value)
 {
     if (value == OMDViewerModeEdit) {
@@ -966,17 +488,6 @@ static OMDSplitSyncMode OMDSplitSyncModeFromInteger(NSInteger value)
     return OMDSplitSyncModeLinkedScrolling;
 }
 
-static OMDLayoutDensityMode OMDClampedLayoutDensityMode(NSInteger rawValue)
-{
-    if (rawValue == OMDLayoutDensityModeCompact) {
-        return OMDLayoutDensityModeCompact;
-    }
-    if (rawValue == OMDLayoutDensityModeAdwaita) {
-        return OMDLayoutDensityModeAdwaita;
-    }
-    return OMDLayoutDensityModeBalanced;
-}
-
 static CGFloat OMDClampedScrollSpeed(CGFloat value)
 {
     if (value < OMDScrollSpeedMinimum) {
@@ -1000,132 +511,6 @@ static OMDPreferencesSection OMDClampedPreferencesSection(NSInteger rawValue)
         return OMDPreferencesSectionEditor;
     }
     return OMDPreferencesSectionAppearance;
-}
-
-static BOOL OMDDefaultFormattingBarEnabledForMode(OMDLayoutDensityMode mode)
-{
-    return mode != OMDLayoutDensityModeAdwaita;
-}
-
-static OMDLayoutMetrics OMDLayoutMetricsForMode(OMDLayoutDensityMode mode)
-{
-    OMDLayoutMetrics metrics;
-    metrics.scale = 1.0;
-    metrics.sidebarDefaultWidth = OMDExplorerSidebarDefaultWidth;
-    metrics.previewCanvasMargin = OMDPreviewCanvasHorizontalMargin;
-    metrics.previewTextInsetX = 20.0;
-    metrics.previewTextInsetY = 16.0;
-    metrics.sourceTextInsetX = 20.0;
-    metrics.sourceTextInsetY = 16.0;
-    metrics.tabStripHeight = OMDTabStripHeight;
-    metrics.explorerTopPadding = 14.0;
-    metrics.explorerSidePadding = 10.0;
-    metrics.explorerControlHeight = 24.0;
-    metrics.explorerMinorControlHeight = 20.0;
-    metrics.explorerRowPadding = 8.0;
-    metrics.formattingBarHeight = OMDFormattingBarHeight;
-    metrics.formattingBarInsetX = OMDFormattingBarInsetX;
-    metrics.formattingBarControlHeight = OMDFormattingBarControlHeight;
-    metrics.formattingBarPopupWidth = OMDFormattingBarPopupWidth + 4.0;
-    metrics.formattingBarButtonWidth = OMDFormattingBarButtonWidth + 2.0;
-    metrics.formattingBarButtonWideWidth = OMDFormattingBarButtonWideWidth + 2.0;
-    metrics.formattingBarControlSpacing = OMDFormattingBarControlSpacing + 1.0;
-    metrics.formattingBarGroupSpacing = OMDFormattingBarGroupSpacing + 2.0;
-    metrics.formattingBarFontSize = 11.0;
-    metrics.preferencesWindowWidth = 820.0;
-    metrics.preferencesWindowMinHeight = 380.0;
-    metrics.preferencesOuterPadding = 20.0;
-    metrics.preferencesColumnGap = 16.0;
-    metrics.preferencesCardCornerRadius = 12.0;
-    metrics.preferencesCardPadding = 18.0;
-    metrics.preferencesRowGap = 12.0;
-    metrics.preferencesNoteHeight = 30.0;
-    metrics.preferencesLabelWidth = 120.0;
-    metrics.preferencesControlHeight = 28.0;
-    metrics.preferencesSmallFieldWidth = 56.0;
-    metrics.preferencesSmallButtonWidth = 80.0;
-    metrics.preferencesAppearanceCardHeight = 236.0;
-    metrics.preferencesExplorerCardHeight = 258.0;
-    metrics.preferencesPreviewCardHeight = 132.0;
-    metrics.preferencesRenderingCardHeight = 236.0;
-    metrics.preferencesEditingCardHeight = 402.0;
-
-    if (mode == OMDLayoutDensityModeCompact) {
-        metrics.scale = 0.92;
-        metrics.sidebarDefaultWidth = 286.0;
-        metrics.previewCanvasMargin = 28.0;
-        metrics.previewTextInsetX = 18.0;
-        metrics.previewTextInsetY = 14.0;
-        metrics.sourceTextInsetX = 18.0;
-        metrics.sourceTextInsetY = 14.0;
-        metrics.tabStripHeight = 28.0;
-        metrics.explorerTopPadding = 12.0;
-        metrics.explorerControlHeight = 22.0;
-        metrics.formattingBarHeight = 30.0;
-        metrics.formattingBarPopupWidth = 84.0;
-        metrics.formattingBarButtonWidth = 22.0;
-        metrics.formattingBarButtonWideWidth = 24.0;
-        metrics.formattingBarControlSpacing = 2.0;
-        metrics.formattingBarGroupSpacing = 6.0;
-        metrics.preferencesWindowWidth = 780.0;
-        metrics.preferencesWindowMinHeight = 360.0;
-        metrics.preferencesOuterPadding = 18.0;
-        metrics.preferencesColumnGap = 14.0;
-        metrics.preferencesCardPadding = 16.0;
-        metrics.preferencesRowGap = 10.0;
-        metrics.preferencesNoteHeight = 28.0;
-        metrics.preferencesLabelWidth = 112.0;
-        metrics.preferencesControlHeight = 26.0;
-        metrics.preferencesSmallFieldWidth = 52.0;
-        metrics.preferencesSmallButtonWidth = 74.0;
-        metrics.preferencesAppearanceCardHeight = 220.0;
-        metrics.preferencesExplorerCardHeight = 244.0;
-        metrics.preferencesPreviewCardHeight = 124.0;
-        metrics.preferencesRenderingCardHeight = 224.0;
-        metrics.preferencesEditingCardHeight = 382.0;
-    } else if (mode == OMDLayoutDensityModeAdwaita) {
-        metrics.scale = 1.14;
-        metrics.sidebarDefaultWidth = 324.0;
-        metrics.previewCanvasMargin = 40.0;
-        metrics.previewTextInsetX = 24.0;
-        metrics.previewTextInsetY = 20.0;
-        metrics.sourceTextInsetX = 24.0;
-        metrics.sourceTextInsetY = 18.0;
-        metrics.tabStripHeight = 34.0;
-        metrics.explorerTopPadding = 20.0;
-        metrics.explorerSidePadding = 14.0;
-        metrics.explorerControlHeight = 26.0;
-        metrics.explorerMinorControlHeight = 22.0;
-        metrics.explorerRowPadding = 10.0;
-        metrics.formattingBarHeight = 38.0;
-        metrics.formattingBarInsetX = 12.0;
-        metrics.formattingBarControlHeight = 26.0;
-        metrics.formattingBarPopupWidth = 102.0;
-        metrics.formattingBarButtonWidth = 28.0;
-        metrics.formattingBarButtonWideWidth = 34.0;
-        metrics.formattingBarControlSpacing = 4.0;
-        metrics.formattingBarGroupSpacing = 12.0;
-        metrics.formattingBarFontSize = 12.0;
-        metrics.preferencesWindowWidth = 860.0;
-        metrics.preferencesWindowMinHeight = 420.0;
-        metrics.preferencesOuterPadding = 24.0;
-        metrics.preferencesColumnGap = 20.0;
-        metrics.preferencesCardCornerRadius = 14.0;
-        metrics.preferencesCardPadding = 22.0;
-        metrics.preferencesRowGap = 14.0;
-        metrics.preferencesNoteHeight = 34.0;
-        metrics.preferencesLabelWidth = 128.0;
-        metrics.preferencesControlHeight = 32.0;
-        metrics.preferencesSmallFieldWidth = 64.0;
-        metrics.preferencesSmallButtonWidth = 96.0;
-        metrics.preferencesAppearanceCardHeight = 270.0;
-        metrics.preferencesExplorerCardHeight = 300.0;
-        metrics.preferencesPreviewCardHeight = 156.0;
-        metrics.preferencesRenderingCardHeight = 272.0;
-        metrics.preferencesEditingCardHeight = 460.0;
-    }
-
-    return metrics;
 }
 
 static CGFloat OMDPreferencesPreviewSectionHeightForMetrics(OMDLayoutMetrics metrics)
@@ -1542,42 +927,6 @@ static NSImage *OMDExplorerNavigateParentBaseImage(void)
     return cached;
 }
 
-static NSString *OMDTrimmedString(NSString *value)
-{
-    if (value == nil) {
-        return @"";
-    }
-    return [value stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
-}
-
-static NSString *OMDDiskFingerprintForFileAttributes(NSDictionary *attributes)
-{
-    if (attributes == nil) {
-        return nil;
-    }
-
-    NSDate *modificationDate = [attributes objectForKey:NSFileModificationDate];
-    NSNumber *sizeValue = [attributes objectForKey:NSFileSize];
-    NSNumber *inodeValue = [attributes objectForKey:NSFileSystemFileNumber];
-    if (modificationDate == nil && sizeValue == nil && inodeValue == nil) {
-        return nil;
-    }
-
-    NSTimeInterval modifiedAt = (modificationDate != nil
-                                 ? [modificationDate timeIntervalSinceReferenceDate]
-                                 : 0.0);
-    unsigned long long size = [sizeValue respondsToSelector:@selector(unsignedLongLongValue)]
-                              ? [sizeValue unsignedLongLongValue]
-                              : 0ULL;
-    unsigned long long inode = [inodeValue respondsToSelector:@selector(unsignedLongLongValue)]
-                               ? [inodeValue unsignedLongLongValue]
-                               : 0ULL;
-    return [NSString stringWithFormat:@"%.6f:%llu:%llu",
-                                      modifiedAt,
-                                      size,
-                                      inode];
-}
-
 static BOOL OMDGitErrorLooksLikeLockConflict(NSString *reason)
 {
     NSString *trimmed = OMDTrimmedString(reason);
@@ -1726,175 +1075,6 @@ static NSString *OMDTrimmedComboBoxSelectionOrText(NSComboBox *comboBox)
     return typedValue;
 }
 
-static BOOL OMDIsMarkdownExtension(NSString *extension)
-{
-    if (extension == nil || [extension length] == 0) {
-        return NO;
-    }
-    NSString *lower = [extension lowercaseString];
-    return [lower isEqualToString:@"md"] ||
-           [lower isEqualToString:@"markdown"] ||
-           [lower isEqualToString:@"mdown"];
-}
-
-static BOOL OMDIsPlainTextNoHighlightExtension(NSString *extension)
-{
-    if (extension == nil || [extension length] == 0) {
-        return NO;
-    }
-    NSString *lower = [extension lowercaseString];
-    return [lower isEqualToString:@"txt"] ||
-           [lower isEqualToString:@"text"] ||
-           [lower isEqualToString:@"log"];
-}
-
-static NSString *OMDVerbatimSyntaxTokenForExtension(NSString *extension)
-{
-    NSString *lower = [[OMDTrimmedString(extension) lowercaseString] copy];
-    if ([lower length] == 0 || OMDIsPlainTextNoHighlightExtension(lower)) {
-        [lower release];
-        return nil;
-    }
-
-    NSString *token = lower;
-    if ([lower isEqualToString:@"yml"]) {
-        token = @"yaml";
-    } else if ([lower isEqualToString:@"py"]) {
-        token = @"python";
-    } else if ([lower isEqualToString:@"zsh"]) {
-        token = @"bash";
-    } else if ([lower isEqualToString:@"htm"]) {
-        token = @"html";
-    }
-
-    NSString *result = [token copy];
-    [lower release];
-    return [result autorelease];
-}
-
-static NSUInteger OMDMaxBacktickRunLength(NSString *text)
-{
-    if (text == nil || [text length] == 0) {
-        return 0;
-    }
-
-    NSUInteger longest = 0;
-    NSUInteger run = 0;
-    NSUInteger length = [text length];
-    NSUInteger index = 0;
-    for (; index < length; index++) {
-        unichar ch = [text characterAtIndex:index];
-        if (ch == '`') {
-            run += 1;
-            if (run > longest) {
-                longest = run;
-            }
-        } else {
-            run = 0;
-        }
-    }
-    return longest;
-}
-
-static NSString *OMDBacktickFenceString(NSUInteger length)
-{
-    if (length < 3) {
-        length = 3;
-    }
-    NSMutableString *fence = [NSMutableString stringWithCapacity:length];
-    NSUInteger index = 0;
-    for (; index < length; index++) {
-        [fence appendString:@"`"];
-    }
-    return fence;
-}
-
-static NSString *OMDMarkdownCodeFenceWrappedText(NSString *text, NSString *languageToken)
-{
-    NSString *payload = (text != nil ? text : @"");
-    NSUInteger fenceLength = OMDMaxBacktickRunLength(payload) + 1;
-    if (fenceLength < 3) {
-        fenceLength = 3;
-    }
-    NSString *fence = OMDBacktickFenceString(fenceLength);
-    NSString *language = OMDTrimmedString(languageToken);
-
-    NSMutableString *wrapped = [NSMutableString string];
-    [wrapped appendString:fence];
-    if ([language length] > 0) {
-        [wrapped appendString:language];
-    }
-    [wrapped appendString:@"\n"];
-    [wrapped appendString:payload];
-    if (![payload hasSuffix:@"\n"]) {
-        [wrapped appendString:@"\n"];
-    }
-    [wrapped appendString:fence];
-    return wrapped;
-}
-
-static BOOL OMDDataAppearsBinary(NSData *data)
-{
-    if (data == nil || [data length] == 0) {
-        return NO;
-    }
-
-    const unsigned char *bytes = (const unsigned char *)[data bytes];
-    NSUInteger sampleLength = [data length];
-    if (sampleLength > 8192) {
-        sampleLength = 8192;
-    }
-    NSUInteger controlCount = 0;
-    NSUInteger index = 0;
-    for (; index < sampleLength; index++) {
-        unsigned char value = bytes[index];
-        if (value == 0) {
-            return YES;
-        }
-        if (value < 0x09 || (value > 0x0D && value < 0x20)) {
-            controlCount += 1;
-        }
-    }
-
-    return controlCount > ((sampleLength / 16) + 1);
-}
-
-static NSString *OMDDecodeTextFromData(NSData *data, NSStringEncoding *usedEncodingOut)
-{
-    if (data == nil) {
-        return nil;
-    }
-    if ([data length] == 0) {
-        if (usedEncodingOut != NULL) {
-            *usedEncodingOut = NSUTF8StringEncoding;
-        }
-        return @"";
-    }
-
-    NSStringEncoding encodings[] = {
-        NSUTF8StringEncoding,
-        NSUTF16StringEncoding,
-        NSUTF16LittleEndianStringEncoding,
-        NSUTF16BigEndianStringEncoding,
-        NSUTF32StringEncoding,
-        NSISOLatin1StringEncoding,
-        NSWindowsCP1252StringEncoding
-    };
-    NSUInteger encodingCount = sizeof(encodings) / sizeof(encodings[0]);
-    NSUInteger index = 0;
-    for (; index < encodingCount; index++) {
-        NSStringEncoding encoding = encodings[index];
-        NSString *decoded = [[[NSString alloc] initWithData:data encoding:encoding] autorelease];
-        if (decoded != nil) {
-            if (usedEncodingOut != NULL) {
-                *usedEncodingOut = encoding;
-            }
-            return decoded;
-        }
-    }
-    return nil;
-}
-
 static NSInteger OMDExplorerFileColorTierForPath(NSString *path)
 {
     NSString *extension = [[path pathExtension] lowercaseString];
@@ -1905,32 +1085,6 @@ static NSInteger OMDExplorerFileColorTierForPath(NSString *path)
         return 2;
     }
     return 3;
-}
-
-static NSString *OMDNormalizedRelativePath(NSString *value)
-{
-    NSString *trimmed = OMDTrimmedString(value);
-    if ([trimmed length] == 0) {
-        return @"";
-    }
-
-    NSArray *components = [trimmed pathComponents];
-    NSMutableArray *normalized = [NSMutableArray array];
-    for (NSString *component in components) {
-        if (component == nil || [component length] == 0 ||
-            [component isEqualToString:@"/"] ||
-            [component isEqualToString:@"."]) {
-            continue;
-        }
-        if ([component isEqualToString:@".."]) {
-            if ([normalized count] > 0) {
-                [normalized removeLastObject];
-            }
-            continue;
-        }
-        [normalized addObject:component];
-    }
-    return [normalized componentsJoinedByString:@"/"];
 }
 
 static NSString *OMDDefaultCacheDirectory(void)
