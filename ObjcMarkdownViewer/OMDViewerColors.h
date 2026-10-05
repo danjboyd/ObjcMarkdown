@@ -6,8 +6,7 @@
 // The GSTheme user default, which names the GNUstep theme.
 extern NSString * const OMDThemeDefaultsKey;
 
-// Chrome colours resolved from the current theme, with fallbacks for themes
-// that leave the system colours unset.
+// Chrome colours: each is one of the theme's system colours.
 BOOL OMDSystemAppearanceIsDark(void);
 NSString *OMDColorDefaultsString(NSColor *color);
 NSColor *OMDColorFromDefaultsString(NSString *value);

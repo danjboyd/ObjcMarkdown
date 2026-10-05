@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #import "OMDViewerColors.h"
-#import <GNUstepGUI/GSTheme.h>
 
 NSString * const OMDThemeDefaultsKey = @"GSTheme";
 
@@ -59,100 +58,6 @@ NSColor *OMDColorFromDefaultsString(NSString *value)
         return nil;
     }
     return [NSColor colorWithCalibratedRed:red green:green blue:blue alpha:alpha];
-}
-
-NSColor *OMDResolvedControlTextColor(void)
-{
-    GSTheme *theme = [GSTheme theme];
-    NSColor *color = nil;
-    if (theme != nil) {
-        color = [theme colorNamed:@"controlTextColor" state:GSThemeNormalState];
-        if (color == nil) {
-            color = [theme colorNamed:@"menuBarTextColor" state:GSThemeNormalState];
-        }
-        if (color == nil) {
-            color = [theme colorNamed:@"menuItemTextColor" state:GSThemeNormalState];
-        }
-        if (color == nil) {
-            color = [theme colorNamed:@"textColor" state:GSThemeNormalState];
-        }
-    }
-    if (color == nil) {
-        color = [NSColor controlTextColor];
-    }
-    if (color == nil) {
-        color = [NSColor textColor];
-    }
-    return color;
-}
-
-NSColor *OMDResolvedChromeBackgroundColor(void)
-{
-    GSTheme *theme = [GSTheme theme];
-    NSColor *color = nil;
-    if (theme != nil) {
-        color = [theme colorNamed:@"windowBackgroundColor" state:GSThemeNormalState];
-        if (color == nil) {
-            color = [theme colorNamed:@"controlBackgroundColor" state:GSThemeNormalState];
-        }
-        if (color == nil) {
-            color = [theme colorNamed:@"scrollViewBackgroundColor" state:GSThemeNormalState];
-        }
-    }
-    if (color == nil) {
-        color = [NSColor windowBackgroundColor];
-    }
-    if (color == nil) {
-        color = [NSColor controlBackgroundColor];
-    }
-    if (color == nil) {
-        color = [NSColor colorWithCalibratedWhite:0.94 alpha:1.0];
-    }
-    return color;
-}
-
-NSColor *OMDResolvedSubtleSeparatorColor(void)
-{
-    GSTheme *theme = [GSTheme theme];
-    NSColor *color = nil;
-    if (theme != nil) {
-        color = [theme colorNamed:@"gridColor" state:GSThemeNormalState];
-        if (color == nil) {
-            color = [theme colorNamed:@"controlShadowColor" state:GSThemeNormalState];
-        }
-    }
-    if (color == nil) {
-        color = [NSColor gridColor];
-    }
-    if (color == nil) {
-        color = [NSColor colorWithCalibratedWhite:0.80 alpha:1.0];
-    }
-    return color;
-}
-
-NSColor *OMDResolvedAccentColor(void)
-{
-    GSTheme *theme = [GSTheme theme];
-    NSColor *color = nil;
-    if (theme != nil) {
-        color = [theme colorNamed:@"selectedControlColor" state:GSThemeNormalState];
-        if (color == nil) {
-            color = [theme colorNamed:@"alternateSelectedControlColor" state:GSThemeNormalState];
-        }
-        if (color == nil) {
-            color = [theme colorNamed:@"keyboardFocusIndicatorColor" state:GSThemeNormalState];
-        }
-    }
-    if (color == nil) {
-        color = [NSColor selectedControlColor];
-    }
-    if (color == nil) {
-        color = [NSColor keyboardFocusIndicatorColor];
-    }
-    if (color == nil) {
-        color = [NSColor colorWithCalibratedRed:0.0 green:0.47 blue:0.84 alpha:1.0];
-    }
-    return color;
 }
 
 static BOOL OMDColorRGBAComponents(NSColor *color,
@@ -227,77 +132,49 @@ NSColor *OMDColorByBlending(NSColor *baseColor, NSColor *mixColor, CGFloat fract
                                      alpha:(baseAlpha + ((mixAlpha - baseAlpha) * fraction))];
 }
 
-NSColor *OMDResolvedControlBackgroundColor(void)
+// The chrome's colours are the theme's system colours; the app picks
+// none of its own.
+NSColor *OMDResolvedControlTextColor(void)
 {
-    GSTheme *theme = [GSTheme theme];
-    NSColor *color = nil;
-    if (theme != nil) {
-        color = [theme colorNamed:@"controlBackgroundColor" state:GSThemeNormalState];
-        if (color == nil) {
-            color = [theme colorNamed:@"textBackgroundColor" state:GSThemeNormalState];
-        }
-        if (color == nil) {
-            color = [theme colorNamed:@"scrollViewBackgroundColor" state:GSThemeNormalState];
-        }
-    }
-    if (color == nil) {
-        color = [NSColor controlBackgroundColor];
-    }
-    if (color == nil) {
-        color = OMDResolvedChromeBackgroundColor();
-    }
-    if (color == nil) {
-        color = [NSColor colorWithCalibratedWhite:0.97 alpha:1.0];
-    }
-    return color;
-}
-
-NSColor *OMDResolvedPanelBackdropColor(void)
-{
-    NSColor *chrome = OMDResolvedChromeBackgroundColor();
-    if (chrome == nil) {
-        chrome = [NSColor colorWithCalibratedWhite:0.95 alpha:1.0];
-    }
-    if (OMDColorIsDark(chrome)) {
-        return OMDColorByBlending(chrome, [NSColor blackColor], 0.10);
-    }
-    return OMDColorByBlending(chrome, [NSColor colorWithCalibratedWhite:0.92 alpha:1.0], 0.30);
-}
-
-NSColor *OMDResolvedPanelCardFillColor(void)
-{
-    NSColor *card = OMDResolvedControlBackgroundColor();
-    if (card == nil) {
-        card = OMDResolvedChromeBackgroundColor();
-    }
-    if (card == nil) {
-        card = [NSColor whiteColor];
-    }
-    return card;
-}
-
-NSColor *OMDResolvedPanelCardBorderColor(void)
-{
-    NSColor *separator = OMDResolvedSubtleSeparatorColor();
-    if (separator == nil) {
-        separator = [NSColor colorWithCalibratedWhite:0.80 alpha:1.0];
-    }
-    if ([separator respondsToSelector:@selector(colorWithAlphaComponent:)]) {
-        return [separator colorWithAlphaComponent:0.70];
-    }
-    return separator;
+    return [NSColor controlTextColor];
 }
 
 NSColor *OMDResolvedMutedTextColor(void)
 {
-    NSColor *color = [NSColor disabledControlTextColor];
-    if (color == nil) {
-        color = OMDColorByBlending(OMDResolvedControlTextColor(),
-                                   OMDResolvedPanelCardFillColor(),
-                                   0.35);
-    }
-    if (color == nil) {
-        color = [NSColor colorWithCalibratedWhite:0.45 alpha:1.0];
-    }
-    return color;
+    return [NSColor secondaryLabelColor];
+}
+
+NSColor *OMDResolvedChromeBackgroundColor(void)
+{
+    return [NSColor windowBackgroundColor];
+}
+
+NSColor *OMDResolvedPanelBackdropColor(void)
+{
+    return [NSColor windowBackgroundColor];
+}
+
+NSColor *OMDResolvedControlBackgroundColor(void)
+{
+    return [NSColor controlBackgroundColor];
+}
+
+NSColor *OMDResolvedPanelCardFillColor(void)
+{
+    return [NSColor controlBackgroundColor];
+}
+
+NSColor *OMDResolvedSubtleSeparatorColor(void)
+{
+    return [NSColor controlShadowColor];
+}
+
+NSColor *OMDResolvedPanelCardBorderColor(void)
+{
+    return [NSColor controlShadowColor];
+}
+
+NSColor *OMDResolvedAccentColor(void)
+{
+    return [NSColor selectedControlColor];
 }
