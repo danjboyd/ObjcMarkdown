@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #import "OMDExternalTools.h"
+#import <AppKit/AppKit.h>
 #import "OMDTextFileSupport.h"
 
 #if defined(_WIN32)
@@ -205,6 +206,70 @@ BOOL OMDOpenURLUsingXDGOpen(NSURL *url)
     }
 
     return launched && [task terminationStatus] == 0;
+#endif
+}
+
+static BOOL OMDRunTask(NSString *launchPath, NSArray *arguments)
+{
+    if (launchPath == nil) {
+        return NO;
+    }
+    NSTask *task = [[[NSTask alloc] init] autorelease];
+    [task setLaunchPath:launchPath];
+    [task setArguments:arguments];
+    @try {
+        [task launch];
+        [task waitUntilExit];
+    } @catch (NSException *exception) {
+        return NO;
+    }
+    return [task terminationStatus] == 0;
+}
+
+BOOL OMDOpenFolderInFileManager(NSString *folder)
+{
+    if ([folder length] == 0) {
+        return NO;
+    }
+#if defined(_WIN32)
+    return OMDRunTask(OMDExecutablePathNamed(@"explorer"), [NSArray arrayWithObject:folder]);
+#else
+    NSURL *url = [NSURL fileURLWithPath:folder isDirectory:YES];
+    if ([[NSWorkspace sharedWorkspace] respondsToSelector:@selector(openURL:)] &&
+        [[NSWorkspace sharedWorkspace] openURL:url]) {
+        return YES;
+    }
+    return OMDOpenURLUsingXDGOpen(url);
+#endif
+}
+
+BOOL OMDRevealPathInFileManager(NSString *path)
+{
+    if ([path length] == 0) {
+        return NO;
+    }
+#if defined(_WIN32)
+    // Explorer exits with 1 even when it worked.
+    OMDRunTask(OMDExecutablePathNamed(@"explorer"),
+               [NSArray arrayWithObject:[NSString stringWithFormat:@"/select,%@", path]]);
+    return YES;
+#else
+    // The freedesktop file-manager interface selects the item (Files,
+    // Dolphin, Nemo, Caja...); without one, open the folder.
+    NSString *gdbus = OMDExecutablePathNamed(@"gdbus");
+    if (gdbus != nil) {
+        NSString *uri = [[NSURL fileURLWithPath:path] absoluteString];
+        NSArray *arguments = [NSArray arrayWithObjects:@"call", @"--session",
+                              @"--dest", @"org.freedesktop.FileManager1",
+                              @"--object-path", @"/org/freedesktop/FileManager1",
+                              @"--method", @"org.freedesktop.FileManager1.ShowItems",
+                              [NSString stringWithFormat:@"['%@']", [uri stringByReplacingOccurrencesOfString:@"'" withString:@"%27"]],
+                              @"", nil];
+        if (OMDRunTask(gdbus, arguments)) {
+            return YES;
+        }
+    }
+    return OMDOpenFolderInFileManager([path stringByDeletingLastPathComponent]);
 #endif
 }
 

@@ -20,3 +20,7 @@ NSArray *OMDExplorerRecentRootsAdding(NSArray *recent, NSString *root, NSUIntege
 // Menu titles for roots, in order: each folder's name, followed by its
 // parent folder (home as "~") for names that appear more than once.
 NSArray *OMDExplorerRootMenuTitles(NSArray *roots);
+
+// path relative to root ("docs/guide.md"), or path itself when it isn't
+// below root.
+NSString *OMDExplorerRelativePath(NSString *path, NSString *root);

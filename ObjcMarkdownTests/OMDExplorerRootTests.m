@@ -100,4 +100,12 @@
     XCTAssertEqualObjects(OMDExplorerRootMenuTitles(roots), expected);
 }
 
+- (void)testRelativePathsAreBelowTheRoot
+{
+    XCTAssertEqualObjects(OMDExplorerRelativePath(@"/home/a/repo/docs/guide.md", @"/home/a/repo"), @"docs/guide.md");
+    XCTAssertEqualObjects(OMDExplorerRelativePath(@"/home/a/repo/docs/../README.md", @"/home/a/repo/"), @"README.md");
+    XCTAssertEqualObjects(OMDExplorerRelativePath(@"/home/a/repo-old/x.md", @"/home/a/repo"), @"/home/a/repo-old/x.md");
+    XCTAssertEqualObjects(OMDExplorerRelativePath(@"/home/a/repo", @"/home/a/repo"), @"/home/a/repo");
+}
+
 @end

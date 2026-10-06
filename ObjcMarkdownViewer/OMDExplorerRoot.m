@@ -82,3 +82,17 @@ NSArray *OMDExplorerRootMenuTitles(NSArray *roots)
     }
     return titles;
 }
+
+NSString *OMDExplorerRelativePath(NSString *path, NSString *root)
+{
+    NSString *standardPath = [path stringByStandardizingPath];
+    NSString *standardRoot = [root stringByStandardizingPath];
+    if ([standardRoot length] == 0) {
+        return standardPath;
+    }
+    NSString *prefix = ([standardRoot hasSuffix:@"/"] ? standardRoot : [standardRoot stringByAppendingString:@"/"]);
+    if ([standardPath hasPrefix:prefix] && [standardPath length] > [prefix length]) {
+        return [standardPath substringFromIndex:[prefix length]];
+    }
+    return standardPath;
+}

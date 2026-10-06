@@ -4,6 +4,7 @@
 #import "OMDExplorerController.h"
 #import "OMDExplorerRoot.h"
 #import "OMDExplorerTree.h"
+#import "OMDExternalTools.h"
 #import "OMDLayoutMetrics.h"
 #import "OMDPanelSelection.h"
 #import "OMDTextFileSupport.h"
@@ -108,11 +109,52 @@ static NSButtonCell *OMDExplorerIconDrawingCell(void)
 
 @end
 
+@interface NSObject (OMDExplorerContextMenu)
+- (NSMenu *)explorerContextMenuForRow:(NSInteger)row;
+@end
+
 // Return opens the selected file, or opens or closes the selected folder.
+// A right click, the Menu key or Shift-F10 shows the row's context menu.
 @interface OMDExplorerOutlineView : NSOutlineView
 @end
 
 @implementation OMDExplorerOutlineView
+
+- (NSMenu *)menuForEvent:(NSEvent *)event
+{
+    NSInteger row = [self rowAtPoint:[self convertPoint:[event locationInWindow] fromView:nil]];
+    if (row < 0 || ![[self target] respondsToSelector:@selector(explorerContextMenuForRow:)]) {
+        return nil;
+    }
+    // Select it without opening it (no action is sent).
+    [self selectRow:row byExtendingSelection:NO];
+    return [[self target] explorerContextMenuForRow:row];
+}
+
+- (void)showContextMenuForSelectedRow
+{
+    NSInteger row = [self selectedRow];
+    if (row < 0 || ![[self target] respondsToSelector:@selector(explorerContextMenuForRow:)]) {
+        return;
+    }
+    NSMenu *menu = [[self target] explorerContextMenuForRow:row];
+    if (menu == nil) {
+        return;
+    }
+    [self scrollRowToVisible:row];
+    NSRect rowRect = [self rectOfRow:row];
+    NSPoint location = [self convertPoint:NSMakePoint(NSMinX(rowRect) + 24.0, NSMaxY(rowRect)) toView:nil];
+    NSEvent *event = [NSEvent mouseEventWithType:NSRightMouseDown
+                                        location:location
+                                   modifierFlags:0
+                                       timestamp:[[NSApp currentEvent] timestamp]
+                                    windowNumber:[[self window] windowNumber]
+                                         context:nil
+                                     eventNumber:0
+                                      clickCount:1
+                                        pressure:1.0];
+    [NSMenu popUpContextMenu:menu withEvent:event forView:self];
+}
 
 - (void)keyDown:(NSEvent *)event
 {
@@ -122,6 +164,11 @@ static NSButtonCell *OMDExplorerIconDrawingCell(void)
         if (character == NSCarriageReturnCharacter || character == NSEnterCharacter ||
             character == NSNewlineCharacter) {
             [NSApp sendAction:@selector(explorerOpenSelection:) to:[self target] from:self];
+            return;
+        }
+        if (character == NSMenuFunctionKey ||
+            (character == NSF10FunctionKey && ([event modifierFlags] & NSShiftKeyMask) != 0)) {
+            [self showContextMenuForSelectedRow];
             return;
         }
     }
@@ -154,6 +201,15 @@ static NSButtonCell *OMDExplorerIconDrawingCell(void)
 - (void)cancelPendingExplorerClick;
 - (void)openPendingExplorerClick;
 - (void)toggleExplorerFolder:(OMDExplorerNode *)node;
+- (NSMenu *)explorerContextMenuForRow:(NSInteger)row;
+- (void)explorerContextOpen:(id)sender;
+- (void)explorerContextOpenInNewTab:(id)sender;
+- (void)explorerContextToggleFolder:(id)sender;
+- (void)explorerContextReveal:(id)sender;
+- (void)explorerContextOpenFolder:(id)sender;
+- (void)explorerContextUseAsRoot:(id)sender;
+- (void)explorerContextCopyPath:(id)sender;
+- (void)explorerContextCopyRelativePath:(id)sender;
 - (void)openFirstShownFile;
 - (BOOL)isExplorerMarkdownOnlyEnabled;
 - (BOOL)isExplorerFiltering;
@@ -1167,6 +1223,107 @@ static NSTimeInterval OMDDoubleClickInterval(void)
     } else {
         [_delegate openLocalPath:[node path] inNewTab:NO];
     }
+}
+
+// The context menu for a row: what applies to that file or folder.
+- (NSMenu *)explorerContextMenuForRow:(NSInteger)row
+{
+    OMDExplorerNode *node = (row >= 0 ? [_explorerOutlineView itemAtRow:row] : nil);
+    if (node == nil) {
+        return nil;
+    }
+    NSMenu *menu = [[[NSMenu alloc] initWithTitle:@""] autorelease];
+    [menu setAutoenablesItems:NO];
+    NSArray *entries = nil;
+    if ([node isDirectory]) {
+        BOOL expanded = [_explorerOutlineView isItemExpanded:node];
+        entries = [NSArray arrayWithObjects:
+                   (expanded ? @"Collapse" : @"Expand"), NSStringFromSelector(@selector(explorerContextToggleFolder:)),
+                   @"Open in Files", NSStringFromSelector(@selector(explorerContextOpenFolder:)),
+                   @"Use as Explorer Root", NSStringFromSelector(@selector(explorerContextUseAsRoot:)),
+                   @"-", @"",
+                   @"Copy Path", NSStringFromSelector(@selector(explorerContextCopyPath:)),
+                   @"Copy Relative Path", NSStringFromSelector(@selector(explorerContextCopyRelativePath:)),
+                   nil];
+    } else {
+        entries = [NSArray arrayWithObjects:
+                   @"Open", NSStringFromSelector(@selector(explorerContextOpen:)),
+                   @"Open in New Tab", NSStringFromSelector(@selector(explorerContextOpenInNewTab:)),
+                   @"-", @"",
+                   @"Reveal in Files", NSStringFromSelector(@selector(explorerContextReveal:)),
+                   @"-", @"",
+                   @"Copy Path", NSStringFromSelector(@selector(explorerContextCopyPath:)),
+                   @"Copy Relative Path", NSStringFromSelector(@selector(explorerContextCopyRelativePath:)),
+                   nil];
+    }
+    NSUInteger index = 0;
+    for (; index + 1 < [entries count]; index += 2) {
+        NSString *title = [entries objectAtIndex:index];
+        if ([title isEqualToString:@"-"]) {
+            [menu addItem:[NSMenuItem separatorItem]];
+            continue;
+        }
+        NSMenuItem *item = [[[NSMenuItem alloc] initWithTitle:title
+                                                       action:NSSelectorFromString([entries objectAtIndex:index + 1])
+                                                keyEquivalent:@""] autorelease];
+        [item setTarget:self];
+        [item setRepresentedObject:node];
+        [menu addItem:item];
+    }
+    return menu;
+}
+
+- (void)explorerContextOpen:(id)sender
+{
+    [self cancelPendingExplorerClick];
+    [_delegate openLocalPath:[[sender representedObject] path] inNewTab:NO];
+}
+
+- (void)explorerContextOpenInNewTab:(id)sender
+{
+    [self cancelPendingExplorerClick];
+    [_delegate openLocalPath:[[sender representedObject] path] inNewTab:YES];
+}
+
+- (void)explorerContextToggleFolder:(id)sender
+{
+    [self toggleExplorerFolder:[sender representedObject]];
+}
+
+- (void)explorerContextReveal:(id)sender
+{
+    if (!OMDRevealPathInFileManager([[sender representedObject] path])) {
+        NSBeep();
+    }
+}
+
+- (void)explorerContextOpenFolder:(id)sender
+{
+    if (!OMDOpenFolderInFileManager([[sender representedObject] path])) {
+        NSBeep();
+    }
+}
+
+- (void)explorerContextUseAsRoot:(id)sender
+{
+    [self chooseRootByHand:[[sender representedObject] path]];
+}
+
+- (void)copyStringToPasteboard:(NSString *)string
+{
+    NSPasteboard *pasteboard = [NSPasteboard generalPasteboard];
+    [pasteboard declareTypes:[NSArray arrayWithObject:NSStringPboardType] owner:nil];
+    [pasteboard setString:string forType:NSStringPboardType];
+}
+
+- (void)explorerContextCopyPath:(id)sender
+{
+    [self copyStringToPasteboard:[[sender representedObject] path]];
+}
+
+- (void)explorerContextCopyRelativePath:(id)sender
+{
+    [self copyStringToPasteboard:OMDExplorerRelativePath([[sender representedObject] path], [_explorerRootNode path])];
 }
 
 - (NSArray *)childrenOfItem:(id)item
