@@ -96,10 +96,28 @@ RUN . /usr/GNUstep/System/Library/Makefiles/GNUstep.sh \
     && make GNUSTEP_INSTALLATION_DOMAIN=SYSTEM install && ldconfig \
     && rm -rf /src
 
+# For release packaging (the AppImage job runs in this image too): Python
+# for the staging script, GLib for the Adwaita theme, the AppImage tools,
+# and PowerShell, which gnustep-packager's steps use (not in Debian;
+# Microsoft's release tarball, checked against its published SHA-256).
+ARG POWERSHELL_VERSION=7.6.6
+ARG POWERSHELL_SHA256=ddbc4a2d113bbd46d283cfedcbcd117a70caefd7673f41f2b4e0000badf103bc
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3 libglib2.0-dev libicns1 \
+        squashfs-tools desktop-file-utils file zsync \
+    && rm -rf /var/lib/apt/lists/* \
+    && curl -fsSL -o /tmp/powershell.tar.gz \
+         "https://github.com/PowerShell/PowerShell/releases/download/v${POWERSHELL_VERSION}/powershell-${POWERSHELL_VERSION}-linux-x64.tar.gz" \
+    && echo "${POWERSHELL_SHA256}  /tmp/powershell.tar.gz" | sha256sum -c - \
+    && mkdir -p /opt/powershell && tar -xzf /tmp/powershell.tar.gz -C /opt/powershell \
+    && chmod 755 /opt/powershell/pwsh && ln -s /opt/powershell/pwsh /usr/local/bin/pwsh \
+    && rm /tmp/powershell.tar.gz && pwsh -NoLogo -Command '$PSVersionTable.PSVersion.ToString()'
+
 # What the image was built from, for logs and release notes.
 RUN printf 'libobjc2 %s\nlibdispatch %s\ntools-make %s\nlibs-base %s\nlibs-gui %s\nlibs-back %s\ntools-xctest %s %s\n' \
         "$LIBOBJC2_COMMIT" "$LIBDISPATCH_COMMIT" "$TOOLS_MAKE_COMMIT" "$LIBS_BASE_COMMIT" \
         "$LIBS_GUI_COMMIT" "$LIBS_BACK_COMMIT" "$TOOLS_XCTEST_REPO" "$TOOLS_XCTEST_COMMIT" \
-        > /usr/GNUstep/ci-toolchain.txt
+        > /usr/GNUstep/ci-toolchain.txt \
+    && echo "powershell $POWERSHELL_VERSION" >> /usr/GNUstep/ci-toolchain.txt
 
 WORKDIR /
