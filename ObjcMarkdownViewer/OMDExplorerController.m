@@ -2,12 +2,10 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #import "OMDExplorerController.h"
-#import "OMDDocumentConverter.h"
-#import "OMDLayoutMetrics.h"
 #import "OMDExplorerRoot.h"
-#import "OMDExternalTools.h"
+#import "OMDExplorerTree.h"
+#import "OMDLayoutMetrics.h"
 #import "OMDTextFileSupport.h"
-#import "OMDViewerColors.h"
 #import "OMDViewerDefaults.h"
 #import "OMDViewerImages.h"
 
@@ -16,36 +14,127 @@
 static const CGFloat OMDExplorerListMinFontSize = 10.0;
 static const CGFloat OMDExplorerListMaxFontSize = 20.0;
 static const CGFloat OMDExplorerListMinimumRowHeight = 20.0;
+static const CGFloat OMDExplorerIconSize = 16.0;
+static const CGFloat OMDExplorerIconGap = 5.0;
 
-static NSInteger OMDExplorerFileColorTierForPath(NSString *path)
+static NSString *OMDExplorerIconNameForKind(OMDExplorerFileKind kind)
 {
-    NSString *extension = [[path pathExtension] lowercaseString];
-    if (OMDIsMarkdownExtension(extension)) {
-        return 1;
+    switch (kind) {
+        case OMDExplorerFileKindFolder:
+            return @"omd-folder-symbolic";
+        case OMDExplorerFileKindMarkdown:
+            return @"omd-text-x-markdown-symbolic";
+        case OMDExplorerFileKindImportable:
+            return @"omd-document-import-symbolic";
+        default:
+            return @"omd-text-x-generic-symbolic";
     }
-    if ([OMDDocumentConverter isSupportedExtension:extension]) {
-        return 2;
-    }
-    return 3;
 }
+
+// Draws an icon the way buttons do, through -[NSButtonCell
+// drawImage:withFrame:inView:], so a theme that tints symbolic images in
+// buttons tints these too.
+static NSButtonCell *OMDExplorerIconDrawingCell(void)
+{
+    static NSButtonCell *cell = nil;
+    if (cell == nil) {
+        cell = [[NSButtonCell alloc] initImageCell:nil];
+        [cell setBordered:NO];
+        [cell setImagePosition:NSImageOnly];
+        [cell setImageDimsWhenDisabled:YES];
+    }
+    return cell;
+}
+
+// A name with its file-kind icon in front.
+@interface OMDExplorerCell : NSTextFieldCell
+{
+    NSImage *_icon;
+    BOOL _iconDimmed;
+}
+- (void)setIcon:(NSImage *)icon dimmed:(BOOL)dimmed;
+@end
+
+@implementation OMDExplorerCell
+
+- (id)copyWithZone:(NSZone *)zone
+{
+    OMDExplorerCell *copy = [super copyWithZone:zone];
+    copy->_icon = [_icon retain];
+    return copy;
+}
+
+- (void)dealloc
+{
+    [_icon release];
+    [super dealloc];
+}
+
+- (void)setIcon:(NSImage *)icon dimmed:(BOOL)dimmed
+{
+    if (icon != _icon) {
+        [_icon release];
+        _icon = [icon retain];
+    }
+    _iconDimmed = dimmed;
+}
+
+- (void)drawInteriorWithFrame:(NSRect)cellFrame inView:(NSView *)controlView
+{
+    NSRect iconFrame = NSZeroRect;
+    NSRect textFrame = NSZeroRect;
+    NSDivideRect(cellFrame, &iconFrame, &textFrame, OMDExplorerIconSize + OMDExplorerIconGap, NSMinXEdge);
+    iconFrame.size.width = OMDExplorerIconSize;
+    if (_icon != nil) {
+        NSButtonCell *iconCell = OMDExplorerIconDrawingCell();
+        [iconCell setEnabled:!_iconDimmed];
+        [iconCell drawImage:_icon withFrame:iconFrame inView:controlView];
+    }
+    [super drawInteriorWithFrame:textFrame inView:controlView];
+}
+
+@end
+
+// Return opens the selected file, or opens or closes the selected folder.
+@interface OMDExplorerOutlineView : NSOutlineView
+@end
+
+@implementation OMDExplorerOutlineView
+
+- (void)keyDown:(NSEvent *)event
+{
+    NSString *characters = [event charactersIgnoringModifiers];
+    if ([characters length] == 1) {
+        unichar character = [characters characterAtIndex:0];
+        if (character == NSCarriageReturnCharacter || character == NSEnterCharacter ||
+            character == NSNewlineCharacter) {
+            [NSApp sendAction:@selector(explorerOpenSelection:) to:[self target] from:self];
+            return;
+        }
+    }
+    [super keyDown:event];
+}
+
+@end
 
 @interface OMDExplorerController ()
 - (void)setupExplorerSidebar;
-- (void)updateExplorerControlsVisibility;
-- (void)updateNavigateUpButton;
-- (void)reloadLocalExplorerEntries;
+- (void)layoutExplorerControls;
 - (void)showRoot:(NSString *)root;
+- (void)revealDocumentExpandingFolders:(BOOL)expand;
+- (void)reloadOutlineKeepingSelection;
 - (void)applyExplorerListFontPreference;
 - (BOOL)isExplorerShowHiddenFilesEnabled;
 - (void)setExplorerShowHiddenFilesEnabled:(BOOL)enabled;
-- (void)explorerNavigateUp:(id)sender;
 - (void)explorerShowHiddenFilesChanged:(id)sender;
 - (void)explorerItemClicked:(id)sender;
 - (void)explorerItemDoubleClicked:(id)sender;
-- (NSDictionary *)explorerClickedEntry;
+- (void)explorerOpenSelection:(id)sender;
+- (void)windowDidBecomeKey:(NSNotification *)notification;
+- (OMDExplorerNode *)explorerClickedNode;
 - (void)cancelPendingExplorerClick;
 - (void)openPendingExplorerClick;
-- (void)openExplorerEntry:(NSDictionary *)entry inNewTab:(BOOL)inNewTab;
+- (void)toggleExplorerFolder:(OMDExplorerNode *)node;
 @end
 
 @implementation OMDExplorerController
@@ -55,25 +144,23 @@ static NSInteger OMDExplorerFileColorTierForPath(NSString *path)
     self = [super init];
     if (self != nil) {
         _delegate = delegate;
-        _explorerEntries = [[NSMutableArray alloc] init];
     }
     return self;
 }
 
 - (void)dealloc
 {
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
     [NSObject cancelPreviousPerformRequestsWithTarget:self];
-    [_explorerPendingClickEntry release];
+    [_explorerPendingClickNode release];
     [_explorerShowHiddenFilesButton release];
-    [_explorerNavigateUpButton release];
     [_explorerPathLabel release];
-    [_explorerTableView setDelegate:nil];
-    [_explorerTableView setDataSource:nil];
-    [_explorerTableView release];
+    [_explorerOutlineView setDelegate:nil];
+    [_explorerOutlineView setDataSource:nil];
+    [_explorerOutlineView release];
     [_explorerScrollView release];
-    [_explorerEntries release];
+    [_explorerRootNode release];
     [_explorerLocalRootPath release];
-    [_explorerLocalCurrentPath release];
     [_explorerDocumentPath release];
     [super dealloc];
 }
@@ -94,14 +181,10 @@ static NSInteger OMDExplorerFileColorTierForPath(NSString *path)
     OMDLayoutMetrics metrics = OMDLayoutMetricsForMode([_delegate effectiveLayoutDensityMode]);
     NSFont *labelFont = [NSFont systemFontOfSize:(metrics.scale > 1.05 ? 12.0 : 11.0)];
     NSFont *pathFont = [NSFont systemFontOfSize:(metrics.scale > 1.05 ? 11.0 : 10.5)];
-    if (_explorerShowHiddenFilesButton != nil) {
-        [_explorerShowHiddenFilesButton setFont:labelFont];
-    }
-    if (_explorerPathLabel != nil) {
-        [_explorerPathLabel setFont:pathFont];
-    }
+    [_explorerShowHiddenFilesButton setFont:labelFont];
+    [_explorerPathLabel setFont:pathFont];
     [self applyExplorerListFontPreference];
-    [self updateExplorerControlsVisibility];
+    [self layoutExplorerControls];
 }
 
 - (NSString *)explorerLocalRootPathPreference
@@ -155,16 +238,20 @@ static NSInteger OMDExplorerFileColorTierForPath(NSString *path)
     }
     [_explorerLocalRootPath release];
     _explorerLocalRootPath = [root copy];
-    [_explorerLocalCurrentPath release];
-    _explorerLocalCurrentPath = [root copy];
-    if (_explorerTableView != nil) {
-        [self reloadExplorerEntries];
+    [self cancelPendingExplorerClick];
+    [_explorerRootNode release];
+    _explorerRootNode = [[OMDExplorerNode alloc] initWithPath:root isDirectory:YES parent:nil];
+    if (_explorerOutlineView != nil) {
+        [_explorerPathLabel setStringValue:[root stringByAbbreviatingWithTildeInPath]];
+        [_explorerPathLabel setToolTip:root];
+        [_explorerOutlineView reloadData];
+        [_explorerOutlineView scrollRowToVisible:0];
     }
 }
 
 - (void)setDocumentPath:(NSString *)path
 {
-    NSString *normalized = ([path length] > 0 ? path : nil);
+    NSString *normalized = ([path length] > 0 ? [path stringByStandardizingPath] : nil);
     if (normalized == _explorerDocumentPath || [normalized isEqualToString:_explorerDocumentPath]) {
         return;
     }
@@ -175,6 +262,51 @@ static NSInteger OMDExplorerFileColorTierForPath(NSString *path)
     NSString *root = OMDExplorerRootForDocumentPath(_explorerDocumentPath);
     if (root != nil) {
         [self showRoot:root];
+    }
+    [self revealDocumentExpandingFolders:YES];
+}
+
+// Selects the open document's row. With expand, opens the folders above
+// it and scrolls to it, reading its folder again if it is new (just saved
+// there); otherwise only selects it if it is already visible.
+- (void)revealDocumentExpandingFolders:(BOOL)expand
+{
+    if (_explorerOutlineView == nil) {
+        return;
+    }
+    OMDExplorerNode *node = nil;
+    if (_explorerDocumentPath != nil && _explorerRootNode != nil) {
+        node = [_explorerRootNode descendantForPath:_explorerDocumentPath];
+        if (node == nil && expand && [_explorerRootNode hasLoadedChildren]) {
+            [_explorerRootNode reloadChildren];
+            [_explorerOutlineView reloadData];
+            node = [_explorerRootNode descendantForPath:_explorerDocumentPath];
+        }
+    }
+    if (node == nil || node == _explorerRootNode) {
+        [_explorerOutlineView deselectAll:nil];
+        return;
+    }
+
+    if (expand) {
+        NSMutableArray *ancestors = [NSMutableArray array];
+        for (OMDExplorerNode *parent = [node parent];
+             parent != nil && parent != _explorerRootNode;
+             parent = [parent parent]) {
+            [ancestors insertObject:parent atIndex:0];
+        }
+        for (OMDExplorerNode *ancestor in ancestors) {
+            [_explorerOutlineView expandItem:ancestor];
+        }
+    }
+    NSInteger row = [_explorerOutlineView rowForItem:node];
+    if (row < 0) {
+        [_explorerOutlineView deselectAll:nil];
+        return;
+    }
+    [_explorerOutlineView selectRow:row byExtendingSelection:NO];
+    if (expand) {
+        [_explorerOutlineView scrollRowToVisible:row];
     }
 }
 
@@ -236,32 +368,6 @@ static NSInteger OMDExplorerFileColorTierForPath(NSString *path)
     [self applyExplorerListFontPreference];
 }
 
-- (void)applyExplorerListFontPreference
-{
-    OMDLayoutMetrics metrics = OMDLayoutMetricsForMode([_delegate effectiveLayoutDensityMode]);
-    if (_explorerTableView == nil) {
-        return;
-    }
-
-    CGFloat fontSize = [self explorerListFontSizePreference];
-    NSFont *font = [NSFont systemFontOfSize:fontSize];
-    if (font == nil) {
-        font = [NSFont systemFontOfSize:OMDExplorerListDefaultFontSize];
-    }
-    CGFloat rowHeight = ceil(fontSize + metrics.explorerRowPadding);
-    if (rowHeight < OMDExplorerListMinimumRowHeight) {
-        rowHeight = OMDExplorerListMinimumRowHeight;
-    }
-    [_explorerTableView setRowHeight:rowHeight];
-
-    NSTableColumn *column = [_explorerTableView tableColumnWithIdentifier:@"ExplorerName"];
-    id dataCell = [column dataCell];
-    if (dataCell != nil && [dataCell respondsToSelector:@selector(setFont:)]) {
-        [dataCell setFont:font];
-    }
-    [_explorerTableView reloadData];
-}
-
 - (BOOL)isExplorerShowHiddenFilesEnabled
 {
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
@@ -271,6 +377,35 @@ static NSInteger OMDExplorerFileColorTierForPath(NSString *path)
 - (void)setExplorerShowHiddenFilesEnabled:(BOOL)enabled
 {
     [[NSUserDefaults standardUserDefaults] setBool:enabled forKey:OMDExplorerShowHiddenFilesDefaultsKey];
+}
+
+- (void)applyExplorerListFontPreference
+{
+    OMDLayoutMetrics metrics = OMDLayoutMetricsForMode([_delegate effectiveLayoutDensityMode]);
+    if (_explorerOutlineView == nil) {
+        return;
+    }
+
+    CGFloat fontSize = [self explorerListFontSizePreference];
+    NSFont *font = [NSFont systemFontOfSize:fontSize];
+    if (font == nil) {
+        font = [NSFont systemFontOfSize:OMDExplorerListDefaultFontSize];
+    }
+    CGFloat rowHeight = ceil(MAX(fontSize, OMDExplorerIconSize) + metrics.explorerRowPadding);
+    if (rowHeight < OMDExplorerListMinimumRowHeight) {
+        rowHeight = OMDExplorerListMinimumRowHeight;
+    }
+    [_explorerOutlineView setRowHeight:rowHeight];
+    [[[_explorerOutlineView outlineTableColumn] dataCell] setFont:font];
+    [self reloadOutlineKeepingSelection];
+}
+
+// Reloading the outline view leaves its selection on a row number, which
+// may now be another item.
+- (void)reloadOutlineKeepingSelection
+{
+    [_explorerOutlineView reloadData];
+    [self revealDocumentExpandingFolders:NO];
 }
 
 - (void)setupExplorerSidebar
@@ -283,6 +418,16 @@ static NSInteger OMDExplorerFileColorTierForPath(NSString *path)
     NSRect bounds = [_containerView bounds];
     NSFont *labelFont = [NSFont systemFontOfSize:(metrics.scale > 1.05 ? 12.0 : 11.0)];
     NSFont *pathFont = [NSFont systemFontOfSize:(metrics.scale > 1.05 ? 11.0 : 10.5)];
+
+    _explorerPathLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(metrics.explorerSidePadding, NSHeight(bounds) - 30, 100, 16)];
+    [_explorerPathLabel setBezeled:NO];
+    [_explorerPathLabel setEditable:NO];
+    [_explorerPathLabel setSelectable:NO];
+    [_explorerPathLabel setDrawsBackground:NO];
+    [_explorerPathLabel setFont:pathFont];
+    [[_explorerPathLabel cell] setLineBreakMode:NSLineBreakByTruncatingHead];
+    [_explorerPathLabel setAutoresizingMask:(NSViewWidthSizable | NSViewMinYMargin)];
+    [_containerView addSubview:_explorerPathLabel];
 
     _explorerShowHiddenFilesButton = [[NSButton alloc] initWithFrame:NSMakeRect(metrics.explorerSidePadding,
                                                                                 NSHeight(bounds) - 54,
@@ -297,254 +442,100 @@ static NSInteger OMDExplorerFileColorTierForPath(NSString *path)
     [_explorerShowHiddenFilesButton setAutoresizingMask:(NSViewWidthSizable | NSViewMinYMargin)];
     [_containerView addSubview:_explorerShowHiddenFilesButton];
 
-    _explorerNavigateUpButton = [[NSButton alloc] initWithFrame:NSMakeRect(metrics.explorerSidePadding,
-                                                                           NSHeight(bounds) - 84,
-                                                                           32,
-                                                                           metrics.explorerControlHeight)];
-    [_explorerNavigateUpButton setTitle:@""];
-    [_explorerNavigateUpButton setBezelStyle:NSRoundedBezelStyle];
-    [_explorerNavigateUpButton setImage:OMDSymbolicImageNamed(@"omd-go-up-symbolic")];
-#if defined(_WIN32)
-    [_explorerNavigateUpButton setTitle:@"Up"];
-    [_explorerNavigateUpButton setFont:labelFont];
-    [_explorerNavigateUpButton setImagePosition:NSImageLeft];
-#else
-    [_explorerNavigateUpButton setImagePosition:NSImageOnly];
-#endif
-    [_explorerNavigateUpButton setToolTip:@"Go to the parent folder"];
-    [_explorerNavigateUpButton setTarget:self];
-    [_explorerNavigateUpButton setAction:@selector(explorerNavigateUp:)];
-    [_explorerNavigateUpButton setAutoresizingMask:NSViewMinYMargin];
-    [_containerView addSubview:_explorerNavigateUpButton];
-
-    _explorerPathLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(metrics.explorerSidePadding + 38, NSHeight(bounds) - 80, 100, 18)];
-    [_explorerPathLabel setBezeled:NO];
-    [_explorerPathLabel setEditable:NO];
-    [_explorerPathLabel setSelectable:NO];
-    [_explorerPathLabel setDrawsBackground:NO];
-    [_explorerPathLabel setFont:pathFont];
-    [_explorerPathLabel setAutoresizingMask:(NSViewWidthSizable | NSViewMinYMargin)];
-    [_containerView addSubview:_explorerPathLabel];
-
     _explorerScrollView = [[NSScrollView alloc] initWithFrame:NSMakeRect(0, 10, NSWidth(bounds), 80)];
     [_explorerScrollView setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable)];
     [_explorerScrollView setHasVerticalScroller:YES];
     [_explorerScrollView setHasHorizontalScroller:NO];
     [_explorerScrollView setBorderType:NSBezelBorder];
 
-    _explorerTableView = [[NSTableView alloc] initWithFrame:[_explorerScrollView bounds]];
-    [_explorerTableView setHeaderView:nil];
-    [_explorerTableView setAllowsEmptySelection:YES];
-    [_explorerTableView setAllowsMultipleSelection:NO];
-    [_explorerTableView setRowHeight:OMDExplorerListMinimumRowHeight];
-    [_explorerTableView setTarget:self];
-    [_explorerTableView setAction:@selector(explorerItemClicked:)];
-    [_explorerTableView setDoubleAction:@selector(explorerItemDoubleClicked:)];
-    [_explorerTableView setDataSource:self];
-    [_explorerTableView setDelegate:self];
+    _explorerOutlineView = [[OMDExplorerOutlineView alloc] initWithFrame:[_explorerScrollView bounds]];
+    [_explorerOutlineView setHeaderView:nil];
+    [_explorerOutlineView setAllowsEmptySelection:YES];
+    [_explorerOutlineView setAllowsMultipleSelection:NO];
+    [_explorerOutlineView setRowHeight:OMDExplorerListMinimumRowHeight];
+    [_explorerOutlineView setIndentationPerLevel:14.0];
+    [_explorerOutlineView setAutoresizesOutlineColumn:NO];
+    [_explorerOutlineView setTarget:self];
+    [_explorerOutlineView setAction:@selector(explorerItemClicked:)];
+    [_explorerOutlineView setDoubleAction:@selector(explorerItemDoubleClicked:)];
     NSTableColumn *column = [[[NSTableColumn alloc] initWithIdentifier:@"ExplorerName"] autorelease];
     [column setEditable:NO];
+    OMDExplorerCell *cell = [[[OMDExplorerCell alloc] initTextCell:@""] autorelease];
+    [cell setEditable:NO];
+    [cell setLineBreakMode:NSLineBreakByTruncatingTail];
+    [column setDataCell:cell];
     [column setWidth:NSWidth([_explorerScrollView bounds]) - 2.0];
-    [_explorerTableView addTableColumn:column];
-    [_explorerScrollView setDocumentView:_explorerTableView];
+    [_explorerOutlineView addTableColumn:column];
+    [_explorerOutlineView setOutlineTableColumn:column];
+    [_explorerOutlineView setDataSource:self];
+    [_explorerOutlineView setDelegate:self];
+    [_explorerScrollView setDocumentView:_explorerOutlineView];
     [_delegate applyScrollSpeedPreference];
     [_containerView addSubview:_explorerScrollView];
     [self applyExplorerListFontPreference];
 
     if (_explorerLocalRootPath == nil) {
-        NSString *root = OMDExplorerRootForDocumentPath(_explorerDocumentPath);
-        _explorerLocalRootPath = [(root != nil ? root : [self explorerLocalRootPathPreference]) copy];
-        [_explorerLocalCurrentPath release];
-        _explorerLocalCurrentPath = [_explorerLocalRootPath copy];
+        [self showRoot:[self explorerLocalRootPathPreference]];
     }
+    [_explorerPathLabel setStringValue:[_explorerLocalRootPath stringByAbbreviatingWithTildeInPath]];
+    [_explorerPathLabel setToolTip:_explorerLocalRootPath];
 
-    [self updateExplorerControlsVisibility];
+    // Files change behind the app's back; look again when it comes back.
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(windowDidBecomeKey:)
+                                                 name:NSWindowDidBecomeKeyNotification
+                                               object:nil];
+    [self layoutExplorerControls];
 }
 
-// Up is available below the root.
-- (void)updateNavigateUpButton
-{
-    BOOL canNavigateUp = (_explorerLocalCurrentPath != nil &&
-                          _explorerLocalRootPath != nil &&
-                          ![_explorerLocalCurrentPath isEqualToString:_explorerLocalRootPath]);
-    [_explorerNavigateUpButton setEnabled:canNavigateUp];
-}
-
-- (void)updateExplorerControlsVisibility
+- (void)layoutExplorerControls
 {
     OMDLayoutMetrics metrics = OMDLayoutMetricsForMode([_delegate effectiveLayoutDensityMode]);
     [_explorerShowHiddenFilesButton setState:([self isExplorerShowHiddenFilesEnabled] ? NSOnState : NSOffState)];
-    [self updateNavigateUpButton];
 
     NSRect bounds = [_containerView bounds];
-    CGFloat width = NSWidth(bounds);
-    CGFloat height = NSHeight(bounds);
-    CGFloat wideControlWidth = MAX(1.0, width - (metrics.explorerSidePadding * 2.0));
-    CGFloat navigateButtonWidth = 32.0;
-#if defined(_WIN32)
-    navigateButtonWidth = 44.0;
-#endif
-    CGFloat navigateButtonGap = 6.0;
-    CGFloat pathWidth = MAX(1.0, wideControlWidth - navigateButtonWidth - navigateButtonGap);
-    CGFloat scrollWidth = MAX(1.0, wideControlWidth + 4.0);
-    CGFloat top = height - metrics.explorerTopPadding;
+    CGFloat wideControlWidth = MAX(1.0, NSWidth(bounds) - (metrics.explorerSidePadding * 2.0));
+    CGFloat top = NSHeight(bounds) - metrics.explorerTopPadding;
 
+    [_explorerPathLabel setFrame:NSMakeRect(metrics.explorerSidePadding, top - 16.0, wideControlWidth, 16.0)];
     [_explorerShowHiddenFilesButton setFrame:NSMakeRect(metrics.explorerSidePadding,
-                                                        top - metrics.explorerMinorControlHeight,
+                                                        NSMinY([_explorerPathLabel frame]) - 6.0 - metrics.explorerMinorControlHeight,
                                                         wideControlWidth,
                                                         metrics.explorerMinorControlHeight)];
-    CGFloat navigateUpY = NSMinY([_explorerShowHiddenFilesButton frame]) - 8.0 - metrics.explorerControlHeight;
-    [_explorerNavigateUpButton setFrame:NSMakeRect(metrics.explorerSidePadding,
-                                                   navigateUpY,
-                                                   navigateButtonWidth,
-                                                   metrics.explorerControlHeight)];
-    [_explorerPathLabel setFrame:NSMakeRect(metrics.explorerSidePadding + navigateButtonWidth + navigateButtonGap,
-                                            navigateUpY + 4.0,
-                                            pathWidth,
-                                            18)];
     CGFloat scrollBottomInset = 10.0;
-    CGFloat scrollHeight = MAX(1.0, navigateUpY - 8.0 - scrollBottomInset);
+    CGFloat scrollTop = NSMinY([_explorerShowHiddenFilesButton frame]) - 8.0;
     [_explorerScrollView setFrame:NSMakeRect(MAX(0.0, metrics.explorerSidePadding - 2.0),
                                              scrollBottomInset,
-                                             scrollWidth,
-                                             scrollHeight)];
-    NSTableColumn *nameColumn = [_explorerTableView tableColumnWithIdentifier:@"ExplorerName"];
-    if (nameColumn != nil) {
-        [nameColumn setWidth:NSWidth([_explorerScrollView bounds]) - 2.0];
-    }
+                                             MAX(1.0, wideControlWidth + 4.0),
+                                             MAX(1.0, scrollTop - scrollBottomInset))];
+    [[_explorerOutlineView outlineTableColumn] setWidth:NSWidth([[_explorerScrollView contentView] bounds])];
 }
 
 - (void)reloadExplorerEntries
 {
-    [self updateExplorerControlsVisibility];
-    [self reloadLocalExplorerEntries];
+    [self layoutExplorerControls];
+    if (_explorerRootNode == nil) {
+        [self showRoot:[self explorerLocalRootPathPreference]];
+    }
+    [_explorerRootNode reloadChildren];
+    [_explorerOutlineView reloadData];
+    [self revealDocumentExpandingFolders:YES];
 }
 
-- (void)reloadLocalExplorerEntries
+- (void)windowDidBecomeKey:(NSNotification *)notification
 {
-    if (_explorerLocalRootPath == nil || [_explorerLocalRootPath length] == 0) {
-        [_explorerLocalRootPath release];
-        _explorerLocalRootPath = [[self explorerLocalRootPathPreference] copy];
-    }
-    if (_explorerLocalCurrentPath == nil || [_explorerLocalCurrentPath length] == 0) {
-        [_explorerLocalCurrentPath release];
-        _explorerLocalCurrentPath = [_explorerLocalRootPath copy];
-    }
-
-    NSFileManager *fileManager = [NSFileManager defaultManager];
-    BOOL isDirectory = NO;
-    if (![fileManager fileExistsAtPath:_explorerLocalCurrentPath isDirectory:&isDirectory] || !isDirectory) {
-        [_explorerLocalCurrentPath release];
-        _explorerLocalCurrentPath = [_explorerLocalRootPath copy];
-    }
-
-    NSError *error = nil;
-    NSArray *children = [fileManager contentsOfDirectoryAtPath:_explorerLocalCurrentPath error:&error];
-    if (children == nil) {
-        [_explorerEntries removeAllObjects];
-        [_explorerTableView reloadData];
-        [_explorerPathLabel setStringValue:@"Unable to read folder."];
+    if ([notification object] != [_containerView window] || ![_explorerRootNode hasLoadedChildren]) {
         return;
     }
-
-    NSMutableArray *entries = [NSMutableArray array];
-    if (![_explorerLocalCurrentPath isEqualToString:_explorerLocalRootPath]) {
-        NSString *parent = [_explorerLocalCurrentPath stringByDeletingLastPathComponent];
-        if ([parent length] == 0) {
-            parent = _explorerLocalRootPath;
-        }
-        [entries addObject:[NSMutableDictionary dictionaryWithObjectsAndKeys:
-                            @"..", @"name",
-                            parent, @"path",
-                            [NSNumber numberWithBool:YES], @"isDirectory",
-                            [NSNumber numberWithBool:YES], @"isParent",
-                            [NSNumber numberWithInteger:0], @"colorTier",
-                            nil]];
-    }
-
-    NSMutableArray *sortedChildren = [children mutableCopy];
-    [sortedChildren sortUsingComparator:^NSComparisonResult(id leftValue, id rightValue) {
-        NSString *left = (NSString *)leftValue;
-        NSString *right = (NSString *)rightValue;
-        NSString *leftPath = [_explorerLocalCurrentPath stringByAppendingPathComponent:left];
-        NSString *rightPath = [_explorerLocalCurrentPath stringByAppendingPathComponent:right];
-        BOOL leftDir = NO;
-        BOOL rightDir = NO;
-        [fileManager fileExistsAtPath:leftPath isDirectory:&leftDir];
-        [fileManager fileExistsAtPath:rightPath isDirectory:&rightDir];
-        if (leftDir != rightDir) {
-            return leftDir ? NSOrderedAscending : NSOrderedDescending;
-        }
-        return [left compare:right options:NSCaseInsensitiveSearch];
-    }];
-
-    BOOL showHiddenFiles = [self isExplorerShowHiddenFilesEnabled];
-    for (NSString *name in sortedChildren) {
-        if ([name isEqualToString:@"."] || [name isEqualToString:@".."]) {
-            continue;
-        }
-        if (!showHiddenFiles && [name hasPrefix:@"."]) {
-            continue;
-        }
-
-        NSString *fullPath = [_explorerLocalCurrentPath stringByAppendingPathComponent:name];
-        BOOL childIsDirectory = NO;
-        if (![fileManager fileExistsAtPath:fullPath isDirectory:&childIsDirectory]) {
-            continue;
-        }
-
-        NSMutableDictionary *entry = [NSMutableDictionary dictionary];
-        [entry setObject:name forKey:@"name"];
-        [entry setObject:fullPath forKey:@"path"];
-        [entry setObject:[NSNumber numberWithBool:childIsDirectory] forKey:@"isDirectory"];
-        [entry setObject:[NSNumber numberWithBool:NO] forKey:@"isParent"];
-        [entry setObject:[NSNumber numberWithInteger:(childIsDirectory ? 0 : OMDExplorerFileColorTierForPath(fullPath))]
-                 forKey:@"colorTier"];
-
-        if (!childIsDirectory) {
-            NSDictionary *attributes = [fileManager attributesOfItemAtPath:fullPath error:NULL];
-            NSNumber *size = [attributes objectForKey:NSFileSize];
-            if ([size respondsToSelector:@selector(unsignedLongLongValue)]) {
-                [entry setObject:size forKey:@"size"];
-            }
-        }
-        [entries addObject:entry];
-    }
-    [sortedChildren release];
-
-    [_explorerEntries removeAllObjects];
-    [_explorerEntries addObjectsFromArray:entries];
-    [_explorerTableView reloadData];
-    [_explorerPathLabel setStringValue:[_explorerLocalCurrentPath stringByAbbreviatingWithTildeInPath]];
-    [_explorerPathLabel setToolTip:_explorerLocalCurrentPath];
-}
-
-- (void)explorerNavigateUp:(id)sender
-{
-    (void)sender;
-    if (_explorerLocalCurrentPath == nil) {
-        return;
-    }
-    if ([_explorerLocalCurrentPath isEqualToString:_explorerLocalRootPath]) {
-        return;
-    }
-
-    NSString *parent = [_explorerLocalCurrentPath stringByDeletingLastPathComponent];
-    if ([parent length] == 0) {
-        parent = _explorerLocalRootPath;
-    }
-    [_explorerLocalCurrentPath release];
-    _explorerLocalCurrentPath = [parent copy];
-    [self reloadLocalExplorerEntries];
-    [self updateNavigateUpButton];
+    [_explorerRootNode reloadChildren];
+    [self reloadOutlineKeepingSelection];
 }
 
 - (void)explorerShowHiddenFilesChanged:(id)sender
 {
     (void)sender;
-    BOOL enabled = ([_explorerShowHiddenFilesButton state] == NSOnState);
-    [self setExplorerShowHiddenFilesEnabled:enabled];
-    [self reloadLocalExplorerEntries];
+    [self setExplorerShowHiddenFilesEnabled:([_explorerShowHiddenFilesButton state] == NSOnState)];
+    [self reloadOutlineKeepingSelection];
 }
 
 // The time within which a second click makes a double-click. GNUstep's
@@ -560,16 +551,16 @@ static NSTimeInterval OMDDoubleClickInterval(void)
     return (milliseconds < 200 ? 300 : milliseconds) / 1000.0;
 }
 
-- (NSDictionary *)explorerClickedEntry
+- (OMDExplorerNode *)explorerClickedNode
 {
-    NSInteger row = [_explorerTableView clickedRow];
+    NSInteger row = [_explorerOutlineView clickedRow];
     if (row < 0) {
-        row = [_explorerTableView selectedRow];
+        row = [_explorerOutlineView selectedRow];
     }
-    if (row < 0 || row >= (NSInteger)[_explorerEntries count]) {
+    if (row < 0) {
         return nil;
     }
-    return [_explorerEntries objectAtIndex:row];
+    return [_explorerOutlineView itemAtRow:row];
 }
 
 - (void)cancelPendingExplorerClick
@@ -577,20 +568,31 @@ static NSTimeInterval OMDDoubleClickInterval(void)
     [NSObject cancelPreviousPerformRequestsWithTarget:self
                                              selector:@selector(openPendingExplorerClick)
                                                object:nil];
-    [_explorerPendingClickEntry release];
-    _explorerPendingClickEntry = nil;
+    [_explorerPendingClickNode release];
+    _explorerPendingClickNode = nil;
 }
 
 - (void)openPendingExplorerClick
 {
-    NSDictionary *entry = [[_explorerPendingClickEntry retain] autorelease];
+    OMDExplorerNode *node = [[_explorerPendingClickNode retain] autorelease];
     [self cancelPendingExplorerClick];
-    [self openExplorerEntry:entry inNewTab:NO];
+    if (node != nil) {
+        [_delegate openLocalPath:[node path] inNewTab:NO];
+    }
 }
 
-// A click on a folder opens it at once. A click on a file opens it in the
-// current tab once the double-click interval has passed without a second
-// click; a double-click opens it in a new tab instead.
+- (void)toggleExplorerFolder:(OMDExplorerNode *)node
+{
+    if ([_explorerOutlineView isItemExpanded:node]) {
+        [_explorerOutlineView collapseItem:node];
+    } else {
+        [_explorerOutlineView expandItem:node];
+    }
+}
+
+// A click on a folder opens or closes it at once. A click on a file opens
+// it in the current tab once the double-click interval has passed without
+// a second click; a double-click opens it in a new tab instead.
 - (void)explorerItemClicked:(id)sender
 {
     (void)sender;
@@ -598,19 +600,19 @@ static NSTimeInterval OMDDoubleClickInterval(void)
     if (event != nil && [event clickCount] > 1) {
         return;
     }
-    NSDictionary *entry = [self explorerClickedEntry];
-    if (entry == nil) {
+    OMDExplorerNode *node = [self explorerClickedNode];
+    if (node == nil) {
         return;
     }
     [self cancelPendingExplorerClick];
-    if ([[entry objectForKey:@"isDirectory"] boolValue]) {
-        // The second click of a double-click would land in the new listing.
+    if ([node isDirectory]) {
+        // A quick second click would close the folder again.
         _explorerIgnoreDoubleClick = YES;
-        [self openExplorerEntry:entry inNewTab:NO];
+        [self toggleExplorerFolder:node];
         return;
     }
     _explorerIgnoreDoubleClick = NO;
-    _explorerPendingClickEntry = [entry retain];
+    _explorerPendingClickNode = [node retain];
     [self performSelector:@selector(openPendingExplorerClick)
                withObject:nil
                afterDelay:OMDDoubleClickInterval()];
@@ -623,94 +625,97 @@ static NSTimeInterval OMDDoubleClickInterval(void)
         _explorerIgnoreDoubleClick = NO;
         return;
     }
-    NSDictionary *entry = [[_explorerPendingClickEntry retain] autorelease];
+    OMDExplorerNode *node = [[_explorerPendingClickNode retain] autorelease];
     [self cancelPendingExplorerClick];
-    if (entry == nil) {
-        entry = [self explorerClickedEntry];
+    if (node == nil) {
+        node = [self explorerClickedNode];
     }
-    if (entry == nil) {
+    if (node == nil || [node isDirectory]) {
         return;
     }
-    [self openExplorerEntry:entry inNewTab:YES];
+    [_delegate openLocalPath:[node path] inNewTab:YES];
 }
 
-- (void)openExplorerEntry:(NSDictionary *)entry inNewTab:(BOOL)inNewTab
+- (void)explorerOpenSelection:(id)sender
 {
-    if (entry == nil) {
+    (void)sender;
+    NSInteger row = [_explorerOutlineView selectedRow];
+    if (row < 0) {
         return;
     }
-
-    BOOL isDirectory = [[entry objectForKey:@"isDirectory"] boolValue];
-    NSString *path = [entry objectForKey:@"path"];
-    if (path == nil || [path length] == 0) {
-        return;
+    OMDExplorerNode *node = [_explorerOutlineView itemAtRow:row];
+    [self cancelPendingExplorerClick];
+    if ([node isDirectory]) {
+        [self toggleExplorerFolder:node];
+    } else {
+        [_delegate openLocalPath:[node path] inNewTab:NO];
     }
-
-    if (isDirectory) {
-        [_explorerLocalCurrentPath release];
-        _explorerLocalCurrentPath = [path copy];
-        [self reloadLocalExplorerEntries];
-        [self updateNavigateUpButton];
-        return;
-    }
-
-    [_delegate openLocalPath:path inNewTab:inNewTab];
 }
 
-- (NSInteger)numberOfRowsInTableView:(NSTableView *)tableView
+- (NSArray *)childrenOfItem:(id)item
 {
-    if (tableView != _explorerTableView) {
-        return 0;
+    OMDExplorerNode *node = (item != nil ? (OMDExplorerNode *)item : _explorerRootNode);
+    if (node == nil) {
+        return [NSArray array];
     }
-    return (NSInteger)[_explorerEntries count];
+    return [node childrenShowingHidden:[self isExplorerShowHiddenFilesEnabled]];
 }
 
-- (id)tableView:(NSTableView *)tableView
-objectValueForTableColumn:(NSTableColumn *)tableColumn
-            row:(NSInteger)row
+- (NSInteger)outlineView:(NSOutlineView *)outlineView numberOfChildrenOfItem:(id)item
 {
+    (void)outlineView;
+    return (NSInteger)[[self childrenOfItem:item] count];
+}
+
+- (id)outlineView:(NSOutlineView *)outlineView child:(NSInteger)index ofItem:(id)item
+{
+    (void)outlineView;
+    NSArray *children = [self childrenOfItem:item];
+    if (index < 0 || index >= (NSInteger)[children count]) {
+        return nil;
+    }
+    return [children objectAtIndex:index];
+}
+
+- (BOOL)outlineView:(NSOutlineView *)outlineView isItemExpandable:(id)item
+{
+    (void)outlineView;
+    return [(OMDExplorerNode *)item isDirectory];
+}
+
+- (id)outlineView:(NSOutlineView *)outlineView objectValueForTableColumn:(NSTableColumn *)tableColumn byItem:(id)item
+{
+    (void)outlineView;
     (void)tableColumn;
-    if (tableView != _explorerTableView) {
-        return @"";
-    }
-    if (row < 0 || row >= (NSInteger)[_explorerEntries count]) {
-        return @"";
-    }
-
-    NSDictionary *entry = [_explorerEntries objectAtIndex:row];
-    NSString *name = [entry objectForKey:@"name"];
-    BOOL isDirectory = [[entry objectForKey:@"isDirectory"] boolValue];
-    BOOL isParent = [[entry objectForKey:@"isParent"] boolValue];
-    if (isParent) {
-        return @"..";
-    }
-    if (isDirectory) {
-        return [NSString stringWithFormat:@"%@/", name != nil ? name : @""];
-    }
-    return name != nil ? name : @"";
+    NSString *name = [(OMDExplorerNode *)item name];
+    return (name != nil ? name : @"");
 }
 
-- (void)tableView:(NSTableView *)tableView
- willDisplayCell:(id)cell
-  forTableColumn:(NSTableColumn *)tableColumn
-             row:(NSInteger)row
+- (void)outlineView:(NSOutlineView *)outlineView
+    willDisplayCell:(id)cell
+     forTableColumn:(NSTableColumn *)tableColumn
+               item:(id)item
 {
+    (void)outlineView;
     (void)tableColumn;
-    if (tableView != _explorerTableView || row < 0 || row >= (NSInteger)[_explorerEntries count]) {
-        return;
-    }
-    if (![cell respondsToSelector:@selector(setTextColor:)]) {
-        return;
-    }
-
-    NSDictionary *entry = [_explorerEntries objectAtIndex:row];
-    BOOL isDirectory = [[entry objectForKey:@"isDirectory"] boolValue];
-    NSInteger colorTier = [[entry objectForKey:@"colorTier"] integerValue];
+    OMDExplorerFileKind kind = [(OMDExplorerNode *)item kind];
     // Folders and the files the viewer opens or converts read normally;
     // the rest are dimmed.
-    BOOL opens = (isDirectory || colorTier == 1 || colorTier == 2);
-    [cell setTextColor:(opens ? [NSColor controlTextColor] : [NSColor disabledControlTextColor])];
+    BOOL dimmed = (kind == OMDExplorerFileKindOther);
+    if ([cell respondsToSelector:@selector(setTextColor:)]) {
+        [cell setTextColor:(dimmed ? [NSColor disabledControlTextColor] : [NSColor controlTextColor])];
+    }
+    if ([cell isKindOfClass:[OMDExplorerCell class]]) {
+        [(OMDExplorerCell *)cell setIcon:OMDSymbolicImageNamed(OMDExplorerIconNameForKind(kind)) dimmed:dimmed];
+    }
 }
 
+- (BOOL)outlineView:(NSOutlineView *)outlineView shouldEditTableColumn:(NSTableColumn *)tableColumn item:(id)item
+{
+    (void)outlineView;
+    (void)tableColumn;
+    (void)item;
+    return NO;
+}
 
 @end

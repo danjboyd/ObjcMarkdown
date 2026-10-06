@@ -15,22 +15,24 @@ static const CGFloat OMDExplorerListDefaultFontSize = 14.0;
 - (void)openLocalPath:(NSString *)path inNewTab:(BOOL)inNewTab;
 @end
 
-// The explorer sidebar: the files of a local folder.
-@interface OMDExplorerController : NSObject <NSTableViewDataSource, NSTableViewDelegate>
+@class OMDExplorerNode;
+
+// The explorer sidebar: a local folder's files and folders as a tree. It is
+// the outline view's data source and delegate without declaring those
+// protocols, all of whose methods GNUstep declares required.
+@interface OMDExplorerController : NSObject
 {
     id<OMDExplorerControllerDelegate> _delegate;
     NSView *_containerView;
     NSButton *_explorerShowHiddenFilesButton;
-    NSButton *_explorerNavigateUpButton;
     NSTextField *_explorerPathLabel;
     NSScrollView *_explorerScrollView;
-    NSTableView *_explorerTableView;
-    NSMutableArray *_explorerEntries;
+    NSOutlineView *_explorerOutlineView;
+    OMDExplorerNode *_explorerRootNode;
     NSString *_explorerLocalRootPath;
-    NSString *_explorerLocalCurrentPath;
     NSString *_explorerDocumentPath;
     // A file's single click waits out the double-click interval (#40).
-    NSDictionary *_explorerPendingClickEntry;
+    OMDExplorerNode *_explorerPendingClickNode;
     BOOL _explorerIgnoreDoubleClick;
 }
 

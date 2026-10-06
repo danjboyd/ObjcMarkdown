@@ -11,7 +11,7 @@ shape (alpha) matters.
 - The toolbar and copy icons come from the artwork in Resources/ (their
   alpha): toolbar icons cropped to the drawing and fitted into 22x22
   with a 2-point margin, the copy icon scaled to 16x16.
-- The other small icons (formatting bar, chevron, explorer, copied
+- The other small icons (formatting bar, chevron, explorer files and folders, copied
   check) are drawn here at 16x16 with cairo, y pointing up as in AppKit.
 
 Needs python3-cairo and python3-pil. Run from anywhere:
@@ -224,10 +224,40 @@ def pan_down(cr):
     polyline(cr, [(4.5, 10.0), (8.0, 6.5), (11.5, 10.0)])
 
 
-def go_up(cr):
-    # The explorer's parent-folder arrow, as it has always been drawn.
-    line(cr, 12.5, 12.0, 5.2, 4.7, width=2.0)
-    polyline(cr, [(5.2, 9.1), (5.2, 4.7), (9.6, 4.7)], width=2.0)
+def page(cr):
+    # A sheet with its top right corner folded.
+    polyline(cr, [(9.5, 14.5), (3.0, 14.5), (3.0, 1.5), (13.0, 1.5), (13.0, 11.0), (9.5, 14.5)], width=1.2)
+    polyline(cr, [(9.5, 14.5), (9.5, 11.0), (13.0, 11.0)], width=1.2)
+
+
+def folder(cr):
+    cr.set_line_width(1.2)
+    cr.set_line_join(cairo.LINE_JOIN_ROUND)
+    cr.move_to(1.5, 2.5)
+    cr.line_to(1.5, 13.0)
+    cr.line_to(6.0, 13.0)
+    cr.line_to(7.5, 11.5)
+    cr.line_to(14.5, 11.5)
+    cr.line_to(14.5, 2.5)
+    cr.close_path()
+    cr.stroke()
+    line(cr, 1.5, 9.5, 14.5, 9.5, width=1.2)
+
+
+def file_text(cr):
+    page(cr)
+    for y in (8.5, 6.0, 3.5):
+        line(cr, 5.0, y, 11.0, y, width=1.2)
+
+
+def file_import(cr):
+    page(cr)
+    polyline(cr, [(5.0, 6.0), (10.5, 6.0)], width=1.2)
+    polyline(cr, [(8.5, 8.0), (10.5, 6.0), (8.5, 4.0)], width=1.2)
+
+
+def file_other(cr):
+    page(cr)
 
 
 def check(cr):
@@ -249,8 +279,11 @@ SMALL_ICONS = {
     "omd-insert-table-symbolic": table,
     "omd-insert-rule-symbolic": horizontal_rule,
     "omd-pan-down-symbolic": pan_down,
-    "omd-go-up-symbolic": go_up,
     "omd-object-select-symbolic": check,
+    "omd-folder-symbolic": folder,
+    "omd-text-x-markdown-symbolic": file_text,
+    "omd-document-import-symbolic": file_import,
+    "omd-text-x-generic-symbolic": file_other,
 }
 
 
