@@ -39,7 +39,8 @@ setsid env -i HOME="$HOME" PATH="$PATH" DISPLAY="$DISPLAY" XDG_CONFIG_HOME="$G/c
   XDG_DATA_HOME="$G/data" XDG_CACHE_HOME="$G/cache" XDG_STATE_HOME="$G/state" \
   XDG_RUNTIME_DIR="$G/run" GSETTINGS_BACKEND=memory LIBGL_ALWAYS_SOFTWARE=1 \
   GIO_USE_VFS=local GVFS_DISABLE_FUSE=1 GIO_USE_VOLUME_MONITOR=unix \
-  dbus-run-session -- gnome-shell --x11 >$G/shell.log 2>&1 < /dev/null &
+  dbus-run-session -- sh -c 'echo "$DBUS_SESSION_BUS_ADDRESS" > "$1/bus"; exec gnome-shell --x11' sh "$G" \
+  >$G/shell.log 2>&1 < /dev/null &
 for _ in $(seq 1 60); do xprop -root _NET_SUPPORTING_WM_CHECK 2>/dev/null | grep -q "window id" && break; sleep 0.5; done
 # Dismiss GNOME's overview and welcome tour.
 sleep 4; xdotool key Escape; sleep 1; xdotool key Escape

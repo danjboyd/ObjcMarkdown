@@ -5,12 +5,21 @@
 WORK=${OMD_UI_WORK:-/tmp/omd-ui}
 REPO=$(cd "$(dirname "$0")/../.." && pwd)
 export DISPLAY=$(cat $WORK/display)
+# The private session's D-Bus, so portals and other services the app talks
+# to are the private session's, never the user's desktop (a file chooser
+# would open there).
+BUS=$(cat $WORK/gsession/bus 2>/dev/null)
+if [ -z "$BUS" ]; then
+  echo "no private session bus in $WORK/gsession/bus: restart with ui-stop.sh and ui-session.sh" >&2
+  exit 1
+fi
 source /usr/GNUstep/System/Library/Makefiles/GNUstep.sh >/dev/null 2>&1
 # Stop only the copy this script started on this display, never the user's.
 $(dirname "$0")/ui-stop-app.sh
 LIBS=$REPO/ObjcMarkdown/obj:$REPO/third_party/GPUpdaterCore/obj:$REPO/third_party/GPUpdaterUI/obj:$REPO/third_party/libs-OpenSave/Source/obj:$REPO/third_party/TextViewVimKitBuild/obj
 cd "$REPO"
-GSETTINGS_BACKEND=keyfile XDG_CONFIG_HOME="$WORK/gsession/gs" \
+DBUS_SESSION_BUS_ADDRESS="$BUS" XDG_RUNTIME_DIR="$WORK/gsession/run" \
+  GSETTINGS_BACKEND=keyfile XDG_CONFIG_HOME="$WORK/gsession/gs" \
   GNUSTEP_CONFIG_FILE="$WORK/gnustep/GNUstep.conf" \
   LD_LIBRARY_PATH=$LIBS:/usr/GNUstep/System/Library/Libraries:${LD_LIBRARY_PATH:-} \
   setsid ./ObjcMarkdownViewer/MarkdownViewer.app/MarkdownViewer "$@" >$WORK/app.log 2>&1 < /dev/null &

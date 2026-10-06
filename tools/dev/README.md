@@ -26,6 +26,12 @@ Drive it with `xdotool` (`export DISPLAY=$(cat $OMD_UI_WORK/display)`).
   fresh MarkdownViewer domain; your own settings are never read or written.
   Read them with `GNUSTEP_CONFIG_FILE=$OMD_UI_WORK/gnustep/GNUstep.conf
   defaults read MarkdownViewer`. Your installed themes are still used.
+- The app runs on the private session's D-Bus (its address is in
+  `$OMD_UI_WORK/gsession/bus`), so the portals it reaches, such as the file
+  chooser behind open and save panels, are the private session's and show
+  their dialogs on the private display, never on your desktop.
+  `ui-launch.sh` refuses to start without it; restart the session if it
+  predates this.
 - The scripts stop only the MarkdownViewer they started (its process ID is
   in `$OMD_UI_WORK/app.pid`, checked against the private display). Never
   stop the app with `pkill -x MarkdownViewer` or `kill` by name: that also
