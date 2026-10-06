@@ -11,6 +11,7 @@
 #import "OMAppKitSerialization.h"
 #import "OMMermaidERDrawing.h"
 #import "OMMermaidERLayout.h"
+#import "OMTestPaths.h"
 
 static NSArray *OMDTestExecutableCandidateNames(NSString *name)
 {
@@ -966,15 +967,15 @@ static BOOL OMDMathToolchainAvailable(void)
 
 - (void)testLocalImageDependenciesUseCommonMarkResolution
 {
-    NSURL *base = [NSURL fileURLWithPath:@"/tmp/markdown-images" isDirectory:YES];
+    NSURL *base = [NSURL fileURLWithPath:OMTestAbsolutePath(@"/tmp/markdown-images") isDirectory:YES];
     NSString *markdown = @"![inline](images/a%20b.png)\n![reference][pic]\n"
                           @"![duplicate](images/a%20b.png)\n![remote](https://example.com/image.png)\n"
                           @"`![code](ignored.png)`\n\n```\n![fenced](ignored-too.png)\n```\n\n"
                           @"[pic]: ../missing.png\n";
     NSArray *urls = [OMMarkdownRenderer localImageURLsInMarkdown:markdown baseURL:base];
     XCTAssertEqual([urls count], (NSUInteger)2);
-    XCTAssertEqualObjects([[[urls objectAtIndex:0] path] stringByStandardizingPath], @"/tmp/markdown-images/images/a b.png");
-    XCTAssertEqualObjects([[[urls objectAtIndex:1] path] stringByStandardizingPath], @"/tmp/missing.png");
+    XCTAssertEqualObjects([[[urls objectAtIndex:0] path] stringByStandardizingPath], OMTestAbsolutePath(@"/tmp/markdown-images/images/a b.png"));
+    XCTAssertEqualObjects([[[urls objectAtIndex:1] path] stringByStandardizingPath], OMTestAbsolutePath(@"/tmp/missing.png"));
 }
 
 - (void)testLocalImageReplacementAndDeletionAreVisibleOnRerender
@@ -2547,6 +2548,17 @@ static NSRange OMFootnoteAnchorRange(NSAttributedString *rendered, NSString *anc
     NSUInteger image = [text rangeOfString:[NSString stringWithCharacters:&attachmentCharacter length:1]].location;
     XCTAssertEqualObjects([rendered attribute:NSToolTipAttributeName atIndex:image effectiveRange:NULL], @"A picture");
     [self removeFileIfPresent:path];
+}
+
+- (void)testLinkWithQueryRightAfterTheHostStaysALink
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:@"[q](http://example.com?foo=3#frag)"];
+    id link = [rendered attribute:NSLinkAttributeName atIndex:0 effectiveRange:NULL];
+    XCTAssertTrue([link isKindOfClass:[NSURL class]]);
+    XCTAssertEqualObjects([link host], @"example.com");
+    XCTAssertEqualObjects([link query], @"foo=3");
+    XCTAssertEqualObjects([link fragment], @"frag");
 }
 
 @end

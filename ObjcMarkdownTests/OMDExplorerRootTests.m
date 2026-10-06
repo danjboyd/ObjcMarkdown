@@ -5,6 +5,7 @@
 #import <Foundation/Foundation.h>
 
 #import "OMDExplorerRoot.h"
+#import "OMTestPaths.h"
 
 @interface OMDExplorerRootTests : XCTestCase
 {
@@ -79,14 +80,19 @@
 
 - (void)testRecentRootsMoveToTheFrontWithoutDuplicatesUpToTheLimit
 {
-    NSArray *recent = [NSArray arrayWithObjects:@"/a", @"/b", @"/c", nil];
-    XCTAssertEqualObjects(OMDExplorerRecentRootsAdding(recent, @"/b/", 8),
-                          ([NSArray arrayWithObjects:@"/b", @"/a", @"/c", nil]));
-    XCTAssertEqualObjects(OMDExplorerRecentRootsAdding(recent, @"/d", 3),
-                          ([NSArray arrayWithObjects:@"/d", @"/a", @"/b", nil]));
-    XCTAssertEqualObjects(OMDExplorerRecentRootsAdding(nil, @"/a/../e", 8), [NSArray arrayWithObject:@"/e"]);
+    NSString *a = OMTestAbsolutePath(@"/a");
+    NSString *b = OMTestAbsolutePath(@"/b");
+    NSString *c = OMTestAbsolutePath(@"/c");
+    NSString *d = OMTestAbsolutePath(@"/d");
+    NSArray *recent = [NSArray arrayWithObjects:a, b, c, nil];
+    XCTAssertEqualObjects(OMDExplorerRecentRootsAdding(recent, OMTestAbsolutePath(@"/b/"), 8),
+                          ([NSArray arrayWithObjects:b, a, c, nil]));
+    XCTAssertEqualObjects(OMDExplorerRecentRootsAdding(recent, d, 3),
+                          ([NSArray arrayWithObjects:d, a, b, nil]));
+    XCTAssertEqualObjects(OMDExplorerRecentRootsAdding(nil, OMTestAbsolutePath(@"/a/../e"), 8),
+                          [NSArray arrayWithObject:OMTestAbsolutePath(@"/e")]);
     XCTAssertEqualObjects(OMDExplorerRecentRootsAdding(recent, nil, 2),
-                          ([NSArray arrayWithObjects:@"/a", @"/b", nil]));
+                          ([NSArray arrayWithObjects:a, b, nil]));
 }
 
 - (void)testMenuTitlesNameTheParentOnlyForRepeatedNames
@@ -102,10 +108,14 @@
 
 - (void)testRelativePathsAreBelowTheRoot
 {
-    XCTAssertEqualObjects(OMDExplorerRelativePath(@"/home/a/repo/docs/guide.md", @"/home/a/repo"), @"docs/guide.md");
-    XCTAssertEqualObjects(OMDExplorerRelativePath(@"/home/a/repo/docs/../README.md", @"/home/a/repo/"), @"README.md");
-    XCTAssertEqualObjects(OMDExplorerRelativePath(@"/home/a/repo-old/x.md", @"/home/a/repo"), @"/home/a/repo-old/x.md");
-    XCTAssertEqualObjects(OMDExplorerRelativePath(@"/home/a/repo", @"/home/a/repo"), @"/home/a/repo");
+    NSString *repo = OMTestAbsolutePath(@"/home/a/repo");
+    NSString *outside = OMTestAbsolutePath(@"/home/a/repo-old/x.md");
+    XCTAssertEqualObjects(OMDExplorerRelativePath(OMTestAbsolutePath(@"/home/a/repo/docs/guide.md"), repo), @"docs/guide.md");
+    XCTAssertEqualObjects(OMDExplorerRelativePath(OMTestAbsolutePath(@"/home/a/repo/docs/../README.md"),
+                                                  OMTestAbsolutePath(@"/home/a/repo/")),
+                          @"README.md");
+    XCTAssertEqualObjects(OMDExplorerRelativePath(outside, repo), outside);
+    XCTAssertEqualObjects(OMDExplorerRelativePath(repo, repo), repo);
 }
 
 @end

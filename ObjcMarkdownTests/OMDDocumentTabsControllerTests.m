@@ -4,6 +4,7 @@
 #import <XCTest/XCTest.h>
 #import <AppKit/AppKit.h>
 #import "OMDDocumentTabsController.h"
+#import "OMTestPaths.h"
 
 @interface OMDDocumentTabsControllerTests : XCTestCase <OMDDocumentTabsControllerDelegate>
 {
@@ -83,10 +84,10 @@
 - (void)testLocalPathLookupStandardizesPaths
 {
     OMDDocumentTabsController *tabs = [[[OMDDocumentTabsController alloc] initWithDelegate:self] autorelease];
-    [tabs addTab:[self tabWithPath:@"/tmp/docs/a.md"]];
-    [tabs addTab:[self tabWithPath:@"/tmp/docs/b.md"]];
-    XCTAssertEqual([tabs documentTabIndexForLocalPath:@"/tmp/docs/../docs/b.md"], (NSInteger)1);
-    XCTAssertEqual([tabs documentTabIndexForLocalPath:@"/tmp/docs/c.md"], (NSInteger)-1);
+    [tabs addTab:[self tabWithPath:OMTestAbsolutePath(@"/tmp/docs/a.md")]];
+    [tabs addTab:[self tabWithPath:OMTestAbsolutePath(@"/tmp/docs/b.md")]];
+    XCTAssertEqual([tabs documentTabIndexForLocalPath:OMTestAbsolutePath(@"/tmp/docs/../docs/b.md")], (NSInteger)1);
+    XCTAssertEqual([tabs documentTabIndexForLocalPath:OMTestAbsolutePath(@"/tmp/docs/c.md")], (NSInteger)-1);
     XCTAssertEqual([tabs documentTabIndexForLocalPath:@" "], (NSInteger)-1);
 }
 

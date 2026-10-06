@@ -235,6 +235,20 @@ static NSString *OMSpecLinkString(id link)
     return [link description];
 }
 
+// url with "/" between an http(s) host and a query or fragment, or nil if
+// it isn't one of those or already has a path.
+static NSString *OMSpecURLStringWithRootPath(NSString *url)
+{
+    NSRegularExpression *pattern = [NSRegularExpression regularExpressionWithPattern:@"^(https?://[^/?#]*)([?#].*)$"
+                                                                             options:NSRegularExpressionCaseInsensitive
+                                                                               error:NULL];
+    if (url == nil || [pattern numberOfMatchesInString:url options:0 range:NSMakeRange(0, [url length])] == 0) {
+        return nil;
+    }
+    return [pattern stringByReplacingMatchesInString:url options:0 range:NSMakeRange(0, [url length])
+                                        withTemplate:@"$1/$2"];
+}
+
 // Why the rendered text at found doesn't match the element (its check
 // name), or nil. href is the expected destination for links.
 static NSString *OMSpecElementFailure(NSAttributedString *rendered, NSRange found, NSString *kind, id href)
@@ -264,6 +278,12 @@ static NSString *OMSpecElementFailure(NSAttributedString *rendered, NSRange foun
     NSString *decodedExpected = [expected stringByRemovingPercentEncoding];
     NSString *decodedActual = [actual stringByRemovingPercentEncoding];
     if ([actual isEqualToString:expected] || (decodedExpected != nil && [decodedExpected isEqualToString:decodedActual])) {
+        return nil;
+    }
+    // "http://host?q" and "http://host/?q" are the same URL (RFC 3986, 6.2.3);
+    // the renderer gives the second where NSURL won't parse the first.
+    NSString *rootedExpected = OMSpecURLStringWithRootPath(decodedExpected);
+    if (rootedExpected != nil && [rootedExpected isEqualToString:decodedActual]) {
         return nil;
     }
     return @"href";

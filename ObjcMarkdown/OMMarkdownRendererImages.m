@@ -385,6 +385,49 @@ static BOOL OMDestinationHasScheme(NSString *urlString)
     return NO;
 }
 
+// Whether the destination is a Windows path with a drive letter ("C:/x.png",
+// "C:\x.png"). NSURL reads the drive letter as a scheme; CommonMark doesn't
+// (a scheme has at least two characters), and on Windows it names a file.
+static BOOL OMDestinationIsDrivePath(NSString *urlString)
+{
+#if defined(_WIN32)
+    if ([urlString length] < 3) {
+        return NO;
+    }
+    unichar drive = [urlString characterAtIndex:0];
+    unichar separator = [urlString characterAtIndex:2];
+    return ((drive >= 'a' && drive <= 'z') || (drive >= 'A' && drive <= 'Z')) &&
+           [urlString characterAtIndex:1] == ':' && (separator == '/' || separator == '\\');
+#else
+    (void)urlString;
+    return NO;
+#endif
+}
+
+// "http://host?query" or "http://host#fragment" with "/" before the query or
+// fragment, which is the same URL (RFC 3986, 6.2.3), or nil if it already
+// has a path. GNUstep's NSURL on Windows rejects the form without the "/".
+static NSString *OMURLStringWithRootPath(NSString *urlString)
+{
+    NSString *lower = [urlString lowercaseString];
+    NSUInteger start = 0;
+    if ([lower hasPrefix:@"http://"]) {
+        start = 7;
+    } else if ([lower hasPrefix:@"https://"]) {
+        start = 8;
+    } else {
+        return nil;
+    }
+    NSRange end = [urlString rangeOfCharacterFromSet:[NSCharacterSet characterSetWithCharactersInString:@"/?#"]
+                                             options:0
+                                               range:NSMakeRange(start, [urlString length] - start)];
+    if (end.location == NSNotFound || [urlString characterAtIndex:end.location] == '/') {
+        return nil;
+    }
+    return [NSString stringWithFormat:@"%@/%@", [urlString substringToIndex:end.location],
+                                                [urlString substringFromIndex:end.location]];
+}
+
 // The destination as an NSURL, escaping it the way cmark-gfm would if NSURL
 // won't take it as written.
 static NSURL *OMURLFromDestination(NSString *urlString, NSURL *baseURL)
@@ -395,6 +438,11 @@ static NSURL *OMURLFromDestination(NSString *urlString, NSURL *baseURL)
         NSString *escaped = OMEscapedURLString(urlString);
         url = baseURL != nil ? [NSURL URLWithString:escaped relativeToURL:baseURL]
                              : [NSURL URLWithString:escaped];
+        NSString *rooted = url == nil ? OMURLStringWithRootPath(escaped) : nil;
+        if (rooted != nil) {
+            url = baseURL != nil ? [NSURL URLWithString:rooted relativeToURL:baseURL]
+                                 : [NSURL URLWithString:rooted];
+        }
     }
     return url;
 }
@@ -406,7 +454,8 @@ NSURL *OMResolvedImageURL(NSString *urlString,
         return nil;
     }
 
-    NSURL *url = OMURLFromDestination(urlString, nil);
+    BOOL drivePath = OMDestinationIsDrivePath(urlString);
+    NSURL *url = drivePath ? nil : OMURLFromDestination(urlString, nil);
     if (url != nil && [url scheme] != nil) {
         if (!OMURLUsesAllowedImageScheme(url)) {
             return nil;
@@ -419,7 +468,12 @@ NSURL *OMResolvedImageURL(NSString *urlString,
 
     OMMarkdownParsingOptions *options = OMRenderContextParsingOptions(renderContext);
     NSURL *baseURL = options != nil ? [options baseURL] : nil;
-    if (baseURL != nil) {
+    if (drivePath) {
+        // A document from the web doesn't reach into local drives.
+        if (baseURL != nil && ![baseURL isFileURL]) {
+            return nil;
+        }
+    } else if (baseURL != nil) {
         NSURL *resolved = OMURLFromDestination(urlString, baseURL);
         if (resolved != nil) {
             return [resolved absoluteURL];
@@ -484,7 +538,8 @@ NSURL *OMResolvedLinkURL(NSString *urlString,
         return fragmentURL;
     }
 
-    NSURL *url = OMURLFromDestination(urlString, nil);
+    BOOL drivePath = OMDestinationIsDrivePath(urlString);
+    NSURL *url = drivePath ? nil : OMURLFromDestination(urlString, nil);
     if (url != nil && [url scheme] != nil) {
         if (!OMURLUsesAllowedLinkScheme(url)) {
             return nil;
@@ -499,7 +554,12 @@ NSURL *OMResolvedLinkURL(NSString *urlString,
 
     OMMarkdownParsingOptions *options = OMRenderContextParsingOptions(renderContext);
     NSURL *baseURL = options != nil ? [options baseURL] : nil;
-    if (baseURL != nil) {
+    if (drivePath) {
+        // A document from the web doesn't link into local drives.
+        if (baseURL != nil && ![baseURL isFileURL]) {
+            return nil;
+        }
+    } else if (baseURL != nil) {
         NSURL *resolved = OMURLFromDestination(urlString, baseURL);
         if (resolved != nil) {
             return [resolved absoluteURL];

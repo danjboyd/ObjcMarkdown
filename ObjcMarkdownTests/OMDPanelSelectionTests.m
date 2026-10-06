@@ -154,20 +154,22 @@
 - (void)testOpenPanelFallsBackToSingleURL
 {
     OMDStubOpenPanel *panel = [[[OMDStubOpenPanel alloc] init] autorelease];
-    [panel setURL:[NSURL fileURLWithPath:@"/tmp/fallback.md"]];
+    NSURL *url = [NSURL fileURLWithPath:@"/tmp/fallback.md"];
+    [panel setURL:url];
 
     NSArray *paths = OMDSelectedPathsFromOpenPanel((NSOpenPanel *)panel);
-    XCTAssertEqualObjects(paths, [NSArray arrayWithObject:@"/tmp/fallback.md"]);
+    XCTAssertEqualObjects(paths, [NSArray arrayWithObject:[url path]]);
 }
 
 - (void)testSavePanelPrefersFileURLPath
 {
     OMDStubSavePanel *panel = [[[OMDStubSavePanel alloc] init] autorelease];
-    [panel setURL:[NSURL fileURLWithPath:@"/tmp/output.md"]];
+    NSURL *url = [NSURL fileURLWithPath:@"/tmp/output.md"];
+    [panel setURL:url];
     [panel setFilename:@"/tmp/older.md"];
 
     XCTAssertEqualObjects(OMDSelectedPathFromSavePanel((NSSavePanel *)panel),
-                          @"/tmp/output.md");
+                          [url path]);
 }
 
 - (void)testSavePanelFallsBackToFilename
