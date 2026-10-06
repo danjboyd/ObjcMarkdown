@@ -165,21 +165,21 @@
     [[viewMenuWin addItemWithTitle:@"Split Mode"
                          action:@selector(setSplitMode:)
                   keyEquivalent:@"3"] setTarget:target];
-    NSMenuItem *showExplorerItem = (NSMenuItem *)[viewMenuWin addItemWithTitle:@"Show Explorer"
+    NSMenuItem *showExplorerItemWin = (NSMenuItem *)[viewMenuWin addItemWithTitle:@"Show Explorer"
                                                                    action:@selector(toggleExplorerSidebar:)
                                                             keyEquivalent:@""];
-    [showExplorerItem setTarget:target];
+    [showExplorerItemWin setTarget:target];
     [[viewMenuWin addItemWithTitle:@"Filter Files"
                             action:@selector(filterExplorerFiles:)
                      keyEquivalent:@"F"] setTarget:target];
-    NSMenuItem *showOutlineItem = (NSMenuItem *)[viewMenuWin addItemWithTitle:@"Show Outline"
+    NSMenuItem *showOutlineItemWin = (NSMenuItem *)[viewMenuWin addItemWithTitle:@"Show Outline"
                                                                   action:@selector(toggleOutline:)
                                                            keyEquivalent:@"O"];
-    [showOutlineItem setTarget:target];
-    NSMenuItem *showFormattingBarItem = (NSMenuItem *)[viewMenuWin addItemWithTitle:@"Show Formatting Bar"
+    [showOutlineItemWin setTarget:target];
+    NSMenuItem *showFormattingBarItemWin = (NSMenuItem *)[viewMenuWin addItemWithTitle:@"Show Formatting Bar"
                                                                         action:@selector(toggleFormattingBar:)
                                                                  keyEquivalent:@""];
-    [showFormattingBarItem setTarget:target];
+    [showFormattingBarItemWin setTarget:target];
     [[viewMenuWin addItemWithTitle:@"Full-Width Preview"
                             action:@selector(togglePreviewFullWidth:)
                      keyEquivalent:@""] setTarget:target];
