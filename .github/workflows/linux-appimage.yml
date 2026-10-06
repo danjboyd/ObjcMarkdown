@@ -46,6 +46,9 @@ jobs:
       # digest linux-gnustep-clang.yml uses.
       container-appimage: ghcr.io/danjboyd/objcmarkdown-ci@sha256:16d1be7d75cd096ecb4f53f48d52a2cc6cd5eaf74056380202d4444bfa96515a
       skip-default-host-setup: true
+      # The CI image already has the AppImage tools; the packager rejects
+      # extra apt packages when it does not set up the host.
+      appimage-apt-packages: ""
       preflight-shell: bash
       preflight-command: ./packaging/ci/preflight-appimage.sh
       run-validation: true
