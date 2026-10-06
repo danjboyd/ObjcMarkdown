@@ -3,8 +3,8 @@
 
 #import <AppKit/AppKit.h>
 
-FOUNDATION_EXPORT NSString * const OMDSourceHighlighterOptionHighContrast;
-FOUNDATION_EXPORT NSString * const OMDSourceHighlighterOptionAccentColor;
+extern NSString * const OMDSourceHighlighterOptionHighContrast;
+extern NSString * const OMDSourceHighlighterOptionAccentColor;
 
 @interface OMDSourceHighlighter : NSObject
 

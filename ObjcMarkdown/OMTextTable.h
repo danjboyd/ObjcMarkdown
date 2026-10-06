@@ -2,14 +2,15 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
 #import <AppKit/AppKit.h>
+#import "OMExport.h"
 
 @class OMRenderedObject;
 
 // Attribute on the text of a table laid out as text: the OMTextTable it
 // belongs to. Each visual line is a paragraph whose cells are tab-separated.
-FOUNDATION_EXPORT NSString * const OMTextTableAttributeName;
+OM_EXPORT NSString * const OMTextTableAttributeName;
 // Attribute on each row's text: NSNumber row index, 0 for the header.
-FOUNDATION_EXPORT NSString * const OMTextTableRowAttributeName;
+OM_EXPORT NSString * const OMTextTableRowAttributeName;
 
 // The grid a text table is drawn with. Column edges are x positions in text
 // container coordinates (the coordinates indents and tab stops use).
@@ -49,13 +50,13 @@ FOUNDATION_EXPORT NSString * const OMTextTableRowAttributeName;
 
 // Draws the backgrounds and rules of every text table with glyphs in
 // glyphRange, laid out by layoutManager, with the container at origin.
-FOUNDATION_EXPORT void OMDrawTextTablesForGlyphRange(NSLayoutManager *layoutManager,
-                                                      NSRange glyphRange,
-                                                      NSPoint origin);
+OM_EXPORT void OMDrawTextTablesForGlyphRange(NSLayoutManager *layoutManager,
+                                              NSRange glyphRange,
+                                              NSPoint origin);
 // The same in two passes, so a selection drawn between them leaves the rules visible.
-FOUNDATION_EXPORT void OMDrawTextTableBackgroundsForGlyphRange(NSLayoutManager *layoutManager,
-                                                                NSRange glyphRange,
-                                                                NSPoint origin);
-FOUNDATION_EXPORT void OMDrawTextTableRulesForGlyphRange(NSLayoutManager *layoutManager,
-                                                          NSRange glyphRange,
-                                                          NSPoint origin);
+OM_EXPORT void OMDrawTextTableBackgroundsForGlyphRange(NSLayoutManager *layoutManager,
+                                                        NSRange glyphRange,
+                                                        NSPoint origin);
+OM_EXPORT void OMDrawTextTableRulesForGlyphRange(NSLayoutManager *layoutManager,
+                                                  NSRange glyphRange,
+                                                  NSPoint origin);

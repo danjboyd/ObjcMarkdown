@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
 #import <Foundation/Foundation.h>
+#import "OMExport.h"
 
 // A Mermaid flowchart ("flowchart TD" / "graph LR"), parsed for native drawing.
 // Supported: the five directions; node shapes [ ], ( ), ([ ]), (( )), { }, [[ ]]
@@ -12,9 +13,9 @@
 // stroke-dasharray). linkStyle, click, direction and accessibility lines are
 // skipped; click is counted, so a caption can say its links aren't followed.
 
-FOUNDATION_EXPORT NSString * const OMMermaidFlowchartErrorDomain;
+OM_EXPORT NSString * const OMMermaidFlowchartErrorDomain;
 // NSNumber, 1-based line in the diagram source.
-FOUNDATION_EXPORT NSString * const OMMermaidFlowchartErrorLineNumberKey;
+OM_EXPORT NSString * const OMMermaidFlowchartErrorLineNumberKey;
 
 typedef NS_ENUM(NSInteger, OMMermaidFlowDirection) {
     OMMermaidFlowDirectionTopDown = 0,
@@ -127,4 +128,4 @@ typedef NS_ENUM(NSInteger, OMMermaidFlowEdgeStyle) {
 
 // The diagram type a Mermaid source declares ("flowchart", "sequenceDiagram"...),
 // from its first meaningful line, or nil.
-FOUNDATION_EXPORT NSString *OMMermaidDeclaredDiagramType(NSString *source);
+OM_EXPORT NSString *OMMermaidDeclaredDiagramType(NSString *source);

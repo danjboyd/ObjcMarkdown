@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
 #import <AppKit/AppKit.h>
+#import "OMExport.h"
 #import "OMMermaidFlowchartLayout.h"
 
 @class OMMermaidFlowchart;
@@ -34,7 +35,7 @@
 
 // A one-character attributed string carrying the drawn flowchart, scaled
 // down to maximumWidth if needed (zero or less: no limit), or nil.
-FOUNDATION_EXPORT NSAttributedString *OMMermaidFlowchartAttachmentAttributedString(OMMermaidFlowchart *flowchart,
-                                                                                   OMMermaidERDrawingStyle *style,
-                                                                                   CGFloat maximumWidth,
-                                                                                   NSDictionary *attributes);
+OM_EXPORT NSAttributedString *OMMermaidFlowchartAttachmentAttributedString(OMMermaidFlowchart *flowchart,
+                                                                           OMMermaidERDrawingStyle *style,
+                                                                           CGFloat maximumWidth,
+                                                                           NSDictionary *attributes);

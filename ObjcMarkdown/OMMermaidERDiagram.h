@@ -2,11 +2,12 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
 #import <Foundation/Foundation.h>
+#import "OMExport.h"
 
-FOUNDATION_EXPORT NSString * const OMMermaidERDiagramErrorDomain;
+OM_EXPORT NSString * const OMMermaidERDiagramErrorDomain;
 
 // NSNumber, 1-based line number within the diagram source.
-FOUNDATION_EXPORT NSString * const OMMermaidERDiagramErrorLineNumberKey;
+OM_EXPORT NSString * const OMMermaidERDiagramErrorLineNumberKey;
 
 typedef NS_ENUM(NSInteger, OMMermaidERDiagramErrorCode) {
     OMMermaidERDiagramErrorMissingHeader = 1,

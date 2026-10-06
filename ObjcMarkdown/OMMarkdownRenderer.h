@@ -2,37 +2,38 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
 #import <Foundation/Foundation.h>
+#import "OMExport.h"
 #import <AppKit/AppKit.h>
 #import "OMMarkdownParsingOptions.h"
 
 @class OMTheme;
 
-FOUNDATION_EXPORT NSString * const OMMarkdownRendererMathArtifactsDidWarmNotification;
-FOUNDATION_EXPORT NSString * const OMMarkdownRendererRemoteImagesDidWarmNotification;
-FOUNDATION_EXPORT NSString * const OMMarkdownRendererAnchorSourceStartLineKey;
-FOUNDATION_EXPORT NSString * const OMMarkdownRendererAnchorSourceEndLineKey;
-FOUNDATION_EXPORT NSString * const OMMarkdownRendererAnchorTargetStartKey;
-FOUNDATION_EXPORT NSString * const OMMarkdownRendererAnchorTargetLengthKey;
-FOUNDATION_EXPORT NSString * const OMMarkdownRendererAnchorBlockIDKey;
+OM_EXPORT NSString * const OMMarkdownRendererMathArtifactsDidWarmNotification;
+OM_EXPORT NSString * const OMMarkdownRendererRemoteImagesDidWarmNotification;
+OM_EXPORT NSString * const OMMarkdownRendererAnchorSourceStartLineKey;
+OM_EXPORT NSString * const OMMarkdownRendererAnchorSourceEndLineKey;
+OM_EXPORT NSString * const OMMarkdownRendererAnchorTargetStartKey;
+OM_EXPORT NSString * const OMMarkdownRendererAnchorTargetLengthKey;
+OM_EXPORT NSString * const OMMarkdownRendererAnchorBlockIDKey;
 
 // Keys in the dictionaries returned by -headings.
-FOUNDATION_EXPORT NSString * const OMMarkdownRendererHeadingLevelKey;       // NSNumber, 1-6
-FOUNDATION_EXPORT NSString * const OMMarkdownRendererHeadingTitleKey;       // NSString, plain text
-FOUNDATION_EXPORT NSString * const OMMarkdownRendererHeadingAnchorKey;      // NSString, GitHub-style slug
-FOUNDATION_EXPORT NSString * const OMMarkdownRendererHeadingRangeKey;       // NSValue, heading text in the rendered string
-FOUNDATION_EXPORT NSString * const OMMarkdownRendererHeadingSourceLineKey;  // NSNumber, 1-based
+OM_EXPORT NSString * const OMMarkdownRendererHeadingLevelKey;       // NSNumber, 1-6
+OM_EXPORT NSString * const OMMarkdownRendererHeadingTitleKey;       // NSString, plain text
+OM_EXPORT NSString * const OMMarkdownRendererHeadingAnchorKey;      // NSString, GitHub-style slug
+OM_EXPORT NSString * const OMMarkdownRendererHeadingRangeKey;       // NSValue, heading text in the rendered string
+OM_EXPORT NSString * const OMMarkdownRendererHeadingSourceLineKey;  // NSNumber, 1-based
 // Attribute on each heading's text: its anchor slug (the target of "#slug" links).
-FOUNDATION_EXPORT NSString * const OMMarkdownRendererHeadingAnchorAttributeName;
+OM_EXPORT NSString * const OMMarkdownRendererHeadingAnchorAttributeName;
 // Attribute marking a footnote anchor (the target of "#fn-label" and
 // "#fnref-label" links): "fn-label" on the note's first character,
 // "fnref-label" on its first reference, then "fnref-label-2" ...
-FOUNDATION_EXPORT NSString * const OMMarkdownRendererFootnoteAnchorAttributeName;
+OM_EXPORT NSString * const OMMarkdownRendererFootnoteAnchorAttributeName;
 // Attribute on a GitHub alert quote ("> [!NOTE]" ...): the NSColor for its bar.
-FOUNDATION_EXPORT NSString * const OMMarkdownRendererBlockquoteColorAttributeName;
+OM_EXPORT NSString * const OMMarkdownRendererBlockquoteColorAttributeName;
 
 // Keys in the dictionaries returned by -diagramBlocks.
-FOUNDATION_EXPORT NSString * const OMMarkdownRendererDiagramRangeKey;
-FOUNDATION_EXPORT NSString * const OMMarkdownRendererDiagramSourceKey;
+OM_EXPORT NSString * const OMMarkdownRendererDiagramRangeKey;
+OM_EXPORT NSString * const OMMarkdownRendererDiagramSourceKey;
 
 // The cell of a rendered picture. It draws a copy scaled once to its
 // displayed size; -fullImage reads the picture again at full size (for

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
 #import <Foundation/Foundation.h>
+#import "OMExport.h"
 #import <AppKit/AppKit.h>
 
 #import "OMMermaidERLayout.h"
@@ -49,7 +50,7 @@
 @end
 
 // Layout metrics derived from a style's font sizes.
-FOUNDATION_EXPORT OMMermaidERLayoutMetrics *OMMermaidERMetricsForStyle(OMMermaidERDrawingStyle *style);
+OM_EXPORT OMMermaidERLayoutMetrics *OMMermaidERMetricsForStyle(OMMermaidERDrawingStyle *style);
 
 @interface OMMermaidERDiagramAttachmentCell : NSTextAttachmentCell
 {
@@ -74,7 +75,7 @@ FOUNDATION_EXPORT OMMermaidERLayoutMetrics *OMMermaidERMetricsForStyle(OMMermaid
 // Lays the diagram out and returns a one-character attributed string carrying the
 // drawing attachment, or nil when the diagram cannot be laid out. maximumWidth of
 // zero or less means no width constraint.
-FOUNDATION_EXPORT NSAttributedString *OMMermaidERAttachmentAttributedString(OMMermaidERDiagram *diagram,
-                                                                           OMMermaidERDrawingStyle *style,
-                                                                           CGFloat maximumWidth,
-                                                                           NSDictionary *attributes);
+OM_EXPORT NSAttributedString *OMMermaidERAttachmentAttributedString(OMMermaidERDiagram *diagram,
+                                                                   OMMermaidERDrawingStyle *style,
+                                                                   CGFloat maximumWidth,
+                                                                   NSDictionary *attributes);

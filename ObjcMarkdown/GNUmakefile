@@ -9,7 +9,7 @@ CMARK_GFM_CPPFLAGS = -I$(CMARK_GFM_DIR)/compat -I$(CMARK_GFM_DIR)/src -I$(CMARK_
 OBJCMARKDOWN_ENABLE_TOML_THEME ?= 1
 
 ObjcMarkdown_OBJC_FILES = OMMarkdownRenderer.m OMMarkdownRendererCode.m OMMarkdownRendererImages.m OMMarkdownRendererMath.m OMMarkdownRendererMermaid.m OMMarkdownRendererSource.m OMMarkdownRendererTables.m OMGFMParser.m OMBlockSignatureIndex.m OMRenderedObject.m OMTextTable.m OMStrikethroughLayoutManager.m OMTheme.m OMMarkdownParsingOptions.m OMAppKitSerialization.m OMMermaidERDiagram.m OMMermaidERLayout.m OMMermaidERDrawing.m OMMermaidFlowchart.m OMMermaidFlowchartLayout.m OMMermaidFlowchartDrawing.m
-ObjcMarkdown_HEADER_FILES = OMMarkdownRenderer.h OMGFMParser.h OMBlockSignatureIndex.h OMRenderedObject.h OMTextTable.h OMStrikethroughLayoutManager.h OMTheme.h OMMarkdownParsingOptions.h OMAppKitSerialization.h OMMermaidERDiagram.h OMMermaidERLayout.h OMMermaidERDrawing.h OMMermaidFlowchart.h OMMermaidFlowchartLayout.h OMMermaidFlowchartDrawing.h
+ObjcMarkdown_HEADER_FILES = OMExport.h OMMarkdownRenderer.h OMGFMParser.h OMBlockSignatureIndex.h OMRenderedObject.h OMTextTable.h OMStrikethroughLayoutManager.h OMTheme.h OMMarkdownParsingOptions.h OMAppKitSerialization.h OMMermaidERDiagram.h OMMermaidERLayout.h OMMermaidERDrawing.h OMMermaidFlowchart.h OMMermaidFlowchartLayout.h OMMermaidFlowchartDrawing.h
 ObjcMarkdown_C_FILES = $(CMARK_GFM_C_FILES)
 ObjcMarkdown_CPPFLAGS += $(CMARK_GFM_CPPFLAGS) -DOBJCMARKDOWN_ENABLE_TOML_THEME=$(OBJCMARKDOWN_ENABLE_TOML_THEME)
 ifneq (,$(findstring mingw,$(GNUSTEP_HOST_OS)))

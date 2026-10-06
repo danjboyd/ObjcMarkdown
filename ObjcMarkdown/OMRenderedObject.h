@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
 #import <Foundation/Foundation.h>
+#import "OMExport.h"
 
 typedef NS_ENUM(NSInteger, OMRenderedObjectKind) {
     OMRenderedObjectKindInlineMath = 0,
@@ -13,7 +14,7 @@ typedef NS_ENUM(NSInteger, OMRenderedObjectKind) {
 
 // Attribute on the attachment character of each rendered object (math,
 // diagrams, tables, images). The value is an OMRenderedObject.
-FOUNDATION_EXPORT NSString * const OMRenderedObjectAttributeName;
+OM_EXPORT NSString * const OMRenderedObjectAttributeName;
 
 // What a rendered attachment was made from, so it can be copied or traced back.
 @interface OMRenderedObject : NSObject

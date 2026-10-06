@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
 #import <Foundation/Foundation.h>
+#import "OMExport.h"
 
 @class OMMermaidFlowchart;
 @class OMMermaidFlowNode;
@@ -77,4 +78,4 @@
 @end
 
 // "<br>", "<br/>" and "<br />" as line breaks.
-FOUNDATION_EXPORT NSString *OMMermaidFlowDisplayText(NSString *label);
+OM_EXPORT NSString *OMMermaidFlowDisplayText(NSString *label);

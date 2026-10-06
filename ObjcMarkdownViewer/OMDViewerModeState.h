@@ -15,9 +15,9 @@ typedef struct {
     BOOL splitVisible;
 } OMDViewerPaneLayout;
 
-FOUNDATION_EXPORT OMDViewerPaneLayout OMDViewerPaneLayoutForMode(OMDViewerMode mode);
-FOUNDATION_EXPORT NSString *OMDPreviewStatusTextForState(OMDViewerMode mode,
-                                                         BOOL previewUpdating,
-                                                         NSUInteger sourceRevision,
-                                                         NSUInteger renderedRevision);
+extern OMDViewerPaneLayout OMDViewerPaneLayoutForMode(OMDViewerMode mode);
+extern NSString *OMDPreviewStatusTextForState(OMDViewerMode mode,
+                                               BOOL previewUpdating,
+                                               NSUInteger sourceRevision,
+                                               NSUInteger renderedRevision);
 

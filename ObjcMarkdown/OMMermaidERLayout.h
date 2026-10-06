@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
 #import <Foundation/Foundation.h>
+#import "OMExport.h"
 
 @class OMMermaidERAttribute;
 @class OMMermaidEREntity;
@@ -13,8 +14,8 @@
 
 // Layout refuses diagrams past these sizes, so callers fall back to rendering the
 // diagram source as a code block instead of drawing something unreadable.
-FOUNDATION_EXPORT const NSUInteger OMMermaidERLayoutMaximumEntities;
-FOUNDATION_EXPORT const NSUInteger OMMermaidERLayoutMaximumRelationships;
+OM_EXPORT const NSUInteger OMMermaidERLayoutMaximumEntities;
+OM_EXPORT const NSUInteger OMMermaidERLayoutMaximumRelationships;
 
 // Text widths come from the caller so that layout stays independent of AppKit
 // font metrics, which keeps geometry tests deterministic across machines.
