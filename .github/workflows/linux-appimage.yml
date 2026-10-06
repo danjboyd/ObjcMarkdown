@@ -13,6 +13,8 @@ on:
 
 permissions:
   contents: write
+  # Pulling the CI image the AppImage job runs in.
+  packages: read
 
 jobs:
   resolve-version:
@@ -33,14 +35,16 @@ jobs:
 
   build-appimage:
     needs: resolve-version
-    uses: danjboyd/gnustep-packager/.github/workflows/package-gnustep-app.yml@bac42892f79ae1c7d56017d7cdb1d1637d729e6b
+    uses: danjboyd/gnustep-packager/.github/workflows/package-gnustep-app.yml@4814554c9e445170217bd6849efea05b98e62856
     with:
       manifest-path: packaging/manifests/linux-appimage.manifest.json
       backend: appimage
       package-version: ${{ needs.resolve-version.outputs.package_version }}
       packager-repository: danjboyd/gnustep-packager
-      packager-ref: bac42892f79ae1c7d56017d7cdb1d1637d729e6b
-      runs-on-appimage: '["self-hosted","linux","gnustep-clang"]'
+      packager-ref: 4814554c9e445170217bd6849efea05b98e62856
+      # GitHub-hosted, in the CI image (ci/linux/Dockerfile), pinned by the
+      # digest linux-gnustep-clang.yml uses.
+      container-appimage: ghcr.io/danjboyd/objcmarkdown-ci@sha256:16d1be7d75cd096ecb4f53f48d52a2cc6cd5eaf74056380202d4444bfa96515a
       skip-default-host-setup: true
       preflight-shell: bash
       preflight-command: ./packaging/ci/preflight-appimage.sh

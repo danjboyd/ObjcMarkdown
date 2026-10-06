@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
+# Runs before the AppImage packaging job (gnustep-packager's
+# preflight-command), in the CI image (ci/linux/Dockerfile): checks the
+# toolchain and starts a display for the smoke test, which opens the app.
+# The Adwaita theme is fetched and built by stage-linux-runtime.sh from its
+# pin in packaging/inputs.json.
 set -euo pipefail
-
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-THEME_DIR="$ROOT/third_party/plugins-themes-Adwaita"
-THEME_URL="https://github.com/danjboyd/plugins-themes-Adwaita.git"
-THEME_REF="9d455f67587242400f6620a0e8884084850d1204"
 
 require_command() {
   local name="$1"
@@ -20,12 +20,18 @@ require_command clang
 require_command gmake
 require_command pandoc
 require_command pwsh
+require_command python3
 
-mkdir -p "$ROOT/third_party"
-if [[ ! -d "$THEME_DIR/.git" ]]; then
-  rm -rf "$THEME_DIR"
-  git clone --filter=blob:none "$THEME_URL" "$THEME_DIR"
+if [[ -z "${DISPLAY:-}" ]]; then
+  require_command Xvfb
+  display=":99"
+  setsid Xvfb "$display" -screen 0 1600x1000x24 -nolisten tcp >/tmp/xvfb.log 2>&1 < /dev/null &
+  for _ in $(seq 1 50); do
+    [[ -e "/tmp/.X11-unix/X${display#:}" ]] && break
+    sleep 0.1
+  done
+  if [[ -n "${GITHUB_ENV:-}" ]]; then
+    echo "DISPLAY=$display" >> "$GITHUB_ENV"
+  fi
+  echo "Started Xvfb on $display"
 fi
-
-git -C "$THEME_DIR" fetch --depth 1 origin "$THEME_REF"
-git -C "$THEME_DIR" checkout --force "$THEME_REF"
