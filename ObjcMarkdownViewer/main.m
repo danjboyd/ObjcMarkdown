@@ -358,6 +358,7 @@ int main(int argc, char *argv[])
         OMDStartupTrace([NSString stringWithFormat:@"main: sharedApplication threw class=%@ description=%@",
                                                    NSStringFromClass([exception class]),
                                                    exception]);
+        NSLog(@"MarkdownViewer: sharedApplication failed: %@", exception);
         [pool drain];
         return 1;
     }
@@ -372,6 +373,7 @@ int main(int argc, char *argv[])
         OMDStartupTrace([NSString stringWithFormat:@"main: app run threw class=%@ description=%@",
                                                    NSStringFromClass([exception class]),
                                                    exception]);
+        NSLog(@"MarkdownViewer: app run failed: %@", exception);
         [delegate release];
         [pool drain];
         return 1;
