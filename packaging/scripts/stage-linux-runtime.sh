@@ -362,9 +362,10 @@ if [[ -x /usr/GNUstep/System/Tools/defaults ]]; then
   cp -a /usr/GNUstep/System/Tools/defaults "$GNUSTEP_TOOLS_DIR/"
 fi
 
-# The daemons GNUstep starts on demand: without gdnc the app can't start
-# where no GNUstep is installed (or running), and gpbs serves the pasteboard.
-for tool in gdnc gpbs; do
+# The tools GNUstep starts on demand: without gdnc the app can't start
+# where no GNUstep is installed (or running), gpbs serves the pasteboard
+# and make_services builds the Services menu.
+for tool in gdnc gpbs make_services; do
   require_path "/usr/GNUstep/System/Tools/$tool"
   cp -a "/usr/GNUstep/System/Tools/$tool" "$GNUSTEP_TOOLS_DIR/"
   copy_elf_dependencies "/usr/GNUstep/System/Tools/$tool" "$RUNTIME_LIB_DIR"
