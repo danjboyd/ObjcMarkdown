@@ -33,7 +33,7 @@ Workflow:
 ## Process
 - Before asking the user to run the app, the agent should build and get tests green.
 - To check the app by eye without touching the desktop, use the private GNOME display scripts in `tools/dev/` (see `tools/dev/README.md`). The latest session handoff is `docs/internal/handoff-2026-10-05.md`.
-- Track bugs in `OpenIssues.md`. When resolved, move them to `ClosedIssues.md`.
+- Track bugs and work as GitHub issues in `danjboyd/ObjcMarkdown`. `OpenIssues.md` and `ClosedIssues.md` are the archive of the earlier file-based tracker; don't add to them.
 - Use git commit author `Daniel Boyd <danieljboyd@icloud.com>` for all commits in this repo.
 - Use the GitHub account `danjboyd` for commits, pushes, PRs, releases, and other GitHub-authenticated operations for this repo.
 - If `gh auth status` shows a different active account, switch with `gh auth switch -u danjboyd` before doing GitHub-authenticated work.

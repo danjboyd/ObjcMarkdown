@@ -1,5 +1,7 @@
 # Closed Issues
 
+An archive of the file-based tracker used until October 2026. Issues are now tracked on GitHub: <https://github.com/danjboyd/ObjcMarkdown/issues>.
+
 ## 79) Referenced images stayed stale after changing on disk
 
 - **Status**: Closed

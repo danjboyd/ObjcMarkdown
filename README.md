@@ -176,8 +176,7 @@ Release flow:
 ## Public Docs
 
 - [Roadmap.md](Roadmap.md)
-- [OpenIssues.md](OpenIssues.md)
-- [ClosedIssues.md](ClosedIssues.md)
+- [Issues on GitHub](https://github.com/danjboyd/ObjcMarkdown/issues) (the earlier [OpenIssues.md](OpenIssues.md) and [ClosedIssues.md](ClosedIssues.md) are an archive)
 - [WINDOWS_BUILD.md](WINDOWS_BUILD.md)
 - [packaging/README.md](packaging/README.md)
 - [docs/windows-oci-msi-validation.md](docs/windows-oci-msi-validation.md)
