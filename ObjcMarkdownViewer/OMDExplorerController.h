@@ -24,13 +24,16 @@ static const CGFloat OMDExplorerListDefaultFontSize = 14.0;
 {
     id<OMDExplorerControllerDelegate> _delegate;
     NSView *_containerView;
+    NSPopUpButton *_explorerRootPopup;
     NSButton *_explorerShowHiddenFilesButton;
-    NSTextField *_explorerPathLabel;
     NSScrollView *_explorerScrollView;
     NSOutlineView *_explorerOutlineView;
     OMDExplorerNode *_explorerRootNode;
     NSString *_explorerLocalRootPath;
     NSString *_explorerDocumentPath;
+    // Set when the user picks a root other than the document's; the
+    // explorer then stays there while documents change.
+    BOOL _explorerRootChosenByHand;
     // A file's single click waits out the double-click interval (#40).
     OMDExplorerNode *_explorerPendingClickNode;
     BOOL _explorerIgnoreDoubleClick;
@@ -48,7 +51,8 @@ static const CGFloat OMDExplorerListDefaultFontSize = 14.0;
 // The open document's path (nil for none or an untitled one). The explorer
 // shows the document's repository or folder, keeping its place while the
 // document stays under the same root; with no document it shows the
-// default folder from Preferences.
+// default folder from Preferences. A root picked in the explorer's root
+// menu stays until another is picked.
 - (void)setDocumentPath:(NSString *)path;
 
 - (NSString *)explorerLocalRootPathPreference;

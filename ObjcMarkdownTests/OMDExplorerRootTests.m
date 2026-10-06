@@ -77,4 +77,27 @@
     XCTAssertNil(OMDExplorerRootForDocumentPath([self path:@"missing/e.md"]));
 }
 
+- (void)testRecentRootsMoveToTheFrontWithoutDuplicatesUpToTheLimit
+{
+    NSArray *recent = [NSArray arrayWithObjects:@"/a", @"/b", @"/c", nil];
+    XCTAssertEqualObjects(OMDExplorerRecentRootsAdding(recent, @"/b/", 8),
+                          ([NSArray arrayWithObjects:@"/b", @"/a", @"/c", nil]));
+    XCTAssertEqualObjects(OMDExplorerRecentRootsAdding(recent, @"/d", 3),
+                          ([NSArray arrayWithObjects:@"/d", @"/a", @"/b", nil]));
+    XCTAssertEqualObjects(OMDExplorerRecentRootsAdding(nil, @"/a/../e", 8), [NSArray arrayWithObject:@"/e"]);
+    XCTAssertEqualObjects(OMDExplorerRecentRootsAdding(recent, nil, 2),
+                          ([NSArray arrayWithObjects:@"/a", @"/b", nil]));
+}
+
+- (void)testMenuTitlesNameTheParentOnlyForRepeatedNames
+{
+    NSString *home = NSHomeDirectory();
+    NSArray *roots = [NSArray arrayWithObjects:[home stringByAppendingPathComponent:@"git/app/docs"],
+                                               @"/srv/site/docs",
+                                               [home stringByAppendingPathComponent:@"git/ObjcMarkdown"],
+                                               nil];
+    NSArray *expected = [NSArray arrayWithObjects:@"docs (~/git/app)", @"docs (/srv/site)", @"ObjcMarkdown", nil];
+    XCTAssertEqualObjects(OMDExplorerRootMenuTitles(roots), expected);
+}
+
 @end

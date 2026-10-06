@@ -39,3 +39,46 @@ NSString *OMDExplorerRootForDocumentPath(NSString *documentPath)
     NSString *workTree = OMDGitWorkTreeForDirectory(folder);
     return (workTree != nil ? workTree : folder);
 }
+
+NSArray *OMDExplorerRecentRootsAdding(NSArray *recent, NSString *root, NSUInteger limit)
+{
+    NSMutableArray *result = [NSMutableArray array];
+    NSMutableSet *seen = [NSMutableSet set];
+    NSMutableArray *candidates = [NSMutableArray array];
+    if ([root length] > 0) {
+        [candidates addObject:root];
+    }
+    for (id path in recent) {
+        if ([path isKindOfClass:[NSString class]] && [path length] > 0) {
+            [candidates addObject:path];
+        }
+    }
+    for (NSString *path in candidates) {
+        NSString *standardized = [path stringByStandardizingPath];
+        if ([seen containsObject:standardized] || [result count] >= limit) {
+            continue;
+        }
+        [seen addObject:standardized];
+        [result addObject:standardized];
+    }
+    return result;
+}
+
+NSArray *OMDExplorerRootMenuTitles(NSArray *roots)
+{
+    NSCountedSet *names = [NSCountedSet set];
+    for (NSString *root in roots) {
+        [names addObject:[root lastPathComponent]];
+    }
+    NSMutableArray *titles = [NSMutableArray arrayWithCapacity:[roots count]];
+    for (NSString *root in roots) {
+        NSString *name = [root lastPathComponent];
+        if ([names countForObject:name] > 1) {
+            NSString *parent = [[root stringByDeletingLastPathComponent] stringByAbbreviatingWithTildeInPath];
+            [titles addObject:[NSString stringWithFormat:@"%@ (%@)", name, parent]];
+        } else {
+            [titles addObject:name];
+        }
+    }
+    return titles;
+}

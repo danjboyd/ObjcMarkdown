@@ -23,6 +23,7 @@ NSString * const OMDExplorerLocalRootPathDefaultsKey = @"ObjcMarkdownExplorerLoc
 NSString * const OMDExplorerMaxFileSizeMBDefaultsKey = @"ObjcMarkdownExplorerMaxFileSizeMB";
 NSString * const OMDExplorerListFontSizeDefaultsKey = @"ObjcMarkdownExplorerListFontSize";
 NSString * const OMDExplorerShowHiddenFilesDefaultsKey = @"ObjcMarkdownExplorerShowHiddenFiles";
+NSString * const OMDExplorerRecentRootsDefaultsKey = @"ObjcMarkdownExplorerRecentRoots";
 NSString * const OMDExplorerSidebarVisibleDefaultsKey = @"ObjcMarkdownExplorerSidebarVisible";
 NSString * const OMDOutlineVisibleDefaultsKey = @"ObjcMarkdownOutlineVisible";
 

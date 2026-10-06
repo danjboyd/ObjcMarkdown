@@ -1351,7 +1351,7 @@ static NSView *OMDAddPreferencesCard(NSView *parent, NSRect frame)
         if ([panel respondsToSelector:@selector(setCanCreateDirectories:)]) {
             [panel setCanCreateDirectories:YES];
         }
-        [panel setTitle:@"Choose Local Explorer Root"];
+        [panel setTitle:@"Choose Default Folder"];
         [panel setPrompt:@"Choose"];
 
         NSString *startingPath = (_preferencesExplorerLocalRootField != nil

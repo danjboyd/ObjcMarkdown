@@ -5,6 +5,7 @@
 #import "OMDExplorerRoot.h"
 #import "OMDExplorerTree.h"
 #import "OMDLayoutMetrics.h"
+#import "OMDPanelSelection.h"
 #import "OMDTextFileSupport.h"
 #import "OMDViewerDefaults.h"
 #import "OMDViewerImages.h"
@@ -16,6 +17,14 @@ static const CGFloat OMDExplorerListMaxFontSize = 20.0;
 static const CGFloat OMDExplorerListMinimumRowHeight = 20.0;
 static const CGFloat OMDExplorerIconSize = 16.0;
 static const CGFloat OMDExplorerIconGap = 5.0;
+static const NSUInteger OMDExplorerRecentRootLimit = 8;
+
+// Tags of the root menu's items.
+typedef NS_ENUM(NSInteger, OMDExplorerRootMenuTag) {
+    OMDExplorerRootMenuTagRoot = 0,
+    OMDExplorerRootMenuTagOpenFolder = 1,
+    OMDExplorerRootMenuTagClearRecent = 2
+};
 
 static NSString *OMDExplorerIconNameForKind(OMDExplorerFileKind kind)
 {
@@ -121,6 +130,12 @@ static NSButtonCell *OMDExplorerIconDrawingCell(void)
 - (void)setupExplorerSidebar;
 - (void)layoutExplorerControls;
 - (void)showRoot:(NSString *)root;
+- (void)showRoot:(NSString *)root remember:(BOOL)remember;
+- (NSArray *)recentRoots;
+- (void)rebuildRootPopup;
+- (void)explorerRootPopupChanged:(id)sender;
+- (void)chooseRootByHand:(NSString *)root;
+- (void)openFolderAsRoot;
 - (void)revealDocumentExpandingFolders:(BOOL)expand;
 - (void)reloadOutlineKeepingSelection;
 - (void)applyExplorerListFontPreference;
@@ -153,8 +168,8 @@ static NSButtonCell *OMDExplorerIconDrawingCell(void)
     [[NSNotificationCenter defaultCenter] removeObserver:self];
     [NSObject cancelPreviousPerformRequestsWithTarget:self];
     [_explorerPendingClickNode release];
+    [_explorerRootPopup release];
     [_explorerShowHiddenFilesButton release];
-    [_explorerPathLabel release];
     [_explorerOutlineView setDelegate:nil];
     [_explorerOutlineView setDataSource:nil];
     [_explorerOutlineView release];
@@ -180,9 +195,7 @@ static NSButtonCell *OMDExplorerIconDrawingCell(void)
 {
     OMDLayoutMetrics metrics = OMDLayoutMetricsForMode([_delegate effectiveLayoutDensityMode]);
     NSFont *labelFont = [NSFont systemFontOfSize:(metrics.scale > 1.05 ? 12.0 : 11.0)];
-    NSFont *pathFont = [NSFont systemFontOfSize:(metrics.scale > 1.05 ? 11.0 : 10.5)];
     [_explorerShowHiddenFilesButton setFont:labelFont];
-    [_explorerPathLabel setFont:pathFont];
     [self applyExplorerListFontPreference];
     [self layoutExplorerControls];
 }
@@ -233,6 +246,12 @@ static NSButtonCell *OMDExplorerIconDrawingCell(void)
 
 - (void)showRoot:(NSString *)root
 {
+    [self showRoot:root remember:YES];
+}
+
+// remember adds the root to the root menu's recent folders.
+- (void)showRoot:(NSString *)root remember:(BOOL)remember
+{
     if ([root isEqualToString:_explorerLocalRootPath]) {
         return;
     }
@@ -241,11 +260,129 @@ static NSButtonCell *OMDExplorerIconDrawingCell(void)
     [self cancelPendingExplorerClick];
     [_explorerRootNode release];
     _explorerRootNode = [[OMDExplorerNode alloc] initWithPath:root isDirectory:YES parent:nil];
+    if (remember) {
+        NSArray *recent = OMDExplorerRecentRootsAdding([self recentRoots], root, OMDExplorerRecentRootLimit);
+        [[NSUserDefaults standardUserDefaults] setObject:recent forKey:OMDExplorerRecentRootsDefaultsKey];
+    }
     if (_explorerOutlineView != nil) {
-        [_explorerPathLabel setStringValue:[root stringByAbbreviatingWithTildeInPath]];
-        [_explorerPathLabel setToolTip:root];
+        [self rebuildRootPopup];
         [_explorerOutlineView reloadData];
         [_explorerOutlineView scrollRowToVisible:0];
+    }
+}
+
+// The remembered roots that still exist, most recent first.
+- (NSArray *)recentRoots
+{
+    id stored = [[NSUserDefaults standardUserDefaults] objectForKey:OMDExplorerRecentRootsDefaultsKey];
+    NSMutableArray *roots = [NSMutableArray array];
+    if (![stored isKindOfClass:[NSArray class]]) {
+        return roots;
+    }
+    NSFileManager *fileManager = [NSFileManager defaultManager];
+    for (id path in (NSArray *)stored) {
+        BOOL isDirectory = NO;
+        if ([path isKindOfClass:[NSString class]] &&
+            [fileManager fileExistsAtPath:path isDirectory:&isDirectory] && isDirectory) {
+            [roots addObject:path];
+        }
+    }
+    return roots;
+}
+
+// The root menu: the current root (checked) among the recent ones, then
+// Open Folder... and, with more than one root, Clear Recent.
+- (void)rebuildRootPopup
+{
+    if (_explorerRootPopup == nil) {
+        return;
+    }
+    NSArray *roots = OMDExplorerRecentRootsAdding([self recentRoots], _explorerLocalRootPath, OMDExplorerRecentRootLimit);
+    NSArray *titles = OMDExplorerRootMenuTitles(roots);
+    NSMenu *menu = [_explorerRootPopup menu];
+    [_explorerRootPopup removeAllItems];
+    NSUInteger index = 0;
+    for (; index < [roots count]; index++) {
+        NSMenuItem *item = [[[NSMenuItem alloc] initWithTitle:[titles objectAtIndex:index]
+                                                       action:NULL
+                                                keyEquivalent:@""] autorelease];
+        [item setTag:OMDExplorerRootMenuTagRoot];
+        [item setRepresentedObject:[roots objectAtIndex:index]];
+        if ([item respondsToSelector:@selector(setToolTip:)]) {
+            [item setToolTip:[roots objectAtIndex:index]];
+        }
+        [menu addItem:item];
+    }
+    [menu addItem:[NSMenuItem separatorItem]];
+    NSMenuItem *openItem = [[[NSMenuItem alloc] initWithTitle:@"Open Folder..." action:NULL keyEquivalent:@""] autorelease];
+    [openItem setTag:OMDExplorerRootMenuTagOpenFolder];
+    [menu addItem:openItem];
+    // Only with something to clear: GNUstep lets a pop-up select a
+    // disabled item.
+    if ([roots count] > 1) {
+        NSMenuItem *clearItem = [[[NSMenuItem alloc] initWithTitle:@"Clear Recent" action:NULL keyEquivalent:@""] autorelease];
+        [clearItem setTag:OMDExplorerRootMenuTagClearRecent];
+        [menu addItem:clearItem];
+    }
+
+    [_explorerRootPopup selectItemAtIndex:0];
+    [_explorerRootPopup setToolTip:_explorerLocalRootPath];
+}
+
+- (void)explorerRootPopupChanged:(id)sender
+{
+    (void)sender;
+    NSMenuItem *item = (NSMenuItem *)[_explorerRootPopup selectedItem];
+    NSInteger tag = (item != nil ? [item tag] : OMDExplorerRootMenuTagRoot);
+    if (tag == OMDExplorerRootMenuTagOpenFolder) {
+        [self rebuildRootPopup];
+        // Once the menu has closed, not from inside its tracking.
+        [self performSelector:@selector(openFolderAsRoot) withObject:nil afterDelay:0.0];
+        return;
+    }
+    if (tag == OMDExplorerRootMenuTagClearRecent) {
+        NSArray *current = (_explorerLocalRootPath != nil ? [NSArray arrayWithObject:_explorerLocalRootPath] : [NSArray array]);
+        [[NSUserDefaults standardUserDefaults] setObject:current forKey:OMDExplorerRecentRootsDefaultsKey];
+        [self rebuildRootPopup];
+        return;
+    }
+    NSString *root = [item representedObject];
+    if ([root isKindOfClass:[NSString class]]) {
+        [self chooseRootByHand:root];
+    } else {
+        [self rebuildRootPopup];
+    }
+}
+
+- (void)chooseRootByHand:(NSString *)root
+{
+    NSString *documentRoot = OMDExplorerRootForDocumentPath(_explorerDocumentPath);
+    _explorerRootChosenByHand = !(documentRoot != nil && [documentRoot isEqualToString:root]);
+    [self showRoot:root];
+    [self rebuildRootPopup];
+    [self revealDocumentExpandingFolders:YES];
+}
+
+- (void)openFolderAsRoot
+{
+    NSOpenPanel *panel = [NSOpenPanel openPanel];
+    [panel setCanChooseDirectories:YES];
+    [panel setCanChooseFiles:NO];
+    [panel setAllowsMultipleSelection:NO];
+    [panel setTitle:@"Open Folder in Explorer"];
+    [panel setPrompt:@"Open"];
+    if ([_explorerLocalRootPath length] > 0) {
+        [panel setDirectory:_explorerLocalRootPath];
+    }
+    NSInteger result = [panel runModal];
+    if (result != NSOKButton && result != NSFileHandlingPanelOKButton) {
+        return;
+    }
+    NSArray *paths = OMDSelectedPathsFromOpenPanel(panel);
+    NSString *path = ([paths count] > 0 ? [[paths objectAtIndex:0] stringByStandardizingPath] : nil);
+    BOOL isDirectory = NO;
+    if (path != nil && [[NSFileManager defaultManager] fileExistsAtPath:path isDirectory:&isDirectory] && isDirectory) {
+        [self chooseRootByHand:path];
     }
 }
 
@@ -260,7 +397,7 @@ static NSButtonCell *OMDExplorerIconDrawingCell(void)
 
     // An untitled document leaves the explorer where it is.
     NSString *root = OMDExplorerRootForDocumentPath(_explorerDocumentPath);
-    if (root != nil) {
+    if (root != nil && !_explorerRootChosenByHand) {
         [self showRoot:root];
     }
     [self revealDocumentExpandingFolders:YES];
@@ -417,17 +554,16 @@ static NSButtonCell *OMDExplorerIconDrawingCell(void)
 
     NSRect bounds = [_containerView bounds];
     NSFont *labelFont = [NSFont systemFontOfSize:(metrics.scale > 1.05 ? 12.0 : 11.0)];
-    NSFont *pathFont = [NSFont systemFontOfSize:(metrics.scale > 1.05 ? 11.0 : 10.5)];
 
-    _explorerPathLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(metrics.explorerSidePadding, NSHeight(bounds) - 30, 100, 16)];
-    [_explorerPathLabel setBezeled:NO];
-    [_explorerPathLabel setEditable:NO];
-    [_explorerPathLabel setSelectable:NO];
-    [_explorerPathLabel setDrawsBackground:NO];
-    [_explorerPathLabel setFont:pathFont];
-    [[_explorerPathLabel cell] setLineBreakMode:NSLineBreakByTruncatingHead];
-    [_explorerPathLabel setAutoresizingMask:(NSViewWidthSizable | NSViewMinYMargin)];
-    [_containerView addSubview:_explorerPathLabel];
+    _explorerRootPopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(metrics.explorerSidePadding,
+                                                                         NSHeight(bounds) - 34,
+                                                                         100,
+                                                                         metrics.explorerControlHeight)
+                                                    pullsDown:NO];
+    [_explorerRootPopup setTarget:self];
+    [_explorerRootPopup setAction:@selector(explorerRootPopupChanged:)];
+    [_explorerRootPopup setAutoresizingMask:(NSViewWidthSizable | NSViewMinYMargin)];
+    [_containerView addSubview:_explorerRootPopup];
 
     _explorerShowHiddenFilesButton = [[NSButton alloc] initWithFrame:NSMakeRect(metrics.explorerSidePadding,
                                                                                 NSHeight(bounds) - 54,
@@ -474,11 +610,11 @@ static NSButtonCell *OMDExplorerIconDrawingCell(void)
     [_containerView addSubview:_explorerScrollView];
     [self applyExplorerListFontPreference];
 
+    // A stand-in until the window says which document it shows.
     if (_explorerLocalRootPath == nil) {
-        [self showRoot:[self explorerLocalRootPathPreference]];
+        [self showRoot:[self explorerLocalRootPathPreference] remember:NO];
     }
-    [_explorerPathLabel setStringValue:[_explorerLocalRootPath stringByAbbreviatingWithTildeInPath]];
-    [_explorerPathLabel setToolTip:_explorerLocalRootPath];
+    [self rebuildRootPopup];
 
     // Files change behind the app's back; look again when it comes back.
     [[NSNotificationCenter defaultCenter] addObserver:self
@@ -497,9 +633,12 @@ static NSButtonCell *OMDExplorerIconDrawingCell(void)
     CGFloat wideControlWidth = MAX(1.0, NSWidth(bounds) - (metrics.explorerSidePadding * 2.0));
     CGFloat top = NSHeight(bounds) - metrics.explorerTopPadding;
 
-    [_explorerPathLabel setFrame:NSMakeRect(metrics.explorerSidePadding, top - 16.0, wideControlWidth, 16.0)];
+    [_explorerRootPopup setFrame:NSMakeRect(metrics.explorerSidePadding,
+                                            top - metrics.explorerControlHeight,
+                                            wideControlWidth,
+                                            metrics.explorerControlHeight)];
     [_explorerShowHiddenFilesButton setFrame:NSMakeRect(metrics.explorerSidePadding,
-                                                        NSMinY([_explorerPathLabel frame]) - 6.0 - metrics.explorerMinorControlHeight,
+                                                        NSMinY([_explorerRootPopup frame]) - 6.0 - metrics.explorerMinorControlHeight,
                                                         wideControlWidth,
                                                         metrics.explorerMinorControlHeight)];
     CGFloat scrollBottomInset = 10.0;
@@ -515,7 +654,7 @@ static NSButtonCell *OMDExplorerIconDrawingCell(void)
 {
     [self layoutExplorerControls];
     if (_explorerRootNode == nil) {
-        [self showRoot:[self explorerLocalRootPathPreference]];
+        [self showRoot:[self explorerLocalRootPathPreference] remember:NO];
     }
     [_explorerRootNode reloadChildren];
     [_explorerOutlineView reloadData];
