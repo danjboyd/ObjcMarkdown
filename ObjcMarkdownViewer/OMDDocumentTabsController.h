@@ -20,6 +20,8 @@ extern NSString * const OMDTabImageFingerprintsKey;
 extern NSString * const OMDTabSuppressedImageFingerprintsKey;
 extern NSString * const OMDTabImageMarkdownKey;
 extern NSString * const OMDTabImageSourcePathKey;
+// A document opened from the web: its raw address (an OMDRemoteDocument's rawURL).
+extern NSString * const OMDTabRemoteURLKey;
 
 @protocol OMDDocumentTabsControllerDelegate <NSObject>
 - (OMDLayoutDensityMode)effectiveLayoutDensityMode;
@@ -53,6 +55,7 @@ extern NSString * const OMDTabImageSourcePathKey;
 
 // -1 when no tab shows the document.
 - (NSInteger)documentTabIndexForLocalPath:(NSString *)sourcePath;
+- (NSInteger)documentTabIndexForRemoteURL:(NSString *)rawURL;
 
 // The strip of tab buttons, shown only with two or more tabs.
 - (NSView *)stripView;

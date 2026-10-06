@@ -38,6 +38,9 @@
 #import "OMDViewerImages.h"
 #import "OMDDocumentTabsController.h"
 #import "OMDExplorerController.h"
+#import "OMDOpenLocationController.h"
+#import "OMDRemoteDocument.h"
+#import "OMDRemoteDocumentBar.h"
 #import "OMDPreferencesController.h"
 #import "GSVVimBindingController.h"
 #import "GSVVimConfigLoader.h"
@@ -375,7 +378,7 @@ static CGFloat OMDClampedScrollSpeed(CGFloat value)
 }
 
 
-@interface OMDAppDelegate () <OMDCopyButtonsControllerDelegate, OMDRenderSchedulerDelegate, OMDDocumentTabsControllerDelegate, OMDToolbarControllerDelegate, OMDExplorerControllerDelegate, OMDFormattingBarControllerDelegate, OMDPreferencesControllerDelegate, GSVVimBindingControllerDelegate, OMDTextViewRenderedObjectDelegate, OMDOutlineControllerDelegate>
+@interface OMDAppDelegate () <OMDCopyButtonsControllerDelegate, OMDRenderSchedulerDelegate, OMDDocumentTabsControllerDelegate, OMDToolbarControllerDelegate, OMDExplorerControllerDelegate, OMDOpenLocationDelegate, OMDFormattingBarControllerDelegate, OMDPreferencesControllerDelegate, GSVVimBindingControllerDelegate, OMDTextViewRenderedObjectDelegate, OMDOutlineControllerDelegate>
 - (void)importDocument:(id)sender;
 - (void)newWindow:(id)sender;
 - (void)saveDocument:(id)sender;
@@ -522,6 +525,14 @@ static CGFloat OMDClampedScrollSpeed(CGFloat value)
 - (void)scrollToHeading:(NSDictionary *)heading;
 - (BOOL)scrollToAnchor:(NSString *)anchor;
 - (BOOL)followDocumentLink:(NSURL *)url;
+- (void)openLocation:(id)sender;
+- (void)openRemoteDocument:(OMDRemoteDocument *)document
+                  inNewTab:(BOOL)inNewTab
+                completion:(void (^)(NSString *errorMessage))completion;
+- (void)openRemoteDocumentAfterLaunch:(OMDRemoteDocument *)document;
+- (void)updateRemoteDocumentBar;
+- (void)saveRemoteDocumentCopy:(id)sender;
+- (void)openRemoteDocumentInBrowser:(id)sender;
 - (void)modeControlChanged:(id)sender;
 - (void)setReadMode:(id)sender;
 - (void)setEditMode:(id)sender;
@@ -762,6 +773,9 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [_currentSuppressedDiskFingerprint release];
     [_documentTabsController release];
     [_explorerController release];
+    [_openLocationController release];
+    [_currentRemoteDocument release];
+    [_remoteDocumentBar release];
     [_preferencesController release];
     [_toolbarController release];
     [_updaterController release];
@@ -903,6 +917,16 @@ static NSMutableArray *OMDSecondaryWindows(void)
 - (BOOL)application:(NSApplication *)theApplication openFile:(NSString *)filename
 {
     (void)theApplication;
+    // A web address given on the command line.
+    NSString *lowerName = [filename lowercaseString];
+    if ([lowerName hasPrefix:@"https://"] || [lowerName hasPrefix:@"http://"] || [lowerName hasPrefix:@"github.com/"]) {
+        OMDRemoteDocument *remote = [OMDRemoteDocument documentWithURLString:filename];
+        if (remote != nil) {
+            _openedFileOnLaunch = YES;
+            [self performSelector:@selector(openRemoteDocumentAfterLaunch:) withObject:remote afterDelay:0.0];
+            return YES;
+        }
+    }
     NSString *resolvedPath = [self resolvedAbsolutePathForLocalPath:filename];
     _openedFileOnLaunch = YES;
 
@@ -2428,6 +2452,11 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
     _currentMarkdown = newText;
     [_currentPath release];
     _currentPath = newSourcePath;
+    if ([_currentPath length] > 0) {
+        // Saved (a copy) or another local document: no longer from the web.
+        [_currentRemoteDocument release];
+        _currentRemoteDocument = nil;
+    }
     [_currentDocumentSyntaxLanguage release];
     _currentDocumentSyntaxLanguage = newSyntax;
     _currentDocumentRenderMode = (renderMode == OMDDocumentRenderModeVerbatim
@@ -4983,6 +5012,13 @@ constrainSplitPosition:(CGFloat)proposedPosition
 
     NSRect bounds = [self layoutOutlinePanelInBounds:[_documentContainer bounds]];
     OMDViewerPaneLayout layout = OMDViewerPaneLayoutForMode((OMDViewerMode)_viewerMode);
+    if (_remoteDocumentBar != nil && ![_remoteDocumentBar isHidden]) {
+        OMDLayoutMetrics metrics = OMDLayoutMetricsForMode([self effectiveLayoutDensityMode]);
+        CGFloat barHeight = [OMDRemoteDocumentBar heightForControlHeight:metrics.explorerControlHeight];
+        [_remoteDocumentBar setFrame:NSMakeRect(NSMinX(bounds), NSMaxY(bounds) - barHeight,
+                                                NSWidth(bounds), barHeight)];
+        bounds.size.height = MAX(0.0, NSHeight(bounds) - barHeight);
+    }
 
     if (!layout.splitVisible && layout.previewVisible) {
         [_splitView removeFromSuperview];
@@ -5144,6 +5180,11 @@ constrainSplitPosition:(CGFloat)proposedPosition
 
     [tab setObject:[NSNumber numberWithBool:_sourceIsDirty] forKey:OMDTabDirtyKey];
     [tab setObject:[NSNumber numberWithBool:_currentDocumentReadOnly] forKey:OMDTabReadOnlyKey];
+    if (_currentRemoteDocument != nil) {
+        [tab setObject:[[_currentRemoteDocument rawURL] absoluteString] forKey:OMDTabRemoteURLKey];
+    } else {
+        [tab removeObjectForKey:OMDTabRemoteURLKey];
+    }
     [tab setObject:[NSNumber numberWithInteger:_currentDocumentRenderMode] forKey:OMDTabRenderModeKey];
     if (_currentDocumentSyntaxLanguage != nil && [_currentDocumentSyntaxLanguage length] > 0) {
         [tab setObject:_currentDocumentSyntaxLanguage forKey:OMDTabSyntaxLanguageKey];
@@ -5239,6 +5280,9 @@ constrainSplitPosition:(CGFloat)proposedPosition
                                         ? OMDDocumentRenderModeVerbatim
                                         : OMDDocumentRenderModeMarkdown);
     NSString *syntaxLanguage = [tabRecord objectForKey:OMDTabSyntaxLanguageKey];
+    // Before the text, so the renderer resolves links against it.
+    [_currentRemoteDocument release];
+    _currentRemoteDocument = [[OMDRemoteDocument documentWithURLString:[tabRecord objectForKey:OMDTabRemoteURLKey]] retain];
     [self setCurrentDocumentText:(markdown != nil ? markdown : @"")
                       sourcePath:sourcePath
                       renderMode:renderMode
@@ -6231,6 +6275,9 @@ constrainSplitPosition:(CGFloat)proposedPosition
         if (directory != nil && [directory length] > 0) {
             baseURL = [NSURL fileURLWithPath:directory isDirectory:YES];
         }
+    } else if (_currentRemoteDocument != nil) {
+        // Relative links and images on the web, next to the document.
+        baseURL = [_currentRemoteDocument baseURL];
     }
     [options setBaseURL:baseURL];
     [_renderer setParsingOptions:options];
@@ -7369,6 +7416,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
 
     [_toolbarController updateToolbarActionControlsState];
     [_explorerController setDocumentPath:[self resolvedAbsolutePathForLocalPath:_currentPath]];
+    [self updateRemoteDocumentBar];
 
     // Say what the window shows and let the theme present it: a file's
     // name and folder, and whether it has unsaved changes. The mode is on
@@ -8405,6 +8453,21 @@ static BOOL OMDIsMarkdownPath(NSString *path)
         }
         return YES;
     }
+    // In a document from the web, a link to another Markdown file there
+    // opens here too; elsewhere web links go to the browser.
+    if (_currentRemoteDocument != nil &&
+        ([[url scheme] isEqualToString:@"https"] || [[url scheme] isEqualToString:@"http"])) {
+        OMDRemoteDocument *linked = [OMDRemoteDocument documentWithURLString:[url absoluteString]];
+        if (linked != nil) {
+            [_remoteDocumentBar setMessage:[NSString stringWithFormat:@"Opening %@...", [linked fileName]]];
+            [self openRemoteDocument:linked inNewTab:NO completion:^(NSString *errorMessage) {
+                if (errorMessage != nil) {
+                    [_remoteDocumentBar setMessage:[NSString stringWithFormat:@"%@: %@", [linked fileName], errorMessage]];
+                }
+            }];
+            return YES;
+        }
+    }
     if (![url isFileURL] || !OMDIsMarkdownPath([url path])) {
         return NO;
     }
@@ -8429,6 +8492,116 @@ static BOOL OMDIsMarkdownPath(NSString *path)
         _pendingLinkFragment = [fragment copy];
     }
     return YES;
+}
+
+- (void)openLocation:(id)sender
+{
+    (void)sender;
+    if (_openLocationController == nil) {
+        _openLocationController = [[OMDOpenLocationController alloc] initWithDelegate:self];
+    }
+    [_openLocationController showOverWindow:_window];
+}
+
+// OMDOpenLocationDelegate: in a new tab unless the window is empty.
+- (void)openRemoteDocument:(OMDRemoteDocument *)document completion:(void (^)(NSString *errorMessage))completion
+{
+    BOOL inNewTab = !([_documentTabsController count] == 0 && _currentPath == nil && _currentMarkdown == nil);
+    [self openRemoteDocument:document inNewTab:inNewTab completion:completion];
+}
+
+- (void)openRemoteDocument:(OMDRemoteDocument *)document
+                  inNewTab:(BOOL)inNewTab
+                completion:(void (^)(NSString *errorMessage))completion
+{
+    NSInteger existing = [_documentTabsController documentTabIndexForRemoteURL:[[document rawURL] absoluteString]];
+    if (existing >= 0) {
+        [self selectDocumentTabAtIndex:existing];
+        [self presentWindowIfNeeded];
+        completion(nil);
+        return;
+    }
+    void (^done)(NSString *) = [[completion copy] autorelease];
+    [document retain];
+    OMDFetchRemoteDocument(document, [_explorerController explorerMaxOpenFileSizeBytes], ^(NSString *markdown, NSString *errorMessage) {
+        [document autorelease];
+        if (markdown == nil) {
+            done(errorMessage);
+            return;
+        }
+        if (!inNewTab && _sourceIsDirty &&
+            ![self confirmDiscardingUnsavedChangesForAction:@"opening another document"]) {
+            done(nil);
+            return;
+        }
+        NSMutableDictionary *tab = [self newDocumentTabWithMarkdown:markdown
+                                                         sourcePath:nil
+                                                       displayTitle:[document fileName]
+                                                           readOnly:YES
+                                                         renderMode:OMDDocumentRenderModeMarkdown
+                                                     syntaxLanguage:nil
+                                                    diskFingerprint:nil];
+        [tab setObject:[[document rawURL] absoluteString] forKey:OMDTabRemoteURLKey];
+        [self installDocumentTabRecord:tab inNewTab:inNewTab resetViewport:YES];
+        [self presentWindowIfNeeded];
+        done(nil);
+    });
+}
+
+// A web address from the command line, once the window is up; what went
+// wrong shows in the Open Location panel.
+- (void)openRemoteDocumentAfterLaunch:(OMDRemoteDocument *)document
+{
+    if (_window == nil || _launchWorkScheduled || !_postPresentationSetupComplete) {
+        [self performSelector:@selector(openRemoteDocumentAfterLaunch:) withObject:document afterDelay:0.2];
+        return;
+    }
+    [self openRemoteDocument:document completion:^(NSString *errorMessage) {
+        if (errorMessage != nil) {
+            [self openLocation:nil];
+            [_openLocationController showAddress:[[document pageURL] absoluteString] message:errorMessage];
+        }
+    }];
+}
+
+- (void)updateRemoteDocumentBar
+{
+    BOOL show = (_currentRemoteDocument != nil);
+    if (show && _remoteDocumentBar == nil && _documentContainer != nil) {
+        _remoteDocumentBar = [[OMDRemoteDocumentBar alloc] initWithFrame:NSMakeRect(0, 0, 400, 40)
+                                                                  target:self
+                                                          saveCopyAction:@selector(saveRemoteDocumentCopy:)
+                                                     openInBrowserAction:@selector(openRemoteDocumentInBrowser:)];
+        [_remoteDocumentBar setHidden:YES];
+        [_documentContainer addSubview:_remoteDocumentBar];
+    }
+    if (_remoteDocumentBar == nil) {
+        return;
+    }
+    if (show && [_remoteDocumentBar document] != _currentRemoteDocument) {
+        [_remoteDocumentBar setDocument:_currentRemoteDocument];
+    }
+    if ([_remoteDocumentBar isHidden] == show) {
+        [_remoteDocumentBar setHidden:!show];
+        [self layoutDocumentViews];
+    }
+}
+
+- (void)saveRemoteDocumentCopy:(id)sender
+{
+    [self saveDocumentAsMarkdown:sender];
+}
+
+- (void)openRemoteDocumentInBrowser:(id)sender
+{
+    (void)sender;
+    NSURL *url = [_currentRemoteDocument pageURL];
+    if (url == nil) {
+        return;
+    }
+    if (![[NSWorkspace sharedWorkspace] openURL:url] && !OMDOpenURLUsingXDGOpen(url)) {
+        NSBeep();
+    }
 }
 
 // Outlines the preview object whose source holds the editor caret (Split mode).

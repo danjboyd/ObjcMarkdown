@@ -11,7 +11,8 @@
 - a syntax-highlighted source editor with line numbers, an optional formatting bar, and optional Vim key bindings
 - rendered preview with GitHub-style tables, math styling, drawn Mermaid entity-relationship diagrams and flowcharts, and copy buttons for code blocks and diagrams
 - theme, layout, source-editor, and explorer preferences
-- a file explorer sidebar
+- a file explorer sidebar: the document's repository as a tree, with a filter and a context menu
+- File > Open Location: Markdown files from GitHub or any web address, read-only
 
 ## Import And Export
 

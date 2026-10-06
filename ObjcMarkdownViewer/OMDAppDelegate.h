@@ -16,6 +16,9 @@ typedef unsigned short mode_t;
 @class GSVVimBindingController;
 @class OMDDocumentTabsController;
 @class OMDExplorerController;
+@class OMDOpenLocationController;
+@class OMDRemoteDocument;
+@class OMDRemoteDocumentBar;
 @class OMDPreferencesController;
 @class OMDToolbarController;
 @class OMDCopyButtonsController;
@@ -51,6 +54,11 @@ typedef unsigned short mode_t;
     BOOL _currentDocumentReadOnly;
     OMDDocumentTabsController *_documentTabsController;
     OMDExplorerController *_explorerController;
+    // File > Open Location... and the document opened from the web, if the
+    // current one is, with the line shown above it.
+    OMDOpenLocationController *_openLocationController;
+    OMDRemoteDocument *_currentRemoteDocument;
+    OMDRemoteDocumentBar *_remoteDocumentBar;
     OMDPreferencesController *_preferencesController;
     OMDToolbarController *_toolbarController;
     OMDCopyButtonsController *_copyButtonsController;

@@ -20,6 +20,7 @@ NSString * const OMDTabImageFingerprintsKey = @"imageFingerprints";
 NSString * const OMDTabSuppressedImageFingerprintsKey = @"suppressedImageFingerprints";
 NSString * const OMDTabImageMarkdownKey = @"imageMarkdown";
 NSString * const OMDTabImageSourcePathKey = @"imageSourcePath";
+NSString * const OMDTabRemoteURLKey = @"remoteURL";
 
 @interface OMDDocumentTabsController ()
 - (void)tabButtonPressed:(id)sender;
@@ -225,6 +226,20 @@ NSString * const OMDTabImageSourcePathKey = @"imageSourcePath";
 {
     NSInteger index = [sender tag];
     [_delegate closeDocumentTabAtIndex:index];
+}
+
+- (NSInteger)documentTabIndexForRemoteURL:(NSString *)rawURL
+{
+    if ([rawURL length] == 0) {
+        return -1;
+    }
+    NSInteger index = 0;
+    for (; index < (NSInteger)[_tabs count]; index++) {
+        if ([rawURL isEqualToString:[[_tabs objectAtIndex:index] objectForKey:OMDTabRemoteURLKey]]) {
+            return index;
+        }
+    }
+    return -1;
 }
 
 - (NSInteger)documentTabIndexForLocalPath:(NSString *)sourcePath

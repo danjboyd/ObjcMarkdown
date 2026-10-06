@@ -85,6 +85,9 @@
     [[fileMenuWin addItemWithTitle:@"Open Markdown..."
                             action:@selector(openDocument:)
                      keyEquivalent:@"o"] setTarget:target];
+    [[fileMenuWin addItemWithTitle:@"Open Location..."
+                            action:@selector(openLocation:)
+                     keyEquivalent:@"l"] setTarget:target];
     [[fileMenuWin addItemWithTitle:@"New Window"
                             action:@selector(newWindow:)
                      keyEquivalent:@"n"] setTarget:target];
@@ -211,6 +214,9 @@
                                                              action:@selector(openDocument:)
                                                       keyEquivalent:@"o"];
     [openItem setTarget:target];
+    [[fileMenu addItemWithTitle:@"Open Location..."
+                         action:@selector(openLocation:)
+                  keyEquivalent:@"l"] setTarget:target];
 
     NSMenuItem *newWindowItem = (NSMenuItem *)[fileMenu addItemWithTitle:@"New Window"
                                                                    action:@selector(newWindow:)
