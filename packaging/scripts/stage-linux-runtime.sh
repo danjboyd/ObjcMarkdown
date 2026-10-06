@@ -66,6 +66,18 @@ copy_dir_contents() {
   fi
 }
 
+# Like copy_glob, but skips what this machine doesn't have.
+copy_glob_if_present() {
+  local pattern="$1"
+  local dest="$2"
+  shopt -s nullglob
+  local matches=($pattern)
+  shopt -u nullglob
+  if [[ "${#matches[@]}" -gt 0 ]]; then
+    cp -a "${matches[@]}" "$dest"/
+  fi
+}
+
 copy_glob() {
   local pattern="$1"
   local dest="$2"
@@ -318,11 +330,13 @@ copy_shared_by_soname "libicns.so.1" "$RUNTIME_LIB_DIR"
 
 copy_glob "/usr/GNUstep/System/Library/Libraries/libgnustep-base.so*" "$GNUSTEP_LIB_DIR"
 copy_glob "/usr/GNUstep/System/Library/Libraries/libgnustep-gui.so*" "$GNUSTEP_LIB_DIR"
-copy_glob "/usr/GNUstep/System/Library/Libraries/libgnustep-corebase.so*" "$GNUSTEP_LIB_DIR"
+# The app links neither; corebase and the SystemPreferences panes (which
+# use PreferencePanes) come along only where the build machine has them.
+copy_glob_if_present "/usr/GNUstep/System/Library/Libraries/libgnustep-corebase.so*" "$GNUSTEP_LIB_DIR"
+copy_glob_if_present "/usr/GNUstep/System/Library/Libraries/libPreferencePanes.so*" "$GNUSTEP_LIB_DIR"
 copy_glob "/usr/GNUstep/System/Library/Libraries/libdispatch.so*" "$GNUSTEP_LIB_DIR"
 copy_glob "/usr/GNUstep/System/Library/Libraries/libobjc.so*" "$GNUSTEP_LIB_DIR"
 copy_glob "/usr/GNUstep/System/Library/Libraries/libBlocksRuntime.so*" "$GNUSTEP_LIB_DIR"
-copy_glob "/usr/GNUstep/System/Library/Libraries/libPreferencePanes.so*" "$GNUSTEP_LIB_DIR"
 
 copy_dir_contents "/usr/GNUstep/System/Library/Bundles" "$GNUSTEP_BUNDLE_DIR"
 copy_dir_contents "/usr/GNUstep/System/Library/ColorPickers" "$GNUSTEP_COLORPICKER_DIR"
