@@ -1647,6 +1647,8 @@ static NSString *OMMathInkHexForTheme(OMTheme *theme)
 }
 
 // dvisvgm leaves glyph fills unset (black); a fill on the root recolours them.
+#if !defined(_WIN32)
+// Only the non-Windows path uses it.
 static NSData *OMMathSVGDataWithInk(NSData *svgData, NSString *inkHex)
 {
     if (svgData == nil || inkHex == nil) {
@@ -1661,6 +1663,7 @@ static NSData *OMMathSVGDataWithInk(NSData *svgData, NSString *inkHex)
                                                    withString:[NSString stringWithFormat:@"<svg fill='%@' ", inkHex]];
     return [inked dataUsingEncoding:NSUTF8StringEncoding];
 }
+#endif
 
 NSAttributedString *OMMathAttachmentAttributedString(NSString *formula,
                                                      OMTheme *theme,

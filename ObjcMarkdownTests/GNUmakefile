@@ -10,4 +10,8 @@ ObjcMarkdownTests_CPPFLAGS += -I../third_party/cmark-gfm/compat -I../third_party
 ObjcMarkdownTests_LDFLAGS += -L../ObjcMarkdown/$(GNUSTEP_OBJ_DIR)
 ObjcMarkdownTests_BUNDLE_LIBS += -lObjcMarkdown -lXCTest -ldispatch
 
+# make OMD_WERROR=1 (Linux CI): warnings in this code are errors.
+ifneq ($(OMD_WERROR),)
+ObjcMarkdownTests_OBJCFLAGS += -Werror
+endif
 include $(GNUSTEP_MAKEFILES)/bundle.make

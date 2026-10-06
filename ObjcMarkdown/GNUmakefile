@@ -21,4 +21,8 @@ ObjcMarkdown_CPPFLAGS += -I../third_party/tomlc99
 endif
 ObjcMarkdown_LIBRARIES_DEPEND_UPON += -ldispatch
 
+# make OMD_WERROR=1 (Linux CI): warnings in this code are errors.
+ifneq ($(OMD_WERROR),)
+ObjcMarkdown_OBJCFLAGS += -Werror
+endif
 include $(GNUSTEP_MAKEFILES)/library.make

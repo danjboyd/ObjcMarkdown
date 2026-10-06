@@ -34,7 +34,8 @@ runtime_dirs=(
 runtime_path="$(IFS=:; printf '%s' "${runtime_dirs[*]}")"
 
 cd "${repo_root}"
-gmake
+# Warnings in the project's own code fail the build (not in third_party).
+gmake OMD_WERROR=1
 
 env \
   LD_LIBRARY_PATH="${runtime_path}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}" \

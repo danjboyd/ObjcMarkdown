@@ -249,6 +249,8 @@ typedef NS_ENUM(NSInteger, OMDLinkedScrollDriver) {
 #define NSModalResponseCancel (-1000)
 #endif
 
+#if !defined(_WIN32)
+// Only the non-Windows path uses it.
 static NSString *OMDCUPSDefaultPrinterName(void)
 {
     NSString *lpstatPath = OMDExecutablePathNamed(@"lpstat");
@@ -295,6 +297,7 @@ static NSString *OMDCUPSDefaultPrinterName(void)
     OMDLogPrintDiagnostics([NSString stringWithFormat:@"unexpected lpstat -d output: %@", trimmed]);
     return nil;
 }
+#endif
 
 static BOOL OMDFontIsMonospaced(NSFont *font)
 {

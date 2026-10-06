@@ -28,6 +28,10 @@ MarkdownViewer_RESOURCE_FILES = ../Resources/theme-github.toml ../Resources/them
 MarkdownViewer_APPLICATION_ICON = markdown_icon.png
 MarkdownViewer_GSWAPP_INFO_PLIST = MarkdownViewerInfo.plist
 
+# make OMD_WERROR=1 (Linux CI): warnings in this code are errors.
+ifneq ($(OMD_WERROR),)
+MarkdownViewer_OBJCFLAGS += -Werror
+endif
 include $(GNUSTEP_MAKEFILES)/application.make
 
 after-all:: MarkdownViewerInfo.plist
