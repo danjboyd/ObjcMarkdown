@@ -37,8 +37,12 @@ which xctest
 gmake --version
 ```
 
-## CI Runner Contract
+## CI Image
 
-The Linux GitHub Actions workflow in this repo assumes a self-hosted runner that already satisfies the toolchain above and has `/usr/GNUstep/System/Library/Makefiles/GNUstep.sh` available.
+Linux CI runs on GitHub-hosted runners inside a container image with exactly this toolchain, so it tests the real supported environment rather than a stock-package approximation, without depending on a self-hosted machine (#58).
 
-That is intentional. Until a redistributable hosted-runner/container story exists for this exact toolchain, the CI lane should reflect the real supported environment instead of a weaker stock-package approximation.
+- `ci/linux/Dockerfile` builds it on Debian 13 with clang the way the `tools-scripts` clang flow does (gnustep-make with `ng-gnu-gnu`, ARC and native exceptions; libobjc2; libdispatch; gnustep-base, -gui, -back into `/usr/GNUstep`; tools-xctest), plus Xvfb, fonts and pandoc for the tests. Every source is pinned by commit; the image lists them in `/usr/GNUstep/ci-toolchain.txt`.
+- `.github/workflows/ci-image.yml` builds and pushes it to `ghcr.io/danjboyd/objcmarkdown-ci` when `ci/linux` changes, and reports the digest.
+- `.github/workflows/linux-gnustep-clang.yml` runs in it, pinned by that digest. To move the toolchain: change the pins in the Dockerfile, let the image build, then update the digest in the CI workflow.
+
+The pins are upstream commits, not the authoring machine's exact checkouts (some of which are local branches with uncommitted changes), so a failure that only CI shows can mean the code relies on a local GNUstep change.

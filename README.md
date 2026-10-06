@@ -151,11 +151,10 @@ xctest ObjcMarkdownTests/ObjcMarkdownTests.bundle
 
 ## CI
 
-GitHub Actions includes a Linux build/test workflow for the GNUstep clang environment used by this project. That lane intentionally targets a self-hosted runner with the required `clang`/`libobjc2`/`libdispatch` GNUstep stack instead of pretending stock distro GNUstep packages are sufficient.
+GitHub Actions builds and tests on Linux in the GNUstep clang environment this project uses (`clang`/`libobjc2`/`libdispatch`, not the stock distro packages), on GitHub-hosted runners inside a container image that holds that toolchain:
 
-The current Linux CI entry point is:
-
-- [linux-gnustep-clang.yml](.github/workflows/linux-gnustep-clang.yml)
+- [linux-gnustep-clang.yml](.github/workflows/linux-gnustep-clang.yml): build and tests, on pushes to `main`, pull requests and by hand
+- [ci-image.yml](.github/workflows/ci-image.yml): builds the image from [ci/linux/Dockerfile](ci/linux/Dockerfile) (every source pinned by commit) and pushes it to `ghcr.io/danjboyd/objcmarkdown-ci`; the CI workflow is pinned to its digest
 
 Linux release packaging is handled separately so the build/test lane stays small:
 

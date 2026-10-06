@@ -4,15 +4,24 @@ on:
   push:
     branches:
       - main
+  pull_request:
   workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
 
 jobs:
   build-and-test:
-    runs-on:
-      - self-hosted
-      - linux
-      - gnustep-clang
+    # GitHub-hosted, in the CI image (ci/linux/Dockerfile, built by
+    # ci-image.yml) pinned by digest: update the pin when the image changes.
+    runs-on: ubuntu-latest
     timeout-minutes: 30
+    container:
+      image: ghcr.io/danjboyd/objcmarkdown-ci@sha256:a2d9d77f03d6402069654b2591191d17718669a6f2f59b392f7a2978c28e062c
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
       - name: Checkout
@@ -20,20 +29,13 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Verify GNUstep clang environment
+      - name: Toolchain
         shell: bash
-        run: |
-          set -eo pipefail
-          test -f /usr/GNUstep/System/Library/Makefiles/GNUstep.sh
-          set +u
-          source /usr/GNUstep/System/Library/Makefiles/GNUstep.sh
-          set -u
-          command -v clang
-          command -v gmake
-          command -v xctest
+        run: cat /usr/GNUstep/ci-toolchain.txt
 
       - name: Build and run tests
         shell: bash
         run: |
           set -euo pipefail
-          ./scripts/ci/run-linux-ci.sh
+          # The GUI tests need a display.
+          xvfb-run -a ./scripts/ci/run-linux-ci.sh
