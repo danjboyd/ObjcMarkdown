@@ -38,63 +38,6 @@ NSTimeInterval OMNow(void)
     return [NSDate timeIntervalSinceReferenceDate];
 }
 
-#if defined(_WIN32)
-static NSString *OMWindowsNormalizedPath(NSString *value)
-{
-    if (value == nil) {
-        return nil;
-    }
-    return [value stringByReplacingOccurrencesOfString:@"/" withString:@"\\"];
-}
-
-static NSString *OMWindowsQuoteCommandArgument(NSString *value)
-{
-    if (value == nil) {
-        return @"\"\"";
-    }
-
-    NSMutableString *quoted = [NSMutableString stringWithString:@"\""];
-    NSUInteger length = [value length];
-    NSUInteger index = 0;
-    while (index < length) {
-        unichar character = [value characterAtIndex:index];
-        if (character == '\\') {
-            NSUInteger slashStart = index;
-            while (index < length && [value characterAtIndex:index] == '\\') {
-                index += 1;
-            }
-            NSUInteger slashCount = index - slashStart;
-            BOOL beforeQuoteOrEnd = (index == length || [value characterAtIndex:index] == '"');
-            NSUInteger copies = beforeQuoteOrEnd ? (slashCount * 2) : slashCount;
-            while (copies-- > 0) {
-                [quoted appendString:@"\\"];
-            }
-            if (index < length && [value characterAtIndex:index] == '"') {
-                [quoted appendString:@"\\\""];
-                index += 1;
-            }
-            continue;
-        }
-        if (character == '"') {
-            [quoted appendString:@"\\\""];
-        } else {
-            [quoted appendFormat:@"%C", character];
-        }
-        index += 1;
-    }
-    [quoted appendString:@"\""];
-    return quoted;
-}
-
-static NSString *OMWindowsTaskScriptPath(NSString *workingDirectory)
-{
-    if (workingDirectory == nil || [workingDirectory length] == 0) {
-        return nil;
-    }
-    return [workingDirectory stringByAppendingPathComponent:@"omd-run-task.cmd"];
-}
-#endif
-
 static BOOL OMTruthyFlagValue(NSString *value)
 {
     if (value == nil) {
