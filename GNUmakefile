@@ -15,9 +15,15 @@ endif
 
 OMD_RUNTIME_LIB_DIRS = $(CURDIR)/ObjcMarkdown/$(GNUSTEP_OBJ_DIR)$(OMD_OPENSAVE_LIB_DIR):$(CURDIR)/third_party/TextViewVimKitBuild/$(GNUSTEP_OBJ_DIR):$(CURDIR)/third_party/GPUpdaterCore/$(GNUSTEP_OBJ_DIR):$(CURDIR)/third_party/GPUpdaterUI/$(GNUSTEP_OBJ_DIR)
 
+# MinGW's sys/types.h declares mode_t (unsigned short) and sets _MODE_T_;
+# libdispatch's os/generic_win_base.h declares it again as int unless
+# _MODE_T_ (current headers) or HAVE_MODE_T (older ones) is set. Including
+# sys/types.h first and setting HAVE_MODE_T keeps the CRT's declaration and
+# skips dispatch's with either version. Don't define _MODE_T_ here: that
+# also hides the CRT's mode_t, and dispatch/io.h then fails.
 ifneq (,$(findstring mingw,$(GNUSTEP_HOST_OS)))
-  export ADDITIONAL_OBJCFLAGS += -include sys/types.h -D__mode_t_defined -D_MODE_T_ -D_MODE_T_DEFINED
-  export ADDITIONAL_CFLAGS += -include sys/types.h -D__mode_t_defined -D_MODE_T_ -D_MODE_T_DEFINED
+  export ADDITIONAL_OBJCFLAGS += -include sys/types.h -DHAVE_MODE_T=1
+  export ADDITIONAL_CFLAGS += -include sys/types.h -DHAVE_MODE_T=1
 endif
 
 include $(GNUSTEP_MAKEFILES)/aggregate.make

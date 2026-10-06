@@ -10,7 +10,6 @@ MarkdownViewer_CPPFLAGS += -I../third_party/TextViewVimKit/src
 MarkdownViewer_CPPFLAGS += -I../third_party/GPUpdaterCore/Headers
 MarkdownViewer_CPPFLAGS += -I../third_party/GPUpdaterUI/Headers
 ifneq (,$(findstring mingw,$(GNUSTEP_HOST_OS)))
-MarkdownViewer_OBJCFLAGS += -include sys/types.h "-Dmode_t=unsigned short"
 MarkdownViewer_WINDRES_FILES = MarkdownViewer.rc
 MarkdownViewer_LDFLAGS += -lgdi32
 # Native Win32 open and save dialogs. Elsewhere the GNUstep theme provides
