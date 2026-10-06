@@ -130,7 +130,8 @@ gmake run Resources/sample-commonmark.md
 Notes:
 
 - No system `cmark` is needed: GitHub's `cmark-gfm` parser (tables, task lists, strikethrough, autolinks, footnotes) is vendored in `third_party/cmark-gfm` and compiled into `libObjcMarkdown`.
-- `third_party/libs-OpenSave` and `third_party/TextViewVimKit` are required submodules.
+- `third_party/TextViewVimKit` is a required submodule, and `third_party/libs-OpenSave` is too on Windows, where it provides the native open and save dialogs.
+- On Linux the GNUstep theme provides the open and save panels: GNOME's file chooser under the Adwaita theme (through the XDG desktop portal), GNUstep's own panels under its default theme or where no portal runs.
 - The GNUstep build on the authoring machine currently uses GNUstep Base `1.31.1`.
 
 ## Run Tests

@@ -76,7 +76,7 @@
   - Runtime tools/features that depend on external binaries (for example `pandoc`) are not bundled for end users.
 - **Requirements**:
   - Create a Flatpak manifest and builder flow for `MarkdownViewer`.
-  - Include all required runtime components for app startup and core features (GNUstep libs, Objective-C runtime, cmark, OpenSave/TextViewVimKit dependencies, and other required shared libraries).
+  - Include all required runtime components for app startup and core features (GNUstep libs, Objective-C runtime, cmark, TextViewVimKit dependencies, and other required shared libraries).
   - Include `pandoc` (or an equivalent clearly documented strategy) so import/export features work on stock systems.
   - Add GitHub Actions workflow(s) to build, validate, and publish Flatpak artifacts (nightly and/or tagged releases).
   - Validate installation and launch on a clean Linux box with no preinstalled GNUstep toolchain.

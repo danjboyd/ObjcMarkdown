@@ -16,7 +16,7 @@ fi
 source /usr/GNUstep/System/Library/Makefiles/GNUstep.sh >/dev/null 2>&1
 # Stop only the copy this script started on this display, never the user's.
 $(dirname "$0")/ui-stop-app.sh
-LIBS=$REPO/ObjcMarkdown/obj:$REPO/third_party/GPUpdaterCore/obj:$REPO/third_party/GPUpdaterUI/obj:$REPO/third_party/libs-OpenSave/Source/obj:$REPO/third_party/TextViewVimKitBuild/obj
+LIBS=$REPO/ObjcMarkdown/obj:$REPO/third_party/GPUpdaterCore/obj:$REPO/third_party/GPUpdaterUI/obj:$REPO/third_party/TextViewVimKitBuild/obj
 cd "$REPO"
 DBUS_SESSION_BUS_ADDRESS="$BUS" XDG_RUNTIME_DIR="$WORK/gsession/run" \
   GSETTINGS_BACKEND=keyfile XDG_CONFIG_HOME="$WORK/gsession/gs" \

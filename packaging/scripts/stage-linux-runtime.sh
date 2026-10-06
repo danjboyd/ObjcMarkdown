@@ -239,7 +239,6 @@ install_adwaita_theme() {
 require_path /usr/GNUstep/System/Library/Makefiles/GNUstep.sh
 require_path "$ROOT/ObjcMarkdownViewer/MarkdownViewer.app/MarkdownViewer"
 require_path "$ROOT/ObjcMarkdown/obj/libObjcMarkdown.so"
-require_path "$ROOT/third_party/libs-OpenSave/Source/obj/libOpenSave.so"
 require_path "$ROOT/third_party/TextViewVimKitBuild/obj/libTextViewVimKit.so"
 require_path "$ROOT/Resources/markdown_icon.png"
 require_path "$ROOT/Resources/sample-commonmark.md"
@@ -275,7 +274,6 @@ mkdir -p \
 
 cp -a "$ROOT/ObjcMarkdownViewer/MarkdownViewer.app" "$APP_ROOT/"
 copy_glob "$ROOT/ObjcMarkdown/obj/libObjcMarkdown.so*" "$APP_LIB_DIR"
-copy_glob "$ROOT/third_party/libs-OpenSave/Source/obj/libOpenSave.so*" "$APP_LIB_DIR"
 copy_glob "$ROOT/third_party/TextViewVimKitBuild/obj/libTextViewVimKit.so*" "$APP_LIB_DIR"
 copy_glob "$ROOT/third_party/GPUpdaterCore/obj/libGPUpdaterCore.so*" "$APP_LIB_DIR"
 copy_glob "$ROOT/third_party/GPUpdaterUI/obj/libGPUpdaterUI.so*" "$APP_LIB_DIR"

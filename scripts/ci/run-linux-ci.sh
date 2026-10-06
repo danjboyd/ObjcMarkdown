@@ -27,7 +27,6 @@ mkdir -p "${HOME}/GNUstep/Defaults/.lck"
 
 runtime_dirs=(
   "${repo_root}/ObjcMarkdown/obj"
-  "${repo_root}/third_party/libs-OpenSave/Source/obj"
   "${repo_root}/third_party/TextViewVimKitBuild/obj"
   "/usr/GNUstep/System/Library/Libraries"
 )

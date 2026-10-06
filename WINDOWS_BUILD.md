@@ -83,7 +83,7 @@ From PowerShell/Codex, use:
 ```
 
 This builds:
-- `third_party/libs-OpenSave/Source`
+- `third_party/libs-OpenSave/Source` (Windows only: the native open and save dialogs; on Linux the GNUstep theme provides the panels)
 - `third_party/TextViewVimKitBuild`
 - `ObjcMarkdown`
 - `MarkdownViewer`
