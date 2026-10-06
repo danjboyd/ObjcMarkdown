@@ -91,7 +91,8 @@ RUN . /usr/GNUstep/System/Library/Makefiles/GNUstep.sh \
 RUN . /usr/GNUstep/System/Library/Makefiles/GNUstep.sh \
     && fetch-commit "$TOOLS_XCTEST_REPO" "$TOOLS_XCTEST_COMMIT" tools-xctest \
     && cd tools-xctest \
-    && make -j"$(nproc)" GNUSTEP_INSTALLATION_DOMAIN=SYSTEM \
+    # Serial: its XCTestHost library links -lXCTest, built alongside it.
+    && make GNUSTEP_INSTALLATION_DOMAIN=SYSTEM \
     && make GNUSTEP_INSTALLATION_DOMAIN=SYSTEM install && ldconfig \
     && rm -rf /src
 
