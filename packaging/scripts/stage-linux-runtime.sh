@@ -6,24 +6,16 @@ STAGE_ROOT="${1:-$ROOT/dist/packaging/linux/stage}"
 if [[ "$STAGE_ROOT" != /* ]]; then
   STAGE_ROOT="$ROOT/$STAGE_ROOT"
 fi
-DEFAULT_THEME_BUILD_SOURCE="$ROOT/third_party/plugins-themes-Adwaita"
-if [[ ! -e "$DEFAULT_THEME_BUILD_SOURCE/GNUmakefile" ]]; then
-  DEFAULT_THEME_BUILD_SOURCE="$ROOT/../gnustep/plugins-themes-adwaita"
-fi
-THEME_BUILD_SOURCE="${2:-${OMD_ADWAITA_THEME_SOURCE:-$DEFAULT_THEME_BUILD_SOURCE}}"
+# The Adwaita theme is built from the commit pinned in packaging/inputs.json
+# (input "linux-adwaita-theme"), fetched into $THEME_INPUT_DIR. To package
+# something else on purpose: a source tree as the second argument or in
+# OMD_ADWAITA_THEME_SOURCE (built as it is), or a built Adwaita.theme in
+# OMD_ADWAITA_THEME_BUNDLE_SOURCE (copied as it is).
+THEME_INPUTS_FILE="$ROOT/packaging/inputs.json"
+THEME_INPUT_DIR="$ROOT/dist/packaging/inputs/plugins-themes-Adwaita"
+THEME_BUILD_SOURCE="${2:-${OMD_ADWAITA_THEME_SOURCE:-}}"
 THEME_BUNDLE_SOURCE="${OMD_ADWAITA_THEME_BUNDLE_SOURCE:-}"
-
-if [[ -z "$THEME_BUNDLE_SOURCE" ]]; then
-  for candidate in \
-    "$HOME/GNUstep/Library/Themes/Adwaita.theme" \
-    "/usr/GNUstep/Local/Library/Themes/Adwaita.theme" \
-    "/usr/GNUstep/System/Library/Themes/Adwaita.theme"; do
-    if [[ -e "$candidate/Adwaita" ]]; then
-      THEME_BUNDLE_SOURCE="$candidate"
-      break
-    fi
-  done
-fi
+THEME_PROVENANCE=""
 
 APP_ROOT="$STAGE_ROOT/app"
 APP_BUNDLE_DIR="$APP_ROOT/MarkdownViewer.app"
@@ -204,12 +196,57 @@ source_host_gnustep() {
   set -u
 }
 
+# Prints the pinned theme input's repo, ref and ref name, one per line.
+pinned_theme_input() {
+  python3 - "$THEME_INPUTS_FILE" <<'PY'
+import json, sys
+for item in json.load(open(sys.argv[1]))["inputs"]:
+    if item.get("id") == "linux-adwaita-theme":
+        print(item["repo"])
+        print(item["ref"])
+        print(item.get("refName", item["ref"]))
+        break
+else:
+    sys.exit("packaging/inputs.json has no linux-adwaita-theme input")
+PY
+}
+
+# Checks out the pinned commit in $THEME_INPUT_DIR, fetching only that.
+fetch_pinned_theme_source() {
+  local input repo ref ref_name
+  input="$(pinned_theme_input)"
+  repo="$(sed -n 1p <<<"$input")"
+  ref="$(sed -n 2p <<<"$input")"
+  ref_name="$(sed -n 3p <<<"$input")"
+
+  if [[ ! -d "$THEME_INPUT_DIR/.git" ]]; then
+    rm -rf "$THEME_INPUT_DIR"
+    mkdir -p "$THEME_INPUT_DIR"
+    git -C "$THEME_INPUT_DIR" init -q
+  fi
+  if ! git -C "$THEME_INPUT_DIR" cat-file -e "$ref^{commit}" 2>/dev/null; then
+    git -C "$THEME_INPUT_DIR" fetch -q --depth 1 "$repo" "$ref"
+  fi
+  git -C "$THEME_INPUT_DIR" checkout -q --force --detach "$ref"
+  git -C "$THEME_INPUT_DIR" clean -q -f -d -x
+
+  THEME_BUILD_SOURCE="$THEME_INPUT_DIR"
+  THEME_PROVENANCE="Adwaita: $repo at $ref ($ref_name)"
+}
+
 install_adwaita_theme() {
   if [[ -n "$THEME_BUNDLE_SOURCE" ]]; then
     require_path "$THEME_BUNDLE_SOURCE/Adwaita"
     mkdir -p "$GNUSTEP_THEME_DIR/Adwaita.theme"
     copy_dir_contents "$THEME_BUNDLE_SOURCE" "$GNUSTEP_THEME_DIR/Adwaita.theme"
+    THEME_PROVENANCE="Adwaita: prebuilt bundle from $THEME_BUNDLE_SOURCE (not the pinned input)"
     return
+  fi
+
+  if [[ -z "$THEME_BUILD_SOURCE" ]]; then
+    fetch_pinned_theme_source
+  else
+    THEME_PROVENANCE="Adwaita: built from $THEME_BUILD_SOURCE at $(git -C "$THEME_BUILD_SOURCE" rev-parse HEAD 2>/dev/null || echo "an unknown commit") (not the pinned input)"
   fi
 
   require_path "$THEME_BUILD_SOURCE/GNUmakefile"
@@ -393,6 +430,8 @@ chmod 755 "$APP_BINARY"
 
 cp -a "$ROOT/Resources/markdown_icon.png" "$METADATA_ICONS_DIR/"
 cp -a "$ROOT/FileAssociations.md" "$METADATA_DOCS_DIR/"
+printf '%s\n' "$THEME_PROVENANCE" >"$METADATA_DOCS_DIR/BundledThemes.txt"
+echo "$THEME_PROVENANCE"
 cp -a "$ROOT/Resources/sample-commonmark.md" "$METADATA_SMOKE_DIR/"
 printf 'ObjcMarkdown Linux packaging metadata.\n' >"$METADATA_ROOT/README.txt"
 

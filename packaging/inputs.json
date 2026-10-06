@@ -5,7 +5,9 @@
     {
       "id": "linux-adwaita-theme",
       "kind": "git",
-      "repo": "https://github.com/gnustep/plugins-themes-adwaita.git",
+      "repo": "https://github.com/danjboyd/plugins-themes-Adwaita.git",
+      "ref": "b33e423bf01a9bf5a70976f61cbb97e22a6ae60e",
+      "refName": "0.1.0-alpha4",
       "workspacePath": "../gnustep/plugins-themes-adwaita",
       "platforms": [
         "linux"
@@ -14,7 +16,8 @@
       "required": true,
       "notes": [
         "Treat this as a packaging-time workspace dependency, not a source submodule.",
-        "Pin the exact commit used for a release in downstream packaging automation or release notes."
+        "danjboyd/plugins-themes-Adwaita carries what the app relies on: the header bar, symbolic icon and segmented-control tinting, and the portal file chooser (121c5cd and later), which Linux uses since libOpenSave was dropped (#43).",
+        "packaging/scripts/stage-linux-runtime.sh fetches and builds this ref; the Linux release workflow adds it to the release notes, and the package records it in metadata/docs/BundledThemes.txt."
       ]
     },
     {

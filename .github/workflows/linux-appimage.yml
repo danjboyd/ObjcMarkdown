@@ -86,10 +86,25 @@ jobs:
             cp dist/linux/*.diagnostics.txt release-assets/
           fi
 
+      - name: Note Bundled Theme
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - packaging/inputs.json > release-theme-notes.md <<'PY'
+          import json, sys
+          for item in json.load(open(sys.argv[1]))["inputs"]:
+              if item["id"] == "linux-adwaita-theme":
+                  print("Linux bundles the Adwaita theme from %s at `%s` (%s)."
+                        % (item["repo"], item["ref"], item.get("refName", item["ref"])))
+          PY
+          cat release-theme-notes.md
+
       - name: Publish Linux Release Assets
         uses: softprops/action-gh-release@v2
         with:
           files: release-assets/*
+          body_path: release-theme-notes.md
+          append_body: true
 
       - name: Publish Linux Stable Update Feed
         shell: bash

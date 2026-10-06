@@ -26,6 +26,14 @@ dependencies rather than git submodules. The main app repo should stay light for
 normal development, while release packaging can materialize the exact theme
 repos it needs at pinned commits in a sibling workspace.
 
+The Linux Adwaita theme (`linux-adwaita-theme`, from
+`danjboyd/plugins-themes-Adwaita`) is fetched and built at its pinned `ref` by
+`packaging/scripts/stage-linux-runtime.sh` into `dist/packaging/inputs/`; the
+package records it in `metadata/docs/BundledThemes.txt` and the Linux release
+workflow appends it to the release notes. To package another theme build on
+purpose, pass a source tree (`OMD_ADWAITA_THEME_SOURCE`) or a built bundle
+(`OMD_ADWAITA_THEME_BUNDLE_SOURCE`); the recorded provenance then says so.
+
 ## Update Policy
 
 `Phase 9A` enables shared update metadata in both manifests through
