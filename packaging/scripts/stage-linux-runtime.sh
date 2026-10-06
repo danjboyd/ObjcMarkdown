@@ -362,6 +362,14 @@ if [[ -x /usr/GNUstep/System/Tools/defaults ]]; then
   cp -a /usr/GNUstep/System/Tools/defaults "$GNUSTEP_TOOLS_DIR/"
 fi
 
+# The daemons GNUstep starts on demand: without gdnc the app can't start
+# where no GNUstep is installed (or running), and gpbs serves the pasteboard.
+for tool in gdnc gpbs; do
+  require_path "/usr/GNUstep/System/Tools/$tool"
+  cp -a "/usr/GNUstep/System/Tools/$tool" "$GNUSTEP_TOOLS_DIR/"
+  copy_elf_dependencies "/usr/GNUstep/System/Tools/$tool" "$RUNTIME_LIB_DIR"
+done
+
 if [[ -x "$PANDOC_BINARY" ]]; then
   cp -a "$PANDOC_BINARY" "$RUNTIME_BIN_DIR/pandoc"
   copy_elf_dependencies "$PANDOC_BINARY" "$RUNTIME_LIB_DIR"
