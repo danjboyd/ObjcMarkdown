@@ -506,13 +506,13 @@ static NSView *OMDAddPreferencesCard(NSView *parent, NSRect frame)
                                         NSLeftTextAlignment,
                                         NO)];
     [card addSubview:OMDStaticTextField(NSMakeRect(pad, pad + 22.0, sectionWidth, 20.0),
-                                        @"Where the explorer starts and how large a file it opens.",
+                                        @"The explorer shows the open document's repository or folder, and the default folder when no document is open.",
                                         OMDPreferencesSectionSubtitleFont(metrics),
                                         noteColor,
                                         NSLeftTextAlignment,
                                         YES)];
     [card addSubview:OMDStaticTextField(NSMakeRect(pad, rowY + 5.0, rowLabelWidth, 20.0),
-                                        @"Local Root",
+                                        @"Default Folder",
                                         OMDPreferencesLabelFont(metrics),
                                         titleColor,
                                         NSLeftTextAlignment,

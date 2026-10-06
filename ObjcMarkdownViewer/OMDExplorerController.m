@@ -4,6 +4,7 @@
 #import "OMDExplorerController.h"
 #import "OMDDocumentConverter.h"
 #import "OMDLayoutMetrics.h"
+#import "OMDExplorerRoot.h"
 #import "OMDExternalTools.h"
 #import "OMDTextFileSupport.h"
 #import "OMDViewerColors.h"
@@ -33,6 +34,7 @@ static NSInteger OMDExplorerFileColorTierForPath(NSString *path)
 - (void)updateExplorerControlsVisibility;
 - (void)updateNavigateUpButton;
 - (void)reloadLocalExplorerEntries;
+- (void)showRoot:(NSString *)root;
 - (void)applyExplorerListFontPreference;
 - (BOOL)isExplorerShowHiddenFilesEnabled;
 - (void)setExplorerShowHiddenFilesEnabled:(BOOL)enabled;
@@ -62,7 +64,6 @@ static NSInteger OMDExplorerFileColorTierForPath(NSString *path)
 {
     [NSObject cancelPreviousPerformRequestsWithTarget:self];
     [_explorerPendingClickEntry release];
-    [_explorerLocalRootLabel release];
     [_explorerShowHiddenFilesButton release];
     [_explorerNavigateUpButton release];
     [_explorerPathLabel release];
@@ -73,6 +74,7 @@ static NSInteger OMDExplorerFileColorTierForPath(NSString *path)
     [_explorerEntries release];
     [_explorerLocalRootPath release];
     [_explorerLocalCurrentPath release];
+    [_explorerDocumentPath release];
     [super dealloc];
 }
 
@@ -92,9 +94,6 @@ static NSInteger OMDExplorerFileColorTierForPath(NSString *path)
     OMDLayoutMetrics metrics = OMDLayoutMetricsForMode([_delegate effectiveLayoutDensityMode]);
     NSFont *labelFont = [NSFont systemFontOfSize:(metrics.scale > 1.05 ? 12.0 : 11.0)];
     NSFont *pathFont = [NSFont systemFontOfSize:(metrics.scale > 1.05 ? 11.0 : 10.5)];
-    if (_explorerLocalRootLabel != nil) {
-        [_explorerLocalRootLabel setFont:labelFont];
-    }
     if (_explorerShowHiddenFilesButton != nil) {
         [_explorerShowHiddenFilesButton setFont:labelFont];
     }
@@ -144,12 +143,39 @@ static NSInteger OMDExplorerFileColorTierForPath(NSString *path)
     }
 
     [[NSUserDefaults standardUserDefaults] setObject:resolved forKey:OMDExplorerLocalRootPathDefaultsKey];
-    [_explorerLocalRootPath release];
-    _explorerLocalRootPath = [resolved copy];
+    if (OMDExplorerRootForDocumentPath(_explorerDocumentPath) == nil) {
+        [self showRoot:resolved];
+    }
+}
 
+- (void)showRoot:(NSString *)root
+{
+    if ([root isEqualToString:_explorerLocalRootPath]) {
+        return;
+    }
+    [_explorerLocalRootPath release];
+    _explorerLocalRootPath = [root copy];
     [_explorerLocalCurrentPath release];
-    _explorerLocalCurrentPath = [_explorerLocalRootPath copy];
-    [self reloadExplorerEntries];
+    _explorerLocalCurrentPath = [root copy];
+    if (_explorerTableView != nil) {
+        [self reloadExplorerEntries];
+    }
+}
+
+- (void)setDocumentPath:(NSString *)path
+{
+    NSString *normalized = ([path length] > 0 ? path : nil);
+    if (normalized == _explorerDocumentPath || [normalized isEqualToString:_explorerDocumentPath]) {
+        return;
+    }
+    [_explorerDocumentPath release];
+    _explorerDocumentPath = [normalized copy];
+
+    // An untitled document leaves the explorer where it is.
+    NSString *root = OMDExplorerRootForDocumentPath(_explorerDocumentPath);
+    if (root != nil) {
+        [self showRoot:root];
+    }
 }
 
 - (NSUInteger)explorerMaxOpenFileSizeBytes
@@ -258,15 +284,6 @@ static NSInteger OMDExplorerFileColorTierForPath(NSString *path)
     NSFont *labelFont = [NSFont systemFontOfSize:(metrics.scale > 1.05 ? 12.0 : 11.0)];
     NSFont *pathFont = [NSFont systemFontOfSize:(metrics.scale > 1.05 ? 11.0 : 10.5)];
 
-    _explorerLocalRootLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(metrics.explorerSidePadding, NSHeight(bounds) - 30, 100, 16)];
-    [_explorerLocalRootLabel setBezeled:NO];
-    [_explorerLocalRootLabel setEditable:NO];
-    [_explorerLocalRootLabel setSelectable:NO];
-    [_explorerLocalRootLabel setDrawsBackground:NO];
-    [_explorerLocalRootLabel setFont:labelFont];
-    [_explorerLocalRootLabel setAutoresizingMask:(NSViewWidthSizable | NSViewMinYMargin)];
-    [_containerView addSubview:_explorerLocalRootLabel];
-
     _explorerShowHiddenFilesButton = [[NSButton alloc] initWithFrame:NSMakeRect(metrics.explorerSidePadding,
                                                                                 NSHeight(bounds) - 54,
                                                                                 100,
@@ -334,10 +351,12 @@ static NSInteger OMDExplorerFileColorTierForPath(NSString *path)
     [_containerView addSubview:_explorerScrollView];
     [self applyExplorerListFontPreference];
 
-    [_explorerLocalRootPath release];
-    _explorerLocalRootPath = [[self explorerLocalRootPathPreference] copy];
-    [_explorerLocalCurrentPath release];
-    _explorerLocalCurrentPath = [_explorerLocalRootPath copy];
+    if (_explorerLocalRootPath == nil) {
+        NSString *root = OMDExplorerRootForDocumentPath(_explorerDocumentPath);
+        _explorerLocalRootPath = [(root != nil ? root : [self explorerLocalRootPathPreference]) copy];
+        [_explorerLocalCurrentPath release];
+        _explorerLocalCurrentPath = [_explorerLocalRootPath copy];
+    }
 
     [self updateExplorerControlsVisibility];
 }
@@ -370,9 +389,8 @@ static NSInteger OMDExplorerFileColorTierForPath(NSString *path)
     CGFloat scrollWidth = MAX(1.0, wideControlWidth + 4.0);
     CGFloat top = height - metrics.explorerTopPadding;
 
-    [_explorerLocalRootLabel setFrame:NSMakeRect(metrics.explorerSidePadding, top - 16.0, wideControlWidth, 16)];
     [_explorerShowHiddenFilesButton setFrame:NSMakeRect(metrics.explorerSidePadding,
-                                                        top - 22.0 - metrics.explorerMinorControlHeight,
+                                                        top - metrics.explorerMinorControlHeight,
                                                         wideControlWidth,
                                                         metrics.explorerMinorControlHeight)];
     CGFloat navigateUpY = NSMinY([_explorerShowHiddenFilesButton frame]) - 8.0 - metrics.explorerControlHeight;
@@ -394,9 +412,6 @@ static NSInteger OMDExplorerFileColorTierForPath(NSString *path)
     if (nameColumn != nil) {
         [nameColumn setWidth:NSWidth([_explorerScrollView bounds]) - 2.0];
     }
-
-    NSString *root = (_explorerLocalRootPath != nil ? _explorerLocalRootPath : [self explorerLocalRootPathPreference]);
-    [_explorerLocalRootLabel setStringValue:[NSString stringWithFormat:@"Root: %@", root]];
 }
 
 - (void)reloadExplorerEntries
@@ -500,8 +515,8 @@ static NSInteger OMDExplorerFileColorTierForPath(NSString *path)
     [_explorerEntries removeAllObjects];
     [_explorerEntries addObjectsFromArray:entries];
     [_explorerTableView reloadData];
-    [_explorerPathLabel setStringValue:[NSString stringWithFormat:@"Local: %@", _explorerLocalCurrentPath]];
-    [_explorerLocalRootLabel setStringValue:[NSString stringWithFormat:@"Root: %@", _explorerLocalRootPath]];
+    [_explorerPathLabel setStringValue:[_explorerLocalCurrentPath stringByAbbreviatingWithTildeInPath]];
+    [_explorerPathLabel setToolTip:_explorerLocalCurrentPath];
 }
 
 - (void)explorerNavigateUp:(id)sender

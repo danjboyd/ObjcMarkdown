@@ -7357,6 +7357,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
     }
 
     [_toolbarController updateToolbarActionControlsState];
+    [_explorerController setDocumentPath:[self resolvedAbsolutePathForLocalPath:_currentPath]];
 
     // Say what the window shows and let the theme present it: a file's
     // name and folder, and whether it has unsaved changes. The mode is on
