@@ -440,6 +440,7 @@ static CGFloat OMDClampedScrollSpeed(CGFloat value)
 - (void)setExplorerSidebarVisiblePreference:(BOOL)visible;
 - (void)applyExplorerSidebarVisibility;
 - (void)toggleExplorerSidebar:(id)sender;
+- (void)filterExplorerFiles:(id)sender;
 - (void)toggleOutline:(id)sender;
 - (void)openLocalPath:(NSString *)path inNewTab:(BOOL)inNewTab;
 - (BOOL)isMarkdownTextPath:(NSString *)path;
@@ -1621,6 +1622,15 @@ static NSMutableArray *OMDSecondaryWindows(void)
     _explorerSidebarVisible = !_explorerSidebarVisible;
     [self setExplorerSidebarVisiblePreference:_explorerSidebarVisible];
     [self applyExplorerSidebarVisibility];
+}
+
+// Shows the explorer if it is hidden and puts the keyboard in its filter.
+- (void)filterExplorerFiles:(id)sender
+{
+    if (!_explorerSidebarVisible) {
+        [self toggleExplorerSidebar:sender];
+    }
+    [_explorerController focusFilterField];
 }
 
 - (void)normalizeWindowFrameIfNeeded

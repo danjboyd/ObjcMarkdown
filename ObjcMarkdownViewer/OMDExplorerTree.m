@@ -206,3 +206,89 @@ OMDExplorerFileKind OMDExplorerFileKindForPath(NSString *path, BOOL isDirectory)
 }
 
 @end
+
+BOOL OMDExplorerNameMatchesFilter(NSString *name, NSString *filter)
+{
+    if ([filter length] == 0) {
+        return YES;
+    }
+    return ([name rangeOfString:filter options:NSCaseInsensitiveSearch].location != NSNotFound);
+}
+
+NSArray *OMDExplorerFindFiles(NSString *root,
+                              NSString *filter,
+                              BOOL showHidden,
+                              BOOL markdownOnly,
+                              NSUInteger visitLimit,
+                              NSUInteger matchLimit,
+                              BOOL *complete)
+{
+    NSFileManager *fileManager = [NSFileManager defaultManager];
+    NSMutableArray *matches = [NSMutableArray array];
+    NSMutableArray *pending = [NSMutableArray arrayWithObject:root];
+    NSUInteger visited = 0;
+    BOOL sawEverything = YES;
+
+    while ([pending count] > 0) {
+        NSString *folder = [[[pending objectAtIndex:0] retain] autorelease];
+        [pending removeObjectAtIndex:0];
+        NSArray *names = [[fileManager contentsOfDirectoryAtPath:folder error:NULL]
+                          sortedArrayUsingSelector:@selector(caseInsensitiveCompare:)];
+        NSMutableArray *subfolders = [NSMutableArray array];
+        for (NSString *name in names) {
+            if (visited >= visitLimit || [matches count] >= matchLimit) {
+                sawEverything = NO;
+                break;
+            }
+            visited++;
+            if ([name isEqualToString:@".git"] || (!showHidden && [name hasPrefix:@"."])) {
+                continue;
+            }
+            NSString *path = [folder stringByAppendingPathComponent:name];
+            NSDictionary *attributes = [fileManager attributesOfItemAtPath:path error:NULL];
+            BOOL isLink = [[attributes fileType] isEqualToString:NSFileTypeSymbolicLink];
+            BOOL isDirectory = NO;
+            if (![fileManager fileExistsAtPath:path isDirectory:&isDirectory]) {
+                continue;
+            }
+            if (isDirectory) {
+                if (!isLink) {
+                    [subfolders addObject:path];
+                }
+                continue;
+            }
+            if (markdownOnly && OMDExplorerFileKindForPath(path, NO) != OMDExplorerFileKindMarkdown) {
+                continue;
+            }
+            if (OMDExplorerNameMatchesFilter(name, filter)) {
+                [matches addObject:path];
+            }
+        }
+        if (!sawEverything) {
+            break;
+        }
+        [pending addObjectsFromArray:subfolders];
+    }
+
+    if (complete != NULL) {
+        *complete = sawEverything;
+    }
+    return matches;
+}
+
+NSSet *OMDExplorerVisiblePathsForFiles(NSArray *files, NSString *root)
+{
+    NSMutableSet *paths = [NSMutableSet set];
+    NSString *prefix = ([root hasSuffix:@"/"] ? root : [root stringByAppendingString:@"/"]);
+    for (NSString *file in files) {
+        if (![file hasPrefix:prefix]) {
+            continue;
+        }
+        NSString *path = file;
+        while ([path hasPrefix:prefix] && ![paths containsObject:path]) {
+            [paths addObject:path];
+            path = [path stringByDeletingLastPathComponent];
+        }
+    }
+    return paths;
+}

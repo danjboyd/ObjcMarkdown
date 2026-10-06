@@ -26,6 +26,7 @@ extern NSString * const OMDExplorerMaxFileSizeMBDefaultsKey;
 extern NSString * const OMDExplorerListFontSizeDefaultsKey;
 extern NSString * const OMDExplorerShowHiddenFilesDefaultsKey;
 extern NSString * const OMDExplorerRecentRootsDefaultsKey;
+extern NSString * const OMDExplorerMarkdownOnlyDefaultsKey;
 extern NSString * const OMDExplorerSidebarVisibleDefaultsKey;
 extern NSString * const OMDOutlineVisibleDefaultsKey;
 

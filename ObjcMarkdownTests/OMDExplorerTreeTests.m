@@ -123,4 +123,67 @@
     XCTAssertNil([root descendantForPath:[_base stringByAppendingString:@"-sibling/a.md"]]);
 }
 
+- (void)testNamesMatchIgnoringCase
+{
+    XCTAssertTrue(OMDExplorerNameMatchesFilter(@"README.md", @"read"));
+    XCTAssertTrue(OMDExplorerNameMatchesFilter(@"README.md", @""));
+    XCTAssertFalse(OMDExplorerNameMatchesFilter(@"README.md", @"guide"));
+}
+
+- (NSArray *)relative:(NSArray *)paths
+{
+    NSMutableArray *relative = [NSMutableArray array];
+    for (NSString *path in paths) {
+        [relative addObject:[path substringFromIndex:[_base length] + 1]];
+    }
+    return relative;
+}
+
+- (void)testFindFilesByNameAcrossFolders
+{
+    [[NSFileManager defaultManager] createDirectoryAtPath:[_base stringByAppendingPathComponent:@".git/refs"]
+                              withIntermediateDirectories:YES attributes:nil error:NULL];
+    [@"x" writeToFile:[_base stringByAppendingPathComponent:@".git/intro.md"] atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+    BOOL complete = NO;
+    NSArray *found = OMDExplorerFindFiles(_base, @"INTRO", YES, NO, 1000, 1000, &complete);
+    XCTAssertTrue(complete);
+    // .git is never searched, even with hidden files shown.
+    XCTAssertEqualObjects([self relative:found], [NSArray arrayWithObject:@"docs/guide/intro.md"]);
+}
+
+- (void)testFindFilesMarkdownOnlyAndHidden
+{
+    BOOL complete = NO;
+    NSArray *visible = OMDExplorerFindFiles(_base, @"", NO, YES, 1000, 1000, &complete);
+    XCTAssertEqualObjects([self relative:visible],
+                          ([NSArray arrayWithObjects:@"a.MD", @"README.md", @"docs/guide/intro.md", nil]));
+    NSArray *withHidden = OMDExplorerFindFiles(_base, @".hidden", YES, YES, 1000, 1000, &complete);
+    XCTAssertEqualObjects([self relative:withHidden], [NSArray arrayWithObject:@".hidden.md"]);
+    XCTAssertEqual([OMDExplorerFindFiles(_base, @"docx", NO, YES, 1000, 1000, &complete) count], (NSUInteger)0);
+}
+
+- (void)testFindFilesStopsAtItsLimits
+{
+    BOOL complete = YES;
+    NSArray *found = OMDExplorerFindFiles(_base, @"", NO, NO, 1000, 2, &complete);
+    XCTAssertEqual([found count], (NSUInteger)2);
+    XCTAssertFalse(complete);
+    complete = YES;
+    OMDExplorerFindFiles(_base, @"intro", NO, NO, 3, 1000, &complete);
+    XCTAssertFalse(complete);
+}
+
+- (void)testVisiblePathsAreTheFilesAndTheFoldersAboveThem
+{
+    NSArray *files = [NSArray arrayWithObjects:[_base stringByAppendingPathComponent:@"docs/guide/intro.md"],
+                                               [_base stringByAppendingPathComponent:@"README.md"],
+                                               @"/elsewhere/x.md", nil];
+    NSSet *visible = OMDExplorerVisiblePathsForFiles(files, _base);
+    NSSet *expected = [NSSet setWithObjects:[_base stringByAppendingPathComponent:@"docs/guide/intro.md"],
+                                            [_base stringByAppendingPathComponent:@"docs/guide"],
+                                            [_base stringByAppendingPathComponent:@"docs"],
+                                            [_base stringByAppendingPathComponent:@"README.md"], nil];
+    XCTAssertEqualObjects(visible, expected);
+}
+
 @end

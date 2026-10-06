@@ -55,3 +55,23 @@ OMDExplorerFileKind OMDExplorerFileKindForPath(NSString *path, BOOL isDirectory)
 - (OMDExplorerNode *)descendantForPath:(NSString *)path;
 
 @end
+
+// Whether name contains filter, ignoring case. An empty filter matches.
+BOOL OMDExplorerNameMatchesFilter(NSString *name, NSString *filter);
+
+// The files under root whose names match filter, only Markdown files when
+// markdownOnly, in folder order. Skips .git, hidden entries unless
+// showHidden, and folders reached through symbolic links. Stops after
+// visiting visitLimit entries or finding matchLimit files; *complete then
+// says NO. Reads only the disk, so it can run on any thread.
+NSArray *OMDExplorerFindFiles(NSString *root,
+                              NSString *filter,
+                              BOOL showHidden,
+                              BOOL markdownOnly,
+                              NSUInteger visitLimit,
+                              NSUInteger matchLimit,
+                              BOOL *complete);
+
+// The paths a filtered tree shows for files under root: each file and every
+// folder between it and root (root itself excluded).
+NSSet *OMDExplorerVisiblePathsForFiles(NSArray *files, NSString *root);

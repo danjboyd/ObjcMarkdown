@@ -18,14 +18,17 @@ static const CGFloat OMDExplorerListDefaultFontSize = 14.0;
 @class OMDExplorerNode;
 
 // The explorer sidebar: a local folder's files and folders as a tree. It is
-// the outline view's data source and delegate without declaring those
+// also the outline view's data source and delegate, without declaring those
 // protocols, all of whose methods GNUstep declares required.
-@interface OMDExplorerController : NSObject
+@interface OMDExplorerController : NSObject <NSTextFieldDelegate>
 {
     id<OMDExplorerControllerDelegate> _delegate;
     NSView *_containerView;
     NSPopUpButton *_explorerRootPopup;
+    NSSearchField *_explorerFilterField;
+    NSButton *_explorerMarkdownOnlyButton;
     NSButton *_explorerShowHiddenFilesButton;
+    NSTextField *_explorerFilterStatusLabel;
     NSScrollView *_explorerScrollView;
     NSOutlineView *_explorerOutlineView;
     OMDExplorerNode *_explorerRootNode;
@@ -34,6 +37,16 @@ static const CGFloat OMDExplorerListDefaultFontSize = 14.0;
     // Set when the user picks a root other than the document's; the
     // explorer then stays there while documents change.
     BOOL _explorerRootChosenByHand;
+    // While filtering (a filter text or Markdown only), the paths shown:
+    // matching files and the folders above them. nil shows everything.
+    NSSet *_explorerVisiblePaths;
+    // Bumped by each search, so a stale background result is dropped.
+    NSUInteger _explorerFilterGeneration;
+    BOOL _explorerTextFilterActive;
+    // Return in the filter: open the first match once the search is done.
+    BOOL _explorerOpenFirstMatchWhenShown;
+    // The folders open before a filter text opened the matches' folders.
+    NSArray *_explorerExpandedBeforeFilter;
     // A file's single click waits out the double-click interval (#40).
     OMDExplorerNode *_explorerPendingClickNode;
     BOOL _explorerIgnoreDoubleClick;
@@ -54,6 +67,9 @@ static const CGFloat OMDExplorerListDefaultFontSize = 14.0;
 // default folder from Preferences. A root picked in the explorer's root
 // menu stays until another is picked.
 - (void)setDocumentPath:(NSString *)path;
+
+// Puts the keyboard in the explorer's filter field.
+- (void)focusFilterField;
 
 - (NSString *)explorerLocalRootPathPreference;
 - (void)setExplorerLocalRootPathPreference:(NSString *)path;

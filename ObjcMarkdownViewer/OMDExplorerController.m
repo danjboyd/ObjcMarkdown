@@ -18,6 +18,10 @@ static const CGFloat OMDExplorerListMinimumRowHeight = 20.0;
 static const CGFloat OMDExplorerIconSize = 16.0;
 static const CGFloat OMDExplorerIconGap = 5.0;
 static const NSUInteger OMDExplorerRecentRootLimit = 8;
+// How much of a large tree a filter searches, and how many files it shows.
+static const NSUInteger OMDExplorerFilterVisitLimit = 100000;
+static const NSUInteger OMDExplorerFilterMatchLimit = 2000;
+static const NSTimeInterval OMDExplorerFilterDelay = 0.15;
 
 // Tags of the root menu's items.
 typedef NS_ENUM(NSInteger, OMDExplorerRootMenuTag) {
@@ -150,6 +154,19 @@ static NSButtonCell *OMDExplorerIconDrawingCell(void)
 - (void)cancelPendingExplorerClick;
 - (void)openPendingExplorerClick;
 - (void)toggleExplorerFolder:(OMDExplorerNode *)node;
+- (void)openFirstShownFile;
+- (BOOL)isExplorerMarkdownOnlyEnabled;
+- (BOOL)isExplorerFiltering;
+- (NSString *)explorerFilterText;
+- (void)explorerFilterChanged:(id)sender;
+- (void)explorerMarkdownOnlyChanged:(id)sender;
+- (void)scheduleExplorerFilter;
+- (void)applyExplorerFilter;
+- (void)showExplorerFilterResult:(NSArray *)files complete:(BOOL)complete restoreExpansion:(BOOL)restore;
+- (void)setExplorerFilterStatus:(NSString *)status;
+- (NSArray *)expandedExplorerNodes;
+- (void)restoreExplorerExpansion;
+- (void)refreshExplorerTree;
 @end
 
 @implementation OMDExplorerController
@@ -169,7 +186,13 @@ static NSButtonCell *OMDExplorerIconDrawingCell(void)
     [NSObject cancelPreviousPerformRequestsWithTarget:self];
     [_explorerPendingClickNode release];
     [_explorerRootPopup release];
+    [_explorerFilterField setDelegate:nil];
+    [_explorerFilterField release];
+    [_explorerMarkdownOnlyButton release];
     [_explorerShowHiddenFilesButton release];
+    [_explorerFilterStatusLabel release];
+    [_explorerVisiblePaths release];
+    [_explorerExpandedBeforeFilter release];
     [_explorerOutlineView setDelegate:nil];
     [_explorerOutlineView setDataSource:nil];
     [_explorerOutlineView release];
@@ -196,6 +219,8 @@ static NSButtonCell *OMDExplorerIconDrawingCell(void)
     OMDLayoutMetrics metrics = OMDLayoutMetricsForMode([_delegate effectiveLayoutDensityMode]);
     NSFont *labelFont = [NSFont systemFontOfSize:(metrics.scale > 1.05 ? 12.0 : 11.0)];
     [_explorerShowHiddenFilesButton setFont:labelFont];
+    [_explorerMarkdownOnlyButton setFont:labelFont];
+    [_explorerFilterStatusLabel setFont:labelFont];
     [self applyExplorerListFontPreference];
     [self layoutExplorerControls];
 }
@@ -268,6 +293,9 @@ static NSButtonCell *OMDExplorerIconDrawingCell(void)
         [self rebuildRootPopup];
         [_explorerOutlineView reloadData];
         [_explorerOutlineView scrollRowToVisible:0];
+        if ([self isExplorerFiltering]) {
+            [self applyExplorerFilter];
+        }
     }
 }
 
@@ -565,12 +593,53 @@ static NSButtonCell *OMDExplorerIconDrawingCell(void)
     [_explorerRootPopup setAutoresizingMask:(NSViewWidthSizable | NSViewMinYMargin)];
     [_containerView addSubview:_explorerRootPopup];
 
+    _explorerFilterField = [[NSSearchField alloc] initWithFrame:NSMakeRect(metrics.explorerSidePadding,
+                                                                           NSHeight(bounds) - 64,
+                                                                           100,
+                                                                           metrics.explorerControlHeight)];
+    [[_explorerFilterField cell] setPlaceholderString:@"Filter files"];
+    [_explorerFilterField setToolTip:@"Show the files whose names contain this text"];
+    [_explorerFilterField setTarget:self];
+    [_explorerFilterField setAction:@selector(explorerFilterChanged:)];
+    [_explorerFilterField setDelegate:self];
+    [_explorerFilterField setAutoresizingMask:(NSViewWidthSizable | NSViewMinYMargin)];
+    [_containerView addSubview:_explorerFilterField];
+
+    _explorerMarkdownOnlyButton = [[NSButton alloc] initWithFrame:NSMakeRect(metrics.explorerSidePadding,
+                                                                             NSHeight(bounds) - 88,
+                                                                             100,
+                                                                             metrics.explorerMinorControlHeight)];
+    [_explorerMarkdownOnlyButton setButtonType:NSSwitchButton];
+    [_explorerMarkdownOnlyButton setTitle:@"Markdown only"];
+    [_explorerMarkdownOnlyButton setToolTip:@"Show only Markdown files and the folders that hold them"];
+    [_explorerMarkdownOnlyButton setFont:labelFont];
+    [_explorerMarkdownOnlyButton setState:([self isExplorerMarkdownOnlyEnabled] ? NSOnState : NSOffState)];
+    [_explorerMarkdownOnlyButton setTarget:self];
+    [_explorerMarkdownOnlyButton setAction:@selector(explorerMarkdownOnlyChanged:)];
+    [_explorerMarkdownOnlyButton setAutoresizingMask:NSViewMinYMargin];
+    [_containerView addSubview:_explorerMarkdownOnlyButton];
+
+    _explorerFilterStatusLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(metrics.explorerSidePadding,
+                                                                               NSHeight(bounds) - 110,
+                                                                               100,
+                                                                               16)];
+    [_explorerFilterStatusLabel setBezeled:NO];
+    [_explorerFilterStatusLabel setEditable:NO];
+    [_explorerFilterStatusLabel setSelectable:NO];
+    [_explorerFilterStatusLabel setDrawsBackground:NO];
+    [_explorerFilterStatusLabel setTextColor:[NSColor secondaryLabelColor]];
+    [_explorerFilterStatusLabel setFont:labelFont];
+    [_explorerFilterStatusLabel setHidden:YES];
+    [_explorerFilterStatusLabel setAutoresizingMask:(NSViewWidthSizable | NSViewMinYMargin)];
+    [_containerView addSubview:_explorerFilterStatusLabel];
+
     _explorerShowHiddenFilesButton = [[NSButton alloc] initWithFrame:NSMakeRect(metrics.explorerSidePadding,
-                                                                                NSHeight(bounds) - 54,
+                                                                                NSHeight(bounds) - 88,
                                                                                 100,
                                                                                 metrics.explorerMinorControlHeight)];
     [_explorerShowHiddenFilesButton setButtonType:NSSwitchButton];
-    [_explorerShowHiddenFilesButton setTitle:@"Show hidden files"];
+    [_explorerShowHiddenFilesButton setTitle:@"Hidden files"];
+    [_explorerShowHiddenFilesButton setToolTip:@"Show files and folders whose names start with a dot"];
     [_explorerShowHiddenFilesButton setFont:labelFont];
     [_explorerShowHiddenFilesButton setState:([self isExplorerShowHiddenFilesEnabled] ? NSOnState : NSOffState)];
     [_explorerShowHiddenFilesButton setTarget:self];
@@ -615,6 +684,9 @@ static NSButtonCell *OMDExplorerIconDrawingCell(void)
         [self showRoot:[self explorerLocalRootPathPreference] remember:NO];
     }
     [self rebuildRootPopup];
+    if ([self isExplorerMarkdownOnlyEnabled]) {
+        [self applyExplorerFilter];
+    }
 
     // Files change behind the app's back; look again when it comes back.
     [[NSNotificationCenter defaultCenter] addObserver:self
@@ -637,12 +709,31 @@ static NSButtonCell *OMDExplorerIconDrawingCell(void)
                                             top - metrics.explorerControlHeight,
                                             wideControlWidth,
                                             metrics.explorerControlHeight)];
-    [_explorerShowHiddenFilesButton setFrame:NSMakeRect(metrics.explorerSidePadding,
-                                                        NSMinY([_explorerRootPopup frame]) - 6.0 - metrics.explorerMinorControlHeight,
-                                                        wideControlWidth,
+    [_explorerFilterField setFrame:NSMakeRect(metrics.explorerSidePadding,
+                                              NSMinY([_explorerRootPopup frame]) - 6.0 - metrics.explorerControlHeight,
+                                              wideControlWidth,
+                                              metrics.explorerControlHeight)];
+    // The two options side by side under the field.
+    CGFloat optionsY = NSMinY([_explorerFilterField frame]) - 6.0 - metrics.explorerMinorControlHeight;
+    CGFloat optionWidth = floor((wideControlWidth - 8.0) / 2.0);
+    [_explorerMarkdownOnlyButton setFrame:NSMakeRect(metrics.explorerSidePadding,
+                                                     optionsY,
+                                                     optionWidth,
+                                                     metrics.explorerMinorControlHeight)];
+    [_explorerShowHiddenFilesButton setFrame:NSMakeRect(metrics.explorerSidePadding + optionWidth + 8.0,
+                                                        optionsY,
+                                                        wideControlWidth - optionWidth - 8.0,
                                                         metrics.explorerMinorControlHeight)];
+    CGFloat controlsBottom = optionsY;
+    if (![_explorerFilterStatusLabel isHidden]) {
+        [_explorerFilterStatusLabel setFrame:NSMakeRect(metrics.explorerSidePadding,
+                                                        optionsY - 4.0 - 16.0,
+                                                        wideControlWidth,
+                                                        16.0)];
+        controlsBottom = NSMinY([_explorerFilterStatusLabel frame]);
+    }
     CGFloat scrollBottomInset = 10.0;
-    CGFloat scrollTop = NSMinY([_explorerShowHiddenFilesButton frame]) - 8.0;
+    CGFloat scrollTop = controlsBottom - 8.0;
     [_explorerScrollView setFrame:NSMakeRect(MAX(0.0, metrics.explorerSidePadding - 2.0),
                                              scrollBottomInset,
                                              MAX(1.0, wideControlWidth + 4.0),
@@ -659,6 +750,20 @@ static NSButtonCell *OMDExplorerIconDrawingCell(void)
     [_explorerRootNode reloadChildren];
     [_explorerOutlineView reloadData];
     [self revealDocumentExpandingFolders:YES];
+    if ([self isExplorerFiltering]) {
+        [self applyExplorerFilter];
+    }
+}
+
+// Reads the folders again, and searches again while filtering.
+- (void)refreshExplorerTree
+{
+    [_explorerRootNode reloadChildren];
+    if ([self isExplorerFiltering]) {
+        [self applyExplorerFilter];
+    } else {
+        [self reloadOutlineKeepingSelection];
+    }
 }
 
 - (void)windowDidBecomeKey:(NSNotification *)notification
@@ -666,15 +771,288 @@ static NSButtonCell *OMDExplorerIconDrawingCell(void)
     if ([notification object] != [_containerView window] || ![_explorerRootNode hasLoadedChildren]) {
         return;
     }
-    [_explorerRootNode reloadChildren];
-    [self reloadOutlineKeepingSelection];
+    [self refreshExplorerTree];
 }
 
 - (void)explorerShowHiddenFilesChanged:(id)sender
 {
     (void)sender;
     [self setExplorerShowHiddenFilesEnabled:([_explorerShowHiddenFilesButton state] == NSOnState)];
-    [self reloadOutlineKeepingSelection];
+    [self refreshExplorerTree];
+}
+
+- (BOOL)isExplorerMarkdownOnlyEnabled
+{
+    return [[NSUserDefaults standardUserDefaults] boolForKey:OMDExplorerMarkdownOnlyDefaultsKey];
+}
+
+- (void)explorerMarkdownOnlyChanged:(id)sender
+{
+    (void)sender;
+    [[NSUserDefaults standardUserDefaults] setBool:([_explorerMarkdownOnlyButton state] == NSOnState)
+                                            forKey:OMDExplorerMarkdownOnlyDefaultsKey];
+    [self applyExplorerFilter];
+}
+
+- (NSString *)explorerFilterText
+{
+    return OMDTrimmedString([_explorerFilterField stringValue]);
+}
+
+- (BOOL)isExplorerFiltering
+{
+    return ([[self explorerFilterText] length] > 0 || [self isExplorerMarkdownOnlyEnabled]);
+}
+
+- (void)focusFilterField
+{
+    if (_explorerFilterField == nil) {
+        return;
+    }
+    [[_explorerFilterField window] makeFirstResponder:_explorerFilterField];
+    [_explorerFilterField selectText:nil];
+}
+
+- (void)controlTextDidChange:(NSNotification *)notification
+{
+    if ([notification object] == _explorerFilterField) {
+        [self scheduleExplorerFilter];
+    }
+}
+
+- (void)openFirstShownFile
+{
+    NSInteger row = 0;
+    for (; row < [_explorerOutlineView numberOfRows]; row++) {
+        OMDExplorerNode *node = [_explorerOutlineView itemAtRow:row];
+        if (![node isDirectory]) {
+            [_delegate openLocalPath:[node path] inNewTab:NO];
+            return;
+        }
+    }
+}
+
+// The search field's own action. GNUstep sends it on every key typed, on
+// Return and Escape, and from the clear button, whose clearing doesn't
+// reach the field editor while the field is edited (nor does Escape, its
+// key equivalent), so the text is cleared here.
+- (void)explorerFilterChanged:(id)sender
+{
+    (void)sender;
+    NSEvent *event = [NSApp currentEvent];
+    NSText *editor = [_explorerFilterField currentEditor];
+    unichar character = 0;
+    if ([event type] == NSKeyDown && [[event charactersIgnoringModifiers] length] == 1) {
+        character = [[event charactersIgnoringModifiers] characterAtIndex:0];
+    }
+    if (character == 0x1b) {
+        [editor setString:@""];
+        [_explorerFilterField setStringValue:@""];
+        [self applyExplorerFilter];
+        return;
+    }
+    if (character == NSCarriageReturnCharacter || character == NSEnterCharacter ||
+        character == NSNewlineCharacter) {
+        _explorerOpenFirstMatchWhenShown = ([[self explorerFilterText] length] > 0);
+        [self applyExplorerFilter];
+        return;
+    }
+    if ([event type] == NSKeyDown) {
+        [self scheduleExplorerFilter];
+        return;
+    }
+    if (editor != nil && [[[_explorerFilterField cell] stringValue] length] == 0) {
+        [editor setString:@""];
+    }
+    [self applyExplorerFilter];
+}
+
+// In the filter field, Return opens the first file shown, Down moves into
+// the tree and Escape clears the filter.
+- (BOOL)control:(NSControl *)control textView:(NSTextView *)textView doCommandBySelector:(SEL)command
+{
+    if (control != _explorerFilterField) {
+        return NO;
+    }
+    if (command == @selector(insertNewline:)) {
+        _explorerOpenFirstMatchWhenShown = ([[self explorerFilterText] length] > 0);
+        [self applyExplorerFilter];
+        return YES;
+    }
+    if (command == @selector(moveDown:)) {
+        if ([_explorerOutlineView numberOfRows] > 0) {
+            [[_explorerOutlineView window] makeFirstResponder:_explorerOutlineView];
+            if ([_explorerOutlineView selectedRow] < 0) {
+                [_explorerOutlineView selectRow:0 byExtendingSelection:NO];
+            }
+        }
+        return YES;
+    }
+    // Escape: GNUstep's field editor sends complete:, Cocoa's cancelOperation:.
+    if (command == @selector(cancelOperation:) || command == @selector(complete:)) {
+        if ([[textView string] length] == 0) {
+            return NO;
+        }
+        // The field editor holds the text while the field is edited.
+        [textView setString:@""];
+        [_explorerFilterField setStringValue:@""];
+        [self applyExplorerFilter];
+        return YES;
+    }
+    return NO;
+}
+
+- (void)scheduleExplorerFilter
+{
+    [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(applyExplorerFilter) object:nil];
+    [self performSelector:@selector(applyExplorerFilter) withObject:nil afterDelay:OMDExplorerFilterDelay];
+}
+
+- (NSArray *)expandedExplorerNodes
+{
+    NSMutableArray *expanded = [NSMutableArray array];
+    NSInteger row = 0;
+    for (; row < [_explorerOutlineView numberOfRows]; row++) {
+        id item = [_explorerOutlineView itemAtRow:row];
+        if ([_explorerOutlineView isItemExpanded:item]) {
+            [expanded addObject:item];
+        }
+    }
+    return expanded;
+}
+
+// Closes everything, then opens the folders that were open before the
+// filter text (in row order, so each parent before its children).
+- (void)restoreExplorerExpansion
+{
+    for (id child in [self childrenOfItem:nil]) {
+        if ([_explorerOutlineView isItemExpanded:child]) {
+            [_explorerOutlineView collapseItem:child collapseChildren:YES];
+        }
+    }
+    for (id item in _explorerExpandedBeforeFilter) {
+        [_explorerOutlineView expandItem:item];
+    }
+    [_explorerExpandedBeforeFilter release];
+    _explorerExpandedBeforeFilter = nil;
+}
+
+- (void)applyExplorerFilter
+{
+    [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(applyExplorerFilter) object:nil];
+    if (_explorerOutlineView == nil || _explorerRootNode == nil) {
+        return;
+    }
+    NSString *text = [self explorerFilterText];
+    BOOL markdownOnly = [self isExplorerMarkdownOnlyEnabled];
+    BOOL textActive = ([text length] > 0);
+    BOOL restore = (_explorerTextFilterActive && !textActive);
+    if (textActive && !_explorerTextFilterActive) {
+        [_explorerExpandedBeforeFilter release];
+        _explorerExpandedBeforeFilter = [[self expandedExplorerNodes] retain];
+    }
+    _explorerTextFilterActive = textActive;
+    NSUInteger generation = ++_explorerFilterGeneration;
+
+    if (!textActive) {
+        _explorerOpenFirstMatchWhenShown = NO;
+    }
+    if (!textActive && !markdownOnly) {
+        [_explorerVisiblePaths release];
+        _explorerVisiblePaths = nil;
+        [self setExplorerFilterStatus:nil];
+        [_explorerOutlineView reloadData];
+        if (restore) {
+            [self restoreExplorerExpansion];
+        }
+        [self revealDocumentExpandingFolders:NO];
+        return;
+    }
+
+    if (textActive) {
+        [self setExplorerFilterStatus:@"Searching..."];
+    }
+    NSString *root = [[[_explorerRootNode path] copy] autorelease];
+    NSString *filter = [[text copy] autorelease];
+    BOOL showHidden = [self isExplorerShowHiddenFilesEnabled];
+    [self retain];
+    [root retain];
+    [filter retain];
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
+        BOOL complete = YES;
+        NSArray *files = [OMDExplorerFindFiles(root, filter, showHidden, markdownOnly,
+                                               OMDExplorerFilterVisitLimit, OMDExplorerFilterMatchLimit,
+                                               &complete) retain];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (generation == _explorerFilterGeneration &&
+                [root isEqualToString:[_explorerRootNode path]]) {
+                [self showExplorerFilterResult:files complete:complete restoreExpansion:restore];
+            }
+            [files release];
+            [root release];
+            [filter release];
+            [self release];
+        });
+        [pool release];
+    });
+}
+
+- (void)showExplorerFilterResult:(NSArray *)files complete:(BOOL)complete restoreExpansion:(BOOL)restore
+{
+    NSString *root = [_explorerRootNode path];
+    [_explorerVisiblePaths release];
+    _explorerVisiblePaths = [OMDExplorerVisiblePathsForFiles(files, root) retain];
+    [_explorerOutlineView reloadData];
+
+    if (_explorerTextFilterActive) {
+        // Open every folder on the way to a match, parents first.
+        NSMutableArray *folders = [NSMutableArray array];
+        for (NSString *path in _explorerVisiblePaths) {
+            if (![files containsObject:path]) {
+                [folders addObject:path];
+            }
+        }
+        [folders sortUsingSelector:@selector(compare:)];
+        for (NSString *folder in folders) {
+            OMDExplorerNode *node = [_explorerRootNode descendantForPath:folder];
+            if (node != nil) {
+                [_explorerOutlineView expandItem:node];
+            }
+        }
+        NSUInteger count = [files count];
+        if (count == 0) {
+            [self setExplorerFilterStatus:@"No files match"];
+        } else if (!complete) {
+            [self setExplorerFilterStatus:[NSString stringWithFormat:@"First %lu files", (unsigned long)count]];
+        } else {
+            [self setExplorerFilterStatus:[NSString stringWithFormat:(count == 1 ? @"%lu file" : @"%lu files"),
+                                                                     (unsigned long)count]];
+        }
+        if (_explorerOpenFirstMatchWhenShown) {
+            _explorerOpenFirstMatchWhenShown = NO;
+            [self openFirstShownFile];
+            return;
+        }
+    } else {
+        if (restore) {
+            [self restoreExplorerExpansion];
+        }
+        [self setExplorerFilterStatus:([files count] == 0 ? @"No Markdown files here"
+                                       : (complete ? nil : @"Large folder: not every file was searched"))];
+    }
+    [self revealDocumentExpandingFolders:NO];
+}
+
+// A line under the options while it says something; nil hides it.
+- (void)setExplorerFilterStatus:(NSString *)status
+{
+    BOOL hidden = ([status length] == 0);
+    [_explorerFilterStatusLabel setStringValue:(hidden ? @"" : status)];
+    if ([_explorerFilterStatusLabel isHidden] != hidden) {
+        [_explorerFilterStatusLabel setHidden:hidden];
+        [self layoutExplorerControls];
+    }
 }
 
 // The time within which a second click makes a double-click. GNUstep's
@@ -797,7 +1175,17 @@ static NSTimeInterval OMDDoubleClickInterval(void)
     if (node == nil) {
         return [NSArray array];
     }
-    return [node childrenShowingHidden:[self isExplorerShowHiddenFilesEnabled]];
+    NSArray *children = [node childrenShowingHidden:[self isExplorerShowHiddenFilesEnabled]];
+    if (_explorerVisiblePaths == nil) {
+        return children;
+    }
+    NSMutableArray *visible = [NSMutableArray arrayWithCapacity:[children count]];
+    for (OMDExplorerNode *child in children) {
+        if ([_explorerVisiblePaths containsObject:[child path]]) {
+            [visible addObject:child];
+        }
+    }
+    return visible;
 }
 
 - (NSInteger)outlineView:(NSOutlineView *)outlineView numberOfChildrenOfItem:(id)item

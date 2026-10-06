@@ -166,6 +166,9 @@
                                                                    action:@selector(toggleExplorerSidebar:)
                                                             keyEquivalent:@""];
     [showExplorerItem setTarget:target];
+    [[viewMenuWin addItemWithTitle:@"Filter Files"
+                            action:@selector(filterExplorerFiles:)
+                     keyEquivalent:@"F"] setTarget:target];
     NSMenuItem *showOutlineItem = (NSMenuItem *)[viewMenuWin addItemWithTitle:@"Show Outline"
                                                                   action:@selector(toggleOutline:)
                                                            keyEquivalent:@"O"];
@@ -370,6 +373,9 @@
                                                                    action:@selector(toggleExplorerSidebar:)
                                                             keyEquivalent:@""];
     [showExplorerItem setTarget:target];
+    [[viewMenu addItemWithTitle:@"Filter Files"
+                         action:@selector(filterExplorerFiles:)
+                  keyEquivalent:@"F"] setTarget:target];
 
     NSMenuItem *showOutlineItem = (NSMenuItem *)[viewMenu addItemWithTitle:@"Show Outline"
                                                                action:@selector(toggleOutline:)
