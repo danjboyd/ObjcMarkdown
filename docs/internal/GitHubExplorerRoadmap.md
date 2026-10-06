@@ -1,5 +1,10 @@
 # GitHub and Local Document Explorer Roadmap
 
+> **Superseded (2026-10-06).** The GitHub mode was removed in #46 after the
+> explorer sidebar audit (tracker #54). The explorer is now a local folder
+> view; GitHub returns, if at all, as #52 (open GitHub URLs) and #53 (open a
+> repository deliberately). Kept for history.
+
 ## Goal
 
 Provide a unified in-app explorer for local and GitHub-hosted documents so users can browse and open markdown workflows without spawning new windows.

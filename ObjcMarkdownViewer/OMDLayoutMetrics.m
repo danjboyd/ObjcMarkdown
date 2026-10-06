@@ -68,7 +68,7 @@ OMDLayoutMetrics OMDLayoutMetricsForMode(OMDLayoutDensityMode mode)
     metrics.preferencesSmallFieldWidth = 56.0;
     metrics.preferencesSmallButtonWidth = 80.0;
     metrics.preferencesAppearanceCardHeight = 236.0;
-    metrics.preferencesExplorerCardHeight = 258.0;
+    metrics.preferencesExplorerCardHeight = 196.0;
     metrics.preferencesPreviewCardHeight = 132.0;
     metrics.preferencesRenderingCardHeight = 236.0;
     metrics.preferencesEditingCardHeight = 402.0;
@@ -102,7 +102,7 @@ OMDLayoutMetrics OMDLayoutMetricsForMode(OMDLayoutDensityMode mode)
         metrics.preferencesSmallFieldWidth = 52.0;
         metrics.preferencesSmallButtonWidth = 74.0;
         metrics.preferencesAppearanceCardHeight = 220.0;
-        metrics.preferencesExplorerCardHeight = 244.0;
+        metrics.preferencesExplorerCardHeight = 182.0;
         metrics.preferencesPreviewCardHeight = 124.0;
         metrics.preferencesRenderingCardHeight = 224.0;
         metrics.preferencesEditingCardHeight = 382.0;
@@ -141,7 +141,7 @@ OMDLayoutMetrics OMDLayoutMetricsForMode(OMDLayoutDensityMode mode)
         metrics.preferencesSmallFieldWidth = 64.0;
         metrics.preferencesSmallButtonWidth = 96.0;
         metrics.preferencesAppearanceCardHeight = 270.0;
-        metrics.preferencesExplorerCardHeight = 300.0;
+        metrics.preferencesExplorerCardHeight = 220.0;
         metrics.preferencesPreviewCardHeight = 156.0;
         metrics.preferencesRenderingCardHeight = 272.0;
         metrics.preferencesEditingCardHeight = 460.0;

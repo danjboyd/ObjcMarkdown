@@ -171,7 +171,6 @@ static NSView *OMDAddPreferencesCard(NSView *parent, NSRect frame)
 - (void)preferencesExplorerLocalRootChanged:(id)sender;
 - (void)preferencesExplorerMaxFileSizeChanged:(id)sender;
 - (void)preferencesExplorerListFontSizeChanged:(id)sender;
-- (void)preferencesExplorerGitHubTokenChanged:(id)sender;
 - (void)preferencesDiagramPolicyChanged:(id)sender;
 - (void)releasePreferencesPanelControls;
 - (void)rebuildPreferencesPanelContent;
@@ -238,7 +237,6 @@ static NSView *OMDAddPreferencesCard(NSView *parent, NSRect frame)
     [_preferencesExplorerLocalRootField release];
     [_preferencesExplorerMaxFileSizeField release];
     [_preferencesExplorerListFontSizeField release];
-    [_preferencesExplorerGitHubTokenField release];
     [super dealloc];
 }
 
@@ -308,8 +306,6 @@ static NSView *OMDAddPreferencesCard(NSView *parent, NSRect frame)
     _preferencesExplorerMaxFileSizeField = nil;
     [_preferencesExplorerListFontSizeField release];
     _preferencesExplorerListFontSizeField = nil;
-    [_preferencesExplorerGitHubTokenField release];
-    _preferencesExplorerGitHubTokenField = nil;
 }
 
 - (void)normalizePreferencesPanelFrameForSize:(NSSize)size
@@ -510,7 +506,7 @@ static NSView *OMDAddPreferencesCard(NSView *parent, NSRect frame)
                                         NSLeftTextAlignment,
                                         NO)];
     [card addSubview:OMDStaticTextField(NSMakeRect(pad, pad + 22.0, sectionWidth, 20.0),
-                                        @"Control the local browser root and GitHub integration defaults.",
+                                        @"Where the explorer starts and how large a file it opens.",
                                         OMDPreferencesSectionSubtitleFont(metrics),
                                         noteColor,
                                         NSLeftTextAlignment,
@@ -596,31 +592,6 @@ static NSView *OMDAddPreferencesCard(NSView *parent, NSRect frame)
                                         NSLeftTextAlignment,
                                         NO)];
 
-    rowY += metrics.preferencesControlHeight + metrics.preferencesRowGap;
-    [card addSubview:OMDStaticTextField(NSMakeRect(pad, rowY + 5.0, rowLabelWidth, 20.0),
-                                        @"GitHub Token",
-                                        OMDPreferencesLabelFont(metrics),
-                                        titleColor,
-                                        NSLeftTextAlignment,
-                                        NO)];
-    _preferencesExplorerGitHubTokenField = [[NSSecureTextField alloc] initWithFrame:NSMakeRect(controlX,
-                                                                                                rowY,
-                                                                                                controlWidth,
-                                                                                                metrics.preferencesControlHeight)];
-    [_preferencesExplorerGitHubTokenField setTarget:self];
-    [_preferencesExplorerGitHubTokenField setAction:@selector(preferencesExplorerGitHubTokenChanged:)];
-    [card addSubview:_preferencesExplorerGitHubTokenField];
-
-    rowY += metrics.preferencesControlHeight + 8.0;
-    [card addSubview:OMDStaticTextField(NSMakeRect(controlX,
-                                                   rowY,
-                                                   controlWidth,
-                                                   metrics.preferencesNoteHeight),
-                                        @"Optional. Raises GitHub API rate limits for repo browsing.",
-                                        OMDPreferencesNoteFont(metrics),
-                                        noteColor,
-                                        NSLeftTextAlignment,
-                                        YES)];
 }
 
 - (void)buildPreferencesPreviewSectionInView:(NSView *)view metrics:(OMDLayoutMetrics)metrics
@@ -1245,10 +1216,6 @@ static NSView *OMDAddPreferencesCard(NSView *parent, NSRect frame)
             [_preferencesExplorerListFontSizeField setStringValue:[NSString stringWithFormat:@"%.1f", listFontSize]];
         }
     }
-    if (_preferencesExplorerGitHubTokenField != nil) {
-        NSString *token = [[_delegate explorerController] explorerGitHubTokenPreference];
-        [_preferencesExplorerGitHubTokenField setStringValue:(token != nil ? token : @"")];
-    }
 }
 
 - (void)preferencesSplitSyncModeChanged:(id)sender
@@ -1444,16 +1411,6 @@ static NSView *OMDAddPreferencesCard(NSView *parent, NSRect frame)
         fontSize = OMDExplorerListDefaultFontSize;
     }
     [[_delegate explorerController] setExplorerListFontSizePreference:fontSize];
-    [self syncPreferencesPanelFromSettings];
-}
-
-- (void)preferencesExplorerGitHubTokenChanged:(id)sender
-{
-    (void)sender;
-    NSString *token = (_preferencesExplorerGitHubTokenField != nil
-                       ? [_preferencesExplorerGitHubTokenField stringValue]
-                       : @"");
-    [[_delegate explorerController] setExplorerGitHubTokenPreference:token];
     [self syncPreferencesPanelFromSettings];
 }
 

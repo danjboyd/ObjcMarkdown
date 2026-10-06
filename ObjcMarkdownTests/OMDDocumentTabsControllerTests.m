@@ -90,24 +90,6 @@
     XCTAssertEqual([tabs documentTabIndexForLocalPath:@" "], (NSInteger)-1);
 }
 
-- (void)testGitHubLookupIgnoresCaseOfUserAndRepository
-{
-    OMDDocumentTabsController *tabs = [[[OMDDocumentTabsController alloc] initWithDelegate:self] autorelease];
-    NSMutableDictionary *local = [self tabWithPath:@"/tmp/README.md"];
-    NSMutableDictionary *remote = [NSMutableDictionary dictionaryWithObjectsAndKeys:
-        [NSNumber numberWithBool:YES], OMDTabIsGitHubKey,
-        @"DanJBoyd", OMDTabGitHubUserKey,
-        @"ObjcMarkdown", OMDTabGitHubRepoKey,
-        @"docs/README.md", OMDTabGitHubPathKey,
-        nil];
-    [tabs addTab:local];
-    [tabs addTab:remote];
-    XCTAssertEqual([tabs documentTabIndexForGitHubUser:@"danjboyd" repo:@"objcmarkdown" path:@"/docs/./README.md"],
-                   (NSInteger)1);
-    XCTAssertEqual([tabs documentTabIndexForGitHubUser:@"danjboyd" repo:@"other" path:@"docs/README.md"],
-                   (NSInteger)-1);
-}
-
 - (void)testStripShowsOnlyWithTwoOrMoreTabs
 {
     OMDDocumentTabsController *tabs = [[[OMDDocumentTabsController alloc] initWithDelegate:self] autorelease];

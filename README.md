@@ -11,7 +11,7 @@
 - a syntax-highlighted source editor with line numbers, an optional formatting bar, and optional Vim key bindings
 - rendered preview with GitHub-style tables, math styling, drawn Mermaid entity-relationship diagrams and flowcharts, and copy buttons for code blocks and diagrams
 - theme, layout, source-editor, and explorer preferences
-- local file explorer and GitHub repository browsing
+- a file explorer sidebar
 
 ## Import And Export
 

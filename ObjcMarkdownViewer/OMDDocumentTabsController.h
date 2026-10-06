@@ -11,10 +11,6 @@ extern NSString * const OMDTabSourcePathKey;
 extern NSString * const OMDTabDisplayTitleKey;
 extern NSString * const OMDTabDirtyKey;
 extern NSString * const OMDTabReadOnlyKey;
-extern NSString * const OMDTabIsGitHubKey;
-extern NSString * const OMDTabGitHubUserKey;
-extern NSString * const OMDTabGitHubRepoKey;
-extern NSString * const OMDTabGitHubPathKey;
 extern NSString * const OMDTabRenderModeKey;
 extern NSString * const OMDTabSyntaxLanguageKey;
 extern NSString * const OMDTabLoadedDiskFingerprintKey;
@@ -57,9 +53,6 @@ extern NSString * const OMDTabImageSourcePathKey;
 
 // -1 when no tab shows the document.
 - (NSInteger)documentTabIndexForLocalPath:(NSString *)sourcePath;
-- (NSInteger)documentTabIndexForGitHubUser:(NSString *)user
-                                      repo:(NSString *)repo
-                                      path:(NSString *)path;
 
 // The strip of tab buttons, shown only with two or more tabs.
 - (NSView *)stripView;

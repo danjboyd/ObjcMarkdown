@@ -22,11 +22,9 @@ NSString * const OMDScrollSpeedDefaultsKey = @"ObjcMarkdownScrollSpeed";
 NSString * const OMDExplorerLocalRootPathDefaultsKey = @"ObjcMarkdownExplorerLocalRootPath";
 NSString * const OMDExplorerMaxFileSizeMBDefaultsKey = @"ObjcMarkdownExplorerMaxFileSizeMB";
 NSString * const OMDExplorerListFontSizeDefaultsKey = @"ObjcMarkdownExplorerListFontSize";
-NSString * const OMDExplorerIncludeForkArchivedDefaultsKey = @"ObjcMarkdownExplorerIncludeForkArchived";
 NSString * const OMDExplorerShowHiddenFilesDefaultsKey = @"ObjcMarkdownExplorerShowHiddenFiles";
 NSString * const OMDExplorerSidebarVisibleDefaultsKey = @"ObjcMarkdownExplorerSidebarVisible";
 NSString * const OMDOutlineVisibleDefaultsKey = @"ObjcMarkdownOutlineVisible";
-NSString * const OMDExplorerGitHubTokenDefaultsKey = @"ObjcMarkdownGitHubToken";
 
 OMMarkdownDiagramRenderingPolicy OMDDiagramRenderingPolicyFromInteger(NSInteger value)
 {
@@ -56,4 +54,19 @@ OMDSplitSyncMode OMDSplitSyncModeFromInteger(NSInteger value)
         return OMDSplitSyncModeCaretSelectionFollow;
     }
     return OMDSplitSyncModeLinkedScrolling;
+}
+
+void OMDRemoveRetiredDefaults(void)
+{
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    // The GitHub explorer mode's settings (#46). The token is a secret, so
+    // it shouldn't outlive the feature.
+    NSArray *keys = [NSArray arrayWithObjects:@"ObjcMarkdownGitHubToken",
+                                              @"ObjcMarkdownExplorerIncludeForkArchived",
+                                              nil];
+    for (NSString *key in keys) {
+        if ([defaults objectForKey:key] != nil) {
+            [defaults removeObjectForKey:key];
+        }
+    }
 }

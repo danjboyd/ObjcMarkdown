@@ -16,7 +16,6 @@
 #import "OMDFormattingBarController.h"
 #import "OMDPreviewSync.h"
 #import "OMDViewerModeState.h"
-#import "OMDGitHubClient.h"
 #import "OMDInlineToggle.h"
 #import "OMDPanelSelection.h"
 #import "OMDViewerColors.h"
@@ -883,6 +882,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
 - (void)applicationWillFinishLaunching:(NSNotification *)notification
 {
     OMDStartupTrace(@"applicationWillFinishLaunching: enter");
+    OMDRemoveRetiredDefaults();
     @try {
         [self setupMainMenu];
         OMDStartupTrace(@"applicationWillFinishLaunching: setupMainMenu returned");
@@ -2226,12 +2226,6 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
     }
     if ([OMDTrimmedString(_currentPath) length] == 0) {
         return NO;
-    }
-    NSDictionary *tab = [_documentTabsController selectedTab];
-    if (tab != nil) {
-        if ([[tab objectForKey:OMDTabIsGitHubKey] boolValue]) {
-            return NO;
-        }
     }
     return YES;
 }
@@ -5244,13 +5238,6 @@ constrainSplitPosition:(CGFloat)proposedPosition
     [_currentDisplayTitle release];
     _currentDisplayTitle = [displayTitle copy];
     BOOL readOnly = [[tabRecord objectForKey:OMDTabReadOnlyKey] boolValue];
-    BOOL isGitHubTab = [[tabRecord objectForKey:OMDTabIsGitHubKey] boolValue];
-    if (isGitHubTab && readOnly) {
-        readOnly = NO;
-        if ([tabRecord isKindOfClass:[NSMutableDictionary class]]) {
-            [(NSMutableDictionary *)tabRecord setObject:[NSNumber numberWithBool:NO] forKey:OMDTabReadOnlyKey];
-        }
-    }
     _currentDocumentReadOnly = readOnly;
     [self setCurrentDiskFingerprintStateLoaded:[tabRecord objectForKey:OMDTabLoadedDiskFingerprintKey]
                                       observed:[tabRecord objectForKey:OMDTabObservedDiskFingerprintKey]
@@ -5518,98 +5505,6 @@ constrainSplitPosition:(CGFloat)proposedPosition
                              requireDirtyConfirm:!inNewTab];
     if (opened) {
         [self noteRecentDocumentAtPathIfAvailable:path];
-    }
-}
-
-- (BOOL)selectDocumentTabForGitHubUser:(NSString *)user repo:(NSString *)repo path:(NSString *)path
-{
-    NSInteger existingIndex = [_documentTabsController documentTabIndexForGitHubUser:user
-                                                             repo:repo
-                                                             path:path];
-    if (existingIndex < 0) {
-        return NO;
-    }
-    [self selectDocumentTabAtIndex:existingIndex];
-    return YES;
-}
-
-- (void)openGitHubFileAtCachePath:(NSString *)fullPath
-                             user:(NSString *)githubUser
-                             repo:(NSString *)githubRepo
-                     relativePath:(NSString *)entryPath
-                       descriptor:(NSString *)descriptor
-                         inNewTab:(BOOL)inNewTab
-{
-    NSDictionary *attributes = [[NSFileManager defaultManager] attributesOfItemAtPath:fullPath error:NULL];
-    NSNumber *sizeValue = [attributes objectForKey:NSFileSize];
-    if ([sizeValue respondsToSelector:@selector(unsignedLongLongValue)]) {
-        if (![self ensureOpenFileSizeWithinLimit:[sizeValue unsignedLongLongValue]
-                                      descriptor:descriptor]) {
-            return;
-        }
-    }
-
-    NSString *extension = [[entryPath pathExtension] lowercaseString];
-    BOOL importable = [OMDDocumentConverter isSupportedExtension:extension];
-
-    NSString *markdownResult = nil;
-    OMDDocumentRenderMode renderMode = OMDDocumentRenderModeMarkdown;
-    NSString *syntaxLanguage = nil;
-    if (importable) {
-        if (![self ensureConverterAvailableForActionName:@"Import"]) {
-            return;
-        }
-        NSString *importedMarkdown = nil;
-        NSError *conversionError = nil;
-        BOOL converted = [[self documentConverter] importFileAtPath:fullPath
-                                                           markdown:&importedMarkdown
-                                                              error:&conversionError];
-        if (!converted) {
-            [self presentConverterError:conversionError fallbackTitle:@"Import failed"];
-            return;
-        }
-        markdownResult = importedMarkdown;
-    } else {
-        NSError *readError = nil;
-        markdownResult = [self decodedTextForFileAtPath:fullPath error:&readError];
-        if (markdownResult == nil) {
-            NSAlert *alert = [[[NSAlert alloc] init] autorelease];
-            [alert setMessageText:@"Unsupported file type"];
-            [alert setInformativeText:(readError != nil ? [readError localizedDescription]
-                                                        : @"This cached file cannot be opened as text.")];
-            [alert runModal];
-            return;
-        }
-        renderMode = [self isMarkdownTextPath:entryPath]
-                     ? OMDDocumentRenderModeMarkdown
-                     : OMDDocumentRenderModeVerbatim;
-        if (renderMode == OMDDocumentRenderModeVerbatim) {
-            syntaxLanguage = OMDVerbatimSyntaxTokenForExtension(extension);
-        }
-    }
-
-    NSString *displayTitle = [NSString stringWithFormat:@"%@/%@:%@",
-                              githubUser != nil ? githubUser : @"",
-                              githubRepo != nil ? githubRepo : @"",
-                              entryPath];
-    [self openDocumentWithMarkdown:(markdownResult != nil ? markdownResult : @"")
-                        sourcePath:nil
-                      displayTitle:displayTitle
-                          readOnly:NO
-                        renderMode:renderMode
-                    syntaxLanguage:syntaxLanguage
-                          inNewTab:inNewTab
-               requireDirtyConfirm:!inNewTab];
-    NSMutableDictionary *tab = [_documentTabsController selectedTab];
-    if (tab != nil) {
-        [tab setObject:[NSNumber numberWithBool:YES] forKey:OMDTabIsGitHubKey];
-        if (githubUser != nil) {
-            [tab setObject:githubUser forKey:OMDTabGitHubUserKey];
-        }
-        if (githubRepo != nil) {
-            [tab setObject:githubRepo forKey:OMDTabGitHubRepoKey];
-        }
-        [tab setObject:entryPath forKey:OMDTabGitHubPathKey];
     }
 }
 

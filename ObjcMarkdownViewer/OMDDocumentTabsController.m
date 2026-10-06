@@ -11,10 +11,6 @@ NSString * const OMDTabSourcePathKey = @"sourcePath";
 NSString * const OMDTabDisplayTitleKey = @"displayTitle";
 NSString * const OMDTabDirtyKey = @"dirty";
 NSString * const OMDTabReadOnlyKey = @"readOnly";
-NSString * const OMDTabIsGitHubKey = @"isGitHub";
-NSString * const OMDTabGitHubUserKey = @"githubUser";
-NSString * const OMDTabGitHubRepoKey = @"githubRepo";
-NSString * const OMDTabGitHubPathKey = @"githubPath";
 NSString * const OMDTabRenderModeKey = @"renderMode";
 NSString * const OMDTabSyntaxLanguageKey = @"syntaxLanguage";
 NSString * const OMDTabLoadedDiskFingerprintKey = @"loadedDiskFingerprint";
@@ -252,51 +248,6 @@ NSString * const OMDTabImageSourcePathKey = @"imageSourcePath";
         }
     }
     return -1;
-}
-
-- (NSInteger)documentTabIndexForGitHubUser:(NSString *)user
-                                      repo:(NSString *)repo
-                                      path:(NSString *)path
-{
-    NSString *targetUser = [[OMDTrimmedString(user) lowercaseString] copy];
-    NSString *targetRepo = [[OMDTrimmedString(repo) lowercaseString] copy];
-    NSString *targetPath = [OMDNormalizedRelativePath(path) copy];
-    if ([targetUser length] == 0 || [targetRepo length] == 0 || [targetPath length] == 0) {
-        [targetUser release];
-        [targetRepo release];
-        [targetPath release];
-        return -1;
-    }
-
-    NSInteger found = -1;
-    NSInteger index = 0;
-    for (; index < (NSInteger)[_tabs count]; index++) {
-        NSDictionary *tab = [_tabs objectAtIndex:index];
-        if (![[tab objectForKey:OMDTabIsGitHubKey] boolValue]) {
-            continue;
-        }
-
-        NSString *tabUser = [[OMDTrimmedString([tab objectForKey:OMDTabGitHubUserKey]) lowercaseString] copy];
-        NSString *tabRepo = [[OMDTrimmedString([tab objectForKey:OMDTabGitHubRepoKey]) lowercaseString] copy];
-        NSString *tabPath = [OMDNormalizedRelativePath([tab objectForKey:OMDTabGitHubPathKey]) copy];
-
-        BOOL matches = ([tabUser isEqualToString:targetUser] &&
-                        [tabRepo isEqualToString:targetRepo] &&
-                        [tabPath isEqualToString:targetPath]);
-        [tabUser release];
-        [tabRepo release];
-        [tabPath release];
-
-        if (matches) {
-            found = index;
-            break;
-        }
-    }
-
-    [targetUser release];
-    [targetRepo release];
-    [targetPath release];
-    return found;
 }
 
 @end

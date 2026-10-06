@@ -24,11 +24,9 @@ extern NSString * const OMDScrollSpeedDefaultsKey;
 extern NSString * const OMDExplorerLocalRootPathDefaultsKey;
 extern NSString * const OMDExplorerMaxFileSizeMBDefaultsKey;
 extern NSString * const OMDExplorerListFontSizeDefaultsKey;
-extern NSString * const OMDExplorerIncludeForkArchivedDefaultsKey;
 extern NSString * const OMDExplorerShowHiddenFilesDefaultsKey;
 extern NSString * const OMDExplorerSidebarVisibleDefaultsKey;
 extern NSString * const OMDOutlineVisibleDefaultsKey;
-extern NSString * const OMDExplorerGitHubTokenDefaultsKey;
 
 // How the editor and preview follow each other in Split mode.
 typedef NS_ENUM(NSInteger, OMDSplitSyncMode) {
@@ -46,3 +44,6 @@ static const CGFloat OMDScrollSpeedDefault = 20.0;
 OMMarkdownDiagramRenderingPolicy OMDDiagramRenderingPolicyFromInteger(NSInteger value);
 OMMarkdownMathRenderingPolicy OMDMathRenderingPolicyFromInteger(NSInteger value);
 OMDSplitSyncMode OMDSplitSyncModeFromInteger(NSInteger value);
+
+// Removes settings of features that no longer exist.
+void OMDRemoveRetiredDefaults(void);

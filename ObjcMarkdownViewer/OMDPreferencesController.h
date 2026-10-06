@@ -75,7 +75,6 @@
     NSTextField *_preferencesExplorerLocalRootField;
     NSTextField *_preferencesExplorerMaxFileSizeField;
     NSTextField *_preferencesExplorerListFontSizeField;
-    NSSecureTextField *_preferencesExplorerGitHubTokenField;
     NSInteger _preferencesSelectedSection;
 }
 
