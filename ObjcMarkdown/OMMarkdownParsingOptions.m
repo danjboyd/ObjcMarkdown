@@ -18,8 +18,8 @@
     if (self) {
         _cmarkOptions = (NSUInteger)CMARK_OPT_DEFAULT;
         _baseURL = nil;
-        _inlineHTMLPolicy = OMMarkdownHTMLPolicyRenderAsText;
-        _blockHTMLPolicy = OMMarkdownHTMLPolicyRenderAsText;
+        _inlineHTMLPolicy = OMMarkdownHTMLPolicyRenderSafeSubset;
+        _blockHTMLPolicy = OMMarkdownHTMLPolicyRenderSafeSubset;
         _renderImages = YES;
         _allowRemoteImages = NO;
         _codeSyntaxHighlightingEnabled = YES;

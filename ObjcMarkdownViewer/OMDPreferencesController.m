@@ -33,30 +33,6 @@ static OMDPreferencesSection OMDClampedPreferencesSection(NSInteger rawValue)
     return OMDPreferencesSectionAppearance;
 }
 
-static CGFloat OMDPreferencesPreviewSectionHeightForMetrics(OMDLayoutMetrics metrics)
-{
-    return metrics.preferencesRenderingCardHeight +
-           metrics.preferencesControlHeight +
-           metrics.preferencesRowGap +
-           metrics.preferencesNoteHeight +
-           8.0;
-}
-
-static CGFloat OMDPreferencesSectionContentHeight(OMDPreferencesSection section, OMDLayoutMetrics metrics)
-{
-    switch (section) {
-        case OMDPreferencesSectionExplorer:
-            return metrics.preferencesExplorerCardHeight;
-        case OMDPreferencesSectionPreview:
-            return OMDPreferencesPreviewSectionHeightForMetrics(metrics);
-        case OMDPreferencesSectionEditor:
-            return metrics.preferencesEditingCardHeight;
-        case OMDPreferencesSectionAppearance:
-        default:
-            return metrics.preferencesAppearanceCardHeight;
-    }
-}
-
 static CGFloat OMDPreferencesPanelWidthForMetrics(OMDLayoutMetrics metrics)
 {
     CGFloat width = metrics.preferencesWindowWidth;
@@ -66,42 +42,57 @@ static CGFloat OMDPreferencesPanelWidthForMetrics(OMDLayoutMetrics metrics)
     return ceil(width);
 }
 
-static CGFloat OMDPreferencesPanelHeightForSection(OMDPreferencesSection section, OMDLayoutMetrics metrics)
-{
-    CGFloat tabChromeHeight = (metrics.scale > 1.05 ? 76.0 : 68.0);
-    CGFloat height = metrics.preferencesOuterPadding +
-                     tabChromeHeight +
-                     OMDPreferencesSectionContentHeight(section, metrics) +
-                     metrics.preferencesOuterPadding;
-    if (height < metrics.preferencesWindowMinHeight) {
-        height = metrics.preferencesWindowMinHeight;
-    }
-    return ceil(height);
-}
-
+// The panel's text is the theme's (#85): bold system for section titles,
+// the system font for subtitles, labels and controls, the small system
+// font for notes. The layout density changes spacing only.
 static NSFont *OMDPreferencesSectionTitleFont(OMDLayoutMetrics metrics)
 {
-    return [NSFont boldSystemFontOfSize:(metrics.scale > 1.05 ? 15.0 : 14.0)];
+    (void)metrics;
+    return OMDChromeBoldFont();
 }
 
 static NSFont *OMDPreferencesSectionSubtitleFont(OMDLayoutMetrics metrics)
 {
-    return [NSFont systemFontOfSize:(metrics.scale > 1.05 ? 14.0 : 12.0)];
+    (void)metrics;
+    return OMDChromeFont();
 }
 
 static NSFont *OMDPreferencesLabelFont(OMDLayoutMetrics metrics)
 {
-    return [NSFont systemFontOfSize:(metrics.scale > 1.05 ? 13.0 : 12.0)];
+    (void)metrics;
+    return OMDChromeFont();
 }
 
 static NSFont *OMDPreferencesNoteFont(OMDLayoutMetrics metrics)
 {
-    return [NSFont systemFontOfSize:(metrics.scale > 1.05 ? 12.0 : 11.5)];
+    (void)metrics;
+    return OMDChromeSmallFont();
 }
 
 static NSFont *OMDPreferencesSectionControlFont(OMDLayoutMetrics metrics)
 {
-    return [NSFont boldSystemFontOfSize:(metrics.scale > 1.05 ? 13.0 : 12.0)];
+    (void)metrics;
+    return OMDChromeFont();
+}
+
+// The height text takes in font, wrapped to width.
+static CGFloat OMDPreferencesTextHeight(NSString *text, NSFont *font, CGFloat width)
+{
+    CGFloat line = OMDChromeLineHeight(font);
+    if ([text length] == 0 || font == nil || width < 1.0) {
+        return line;
+    }
+    NSTextStorage *storage = [[[NSTextStorage alloc] initWithString:text
+                                                         attributes:[NSDictionary dictionaryWithObject:font
+                                                                                                forKey:NSFontAttributeName]] autorelease];
+    NSLayoutManager *layoutManager = [[[NSLayoutManager alloc] init] autorelease];
+    NSTextContainer *container = [[[NSTextContainer alloc] initWithContainerSize:NSMakeSize(width, 1.0e7)] autorelease];
+    [container setLineFragmentPadding:2.0];
+    [layoutManager addTextContainer:container];
+    [storage addLayoutManager:layoutManager];
+    [layoutManager glyphRangeForTextContainer:container];
+    CGFloat height = ceil(NSHeight([layoutManager usedRectForTextContainer:container]));
+    return MAX(line, height) + 2.0;
 }
 
 static NSTextField *OMDStaticTextField(NSRect frame,
@@ -167,6 +158,114 @@ static NSView *OMDAddPreferencesCard(NSView *parent, NSRect frame)
     return content;
 }
 
+// Laying a card out from the top: rows are as tall as their control or
+// text needs in the theme's fonts, and the card is sized to fit at the end.
+typedef struct {
+    CGFloat pad;
+    CGFloat width;          // the card's content width
+    CGFloat controlHeight;
+    CGFloat rowGap;
+    CGFloat labelHeight;
+    CGFloat checkboxHeight;
+    NSFont *labelFont;
+    NSFont *noteFont;
+    NSColor *titleColor;
+    NSColor *noteColor;
+} OMDPreferencesCardLayout;
+
+static OMDPreferencesCardLayout OMDPreferencesCardLayoutMake(NSView *card, OMDLayoutMetrics metrics)
+{
+    OMDPreferencesCardLayout layout;
+    layout.pad = metrics.preferencesCardPadding;
+    layout.width = NSWidth([card bounds]) - (layout.pad * 2.0);
+    layout.labelFont = OMDPreferencesLabelFont(metrics);
+    layout.noteFont = OMDPreferencesNoteFont(metrics);
+    layout.labelHeight = OMDChromeLineHeight(layout.labelFont) + 2.0;
+    layout.controlHeight = MAX(metrics.preferencesControlHeight, layout.labelHeight + 8.0);
+    layout.rowGap = metrics.preferencesRowGap;
+    layout.checkboxHeight = MAX(22.0, layout.labelHeight + 2.0);
+    layout.titleColor = OMDResolvedControlTextColor();
+    layout.noteColor = OMDResolvedMutedTextColor();
+    return layout;
+}
+
+// The section's title and subtitle; returns where the first row goes.
+static CGFloat OMDPreferencesAddCardHeader(NSView *card,
+                                           NSString *title,
+                                           NSString *subtitle,
+                                           OMDPreferencesCardLayout layout,
+                                           OMDLayoutMetrics metrics)
+{
+    NSFont *titleFont = OMDPreferencesSectionTitleFont(metrics);
+    NSFont *subtitleFont = OMDPreferencesSectionSubtitleFont(metrics);
+    CGFloat titleHeight = OMDChromeLineHeight(titleFont) + 2.0;
+    CGFloat subtitleHeight = OMDPreferencesTextHeight(subtitle, subtitleFont, layout.width);
+    [card addSubview:OMDStaticTextField(NSMakeRect(layout.pad, layout.pad, layout.width, titleHeight),
+                                        title, titleFont, layout.titleColor, NSLeftTextAlignment, NO)];
+    [card addSubview:OMDStaticTextField(NSMakeRect(layout.pad, layout.pad + titleHeight + 2.0,
+                                                   layout.width, subtitleHeight),
+                                        subtitle, subtitleFont, layout.noteColor, NSLeftTextAlignment, YES)];
+    return layout.pad + titleHeight + 2.0 + subtitleHeight + layout.rowGap + 4.0;
+}
+
+// A row's label, centred on a control of the row's height.
+static void OMDPreferencesAddRowLabel(NSView *card,
+                                      NSString *text,
+                                      CGFloat x,
+                                      CGFloat rowY,
+                                      CGFloat width,
+                                      NSColor *color,
+                                      OMDPreferencesCardLayout layout)
+{
+    CGFloat y = rowY + floor((layout.controlHeight - layout.labelHeight) / 2.0);
+    [card addSubview:OMDStaticTextField(NSMakeRect(x, y, width, layout.labelHeight),
+                                        text, layout.labelFont, color, NSLeftTextAlignment, NO)];
+}
+
+// A wrapped note; returns its height.
+static CGFloat OMDPreferencesAddNote(NSView *card,
+                                     NSString *text,
+                                     CGFloat x,
+                                     CGFloat y,
+                                     CGFloat width,
+                                     OMDPreferencesCardLayout layout)
+{
+    CGFloat height = OMDPreferencesTextHeight(text, layout.noteFont, width);
+    [card addSubview:OMDStaticTextField(NSMakeRect(x, y, width, height),
+                                        text, layout.noteFont, layout.noteColor, NSLeftTextAlignment, YES)];
+    return height;
+}
+
+static NSButton *OMDPreferencesCheckbox(NSString *title,
+                                        CGFloat x,
+                                        CGFloat y,
+                                        CGFloat width,
+                                        id target,
+                                        SEL action,
+                                        OMDPreferencesCardLayout layout)
+{
+    NSButton *button = [[NSButton alloc] initWithFrame:NSMakeRect(x, y, width, layout.checkboxHeight)];
+    [button setButtonType:NSSwitchButton];
+    [button setTitle:title];
+    [button setFont:layout.labelFont];
+    [button setTarget:target];
+    [button setAction:action];
+    return button;
+}
+
+// Sizes the card (its box) to height and returns it.
+static CGFloat OMDPreferencesFinishCard(NSView *card, CGFloat height)
+{
+    NSView *box = [card superview];
+    height = ceil(height);
+    if (box != nil) {
+        NSRect frame = [box frame];
+        frame.size.height = height;
+        [box setFrame:frame];
+    }
+    return height;
+}
+
 @interface OMDPreferencesController ()
 - (void)preferencesExplorerLocalRootChanged:(id)sender;
 - (void)preferencesExplorerMaxFileSizeChanged:(id)sender;
@@ -175,13 +274,14 @@ static NSView *OMDAddPreferencesCard(NSView *parent, NSRect frame)
 - (void)releasePreferencesPanelControls;
 - (void)rebuildPreferencesPanelContent;
 - (void)normalizePreferencesPanelFrameForSize:(NSSize)size;
-- (void)buildPreferencesAppearanceSectionInView:(NSView *)view metrics:(OMDLayoutMetrics)metrics;
-- (void)buildPreferencesExplorerSectionInView:(NSView *)view metrics:(OMDLayoutMetrics)metrics;
-- (void)buildPreferencesPreviewSectionInView:(NSView *)view metrics:(OMDLayoutMetrics)metrics;
-- (void)buildPreferencesEditorSectionInView:(NSView *)view metrics:(OMDLayoutMetrics)metrics;
-- (NSView *)preferencesItemContainerForSection:(OMDPreferencesSection)section
-                                   contentRect:(NSRect)contentRect
-                                       metrics:(OMDLayoutMetrics)metrics;
+- (CGFloat)buildPreferencesAppearanceSectionInView:(NSView *)view metrics:(OMDLayoutMetrics)metrics;
+- (CGFloat)buildPreferencesExplorerSectionInView:(NSView *)view metrics:(OMDLayoutMetrics)metrics;
+- (CGFloat)buildPreferencesPreviewSectionInView:(NSView *)view metrics:(OMDLayoutMetrics)metrics;
+- (CGFloat)buildPreferencesEditorSectionInView:(NSView *)view metrics:(OMDLayoutMetrics)metrics;
+- (NSView *)preferencesSectionDocumentView:(OMDPreferencesSection)section
+                                     width:(CGFloat)width
+                                   metrics:(OMDLayoutMetrics)metrics
+                                    height:(CGFloat *)height;
 - (void)preferencesSectionChanged:(id)sender;
 - (void)preferencesMathPolicyChanged:(id)sender;
 - (void)preferencesSplitSyncModeChanged:(id)sender;
@@ -381,44 +481,21 @@ static NSView *OMDAddPreferencesCard(NSView *parent, NSRect frame)
                         display:NO];
 }
 
-- (void)buildPreferencesAppearanceSectionInView:(NSView *)view metrics:(OMDLayoutMetrics)metrics
+- (CGFloat)buildPreferencesAppearanceSectionInView:(NSView *)view metrics:(OMDLayoutMetrics)metrics
 {
-    NSView *card = OMDAddPreferencesCard(view, NSMakeRect(0.0,
-                                                          0.0,
-                                                          NSWidth([view bounds]),
-                                                          metrics.preferencesAppearanceCardHeight));
-
-    CGFloat pad = metrics.preferencesCardPadding;
-    CGFloat sectionWidth = NSWidth([card bounds]) - (pad * 2.0);
-    CGFloat rowLabelWidth = MIN(metrics.preferencesLabelWidth + 20.0, floor(sectionWidth * 0.28));
+    NSView *card = OMDAddPreferencesCard(view, NSMakeRect(0.0, 0.0, NSWidth([view bounds]), 400.0));
+    OMDPreferencesCardLayout layout = OMDPreferencesCardLayoutMake(card, metrics);
+    CGFloat pad = layout.pad;
+    CGFloat rowLabelWidth = MIN(metrics.preferencesLabelWidth + 20.0, floor(layout.width * 0.28));
     CGFloat controlX = pad + rowLabelWidth + 12.0;
-    CGFloat controlWidth = sectionWidth - rowLabelWidth - 12.0;
-    CGFloat rowY = pad + 52.0;
-    NSColor *titleColor = OMDResolvedControlTextColor();
-    NSColor *noteColor = OMDResolvedMutedTextColor();
+    CGFloat controlWidth = layout.width - rowLabelWidth - 12.0;
+    CGFloat rowY = OMDPreferencesAddCardHeader(card,
+                                               @"Appearance",
+                                               @"Choose the active GNUstep theme and how roomy the interface should feel.",
+                                               layout, metrics);
 
-    [card addSubview:OMDStaticTextField(NSMakeRect(pad, pad, sectionWidth, 20.0),
-                                        @"Appearance",
-                                        OMDPreferencesSectionTitleFont(metrics),
-                                        titleColor,
-                                        NSLeftTextAlignment,
-                                        NO)];
-    [card addSubview:OMDStaticTextField(NSMakeRect(pad, pad + 22.0, sectionWidth, 20.0),
-                                        @"Choose the active GNUstep theme and how roomy the interface should feel.",
-                                        OMDPreferencesSectionSubtitleFont(metrics),
-                                        noteColor,
-                                        NSLeftTextAlignment,
-                                        YES)];
-    [card addSubview:OMDStaticTextField(NSMakeRect(pad, rowY + 5.0, rowLabelWidth, 20.0),
-                                        @"GNUstep Theme",
-                                        OMDPreferencesLabelFont(metrics),
-                                        titleColor,
-                                        NSLeftTextAlignment,
-                                        NO)];
-    _preferencesThemePopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(controlX,
-                                                                             rowY,
-                                                                             controlWidth,
-                                                                             metrics.preferencesControlHeight)
+    OMDPreferencesAddRowLabel(card, @"GNUstep Theme", pad, rowY, rowLabelWidth, layout.titleColor, layout);
+    _preferencesThemePopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(controlX, rowY, controlWidth, layout.controlHeight)
                                                          pullsDown:NO];
     OMDConfigurePreferencesPopup(_preferencesThemePopup, metrics);
     [_preferencesThemePopup setTarget:self];
@@ -427,17 +504,9 @@ static NSView *OMDAddPreferencesCard(NSView *parent, NSRect frame)
     [card addSubview:_preferencesThemePopup];
     OMDAddPreferencesPopupOverlay(card, _preferencesThemePopup);
 
-    rowY += metrics.preferencesControlHeight + metrics.preferencesRowGap;
-    [card addSubview:OMDStaticTextField(NSMakeRect(pad, rowY + 5.0, rowLabelWidth, 20.0),
-                                        @"Layout Mode",
-                                        OMDPreferencesLabelFont(metrics),
-                                        titleColor,
-                                        NSLeftTextAlignment,
-                                        NO)];
-    _preferencesLayoutModePopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(controlX,
-                                                                                  rowY,
-                                                                                  controlWidth,
-                                                                                  metrics.preferencesControlHeight)
+    rowY += layout.controlHeight + layout.rowGap;
+    OMDPreferencesAddRowLabel(card, @"Layout Mode", pad, rowY, rowLabelWidth, layout.titleColor, layout);
+    _preferencesLayoutModePopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(controlX, rowY, controlWidth, layout.controlHeight)
                                                               pullsDown:NO];
     OMDConfigurePreferencesPopup(_preferencesLayoutModePopup, metrics);
     [_preferencesLayoutModePopup addItemWithTitle:@"Compact"];
@@ -452,17 +521,9 @@ static NSView *OMDAddPreferencesCard(NSView *parent, NSRect frame)
     [card addSubview:_preferencesLayoutModePopup];
     OMDAddPreferencesPopupOverlay(card, _preferencesLayoutModePopup);
 
-    rowY += metrics.preferencesControlHeight + metrics.preferencesRowGap;
-    [card addSubview:OMDStaticTextField(NSMakeRect(pad, rowY + 5.0, rowLabelWidth, 20.0),
-                                        @"Scroll Speed",
-                                        OMDPreferencesLabelFont(metrics),
-                                        titleColor,
-                                        NSLeftTextAlignment,
-                                        NO)];
-    _preferencesScrollSpeedSlider = [[NSSlider alloc] initWithFrame:NSMakeRect(controlX,
-                                                                               rowY,
-                                                                               controlWidth,
-                                                                               metrics.preferencesControlHeight)];
+    rowY += layout.controlHeight + layout.rowGap;
+    OMDPreferencesAddRowLabel(card, @"Scroll Speed", pad, rowY, rowLabelWidth, layout.titleColor, layout);
+    _preferencesScrollSpeedSlider = [[NSSlider alloc] initWithFrame:NSMakeRect(controlX, rowY, controlWidth, layout.controlHeight)];
     [_preferencesScrollSpeedSlider setMinValue:OMDScrollSpeedMinimum];
     [_preferencesScrollSpeedSlider setMaxValue:OMDScrollSpeedMaximum];
     [_preferencesScrollSpeedSlider setContinuous:YES];
@@ -471,168 +532,93 @@ static NSView *OMDAddPreferencesCard(NSView *parent, NSRect frame)
     [_preferencesScrollSpeedSlider setToolTip:@"Adjust how far the app scrolls for each wheel or trackpad step."];
     [card addSubview:_preferencesScrollSpeedSlider];
 
-    rowY += metrics.preferencesControlHeight + metrics.preferencesRowGap;
-    [card addSubview:OMDStaticTextField(NSMakeRect(pad,
-                                                   rowY,
-                                                   sectionWidth,
-                                                   metrics.preferencesNoteHeight),
-                                        @"GNUstep's default scroll speed is at the left. Theme changes apply on next launch; layout mode and scroll speed update immediately.",
-                                        OMDPreferencesNoteFont(metrics),
-                                        noteColor,
-                                        NSLeftTextAlignment,
-                                        YES)];
+    rowY += layout.controlHeight + layout.rowGap;
+    rowY += OMDPreferencesAddNote(card,
+                                  @"GNUstep's default scroll speed is at the left. Theme changes apply on next launch; layout mode and scroll speed update immediately.",
+                                  pad, rowY, layout.width, layout);
+    return OMDPreferencesFinishCard(card, rowY + pad);
 }
 
-- (void)buildPreferencesExplorerSectionInView:(NSView *)view metrics:(OMDLayoutMetrics)metrics
+- (CGFloat)buildPreferencesExplorerSectionInView:(NSView *)view metrics:(OMDLayoutMetrics)metrics
 {
-    NSView *card = OMDAddPreferencesCard(view, NSMakeRect(0.0,
-                                                          0.0,
-                                                          NSWidth([view bounds]),
-                                                          metrics.preferencesExplorerCardHeight));
-
-    CGFloat pad = metrics.preferencesCardPadding;
-    CGFloat sectionWidth = NSWidth([card bounds]) - (pad * 2.0);
-    CGFloat rowLabelWidth = MIN(metrics.preferencesLabelWidth + 20.0, floor(sectionWidth * 0.24));
+    NSView *card = OMDAddPreferencesCard(view, NSMakeRect(0.0, 0.0, NSWidth([view bounds]), 400.0));
+    OMDPreferencesCardLayout layout = OMDPreferencesCardLayoutMake(card, metrics);
+    CGFloat pad = layout.pad;
+    CGFloat rowLabelWidth = MIN(metrics.preferencesLabelWidth + 20.0, floor(layout.width * 0.24));
     CGFloat controlX = pad + rowLabelWidth + 12.0;
-    CGFloat controlWidth = sectionWidth - rowLabelWidth - 12.0;
-    CGFloat rowY = pad + 52.0;
-    NSColor *titleColor = OMDResolvedControlTextColor();
-    NSColor *noteColor = OMDResolvedMutedTextColor();
+    CGFloat controlWidth = layout.width - rowLabelWidth - 12.0;
+    CGFloat rowY = OMDPreferencesAddCardHeader(card,
+                                               @"Explorer",
+                                               @"The explorer shows the open document's repository or folder, and the default folder when no document is open.",
+                                               layout, metrics);
 
-    [card addSubview:OMDStaticTextField(NSMakeRect(pad, pad, sectionWidth, 20.0),
-                                        @"Explorer",
-                                        OMDPreferencesSectionTitleFont(metrics),
-                                        titleColor,
-                                        NSLeftTextAlignment,
-                                        NO)];
-    [card addSubview:OMDStaticTextField(NSMakeRect(pad, pad + 22.0, sectionWidth, 20.0),
-                                        @"The explorer shows the open document's repository or folder, and the default folder when no document is open.",
-                                        OMDPreferencesSectionSubtitleFont(metrics),
-                                        noteColor,
-                                        NSLeftTextAlignment,
-                                        YES)];
-    [card addSubview:OMDStaticTextField(NSMakeRect(pad, rowY + 5.0, rowLabelWidth, 20.0),
-                                        @"Default Folder",
-                                        OMDPreferencesLabelFont(metrics),
-                                        titleColor,
-                                        NSLeftTextAlignment,
-                                        NO)];
-
+    OMDPreferencesAddRowLabel(card, @"Default Folder", pad, rowY, rowLabelWidth, layout.titleColor, layout);
     CGFloat browseWidth = metrics.preferencesSmallButtonWidth;
     CGFloat rootFieldWidth = controlWidth - browseWidth - 8.0;
     if (rootFieldWidth < 180.0) {
         rootFieldWidth = controlWidth;
         browseWidth = 0.0;
     }
-    _preferencesExplorerLocalRootField = [[NSTextField alloc] initWithFrame:NSMakeRect(controlX,
-                                                                                        rowY,
-                                                                                        rootFieldWidth,
-                                                                                        metrics.preferencesControlHeight)];
+    _preferencesExplorerLocalRootField = [[NSTextField alloc] initWithFrame:NSMakeRect(controlX, rowY, rootFieldWidth, layout.controlHeight)];
+    [_preferencesExplorerLocalRootField setFont:layout.labelFont];
     [_preferencesExplorerLocalRootField setTarget:self];
     [_preferencesExplorerLocalRootField setAction:@selector(preferencesExplorerLocalRootChanged:)];
     [card addSubview:_preferencesExplorerLocalRootField];
-
     if (browseWidth > 0.0) {
         NSButton *browseButton = [[[NSButton alloc] initWithFrame:NSMakeRect(controlX + rootFieldWidth + 8.0,
                                                                              rowY,
                                                                              browseWidth,
-                                                                             metrics.preferencesControlHeight)] autorelease];
+                                                                             layout.controlHeight)] autorelease];
         [browseButton setTitle:@"Browse..."];
+        [browseButton setFont:layout.labelFont];
         [browseButton setBezelStyle:NSRoundedBezelStyle];
         [browseButton setTarget:self];
         [browseButton setAction:@selector(preferencesExplorerLocalRootChanged:)];
         [card addSubview:browseButton];
     }
 
-    rowY += metrics.preferencesControlHeight + metrics.preferencesRowGap;
-    [card addSubview:OMDStaticTextField(NSMakeRect(pad, rowY + 5.0, rowLabelWidth, 20.0),
-                                        @"Max File Size",
-                                        OMDPreferencesLabelFont(metrics),
-                                        titleColor,
-                                        NSLeftTextAlignment,
-                                        NO)];
-    _preferencesExplorerMaxFileSizeField = [[NSTextField alloc] initWithFrame:NSMakeRect(controlX,
-                                                                                          rowY,
+    CGFloat unitX = controlX + metrics.preferencesSmallFieldWidth + 6.0;
+    rowY += layout.controlHeight + layout.rowGap;
+    OMDPreferencesAddRowLabel(card, @"Max File Size", pad, rowY, rowLabelWidth, layout.titleColor, layout);
+    _preferencesExplorerMaxFileSizeField = [[NSTextField alloc] initWithFrame:NSMakeRect(controlX, rowY,
                                                                                           metrics.preferencesSmallFieldWidth,
-                                                                                          metrics.preferencesControlHeight)];
+                                                                                          layout.controlHeight)];
+    [_preferencesExplorerMaxFileSizeField setFont:layout.labelFont];
     [_preferencesExplorerMaxFileSizeField setTarget:self];
     [_preferencesExplorerMaxFileSizeField setAction:@selector(preferencesExplorerMaxFileSizeChanged:)];
     [card addSubview:_preferencesExplorerMaxFileSizeField];
-    [card addSubview:OMDStaticTextField(NSMakeRect(controlX + metrics.preferencesSmallFieldWidth + 6.0,
-                                                   rowY + 5.0,
-                                                   28.0,
-                                                   20.0),
-                                        @"MB",
-                                        OMDPreferencesLabelFont(metrics),
-                                        noteColor,
-                                        NSLeftTextAlignment,
-                                        NO)];
+    OMDPreferencesAddRowLabel(card, @"MB", unitX, rowY, 40.0, layout.noteColor, layout);
 
-    rowY += metrics.preferencesControlHeight + metrics.preferencesRowGap;
-    [card addSubview:OMDStaticTextField(NSMakeRect(pad, rowY + 5.0, rowLabelWidth, 20.0),
-                                        @"List Font",
-                                        OMDPreferencesLabelFont(metrics),
-                                        titleColor,
-                                        NSLeftTextAlignment,
-                                        NO)];
-    _preferencesExplorerListFontSizeField = [[NSTextField alloc] initWithFrame:NSMakeRect(controlX,
-                                                                                           rowY,
+    rowY += layout.controlHeight + layout.rowGap;
+    OMDPreferencesAddRowLabel(card, @"List Font", pad, rowY, rowLabelWidth, layout.titleColor, layout);
+    _preferencesExplorerListFontSizeField = [[NSTextField alloc] initWithFrame:NSMakeRect(controlX, rowY,
                                                                                            metrics.preferencesSmallFieldWidth,
-                                                                                           metrics.preferencesControlHeight)];
+                                                                                           layout.controlHeight)];
+    [_preferencesExplorerListFontSizeField setFont:layout.labelFont];
     [_preferencesExplorerListFontSizeField setTarget:self];
     [_preferencesExplorerListFontSizeField setAction:@selector(preferencesExplorerListFontSizeChanged:)];
     [card addSubview:_preferencesExplorerListFontSizeField];
-    [card addSubview:OMDStaticTextField(NSMakeRect(controlX + metrics.preferencesSmallFieldWidth + 6.0,
-                                                   rowY + 5.0,
-                                                   28.0,
-                                                   20.0),
-                                        @"pt",
-                                        OMDPreferencesLabelFont(metrics),
-                                        noteColor,
-                                        NSLeftTextAlignment,
-                                        NO)];
+    OMDPreferencesAddRowLabel(card, @"pt", unitX, rowY, 40.0, layout.noteColor, layout);
 
+    rowY += layout.controlHeight;
+    return OMDPreferencesFinishCard(card, rowY + pad);
 }
 
-- (void)buildPreferencesPreviewSectionInView:(NSView *)view metrics:(OMDLayoutMetrics)metrics
+- (CGFloat)buildPreferencesPreviewSectionInView:(NSView *)view metrics:(OMDLayoutMetrics)metrics
 {
-    CGFloat cardHeight = OMDPreferencesPreviewSectionHeightForMetrics(metrics);
-    NSView *card = OMDAddPreferencesCard(view, NSMakeRect(0.0,
-                                                          0.0,
-                                                          NSWidth([view bounds]),
-                                                          cardHeight));
-
-    CGFloat pad = metrics.preferencesCardPadding;
-    CGFloat sectionWidth = NSWidth([card bounds]) - (pad * 2.0);
-    CGFloat rowLabelWidth = MIN(metrics.preferencesLabelWidth + 24.0, floor(sectionWidth * 0.24));
+    NSView *card = OMDAddPreferencesCard(view, NSMakeRect(0.0, 0.0, NSWidth([view bounds]), 600.0));
+    OMDPreferencesCardLayout layout = OMDPreferencesCardLayoutMake(card, metrics);
+    CGFloat pad = layout.pad;
+    CGFloat rowLabelWidth = MIN(metrics.preferencesLabelWidth + 24.0, floor(layout.width * 0.24));
     CGFloat controlX = pad + rowLabelWidth + 12.0;
-    CGFloat controlWidth = sectionWidth - rowLabelWidth - 12.0;
-    CGFloat rowY = pad + 52.0;
-    NSColor *titleColor = OMDResolvedControlTextColor();
-    NSColor *noteColor = OMDResolvedMutedTextColor();
+    CGFloat controlWidth = layout.width - rowLabelWidth - 12.0;
+    CGFloat rowY = OMDPreferencesAddCardHeader(card,
+                                               @"Preview",
+                                               @"Tune preview sync, math rendering, remote media, and code-block highlighting together.",
+                                               layout, metrics);
 
-    [card addSubview:OMDStaticTextField(NSMakeRect(pad, pad, sectionWidth, 20.0),
-                                        @"Preview",
-                                        OMDPreferencesSectionTitleFont(metrics),
-                                        titleColor,
-                                        NSLeftTextAlignment,
-                                        NO)];
-    [card addSubview:OMDStaticTextField(NSMakeRect(pad, pad + 22.0, sectionWidth, 20.0),
-                                        @"Tune preview sync, math rendering, remote media, and code-block highlighting together.",
-                                        OMDPreferencesSectionSubtitleFont(metrics),
-                                        noteColor,
-                                        NSLeftTextAlignment,
-                                        YES)];
-    [card addSubview:OMDStaticTextField(NSMakeRect(pad, rowY + 5.0, rowLabelWidth, 20.0),
-                                        @"Split Sync",
-                                        OMDPreferencesLabelFont(metrics),
-                                        titleColor,
-                                        NSLeftTextAlignment,
-                                        NO)];
-    _preferencesSplitSyncModePopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(controlX,
-                                                                                      rowY,
-                                                                                      controlWidth,
-                                                                                      metrics.preferencesControlHeight)
+    OMDPreferencesAddRowLabel(card, @"Split Sync", pad, rowY, rowLabelWidth, layout.titleColor, layout);
+    _preferencesSplitSyncModePopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(controlX, rowY, controlWidth, layout.controlHeight)
                                                                  pullsDown:NO];
     OMDConfigurePreferencesPopup(_preferencesSplitSyncModePopup, metrics);
     [_preferencesSplitSyncModePopup addItemWithTitle:@"Independent"];
@@ -646,28 +632,14 @@ static NSView *OMDAddPreferencesCard(NSView *parent, NSRect frame)
     [card addSubview:_preferencesSplitSyncModePopup];
     OMDAddPreferencesPopupOverlay(card, _preferencesSplitSyncModePopup);
 
-    rowY += metrics.preferencesControlHeight + 8.0;
-    [card addSubview:OMDStaticTextField(NSMakeRect(controlX,
-                                                   rowY,
-                                                   controlWidth,
-                                                   metrics.preferencesNoteHeight),
-                                        @"Linked Scrolling follows pane scroll; Follow Caret tracks cursor and selection moves.",
-                                        OMDPreferencesNoteFont(metrics),
-                                        noteColor,
-                                        NSLeftTextAlignment,
-                                        YES)];
+    rowY += layout.controlHeight + 6.0;
+    rowY += OMDPreferencesAddNote(card,
+                                  @"Linked Scrolling follows pane scroll; Follow Caret tracks cursor and selection moves.",
+                                  controlX, rowY, controlWidth, layout);
 
-    rowY += metrics.preferencesNoteHeight + metrics.preferencesRowGap;
-    [card addSubview:OMDStaticTextField(NSMakeRect(pad, rowY + 5.0, rowLabelWidth, 20.0),
-                                        @"Math",
-                                        OMDPreferencesLabelFont(metrics),
-                                        titleColor,
-                                        NSLeftTextAlignment,
-                                        NO)];
-    _preferencesMathPolicyPopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(controlX,
-                                                                                   rowY,
-                                                                                   controlWidth,
-                                                                                   metrics.preferencesControlHeight)
+    rowY += layout.rowGap;
+    OMDPreferencesAddRowLabel(card, @"Math", pad, rowY, rowLabelWidth, layout.titleColor, layout);
+    _preferencesMathPolicyPopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(controlX, rowY, controlWidth, layout.controlHeight)
                                                               pullsDown:NO];
     OMDConfigurePreferencesPopup(_preferencesMathPolicyPopup, metrics);
     [_preferencesMathPolicyPopup addItemWithTitle:@"Styled Text (Safe)"];
@@ -681,17 +653,9 @@ static NSView *OMDAddPreferencesCard(NSView *parent, NSRect frame)
     [card addSubview:_preferencesMathPolicyPopup];
     OMDAddPreferencesPopupOverlay(card, _preferencesMathPolicyPopup);
 
-    rowY += metrics.preferencesControlHeight + metrics.preferencesRowGap;
-    [card addSubview:OMDStaticTextField(NSMakeRect(pad, rowY + 5.0, rowLabelWidth, 20.0),
-                                        @"Diagrams",
-                                        OMDPreferencesLabelFont(metrics),
-                                        titleColor,
-                                        NSLeftTextAlignment,
-                                        NO)];
-    _preferencesDiagramPolicyPopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(controlX,
-                                                                                      rowY,
-                                                                                      controlWidth,
-                                                                                      metrics.preferencesControlHeight)
+    rowY += layout.controlHeight + layout.rowGap;
+    OMDPreferencesAddRowLabel(card, @"Diagrams", pad, rowY, rowLabelWidth, layout.titleColor, layout);
+    _preferencesDiagramPolicyPopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(controlX, rowY, controlWidth, layout.controlHeight)
                                                                 pullsDown:NO];
     OMDConfigurePreferencesPopup(_preferencesDiagramPolicyPopup, metrics);
     [_preferencesDiagramPolicyPopup addItemWithTitle:@"Drawn Diagrams"];
@@ -703,253 +667,163 @@ static NSView *OMDAddPreferencesCard(NSView *parent, NSRect frame)
     [card addSubview:_preferencesDiagramPolicyPopup];
     OMDAddPreferencesPopupOverlay(card, _preferencesDiagramPolicyPopup);
 
-    rowY += metrics.preferencesControlHeight + 8.0;
-    [card addSubview:OMDStaticTextField(NSMakeRect(controlX,
-                                                   rowY,
-                                                   controlWidth,
-                                                   metrics.preferencesNoteHeight),
-                                        @"Mermaid erDiagram blocks draw as entity-relationship diagrams; other mermaid types stay as code.",
-                                        OMDPreferencesNoteFont(metrics),
-                                        noteColor,
-                                        NSLeftTextAlignment,
-                                        YES)];
-    rowY += metrics.preferencesNoteHeight - metrics.preferencesControlHeight;
+    rowY += layout.controlHeight + 6.0;
+    rowY += OMDPreferencesAddNote(card,
+                                  @"Mermaid flowchart and erDiagram blocks are drawn; other Mermaid types show their source.",
+                                  controlX, rowY, controlWidth, layout);
 
-    rowY += metrics.preferencesControlHeight + metrics.preferencesRowGap;
-    _preferencesAllowRemoteImagesButton = [[NSButton alloc] initWithFrame:NSMakeRect(pad,
-                                                                                     rowY,
-                                                                                     sectionWidth,
-                                                                                     22.0)];
-    [_preferencesAllowRemoteImagesButton setButtonType:NSSwitchButton];
-    [_preferencesAllowRemoteImagesButton setTitle:@"Allow Remote Images"];
-    [_preferencesAllowRemoteImagesButton setFont:OMDPreferencesLabelFont(metrics)];
-    [_preferencesAllowRemoteImagesButton setTarget:self];
-    [_preferencesAllowRemoteImagesButton setAction:@selector(preferencesAllowRemoteImagesChanged:)];
+    rowY += layout.rowGap;
+    _preferencesAllowRemoteImagesButton = OMDPreferencesCheckbox(@"Allow Remote Images", pad, rowY, layout.width,
+                                                                 self, @selector(preferencesAllowRemoteImagesChanged:), layout);
     [card addSubview:_preferencesAllowRemoteImagesButton];
 
-    rowY += 28.0;
-    _preferencesRendererSyntaxHighlightingButton = [[NSButton alloc] initWithFrame:NSMakeRect(pad,
-                                                                                               rowY,
-                                                                                               sectionWidth,
-                                                                                               22.0)];
-    [_preferencesRendererSyntaxHighlightingButton setButtonType:NSSwitchButton];
-    [_preferencesRendererSyntaxHighlightingButton setTitle:@"Renderer Syntax Highlighting (Code Blocks)"];
-    [_preferencesRendererSyntaxHighlightingButton setFont:OMDPreferencesLabelFont(metrics)];
-    [_preferencesRendererSyntaxHighlightingButton setTarget:self];
-    [_preferencesRendererSyntaxHighlightingButton setAction:@selector(preferencesRendererSyntaxHighlightingChanged:)];
+    rowY += layout.checkboxHeight + 6.0;
+    _preferencesRendererSyntaxHighlightingButton = OMDPreferencesCheckbox(@"Renderer Syntax Highlighting (Code Blocks)",
+                                                                          pad, rowY, layout.width, self,
+                                                                          @selector(preferencesRendererSyntaxHighlightingChanged:),
+                                                                          layout);
     [card addSubview:_preferencesRendererSyntaxHighlightingButton];
 
-    rowY += 28.0;
-    _preferencesRendererSyntaxHighlightingNoteLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(pad + 22.0,
-                                                                                                      rowY,
-                                                                                                      sectionWidth - 22.0,
-                                                                                                      metrics.preferencesNoteHeight)];
-    [_preferencesRendererSyntaxHighlightingNoteLabel setBezeled:NO];
-    [_preferencesRendererSyntaxHighlightingNoteLabel setEditable:NO];
-    [_preferencesRendererSyntaxHighlightingNoteLabel setSelectable:NO];
-    [_preferencesRendererSyntaxHighlightingNoteLabel setDrawsBackground:NO];
-    [_preferencesRendererSyntaxHighlightingNoteLabel setFont:OMDPreferencesNoteFont(metrics)];
-    [_preferencesRendererSyntaxHighlightingNoteLabel setTextColor:noteColor];
-    if ([[_preferencesRendererSyntaxHighlightingNoteLabel cell] respondsToSelector:@selector(setWraps:)]) {
-        [[_preferencesRendererSyntaxHighlightingNoteLabel cell] setWraps:YES];
-    }
+    // Its text is set later (it names the highlighter in use): room for two lines.
+    rowY += layout.checkboxHeight + 4.0;
+    CGFloat noteWidth = layout.width - 22.0;
+    CGFloat noteHeight = OMDChromeLineHeight(layout.noteFont) * 2.0 + 4.0;
+    _preferencesRendererSyntaxHighlightingNoteLabel = [OMDStaticTextField(NSMakeRect(pad + 22.0, rowY, noteWidth, noteHeight),
+                                                                          @"", layout.noteFont, layout.noteColor,
+                                                                          NSLeftTextAlignment, YES) retain];
     [card addSubview:_preferencesRendererSyntaxHighlightingNoteLabel];
+    rowY += noteHeight;
+    return OMDPreferencesFinishCard(card, rowY + pad);
 }
 
-- (void)buildPreferencesEditorSectionInView:(NSView *)view metrics:(OMDLayoutMetrics)metrics
+- (CGFloat)buildPreferencesEditorSectionInView:(NSView *)view metrics:(OMDLayoutMetrics)metrics
 {
-    NSView *card = OMDAddPreferencesCard(view, NSMakeRect(0.0,
-                                                          0.0,
-                                                          NSWidth([view bounds]),
-                                                          metrics.preferencesEditingCardHeight));
+    NSView *card = OMDAddPreferencesCard(view, NSMakeRect(0.0, 0.0, NSWidth([view bounds]), 600.0));
+    OMDPreferencesCardLayout layout = OMDPreferencesCardLayoutMake(card, metrics);
+    CGFloat pad = layout.pad;
+    CGFloat rowY = OMDPreferencesAddCardHeader(card,
+                                               @"Editor",
+                                               @"Tweak source-editor behavior without crowding the main workspace.",
+                                               layout, metrics);
 
-    CGFloat pad = metrics.preferencesCardPadding;
-    CGFloat sectionWidth = NSWidth([card bounds]) - (pad * 2.0);
-    CGFloat rowY = pad + 52.0;
-    NSColor *titleColor = OMDResolvedControlTextColor();
-    NSColor *noteColor = OMDResolvedMutedTextColor();
-
-    [card addSubview:OMDStaticTextField(NSMakeRect(pad, pad, sectionWidth, 20.0),
-                                        @"Editor",
-                                        OMDPreferencesSectionTitleFont(metrics),
-                                        titleColor,
-                                        NSLeftTextAlignment,
-                                        NO)];
-    [card addSubview:OMDStaticTextField(NSMakeRect(pad, pad + 22.0, sectionWidth, 20.0),
-                                        @"Tweak source-editor behavior without crowding the main workspace.",
-                                        OMDPreferencesSectionSubtitleFont(metrics),
-                                        noteColor,
-                                        NSLeftTextAlignment,
-                                        YES)];
-    CGFloat fontLabelWidth = 48.0;
+    NSDictionary *labelAttributes = [NSDictionary dictionaryWithObject:layout.labelFont forKey:NSFontAttributeName];
+    CGFloat fontLabelWidth = ceil([@"Font" sizeWithAttributes:labelAttributes].width) + 12.0;
     CGFloat fontButtonWidth = metrics.preferencesSmallButtonWidth + 24.0;
-    [card addSubview:OMDStaticTextField(NSMakeRect(pad, rowY + 3.0, fontLabelWidth, 20.0),
-                                        @"Font",
-                                        OMDPreferencesLabelFont(metrics),
-                                        titleColor,
-                                        NSLeftTextAlignment,
-                                        NO)];
+    OMDPreferencesAddRowLabel(card, @"Font", pad, rowY, fontLabelWidth, layout.titleColor, layout);
+    CGFloat fontFieldY = rowY + floor((layout.controlHeight - layout.labelHeight) / 2.0);
     _preferencesSourceFontField = [OMDStaticTextField(NSMakeRect(pad + fontLabelWidth,
-                                                                 rowY + 3.0,
-                                                                 sectionWidth - fontLabelWidth - fontButtonWidth - 8.0,
-                                                                 20.0),
+                                                                 fontFieldY,
+                                                                 layout.width - fontLabelWidth - fontButtonWidth - 8.0,
+                                                                 layout.labelHeight),
                                                       [_delegate sourceEditorFontDescription],
-                                                      OMDPreferencesLabelFont(metrics),
-                                                      noteColor,
+                                                      layout.labelFont,
+                                                      layout.noteColor,
                                                       NSLeftTextAlignment,
                                                       NO) retain];
     [card addSubview:_preferencesSourceFontField];
-    _preferencesSourceFontButton = [[NSButton alloc] initWithFrame:NSMakeRect(pad + sectionWidth - fontButtonWidth,
+    _preferencesSourceFontButton = [[NSButton alloc] initWithFrame:NSMakeRect(pad + layout.width - fontButtonWidth,
                                                                               rowY,
                                                                               fontButtonWidth,
-                                                                              metrics.preferencesControlHeight)];
+                                                                              layout.controlHeight)];
     [_preferencesSourceFontButton setTitle:@"Choose..."];
+    [_preferencesSourceFontButton setFont:layout.labelFont];
     [_preferencesSourceFontButton setBezelStyle:NSRoundedBezelStyle];
     [_preferencesSourceFontButton setTarget:self];
     [_preferencesSourceFontButton setAction:@selector(chooseSourceEditorFont:)];
     [card addSubview:_preferencesSourceFontButton];
 
-    rowY += 36.0;
-    _preferencesFormattingBarButton = [[NSButton alloc] initWithFrame:NSMakeRect(pad, rowY, sectionWidth, 22.0)];
-    [_preferencesFormattingBarButton setButtonType:NSSwitchButton];
-    [_preferencesFormattingBarButton setTitle:@"Show Formatting Bar in Edit and Split"];
-    [_preferencesFormattingBarButton setFont:OMDPreferencesLabelFont(metrics)];
-    [_preferencesFormattingBarButton setTarget:self];
-    [_preferencesFormattingBarButton setAction:@selector(preferencesFormattingBarChanged:)];
+    CGFloat checkboxStep = layout.checkboxHeight + 6.0;
+    rowY += layout.controlHeight + layout.rowGap;
+    _preferencesFormattingBarButton = OMDPreferencesCheckbox(@"Show Formatting Bar in Edit and Split", pad, rowY, layout.width,
+                                                             self, @selector(preferencesFormattingBarChanged:), layout);
     [card addSubview:_preferencesFormattingBarButton];
 
-    rowY += 28.0;
-    _preferencesWordSelectionShimButton = [[NSButton alloc] initWithFrame:NSMakeRect(pad, rowY, sectionWidth, 22.0)];
-    [_preferencesWordSelectionShimButton setButtonType:NSSwitchButton];
-    [_preferencesWordSelectionShimButton setTitle:@"Ctrl/Cmd+Shift+Arrow Selects Words"];
-    [_preferencesWordSelectionShimButton setFont:OMDPreferencesLabelFont(metrics)];
-    [_preferencesWordSelectionShimButton setTarget:self];
-    [_preferencesWordSelectionShimButton setAction:@selector(preferencesWordSelectionShimChanged:)];
+    rowY += checkboxStep;
+    _preferencesWordSelectionShimButton = OMDPreferencesCheckbox(@"Ctrl/Cmd+Shift+Arrow Selects Words", pad, rowY, layout.width,
+                                                                 self, @selector(preferencesWordSelectionShimChanged:), layout);
     [card addSubview:_preferencesWordSelectionShimButton];
 
-    rowY += 28.0;
-    _preferencesSourceVimKeyBindingsButton = [[NSButton alloc] initWithFrame:NSMakeRect(pad, rowY, sectionWidth, 22.0)];
-    [_preferencesSourceVimKeyBindingsButton setButtonType:NSSwitchButton];
-    [_preferencesSourceVimKeyBindingsButton setTitle:@"Enable Vim Key Bindings"];
-    [_preferencesSourceVimKeyBindingsButton setFont:OMDPreferencesLabelFont(metrics)];
-    [_preferencesSourceVimKeyBindingsButton setTarget:self];
-    [_preferencesSourceVimKeyBindingsButton setAction:@selector(preferencesSourceVimKeyBindingsChanged:)];
+    rowY += checkboxStep;
+    _preferencesSourceVimKeyBindingsButton = OMDPreferencesCheckbox(@"Enable Vim Key Bindings", pad, rowY, layout.width,
+                                                                    self, @selector(preferencesSourceVimKeyBindingsChanged:), layout);
     [card addSubview:_preferencesSourceVimKeyBindingsButton];
 
-    rowY += 28.0;
-    _preferencesSyntaxHighlightingButton = [[NSButton alloc] initWithFrame:NSMakeRect(pad, rowY, sectionWidth, 22.0)];
-    [_preferencesSyntaxHighlightingButton setButtonType:NSSwitchButton];
-    [_preferencesSyntaxHighlightingButton setTitle:@"Source Syntax Highlighting"];
-    [_preferencesSyntaxHighlightingButton setFont:OMDPreferencesLabelFont(metrics)];
-    [_preferencesSyntaxHighlightingButton setTarget:self];
-    [_preferencesSyntaxHighlightingButton setAction:@selector(preferencesSyntaxHighlightingChanged:)];
+    rowY += checkboxStep;
+    _preferencesSyntaxHighlightingButton = OMDPreferencesCheckbox(@"Source Syntax Highlighting", pad, rowY, layout.width,
+                                                                  self, @selector(preferencesSyntaxHighlightingChanged:), layout);
     [card addSubview:_preferencesSyntaxHighlightingButton];
 
-    rowY += 28.0;
-    _preferencesSourceHighContrastButton = [[NSButton alloc] initWithFrame:NSMakeRect(pad + 20.0,
-                                                                                      rowY,
-                                                                                      sectionWidth - 20.0,
-                                                                                      22.0)];
-    [_preferencesSourceHighContrastButton setButtonType:NSSwitchButton];
-    [_preferencesSourceHighContrastButton setTitle:@"High Contrast Source Highlighting"];
-    [_preferencesSourceHighContrastButton setFont:OMDPreferencesLabelFont(metrics)];
-    [_preferencesSourceHighContrastButton setTarget:self];
-    [_preferencesSourceHighContrastButton setAction:@selector(preferencesSourceHighContrastChanged:)];
+    rowY += checkboxStep;
+    _preferencesSourceHighContrastButton = OMDPreferencesCheckbox(@"High Contrast Source Highlighting", pad + 20.0, rowY,
+                                                                  layout.width - 20.0, self,
+                                                                  @selector(preferencesSourceHighContrastChanged:), layout);
     [card addSubview:_preferencesSourceHighContrastButton];
 
-    rowY += 32.0;
+    rowY += checkboxStep + 4.0;
     CGFloat accentX = pad + 20.0;
-    CGFloat accentRowWidth = sectionWidth - 20.0;
-    [card addSubview:OMDStaticTextField(NSMakeRect(accentX, rowY + 4.0, accentRowWidth, 20.0),
-                                        @"Accent Color",
-                                        OMDPreferencesLabelFont(metrics),
-                                        titleColor,
-                                        NSLeftTextAlignment,
-                                        NO)];
+    CGFloat accentRowWidth = layout.width - 20.0;
+    [card addSubview:OMDStaticTextField(NSMakeRect(accentX, rowY, accentRowWidth, layout.labelHeight),
+                                        @"Accent Color", layout.labelFont, layout.titleColor, NSLeftTextAlignment, NO)];
 
-    rowY += 24.0;
+    rowY += layout.labelHeight + 4.0;
     CGFloat accentResetWidth = metrics.preferencesSmallButtonWidth;
     CGFloat accentWellWidth = accentRowWidth - accentResetWidth - 8.0;
     CGFloat accentResetX = accentX + accentRowWidth - accentResetWidth;
-    CGFloat accentWellX = accentX;
     BOOL stackAccentReset = NO;
     if (accentWellWidth < 160.0) {
         accentWellWidth = accentRowWidth;
         stackAccentReset = YES;
     }
-
-    _preferencesSourceAccentColorWell = [[NSColorWell alloc] initWithFrame:NSMakeRect(accentWellX,
-                                                                                      rowY,
-                                                                                      accentWellWidth,
-                                                                                      metrics.preferencesControlHeight)];
+    _preferencesSourceAccentColorWell = [[NSColorWell alloc] initWithFrame:NSMakeRect(accentX, rowY, accentWellWidth, layout.controlHeight)];
     [_preferencesSourceAccentColorWell setTarget:self];
     [_preferencesSourceAccentColorWell setAction:@selector(preferencesSourceAccentColorChanged:)];
     [card addSubview:_preferencesSourceAccentColorWell];
-
     if (stackAccentReset) {
-        rowY += metrics.preferencesControlHeight + 8.0;
-        accentResetX = accentX + accentRowWidth - accentResetWidth;
+        rowY += layout.controlHeight + 8.0;
     }
-
-    _preferencesSourceAccentResetButton = [[NSButton alloc] initWithFrame:NSMakeRect(accentResetX,
-                                                                                     rowY,
-                                                                                     accentResetWidth,
-                                                                                     metrics.preferencesControlHeight)];
+    _preferencesSourceAccentResetButton = [[NSButton alloc] initWithFrame:NSMakeRect(accentResetX, rowY, accentResetWidth, layout.controlHeight)];
     [_preferencesSourceAccentResetButton setTitle:@"Reset"];
+    [_preferencesSourceAccentResetButton setFont:layout.labelFont];
     [_preferencesSourceAccentResetButton setBezelStyle:NSRoundedBezelStyle];
     [_preferencesSourceAccentResetButton setTarget:self];
     [_preferencesSourceAccentResetButton setAction:@selector(preferencesSourceAccentReset:)];
     [card addSubview:_preferencesSourceAccentResetButton];
+
+    rowY += layout.controlHeight;
+    return OMDPreferencesFinishCard(card, rowY + pad);
 }
 
-- (NSView *)preferencesItemContainerForSection:(OMDPreferencesSection)section
-                                   contentRect:(NSRect)contentRect
-                                       metrics:(OMDLayoutMetrics)metrics
+// The section's card, laid out at width; returns the view and, in
+// height, how tall the card came out.
+- (NSView *)preferencesSectionDocumentView:(OMDPreferencesSection)section
+                                     width:(CGFloat)width
+                                   metrics:(OMDLayoutMetrics)metrics
+                                    height:(CGFloat *)height
 {
-    OMDFlippedFillView *container = [[[OMDFlippedFillView alloc] initWithFrame:contentRect] autorelease];
-    [container setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable)];
-    [container setFillColor:OMDResolvedPanelBackdropColor()];
-
-    CGFloat contentHeight = OMDPreferencesSectionContentHeight(section, metrics);
-    CGFloat documentHeight = MAX(contentHeight, NSHeight(contentRect));
-    OMDFlippedFillView *documentView = [[[OMDFlippedFillView alloc] initWithFrame:NSMakeRect(0.0,
-                                                                                              0.0,
-                                                                                              NSWidth(contentRect),
-                                                                                              documentHeight)] autorelease];
-    [documentView setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable)];
+    OMDFlippedFillView *documentView = [[[OMDFlippedFillView alloc] initWithFrame:NSMakeRect(0.0, 0.0, width, 100.0)] autorelease];
+    [documentView setAutoresizingMask:NSViewWidthSizable];
     [documentView setFillColor:OMDResolvedPanelBackdropColor()];
-
+    CGFloat contentHeight = 0.0;
     switch (section) {
         case OMDPreferencesSectionExplorer:
-            [self buildPreferencesExplorerSectionInView:documentView metrics:metrics];
+            contentHeight = [self buildPreferencesExplorerSectionInView:documentView metrics:metrics];
             break;
         case OMDPreferencesSectionPreview:
-            [self buildPreferencesPreviewSectionInView:documentView metrics:metrics];
+            contentHeight = [self buildPreferencesPreviewSectionInView:documentView metrics:metrics];
             break;
         case OMDPreferencesSectionEditor:
-            [self buildPreferencesEditorSectionInView:documentView metrics:metrics];
+            contentHeight = [self buildPreferencesEditorSectionInView:documentView metrics:metrics];
             break;
         case OMDPreferencesSectionAppearance:
         default:
-            [self buildPreferencesAppearanceSectionInView:documentView metrics:metrics];
+            contentHeight = [self buildPreferencesAppearanceSectionInView:documentView metrics:metrics];
             break;
     }
-
-    if (contentHeight > NSHeight(contentRect)) {
-        NSScrollView *scrollView = [[[NSScrollView alloc] initWithFrame:[container bounds]] autorelease];
-        [scrollView setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable)];
-        [scrollView setHasVerticalScroller:YES];
-        [scrollView setHasHorizontalScroller:NO];
-        [scrollView setAutohidesScrollers:YES];
-        [scrollView setBorderType:NSNoBorder];
-        [scrollView setDrawsBackground:NO];
-        [scrollView setDocumentView:documentView];
-        [container addSubview:scrollView];
-    } else {
-        [container addSubview:documentView];
+    [documentView setFrameSize:NSMakeSize(width, contentHeight)];
+    if (height != NULL) {
+        *height = contentHeight;
     }
-
-    return container;
+    return documentView;
 }
 
 - (void)rebuildPreferencesPanelContent
@@ -963,28 +837,38 @@ static NSView *OMDAddPreferencesCard(NSView *parent, NSRect frame)
     OMDLayoutMetrics metrics = OMDLayoutMetricsForMode([_delegate effectiveLayoutDensityMode]);
     OMDPreferencesSection selectedSection = OMDClampedPreferencesSection(_preferencesSelectedSection);
     CGFloat outerPadding = metrics.preferencesOuterPadding;
-    CGFloat panelHeight = OMDPreferencesPanelHeightForSection(selectedSection, metrics);
-    [self normalizePreferencesPanelFrameForSize:NSMakeSize(OMDPreferencesPanelWidthForMetrics(metrics), panelHeight)];
+    NSFont *sectionFont = OMDPreferencesSectionControlFont(metrics);
+    CGFloat sectionControlHeight = MAX((metrics.scale > 1.05 ? 36.0 : 32.0), OMDChromeLineHeight(sectionFont) + 14.0);
 
-    NSRect panelBounds = [[_preferencesPanel contentView] bounds];
-    CGFloat contentWidth = NSWidth(panelBounds) - (outerPadding * 2.0);
+    // The width first (the screen may limit it), then the section laid out
+    // at that width, then the height it needs.
+    [self normalizePreferencesPanelFrameForSize:NSMakeSize(OMDPreferencesPanelWidthForMetrics(metrics),
+                                                           NSHeight([[_preferencesPanel contentView] bounds]))];
+    CGFloat contentWidth = NSWidth([[_preferencesPanel contentView] bounds]) - (outerPadding * 2.0);
     if (contentWidth < 420.0) {
         contentWidth = 420.0;
     }
+    CGFloat sectionHeight = 0.0;
+    NSView *documentView = [self preferencesSectionDocumentView:selectedSection
+                                                          width:contentWidth
+                                                        metrics:metrics
+                                                         height:&sectionHeight];
+    CGFloat contentY = outerPadding + sectionControlHeight + 16.0;
+    CGFloat panelHeight = MAX(metrics.preferencesWindowMinHeight, ceil(contentY + sectionHeight + outerPadding));
+    [self normalizePreferencesPanelFrameForSize:NSMakeSize(OMDPreferencesPanelWidthForMetrics(metrics), panelHeight)];
 
+    NSRect panelBounds = [[_preferencesPanel contentView] bounds];
     OMDFlippedFillView *rootView = [[[OMDFlippedFillView alloc] initWithFrame:panelBounds] autorelease];
     [rootView setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable)];
     [rootView setFillColor:OMDResolvedPanelBackdropColor()];
 
-    CGFloat sectionControlHeight = (metrics.scale > 1.05 ? 36.0 : 32.0);
-    CGFloat sectionControlY = outerPadding;
     _preferencesSectionControl = [[NSSegmentedControl alloc] initWithFrame:NSMakeRect(outerPadding,
-                                                                                      sectionControlY,
+                                                                                      outerPadding,
                                                                                       contentWidth,
                                                                                       sectionControlHeight)];
     [_preferencesSectionControl setAutoresizingMask:NSViewWidthSizable];
     if ([_preferencesSectionControl respondsToSelector:@selector(setFont:)]) {
-        [_preferencesSectionControl setFont:OMDPreferencesSectionControlFont(metrics)];
+        [_preferencesSectionControl setFont:sectionFont];
     }
     [_preferencesSectionControl setSegmentCount:4];
     [_preferencesSectionControl setLabel:@"Appearance" forSegment:0];
@@ -1008,17 +892,28 @@ static NSView *OMDAddPreferencesCard(NSView *parent, NSRect frame)
     [_preferencesSectionControl setAction:@selector(preferencesSectionChanged:)];
     [rootView addSubview:_preferencesSectionControl];
 
-    CGFloat contentY = sectionControlY + sectionControlHeight + 16.0;
     NSRect contentRect = NSMakeRect(outerPadding,
                                     contentY,
                                     contentWidth,
-                                    NSHeight(panelBounds) - contentY - outerPadding);
-    if (contentRect.size.height < 160.0) {
-        contentRect.size.height = 160.0;
+                                    MAX(160.0, NSHeight(panelBounds) - contentY - outerPadding));
+    OMDFlippedFillView *container = [[[OMDFlippedFillView alloc] initWithFrame:contentRect] autorelease];
+    [container setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable)];
+    [container setFillColor:OMDResolvedPanelBackdropColor()];
+    if (sectionHeight > NSHeight(contentRect)) {
+        // Taller than the screen allows: the section scrolls.
+        NSScrollView *scrollView = [[[NSScrollView alloc] initWithFrame:[container bounds]] autorelease];
+        [scrollView setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable)];
+        [scrollView setHasVerticalScroller:YES];
+        [scrollView setHasHorizontalScroller:NO];
+        [scrollView setAutohidesScrollers:YES];
+        [scrollView setBorderType:NSNoBorder];
+        [scrollView setDrawsBackground:NO];
+        [scrollView setDocumentView:documentView];
+        [container addSubview:scrollView];
+    } else {
+        [container addSubview:documentView];
     }
-    [rootView addSubview:[self preferencesItemContainerForSection:selectedSection
-                                                      contentRect:contentRect
-                                                          metrics:metrics]];
+    [rootView addSubview:container];
 
     [_preferencesPanel setContentView:rootView];
 }
@@ -1027,11 +922,10 @@ static NSView *OMDAddPreferencesCard(NSView *parent, NSRect frame)
 {
     if (_preferencesPanel == nil) {
         OMDLayoutMetrics metrics = OMDLayoutMetricsForMode([_delegate effectiveLayoutDensityMode]);
-        OMDPreferencesSection selectedSection = OMDClampedPreferencesSection(_preferencesSelectedSection);
         NSRect frame = NSMakeRect(160,
                                   140,
                                   OMDPreferencesPanelWidthForMetrics(metrics),
-                                  OMDPreferencesPanelHeightForSection(selectedSection, metrics));
+                                  metrics.preferencesWindowMinHeight);
         _preferencesPanel = [[NSPanel alloc] initWithContentRect:frame
                                                         styleMask:(NSTitledWindowMask | NSClosableWindowMask)
                                                           backing:NSBackingStoreBuffered

@@ -394,22 +394,67 @@ static BOOL OMDestinationHasScheme(NSString *urlString)
     return NO;
 }
 
-// Whether the destination is a Windows path with a drive letter ("C:/x.png",
-// "C:\x.png"). NSURL reads the drive letter as a scheme; CommonMark doesn't
-// (a scheme has at least two characters), and on Windows it names a file.
-static BOOL OMDestinationIsDrivePath(NSString *urlString)
+#if defined(_WIN32)
+static BOOL OMIsPathSeparator(unichar ch)
+{
+    return ch == '/' || ch == '\\';
+}
+
+// Whether "server<sep>share..." starts at index: a server name, a
+// separator, then a share name.
+static BOOL OMHasServerAndShareAtIndex(NSString *string, NSUInteger index)
+{
+    NSUInteger length = [string length];
+    NSUInteger cursor = index;
+    while (cursor < length && !OMIsPathSeparator([string characterAtIndex:cursor])) {
+        cursor++;
+    }
+    return cursor > index && cursor + 1 < length &&
+           !OMIsPathSeparator([string characterAtIndex:cursor + 1]);
+}
+#endif
+
+// The destination as a Windows path, or nil if it isn't one. On Windows a
+// destination names a file when it has a drive letter ("C:/x.png",
+// "C:\x.png"), which NSURL reads as a scheme but CommonMark doesn't (a
+// scheme has at least two characters), or when it's a network (UNC) path:
+// "\\server\share\x.png" as written, which reaches the renderer as
+// "\server\share\x.png" since CommonMark reads "\\" as an escaped
+// backslash, or "//server/share/x.png", which NSURL would resolve against
+// the document as host "server". UNC paths come back as
+// "\\server\share\...". Elsewhere "//host/path" stays a network-path
+// reference.
+static NSString *OMWindowsPathForDestination(NSString *urlString)
 {
 #if defined(_WIN32)
-    if ([urlString length] < 3) {
-        return NO;
+    NSUInteger length = [urlString length];
+    if (length < 3) {
+        return nil;
     }
-    unichar drive = [urlString characterAtIndex:0];
-    unichar separator = [urlString characterAtIndex:2];
-    return ((drive >= 'a' && drive <= 'z') || (drive >= 'A' && drive <= 'Z')) &&
-           [urlString characterAtIndex:1] == ':' && (separator == '/' || separator == '\\');
+    unichar first = [urlString characterAtIndex:0];
+    unichar second = [urlString characterAtIndex:1];
+    if (((first >= 'a' && first <= 'z') || (first >= 'A' && first <= 'Z')) &&
+        second == ':' && OMIsPathSeparator([urlString characterAtIndex:2])) {
+        return urlString;
+    }
+
+    NSUInteger serverStart = 0;
+    if (first == second && OMIsPathSeparator(first)) {
+        serverStart = 2;
+    } else if (first == '\\') {
+        serverStart = 1;
+    } else {
+        return nil;
+    }
+    if (!OMHasServerAndShareAtIndex(urlString, serverStart)) {
+        return nil;
+    }
+    NSString *rest = [[urlString substringFromIndex:serverStart] stringByReplacingOccurrencesOfString:@"/"
+                                                                                           withString:@"\\"];
+    return [@"\\\\" stringByAppendingString:rest];
 #else
     (void)urlString;
-    return NO;
+    return nil;
 #endif
 }
 
@@ -463,7 +508,11 @@ NSURL *OMResolvedImageURL(NSString *urlString,
         return nil;
     }
 
-    BOOL drivePath = OMDestinationIsDrivePath(urlString);
+    NSString *windowsPath = OMWindowsPathForDestination(urlString);
+    BOOL drivePath = windowsPath != nil;
+    if (drivePath) {
+        urlString = windowsPath;
+    }
     NSURL *url = drivePath ? nil : OMURLFromDestination(urlString, nil);
     if (url != nil && [url scheme] != nil) {
         if (!OMURLUsesAllowedImageScheme(url)) {
@@ -478,7 +527,7 @@ NSURL *OMResolvedImageURL(NSString *urlString,
     OMMarkdownParsingOptions *options = OMRenderContextParsingOptions(renderContext);
     NSURL *baseURL = options != nil ? [options baseURL] : nil;
     if (drivePath) {
-        // A document from the web doesn't reach into local drives.
+        // A document from the web doesn't reach into local drives or shares.
         if (baseURL != nil && ![baseURL isFileURL]) {
             return nil;
         }
@@ -547,7 +596,11 @@ NSURL *OMResolvedLinkURL(NSString *urlString,
         return fragmentURL;
     }
 
-    BOOL drivePath = OMDestinationIsDrivePath(urlString);
+    NSString *windowsPath = OMWindowsPathForDestination(urlString);
+    BOOL drivePath = windowsPath != nil;
+    if (drivePath) {
+        urlString = windowsPath;
+    }
     NSURL *url = drivePath ? nil : OMURLFromDestination(urlString, nil);
     if (url != nil && [url scheme] != nil) {
         if (!OMURLUsesAllowedLinkScheme(url)) {
@@ -564,7 +617,7 @@ NSURL *OMResolvedLinkURL(NSString *urlString,
     OMMarkdownParsingOptions *options = OMRenderContextParsingOptions(renderContext);
     NSURL *baseURL = options != nil ? [options baseURL] : nil;
     if (drivePath) {
-        // A document from the web doesn't link into local drives.
+        // A document from the web doesn't link into local drives or shares.
         if (baseURL != nil && ![baseURL isFileURL]) {
             return nil;
         }
@@ -609,6 +662,16 @@ NSAttributedString *OMImageAttachmentAttributedString(cmark_node *imageNode,
 
     const char *urlLiteral = cmark_node_get_url(imageNode);
     NSString *urlString = urlLiteral != NULL ? [NSString stringWithUTF8String:urlLiteral] : nil;
+    return OMImageAttachmentForURLString(urlString, attributes, scale, renderContext);
+}
+
+// The image at urlString (resolved against the document) as an attachment,
+// or nil if it can't be had yet (a remote image still loading) or at all.
+NSAttributedString *OMImageAttachmentForURLString(NSString *urlString,
+                                                  NSMutableDictionary *attributes,
+                                                  CGFloat scale,
+                                                  const OMRenderContext *renderContext)
+{
     NSURL *url = OMResolvedImageURL(urlString, renderContext);
     if (url == nil) {
         return nil;

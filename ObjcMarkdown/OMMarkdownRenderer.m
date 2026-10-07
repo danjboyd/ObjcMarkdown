@@ -127,7 +127,7 @@ NSTimeInterval OMExternalToolTimeout(const OMRenderContext *renderContext)
     return timeout;
 }
 
-static BOOL OMShouldRenderImages(const OMRenderContext *renderContext)
+BOOL OMShouldRenderImages(const OMRenderContext *renderContext)
 {
     OMMarkdownParsingOptions *options = OMRenderContextParsingOptions(renderContext);
     if (options == nil) {
@@ -246,7 +246,7 @@ static OMMarkdownHTMLPolicy OMHTMLPolicyForBlockNode(const OMRenderContext *rend
 {
     OMMarkdownParsingOptions *options = OMRenderContextParsingOptions(renderContext);
     if (options == nil) {
-        return OMMarkdownHTMLPolicyRenderAsText;
+        return OMMarkdownHTMLPolicyRenderSafeSubset;
     }
     return blockNode ? [options blockHTMLPolicy] : [options inlineHTMLPolicy];
 }
@@ -321,7 +321,7 @@ NSMutableParagraphStyle *OMParagraphStyleWithIndent(CGFloat firstIndent,
 }
 
 // Marks the newline of a Markdown hard break while a paragraph renders.
-static NSString * const OMHardLineBreakAttributeName = @"OMHardLineBreak";
+NSString * const OMHardLineBreakAttributeName = @"OMHardLineBreak";
 
 // GNUstep lays out only '\n' as a line break (not U+2028), so a hard break
 // starts a new text paragraph. Drop the paragraph spacing at those breaks so
@@ -593,6 +593,12 @@ static NSDictionary *OMHeadingAttributes(OMTheme *theme, NSUInteger level, CGFlo
     return [theme headingAttributesForSize:(baseSize * scales[idx] * scale)];
 }
 
+// For HTML headings (OMMarkdownRendererHTML.m).
+NSDictionary *OMHeadingAttributesForLevel(OMTheme *theme, NSUInteger level, CGFloat scale)
+{
+    return OMHeadingAttributes(theme, level, scale);
+}
+
 // A horizontal rule drawn as a line, replacing rows of box-drawing glyphs
 // (which reflowed badly and were copied as text).
 @interface OMRuleAttachmentCell : NSTextAttachmentCell
@@ -783,6 +789,8 @@ static void OMAppendHTMLLiteral(const char *literal,
                                 NSMutableAttributedString *output,
                                 NSMutableDictionary *attributes,
                                 BOOL blockNode,
+                                OMTheme *theme,
+                                CGFloat scale,
                                 const OMRenderContext *renderContext)
 {
     NSString *html = literal != NULL ? [NSString stringWithUTF8String:literal] : @"";
@@ -808,7 +816,16 @@ static void OMAppendHTMLLiteral(const char *literal,
         return;
     }
 
-    if (OMHTMLPolicyForBlockNode(renderContext, blockNode) == OMMarkdownHTMLPolicyIgnore) {
+    OMMarkdownHTMLPolicy policy = OMHTMLPolicyForBlockNode(renderContext, blockNode);
+    if (policy == OMMarkdownHTMLPolicyIgnore) {
+        return;
+    }
+    if (policy == OMMarkdownHTMLPolicyRenderSafeSubset) {
+        if (blockNode) {
+            OMAppendSafeBlockHTML(html, output, attributes, theme, scale, renderContext);
+        } else {
+            OMAppendSafeInlineHTML(html, output, attributes, theme, scale, renderContext);
+        }
         return;
     }
 
@@ -1300,6 +1317,7 @@ static void OMPrepareFootnotes(cmark_node *document);
                     (self.theme.baseFont != nil ? [self.theme.baseFont pointSize] : 14.0) * scale,
                     scale);
     [output removeAttribute:OMHardLineBreakAttributeName range:NSMakeRange(0, [output length])];
+    [output removeAttribute:OMHTMLStyleStackAttributeName range:NSMakeRange(0, [output length])];
     OMResolvePendingRenderedObjects(output, blockAnchors, markdown);
     cmark_node_free(document);
     if (perfLogging) {
@@ -1547,6 +1565,15 @@ static void OMRenderThematicBreak(OMTheme *theme,
     NSColor *color = theme.hrColor != nil ? theme.hrColor : [NSColor lightGrayColor];
     OMAppendRule(output, attributes, color, layoutWidth, MAX(2.0, floor(size * 0.25 + 0.5)), 0.0, 12.0);
     OMAppendString(output, @"\n", attributes);
+}
+
+// For HTML's <hr> (OMMarkdownRendererHTML.m).
+void OMRenderHTMLThematicBreak(OMTheme *theme,
+                               NSMutableAttributedString *output,
+                               NSMutableDictionary *attributes,
+                               CGFloat layoutWidth)
+{
+    OMRenderThematicBreak(theme, output, attributes, layoutWidth);
 }
 
 static void OMRenderList(cmark_node *node,
@@ -2044,13 +2071,13 @@ static void OMRenderBlocks(cmark_node *node,
             return;
         case CMARK_NODE_HTML_BLOCK: {
             const char *literal = cmark_node_get_literal(node);
-            OMAppendHTMLLiteral(literal, output, attributes, YES, renderContext);
+            OMAppendHTMLLiteral(literal, output, attributes, YES, theme, scale, renderContext);
             OMRecordBlockAnchor(node, startLocation, [output length], renderContext);
             return;
         }
         case CMARK_NODE_CUSTOM_BLOCK: {
             const char *literal = cmark_node_get_literal(node);
-            OMAppendHTMLLiteral(literal, output, attributes, YES, renderContext);
+            OMAppendHTMLLiteral(literal, output, attributes, YES, theme, scale, renderContext);
             OMRecordBlockAnchor(node, startLocation, [output length], renderContext);
             return;
         }
@@ -2149,7 +2176,10 @@ void OMRenderInlines(cmark_node *node,
                 break;
             }
             case CMARK_NODE_SOFTBREAK:
-                OMAppendString(output, @" ", attributes);
+                // None right after a line break (an HTML <br> at a line's end).
+                if ([output length] == 0 || [[output string] characterAtIndex:[output length] - 1] != '\n') {
+                    OMAppendString(output, @" ", attributes);
+                }
                 break;
             case CMARK_NODE_LINEBREAK: {
                 NSMutableDictionary *breakAttrs = [attributes mutableCopy];
@@ -2250,13 +2280,13 @@ void OMRenderInlines(cmark_node *node,
             }
             case CMARK_NODE_HTML_INLINE: {
                 const char *literal = cmark_node_get_literal(child);
-                OMAppendHTMLLiteral(literal, output, attributes, NO, renderContext);
+                OMAppendHTMLLiteral(literal, output, attributes, NO, theme, scale, renderContext);
                 break;
             }
             case CMARK_NODE_CUSTOM_INLINE: {
                 const char *literal = cmark_node_get_literal(child);
                 if (literal != NULL) {
-                    OMAppendHTMLLiteral(literal, output, attributes, NO, renderContext);
+                    OMAppendHTMLLiteral(literal, output, attributes, NO, theme, scale, renderContext);
                 } else {
                     OMRenderInlines(child, theme, output, attributes, scale, renderContext);
                 }

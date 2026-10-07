@@ -29,10 +29,13 @@ Read for the rendered document, Edit for the Markdown source, and Split for both
 - **An explorer sidebar**: the document's repository or folder as a tree, with recent folders, a filter, a Markdown-only option and a context menu (open in a new tab, reveal, copy paths)
 - **An outline** of the document's headings that follows where you are
 - **Tabs** for several documents in one window
+- **A status bar** with the editor's Vim mode, the preview's status and its zoom
 - **Open Location**: Markdown files straight from GitHub or any web address, read-only
 - **Import and export**: print or export to PDF, and, with `pandoc` installed, import and export `DOCX`, `RTF`, `ODT` and `HTML`
 - **Copy buttons** on code blocks and diagrams
 - **Preferences** for the theme, layout density, editor and explorer
+
+![The Preferences window under Adwaita](docs/screenshots/adwaita-preferences.png)
 
 ## Rendering
 
@@ -48,7 +51,8 @@ The renderer parses with GitHub's [cmark-gfm](https://github.com/github/cmark-gf
 - **Mermaid** `flowchart` (with subgraphs, `classDef` and `style`) and `erDiagram` blocks drawn as diagrams, with the source one click away; other Mermaid types show their source with a note
 - **Math**: inline and display math as styled text, or typeset through LaTeX when a TeX toolchain is installed
 - **Syntax highlighting** for code blocks in Objective-C, C and C++, Swift, Python, JavaScript and TypeScript, Go, Rust, Java, Kotlin, C#, PHP, Ruby, SQL, JSON, YAML, TOML, HTML and XML
-- Relative links and images resolved against the document's location; inline and block HTML shown as safe text by default
+- **HTML as GitHub READMEs use it**: centred paragraphs and headings, images with a width, `<br>`, `<kbd>`, `<sup>`/`<sub>`, `<details>`/`<summary>`, lists, rules and simple tables; scripts, styles and embedded content are dropped (`OMMarkdownHTMLPolicyRenderSafeSubset`, the default; HTML can also be shown as text or ignored)
+- Relative links and images resolved against the document's location
 - Themes in TOML, with a GitHub-like default
 
 ## Use The Library In Your App
@@ -72,7 +76,7 @@ NSAttributedString *rendered = [renderer attributedStringFromMarkdown:
 ## Install
 
 - **Windows**: the MSI or portable ZIP from [Releases](https://github.com/danjboyd/ObjcMarkdown/releases), with WinUITheme bundled as the default theme.
-- **Linux**: an AppImage with the GNUstep runtime and the Adwaita theme bundled, built by [linux-appimage.yml](.github/workflows/linux-appimage.yml); the next tagged release attaches it. Until then, build from source as below.
+- **Linux**: an AppImage and a Flatpak bundle, each with the GNUstep runtime and the Adwaita theme inside, built by [linux-appimage.yml](.github/workflows/linux-appimage.yml) and [linux-flatpak.yml](.github/workflows/linux-flatpak.yml) (see [packaging/flatpak](packaging/flatpak/README.md)); the next tagged release attaches both. Until then, build from source as below.
 
 ## Status
 

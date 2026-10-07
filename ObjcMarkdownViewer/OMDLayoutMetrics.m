@@ -61,16 +61,10 @@ OMDLayoutMetrics OMDLayoutMetricsForMode(OMDLayoutDensityMode mode)
     metrics.preferencesColumnGap = 16.0;
     metrics.preferencesCardPadding = 18.0;
     metrics.preferencesRowGap = 12.0;
-    metrics.preferencesNoteHeight = 30.0;
     metrics.preferencesLabelWidth = 120.0;
     metrics.preferencesControlHeight = 28.0;
     metrics.preferencesSmallFieldWidth = 56.0;
     metrics.preferencesSmallButtonWidth = 80.0;
-    metrics.preferencesAppearanceCardHeight = 236.0;
-    metrics.preferencesExplorerCardHeight = 196.0;
-    metrics.preferencesPreviewCardHeight = 132.0;
-    metrics.preferencesRenderingCardHeight = 236.0;
-    metrics.preferencesEditingCardHeight = 402.0;
 
     if (mode == OMDLayoutDensityModeCompact) {
         metrics.scale = 0.92;
@@ -95,16 +89,10 @@ OMDLayoutMetrics OMDLayoutMetricsForMode(OMDLayoutDensityMode mode)
         metrics.preferencesColumnGap = 14.0;
         metrics.preferencesCardPadding = 16.0;
         metrics.preferencesRowGap = 10.0;
-        metrics.preferencesNoteHeight = 28.0;
         metrics.preferencesLabelWidth = 112.0;
         metrics.preferencesControlHeight = 26.0;
         metrics.preferencesSmallFieldWidth = 52.0;
         metrics.preferencesSmallButtonWidth = 74.0;
-        metrics.preferencesAppearanceCardHeight = 220.0;
-        metrics.preferencesExplorerCardHeight = 182.0;
-        metrics.preferencesPreviewCardHeight = 124.0;
-        metrics.preferencesRenderingCardHeight = 224.0;
-        metrics.preferencesEditingCardHeight = 382.0;
     } else if (mode == OMDLayoutDensityModeAdwaita) {
         metrics.scale = 1.14;
         metrics.sidebarDefaultWidth = 324.0;
@@ -133,16 +121,10 @@ OMDLayoutMetrics OMDLayoutMetricsForMode(OMDLayoutDensityMode mode)
         metrics.preferencesColumnGap = 20.0;
         metrics.preferencesCardPadding = 22.0;
         metrics.preferencesRowGap = 14.0;
-        metrics.preferencesNoteHeight = 34.0;
         metrics.preferencesLabelWidth = 128.0;
         metrics.preferencesControlHeight = 32.0;
         metrics.preferencesSmallFieldWidth = 64.0;
         metrics.preferencesSmallButtonWidth = 96.0;
-        metrics.preferencesAppearanceCardHeight = 270.0;
-        metrics.preferencesExplorerCardHeight = 220.0;
-        metrics.preferencesPreviewCardHeight = 156.0;
-        metrics.preferencesRenderingCardHeight = 272.0;
-        metrics.preferencesEditingCardHeight = 460.0;
     }
 
     // Controls and bars are at least as tall as the theme's text needs:

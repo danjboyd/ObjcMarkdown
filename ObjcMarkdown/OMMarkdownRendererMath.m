@@ -802,6 +802,7 @@ NSString *OMDviPngExecutablePath(void)
     return path;
 }
 
+#if !defined(_WIN32)
 static NSString *OMDviSvgmExecutablePath(void)
 {
     static NSString *path = nil;
@@ -811,6 +812,7 @@ static NSString *OMDviSvgmExecutablePath(void)
     });
     return path;
 }
+#endif
 
 static BOOL OMMathBackendAvailable(void)
 {
@@ -845,6 +847,7 @@ static NSCache *OMMathBaseImageCache(void)
     return cache;
 }
 
+#if !defined(_WIN32)
 static NSCache *OMMathBaseSVGDataCache(void)
 {
     static NSCache *cache = nil;
@@ -855,6 +858,7 @@ static NSCache *OMMathBaseSVGDataCache(void)
     });
     return cache;
 }
+#endif
 
 static NSCache *OMMathBestAvailableImageCache(void)
 {
@@ -878,6 +882,7 @@ static NSCache *OMMathBestAvailableZoomCache(void)
     return cache;
 }
 
+#if !defined(_WIN32)
 static NSUInteger OMMathArtifactConcurrencyLimit(void)
 {
     static NSUInteger limit = 0;
@@ -924,6 +929,7 @@ static NSMutableSet *OMMathPendingAssetKeys(void)
     });
     return keys;
 }
+#endif
 
 static void OMRecordBestAvailableMathImage(NSString *formula,
                                            BOOL displayMath,
@@ -1439,7 +1445,7 @@ static NSImage *OMPNGImageForMathFormula(NSString *formula,
     [[NSFileManager defaultManager] removeItemAtPath:tempDir error:NULL];
     return image;
 }
-#endif
+#else
 
 static NSData *OMSVGDataForMathFormula(NSString *formula,
                                        BOOL displayMath,
@@ -1645,6 +1651,7 @@ static NSString *OMMathInkHexForTheme(OMTheme *theme)
             (int)lround([ink greenComponent] * 255.0),
             (int)lround([ink blueComponent] * 255.0)];
 }
+#endif
 
 // dvisvgm leaves glyph fills unset (black); a fill on the root recolours them.
 #if !defined(_WIN32)

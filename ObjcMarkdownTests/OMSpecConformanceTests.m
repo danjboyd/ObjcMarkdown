@@ -415,6 +415,10 @@ static NSArray *OMSpecFailedChecks(OMSpecExample *example, NSAttributedString *r
     OMMarkdownParsingOptions *options = [OMMarkdownParsingOptions defaultOptions];
     // Plain CommonMark/GFM: "$" is literal text in the spec.
     [options setMathRenderingPolicy:OMMarkdownMathRenderingPolicyDisabled];
+    // The spec's expected output passes raw HTML through as it is; only
+    // HTML shown as text matches that (the safe subset renders it, #65).
+    [options setInlineHTMLPolicy:OMMarkdownHTMLPolicyRenderAsText];
+    [options setBlockHTMLPolicy:OMMarkdownHTMLPolicyRenderAsText];
     [options setAllowRemoteImages:NO];
     [options setBaseURL:OMSpecBaseURL()];
     OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] initWithTheme:nil parsingOptions:options] autorelease];

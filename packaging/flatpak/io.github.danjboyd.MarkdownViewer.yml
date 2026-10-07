@@ -1,0 +1,149 @@
+# MarkdownViewer as a Flatpak (#67): the GNUstep stack at the commits the
+# CI image pins (ci/linux/Dockerfile), the Adwaita theme at the commit
+# packaging/inputs.json pins, then the app, all in /app with GNUstep's FHS
+# layout. Built by .github/workflows/linux-flatpak.yml; see README.md here.
+app-id: io.github.danjboyd.MarkdownViewer
+runtime: org.freedesktop.Platform
+runtime-version: '25.08'
+sdk: org.freedesktop.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.llvm20
+command: markdownviewer
+finish-args:
+  # GNUstep's backend draws through X11 (XWayland under Wayland).
+  - --socket=x11
+  - --share=ipc
+  # Open Location and remote images.
+  - --share=network
+  # The explorer browses folders and repositories; open and save go
+  # through the theme's portal file chooser.
+  - --filesystem=home
+build-options:
+  append-path: /usr/lib/sdk/llvm20/bin
+  prepend-ld-library-path: /usr/lib/sdk/llvm20/lib
+  env:
+    CC: clang
+    CXX: clang++
+    LDFLAGS: -fuse-ld=lld
+cleanup:
+  - /include
+  - /share/man
+  - /share/doc
+  - '*.a'
+modules:
+  - name: gnustep-make
+    buildsystem: simple
+    build-commands:
+      - ./configure --prefix=/app --with-layout=fhs --with-library-combo=ng-gnu-gnu
+        --enable-objc-arc --enable-native-objc-exceptions
+      - make -j${FLATPAK_BUILDER_N_JOBS}
+      - make install
+    sources:
+      - type: git
+        url: https://github.com/gnustep/tools-make
+        commit: 04abaf7b23a0a2b8fdf3c819021f7d5d7b269688
+
+  # libobjc2 fetches robin-map at configure time unless it's installed;
+  # Flatpak builds have no network.
+  - name: robin-map
+    buildsystem: cmake-ninja
+    config-opts:
+      # Its CMakeLists predates what CMake 4 accepts.
+      - -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+    sources:
+      - type: git
+        url: https://github.com/Tessil/robin-map
+        tag: v1.2.1
+        commit: d37a41003bfbc7e12e34601f93c18ca2ff6d7c07
+
+  - name: libobjc2
+    buildsystem: cmake-ninja
+    config-opts:
+      - -DGNUSTEP_INSTALL_TYPE=NONE
+      - -DTESTS=OFF
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DCMAKE_C_COMPILER=clang
+      - -DCMAKE_CXX_COMPILER=clang++
+    sources:
+      - type: git
+        url: https://github.com/gnustep/libobjc2
+        commit: fd475057c191ab64586679ffe5e46636776aecbe
+
+  - name: libdispatch
+    buildsystem: cmake-ninja
+    config-opts:
+      - -DTESTS=OFF
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DCMAKE_C_COMPILER=clang
+      - -DCMAKE_CXX_COMPILER=clang++
+    sources:
+      - type: git
+        url: https://github.com/apple/swift-corelibs-libdispatch
+        commit: b2a1fad6b49a9394cf864b87ab0034ea8300e2de
+
+  - name: gnustep-base
+    buildsystem: simple
+    build-commands:
+      # Its configure links libbfd whenever it finds it, even with bfd off;
+      # libbfd is in the SDK, not the runtime.
+      - . /app/share/GNUstep/Makefiles/GNUstep.sh && ./configure --prefix=/app
+        ac_cv_lib_bfd_bfd_openr=no ac_cv_lib_iberty_dyn_string_append=no
+      - . /app/share/GNUstep/Makefiles/GNUstep.sh && make -j${FLATPAK_BUILDER_N_JOBS} LDFLAGS="$LDFLAGS -ldispatch"
+      - . /app/share/GNUstep/Makefiles/GNUstep.sh && make install
+    sources:
+      - type: git
+        url: https://github.com/gnustep/libs-base
+        commit: 68f3d75694f0a7edf9fb1c6c7f19582e8cff1b5f
+
+  - name: gnustep-gui
+    buildsystem: simple
+    build-commands:
+      - . /app/share/GNUstep/Makefiles/GNUstep.sh && ./configure --prefix=/app
+      - . /app/share/GNUstep/Makefiles/GNUstep.sh && make -j${FLATPAK_BUILDER_N_JOBS}
+      - . /app/share/GNUstep/Makefiles/GNUstep.sh && make install
+    sources:
+      - type: git
+        url: https://github.com/gnustep/libs-gui
+        commit: 549f639137a600936acde4cd618f0e4b858d883d
+
+  - name: gnustep-back
+    buildsystem: simple
+    build-commands:
+      - . /app/share/GNUstep/Makefiles/GNUstep.sh && ./configure --prefix=/app --enable-graphics=cairo
+      - . /app/share/GNUstep/Makefiles/GNUstep.sh && make -j${FLATPAK_BUILDER_N_JOBS}
+      - . /app/share/GNUstep/Makefiles/GNUstep.sh && make install
+    sources:
+      - type: git
+        url: https://github.com/gnustep/libs-back
+        commit: 23fbe390dfa80c9eadf7174700de8553a985bc8f
+
+  - name: adwaita-theme
+    buildsystem: simple
+    build-commands:
+      - . /app/share/GNUstep/Makefiles/GNUstep.sh && make -j${FLATPAK_BUILDER_N_JOBS}
+      - . /app/share/GNUstep/Makefiles/GNUstep.sh && make install
+    sources:
+      - type: git
+        url: https://github.com/danjboyd/plugins-themes-Adwaita.git
+        commit: aa78037e696ef4609e9ef5614bcd6000caad061f
+
+  - name: markdownviewer
+    buildsystem: simple
+    build-commands:
+      - . /app/share/GNUstep/Makefiles/GNUstep.sh && make -j${FLATPAK_BUILDER_N_JOBS} OMD_SKIP_TESTS=1
+      - . /app/share/GNUstep/Makefiles/GNUstep.sh && make install OMD_SKIP_TESTS=1
+      - install -Dm755 packaging/flatpak/markdownviewer.sh /app/bin/markdownviewer
+      - install -Dm644 packaging/flatpak/io.github.danjboyd.MarkdownViewer.desktop
+        /app/share/applications/io.github.danjboyd.MarkdownViewer.desktop
+      - install -Dm644 packaging/flatpak/io.github.danjboyd.MarkdownViewer.metainfo.xml
+        /app/share/metainfo/io.github.danjboyd.MarkdownViewer.metainfo.xml
+      - install -Dm644 packaging/flatpak/io.github.danjboyd.MarkdownViewer.png
+        /app/share/icons/hicolor/512x512/apps/io.github.danjboyd.MarkdownViewer.png
+    sources:
+      # The checkout this manifest is in, submodules included.
+      - type: dir
+        path: ../..
+        skip:
+          - .git
+          - dist
+          - .flatpak-builder

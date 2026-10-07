@@ -1626,7 +1626,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
         // AppImage exit at launch in CI (libs-gui 549f639).
         OMDWin11SplitView *workspaceSplitView = (OMDWin11SplitView *)_workspaceSplitView;
         [workspaceSplitView omdSnapSubviewsToPixels];
-        [workspaceSplitView omdRebuildDividerTrackingRects];
+        [workspaceSplitView omdInvalidateCursorRects];
     }
 
     [self layoutWorkspaceChrome];
