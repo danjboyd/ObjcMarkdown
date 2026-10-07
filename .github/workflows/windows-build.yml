@@ -69,6 +69,11 @@ jobs:
           pwsh -NoProfile -ExecutionPolicy Bypass -File $bootstrap --json --yes setup --user --root $root --manifest $env:GNUSTEP_CLI_MANIFEST_URL
           if ($LASTEXITCODE -ne 0) { throw "toolchain setup failed" }
           "GP_GNUSTEP_CLI_ROOT=$root" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          # As the packaging does: the toolchain's own tools and runtime first on
+          # PATH, so its shell runs on its own MSYS2 runtime (not Git's).
+          foreach ($dir in @("bin", "Tools", "System/Tools", "usr/bin", "clang64/bin")) {
+            (Join-Path $root $dir) | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+          }
 
       - name: Diagnose MSYS2 paths (temporary)
         continue-on-error: true
