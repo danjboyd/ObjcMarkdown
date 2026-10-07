@@ -29,6 +29,7 @@ Read for the rendered document, Edit for the Markdown source, and Split for both
 - **An explorer sidebar**: the document's repository or folder as a tree, with recent folders, a filter, a Markdown-only option and a context menu (open in a new tab, reveal, copy paths)
 - **An outline** of the document's headings that follows where you are
 - **Tabs** for several documents in one window
+- **A status bar** with the editor's Vim mode, the preview's status and its zoom
 - **Open Location**: Markdown files straight from GitHub or any web address, read-only
 - **Import and export**: print or export to PDF, and, with `pandoc` installed, import and export `DOCX`, `RTF`, `ODT` and `HTML`
 - **Copy buttons** on code blocks and diagrams
