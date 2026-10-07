@@ -72,7 +72,7 @@ jobs:
 
       - name: Toolchain
         run: |
-          ./scripts/windows/build-from-powershell.ps1 -Task command -Command "clang --version | head -1; gnustep-config --variable=GNUSTEP_MAKE_VERSION 2>/dev/null || true; grep -h 'define GNUSTEP_BASE_VERSION' /clang64/include/GNUstepBase/GSConfig.h || true; echo 'tools-xctest $env:TOOLS_XCTEST_REPO $env:TOOLS_XCTEST_COMMIT'"
+          ./scripts/windows/build-from-powershell.ps1 -Task command -Command "clang --version | head -1; gnustep-config --variable=GNUSTEP_MAKE_VERSION 2>/dev/null || true; grep -h 'define GNUSTEP_BASE_VERSION' `"`$(gnustep-config --variable=GNUSTEP_SYSTEM_HEADERS)/GNUstepBase/GSConfig.h`" || true; echo 'tools-xctest $env:TOOLS_XCTEST_REPO $env:TOOLS_XCTEST_COMMIT'"
 
       - name: Build and install tools-xctest
         run: |
