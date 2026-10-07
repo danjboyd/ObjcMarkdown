@@ -1,0 +1,92 @@
+name: windows-build
+
+# Builds and tests on Windows on every push to main and every pull request,
+# with the same toolchain the MSI packaging uses (windows-packaging.yml):
+# MSYS2 as the bootstrap shell, and GNUstep from the gnustep-cli-new
+# release manifest as the windows-msys2-clang64 managed toolchain.
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # Keep these in step with danjboyd/gnustep-packager's
+  # package-gnustep-app.yml at the ref windows-packaging.yml pins.
+  GNUSTEP_CLI_MANIFEST_URL: https://github.com/danjboyd/gnustep-cli-new/releases/download/v0.1.0-dev/release-manifest.json
+  GNUSTEP_CLI_BOOTSTRAP_URL: https://raw.githubusercontent.com/danjboyd/gnustep-cli-new/master/scripts/bootstrap/gnustep-bootstrap.ps1
+  # The same tools-xctest commit as the Linux CI image (ci/linux/Dockerfile).
+  TOOLS_XCTEST_REPO: danjboyd/tools-xctest
+  TOOLS_XCTEST_COMMIT: 23a8217ebf1a192a2bba2842b13874ff42604cf6
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Checkout tools-xctest
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.TOOLS_XCTEST_REPO }}
+          ref: ${{ env.TOOLS_XCTEST_COMMIT }}
+          path: .ci/tools-xctest
+
+      - name: Install MSYS2 bootstrap shell
+        id: msys2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: CLANG64
+          update: true
+          cache: true
+          install: >-
+            curl
+            tar
+            gzip
+
+      - name: Install the GNUstep toolchain
+        timeout-minutes: 30
+        run: |
+          $ErrorActionPreference = "Stop"
+          $root = Join-Path $env:RUNNER_TEMP "gnustep-cli-new"
+          $bootstrap = Join-Path $env:RUNNER_TEMP "gnustep-bootstrap.ps1"
+          $env:PATH = (Join-Path '${{ steps.msys2.outputs.msys2-location }}' 'clang64\bin') + ";" + $env:PATH
+          curl.exe --fail --location --show-error --connect-timeout 30 --max-time 300 --output $bootstrap $env:GNUSTEP_CLI_BOOTSTRAP_URL
+          if ($LASTEXITCODE -ne 0) { throw "bootstrap download failed" }
+          pwsh -NoProfile -ExecutionPolicy Bypass -File $bootstrap --json --yes setup --user --root $root --manifest $env:GNUSTEP_CLI_MANIFEST_URL
+          if ($LASTEXITCODE -ne 0) { throw "toolchain setup failed" }
+          "GP_GNUSTEP_CLI_ROOT=$root" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Toolchain
+        run: |
+          ./scripts/windows/build-from-powershell.ps1 -Task command -Command "clang --version | head -1; gnustep-config --variable=GNUSTEP_MAKE_VERSION 2>/dev/null || true; grep -h 'define GNUSTEP_BASE_VERSION' /clang64/include/GNUstepBase/GSConfig.h || true; echo 'tools-xctest $env:TOOLS_XCTEST_REPO $env:TOOLS_XCTEST_COMMIT'"
+
+      - name: Build and install tools-xctest
+        run: |
+          # Serial: its XCTestHost library links -lXCTest, built alongside it.
+          ./scripts/windows/build-from-powershell.ps1 -Task command -Command "cd .ci/tools-xctest && make GNUSTEP_INSTALLATION_DOMAIN=SYSTEM && make GNUSTEP_INSTALLATION_DOMAIN=SYSTEM install"
+          if ($LASTEXITCODE -ne 0) { throw "tools-xctest build failed" }
+
+      - name: Build
+        run: |
+          # Warnings in the project's own code fail the build (not in third_party).
+          ./scripts/windows/build-from-powershell.ps1 -Task command -Command "make OMD_WERROR=1"
+          if ($LASTEXITCODE -ne 0) { throw "build failed" }
+
+      - name: Test
+        run: |
+          ./scripts/windows/build-from-powershell.ps1 -Task test
+          if ($LASTEXITCODE -ne 0) { throw "tests failed" }
