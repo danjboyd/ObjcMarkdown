@@ -4,6 +4,7 @@
 #import "OMDRemoteDocument.h"
 #import "OMDExternalTools.h"
 #import "OMDTextFileSupport.h"
+#import "OMDMainThread.h"
 
 static NSString *OMDEscapedPathComponents(NSArray *components)
 {
@@ -351,15 +352,14 @@ void OMDFetchRemoteDocument(OMDRemoteDocument *document,
         }
         [markdown retain];
         [message retain];
-        // Not dispatch_get_main_queue(): GNUstep's run loop doesn't drain it on Windows.
-        [[NSOperationQueue mainQueue] addOperationWithBlock:^{
+        OMDPerformOnMainThread(^{
             callback(markdown, message);
             [markdown release];
             [message release];
             [callback release];
             [document release];
             [url release];
-        }];
+        });
         [pool release];
     });
 }

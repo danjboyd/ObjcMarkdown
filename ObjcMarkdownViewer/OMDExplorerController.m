@@ -10,6 +10,7 @@
 #import "OMDTextFileSupport.h"
 #import "OMDViewerDefaults.h"
 #import "OMDViewerImages.h"
+#import "OMDMainThread.h"
 
 #include <math.h>
 
@@ -1071,8 +1072,7 @@ static NSButtonCell *OMDExplorerIconDrawingCell(void)
         NSArray *files = [OMDExplorerFindFiles(root, filter, showHidden, markdownOnly,
                                                OMDExplorerFilterVisitLimit, OMDExplorerFilterMatchLimit,
                                                &complete) retain];
-        // Not dispatch_get_main_queue(): GNUstep's run loop doesn't drain it on Windows.
-        [[NSOperationQueue mainQueue] addOperationWithBlock:^{
+        OMDPerformOnMainThread(^{
             if (generation == _explorerFilterGeneration &&
                 [root isEqualToString:[_explorerRootNode path]]) {
                 [self showExplorerFilterResult:files complete:complete restoreExpansion:restore];
@@ -1081,7 +1081,7 @@ static NSButtonCell *OMDExplorerIconDrawingCell(void)
             [root release];
             [filter release];
             [self release];
-        }];
+        });
         [pool release];
     });
 }
