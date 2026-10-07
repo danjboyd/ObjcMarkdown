@@ -103,7 +103,7 @@ static NSTextField *OMDOutlineLabel(NSRect frame, NSFont *font, NSColor *color)
     _emptyLabel = OMDOutlineLabel(NSMakeRect(12.0, NSHeight(bounds) - headerHeight - noteHeight - 6.0,
                                              NSWidth(bounds) - 24.0, noteHeight),
                                   OMDChromeSmallFont(),
-                                  [NSColor disabledControlTextColor]);
+                                  [NSColor secondaryLabelColor]);
     [_emptyLabel setStringValue:@"No headings"];
     [_emptyLabel setAutoresizingMask:(NSViewWidthSizable | NSViewMinYMargin)];
     [_view addSubview:_emptyLabel];

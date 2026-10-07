@@ -1103,7 +1103,7 @@ static CGFloat OMDPreferencesFinishCard(NSView *card, CGFloat height)
             [_preferencesRendererSyntaxHighlightingNoteLabel setTextColor:[NSColor controlTextColor]];
             [_preferencesRendererSyntaxHighlightingNoteLabel setStringValue:@"Tree-sitter detected. Renderer syntax highlighting can be toggled here."];
         } else {
-            [_preferencesRendererSyntaxHighlightingNoteLabel setTextColor:[NSColor disabledControlTextColor]];
+            [_preferencesRendererSyntaxHighlightingNoteLabel setTextColor:[NSColor secondaryLabelColor]];
             [_preferencesRendererSyntaxHighlightingNoteLabel setStringValue:@"Renderer syntax highlighting requires Tree-sitter (install tree-sitter-cli and libtree-sitter-dev)."];
         }
     }

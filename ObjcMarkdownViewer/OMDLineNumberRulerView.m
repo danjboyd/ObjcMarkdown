@@ -196,10 +196,7 @@ static double OMDKeyLatencyMS(NSTimeInterval start, NSTimeInterval end)
     [backgroundColor setFill];
     NSRectFill(rect);
 
-    NSColor *separatorColor = [NSColor gridColor];
-    if (separatorColor == nil) {
-        separatorColor = [NSColor darkGrayColor];
-    }
+    NSColor *separatorColor = [NSColor controlShadowColor];
     [separatorColor setFill];
     NSRect separatorRect = NSMakeRect(NSWidth([self bounds]) - 1.0, NSMinY(rect), 1.0, NSHeight(rect));
     NSRectFill(separatorRect);
@@ -249,7 +246,7 @@ static double OMDKeyLatencyMS(NSTimeInterval start, NSTimeInterval end)
         numberFont = [NSFont systemFontOfSize:MAX(9.0, fontSize - 1.0)];
     }
 
-    NSColor *textColor = [NSColor disabledControlTextColor];
+    NSColor *textColor = [NSColor secondaryLabelColor];
     if (textColor == nil) {
         textColor = [NSColor controlTextColor];
     }

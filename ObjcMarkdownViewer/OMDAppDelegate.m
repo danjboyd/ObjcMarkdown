@@ -1276,7 +1276,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [_launchOverlayDetailLabel setSelectable:NO];
     [_launchOverlayDetailLabel setDrawsBackground:NO];
     [_launchOverlayDetailLabel setAlignment:NSCenterTextAlignment];
-    [_launchOverlayDetailLabel setTextColor:[NSColor disabledControlTextColor]];
+    [_launchOverlayDetailLabel setTextColor:[NSColor secondaryLabelColor]];
     [_launchOverlayDetailLabel setFont:OMDChromeFont()];
     [_launchOverlayDetailLabel setStringValue:@""];
     [[launchCard contentView] addSubview:_launchOverlayDetailLabel];

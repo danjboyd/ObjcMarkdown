@@ -133,7 +133,7 @@ NSString * const OMDTabRemoteURLKey = @"remoteURL";
         [label setEditable:NO];
         [label setSelectable:NO];
         [label setDrawsBackground:NO];
-        [label setTextColor:[NSColor disabledControlTextColor]];
+        [label setTextColor:[NSColor secondaryLabelColor]];
         [label setFont:OMDChromeSmallFont()];
         [label setStringValue:@"No document open"];
         [_stripView addSubview:label];
