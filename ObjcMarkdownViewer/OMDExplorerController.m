@@ -703,7 +703,9 @@ static NSButtonCell *OMDExplorerIconDrawingCell(void)
     [_explorerShowHiddenFilesButton setAutoresizingMask:(NSViewWidthSizable | NSViewMinYMargin)];
     [_containerView addSubview:_explorerShowHiddenFilesButton];
 
-    _explorerScrollView = [[NSScrollView alloc] initWithFrame:NSMakeRect(0, 10, NSWidth(bounds), 80)];
+    // Not 0 wide while the sidebar is collapsed: tiling would size the clip
+    // view below zero (#78). -layoutExplorerControls sets the real frame.
+    _explorerScrollView = [[NSScrollView alloc] initWithFrame:NSMakeRect(0, 10, MAX(NSWidth(bounds), 100.0), 80)];
     [_explorerScrollView setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable)];
     [_explorerScrollView setHasVerticalScroller:YES];
     [_explorerScrollView setHasHorizontalScroller:NO];
@@ -749,9 +751,11 @@ static NSButtonCell *OMDExplorerIconDrawingCell(void)
                                              selector:@selector(windowDidBecomeKey:)
                                                  name:NSWindowDidBecomeKeyNotification
                                                object:nil];
-    // Lay the controls out for each new sidebar width rather than leave it
+    // Lay the controls out for each new sidebar size rather than leave it
     // to autoresizing, which can't bring them back from a collapsed sidebar
-    // and left them wider than it, clipped at its right edge.
+    // and left them wider than it, clipped at its right edge; collapsing,
+    // it also shrank them to negative widths (#78).
+    [_containerView setAutoresizesSubviews:NO];
     [_containerView setPostsFrameChangedNotifications:YES];
     [[NSNotificationCenter defaultCenter] addObserver:self
                                              selector:@selector(containerFrameDidChange:)
@@ -774,6 +778,12 @@ static NSButtonCell *OMDExplorerIconDrawingCell(void)
     [_explorerShowHiddenFilesButton setState:([self isExplorerShowHiddenFilesEnabled] ? NSOnState : NSOffState)];
 
     NSRect bounds = [_containerView bounds];
+    // Collapsed (0 wide while the explorer is hidden, or before the window
+    // has its size), the controls would get negative widths (#78). The
+    // container's frame-change notification lays them out once it has room.
+    if (NSWidth(bounds) < (metrics.explorerSidePadding * 2.0) + 40.0) {
+        return;
+    }
     CGFloat wideControlWidth = MAX(1.0, NSWidth(bounds) - (metrics.explorerSidePadding * 2.0));
     CGFloat top = NSHeight(bounds) - metrics.explorerTopPadding;
 
