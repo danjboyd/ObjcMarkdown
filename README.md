@@ -34,6 +34,8 @@ Read for the rendered document, Edit for the Markdown source, and Split for both
 - **Copy buttons** on code blocks and diagrams
 - **Preferences** for the theme, layout density, editor and explorer
 
+![The Preferences window under Adwaita](docs/screenshots/adwaita-preferences.png)
+
 ## Rendering
 
 The renderer parses with GitHub's [cmark-gfm](https://github.com/github/cmark-gfm), vendored and compiled in, so the app, the editor's highlighting and the scroll sync agree on the document's structure. Try it on [docs/showcase.md](docs/showcase.md).
