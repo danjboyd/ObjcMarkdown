@@ -76,7 +76,7 @@ NSAttributedString *rendered = [renderer attributedStringFromMarkdown:
 ## Install
 
 - **Windows**: the MSI or portable ZIP from [Releases](https://github.com/danjboyd/ObjcMarkdown/releases), with WinUITheme bundled as the default theme.
-- **Linux**: an AppImage with the GNUstep runtime and the Adwaita theme bundled, built by [linux-appimage.yml](.github/workflows/linux-appimage.yml); the next tagged release attaches it. Until then, build from source as below.
+- **Linux**: an AppImage and a Flatpak bundle, each with the GNUstep runtime and the Adwaita theme inside, built by [linux-appimage.yml](.github/workflows/linux-appimage.yml) and [linux-flatpak.yml](.github/workflows/linux-flatpak.yml) (see [packaging/flatpak](packaging/flatpak/README.md)); the next tagged release attaches both. Until then, build from source as below.
 
 ## Status
 
