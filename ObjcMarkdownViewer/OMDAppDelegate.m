@@ -7017,7 +7017,15 @@ constrainSplitPosition:(CGFloat)proposedPosition
         [options setObject:appName forKey:@"ApplicationName"];
     }
 
-    NSString *release = OMDInfoStringForKey(@"ApplicationRelease");
+    // The version the build was made from (VERSION, or OMD_VERSION), else
+    // the Info.plist's (#89).
+    NSString *release = nil;
+#ifdef OMD_APP_VERSION
+    release = [NSString stringWithUTF8String:OMD_APP_VERSION];
+#endif
+    if (release == nil || [release length] == 0) {
+        release = OMDInfoStringForKey(@"ApplicationRelease");
+    }
     if (release == nil || [release length] == 0) {
         release = OMDInfoStringForKey(@"ApplicationVersion");
     }
@@ -7047,6 +7055,10 @@ constrainSplitPosition:(CGFloat)proposedPosition
     if (icon != nil) {
         [options setObject:icon forKey:@"ApplicationIcon"];
     }
+    [options setObject:@"A Markdown reader and editor for GNUstep." forKey:@"ApplicationDescription"];
+    [options setObject:@"https://github.com/danjboyd/ObjcMarkdown" forKey:@"URL"];
+    [options setObject:@"MarkdownViewer is GPL-2.0-or-later; the ObjcMarkdown library is LGPL-2.1-or-later."
+                forKey:@"CopyrightDescription"];
 
     if ([options count] > 0 && [NSApp respondsToSelector:@selector(orderFrontStandardAboutPanelWithOptions:)]) {
         [NSApp orderFrontStandardAboutPanelWithOptions:options];

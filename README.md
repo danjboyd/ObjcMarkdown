@@ -162,7 +162,7 @@ Windows packaging and release publishing are handled by:
 Release flow:
 
 - Ensure the target commit has already passed the separate Linux CI workflow if you want a GNUstep/Linux gate before release tagging.
-- Push an annotated tag like `v0.1.0`.
+- Set the version in `VERSION` (what About shows), then push an annotated tag like `v0.1.0`.
 - GitHub Actions runs `linux-appimage` as a thin caller to the reusable `gnustep-packager` workflow pinned to `4814554c9e445170217bd6849efea05b98e62856`, on a GitHub-hosted runner inside the same CI image, using this repo's Linux manifest, stage script and preflight. It bundles the Adwaita theme at the commit pinned in [packaging/inputs.json](packaging/inputs.json).
 - GitHub Actions runs `windows-packaging` as a thin caller to the reusable `gnustep-packager` workflow pinned to `bac42892f79ae1c7d56017d7cdb1d1637d729e6b`, using this repo's Windows MSI manifest and normalized Windows stage script. The Windows manifest owns app-specific host dependencies (currently none: `cmark-gfm` is vendored). The staged Windows payload includes the GNUstep runtime, bundled Windows themes, and TinyTeX runtime for external LaTeX rendering. Windows releases are expected to bundle `WinUITheme` and use it as the default packaged theme.
 - Each tagged packaging workflow then downloads its `-packages` artifact and attaches the release files to the matching GitHub Release page. Linux publishes the `.AppImage` and `.zsync`; Windows publishes the `.msi` and portable ZIP, along with generated sidecars such as `.update-feed.json`.
