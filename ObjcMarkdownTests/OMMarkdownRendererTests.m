@@ -2567,6 +2567,77 @@ static NSRange OMFootnoteAnchorRange(NSAttributedString *rendered, NSString *anc
     XCTAssertEqualObjects([link fragment], @"frag");
 }
 
+#if defined(_WIN32)
+// Network (UNC) paths as written in a document: "\\server\share\..." (which
+// CommonMark unescapes to "\server\share\..."), "//server/share/..." and
+// the unescaped form typed directly, all name the same file.
+- (void)testNetworkPathLinksAreFilesOnTheShare
+{
+    OMMarkdownParsingOptions *options = [OMMarkdownParsingOptions defaultOptions];
+    [options setBaseURL:[NSURL fileURLWithPath:@"C:\\docs" isDirectory:YES]];
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] initWithTheme:nil
+                                                                parsingOptions:options] autorelease];
+    NSArray *forms = [NSArray arrayWithObjects:@"[s](\\\\fileserver\\share\\docs\\spec.md)",
+                                               @"[s](//fileserver/share/docs/spec.md)",
+                                               @"[s](\\fileserver\\share\\docs\\spec.md)",
+                                               @"[s](<\\\\fileserver/share\\docs/spec.md>)",
+                                               nil];
+    for (NSString *markdown in forms) {
+        NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
+        id link = [rendered attribute:NSLinkAttributeName atIndex:0 effectiveRange:NULL];
+        XCTAssertTrue([link isKindOfClass:[NSURL class]], @"%@", markdown);
+        XCTAssertTrue([link isFileURL], @"%@", markdown);
+        XCTAssertEqualObjects([link path], @"\\\\fileserver\\share\\docs\\spec.md", @"%@", markdown);
+    }
+
+    // A document from the web can't link into a share.
+    [options setBaseURL:[NSURL URLWithString:@"https://example.com/docs/"]];
+    renderer = [[[OMMarkdownRenderer alloc] initWithTheme:nil parsingOptions:options] autorelease];
+    NSAttributedString *web = [renderer attributedStringFromMarkdown:@"[s](\\\\fileserver\\share\\spec.md)"];
+    XCTAssertNil([web attribute:NSLinkAttributeName atIndex:0 effectiveRange:NULL]);
+}
+
+- (void)testNetworkPathImagesLoadFromTheShare
+{
+    NSString *path = [self writeTemporaryImage];
+    // The same file through the drive's administrative share.
+    if ([path length] < 3 || [path characterAtIndex:1] != ':') {
+        [self removeFileIfPresent:path];
+        return;
+    }
+    NSString *rest = [[path substringFromIndex:2] stringByReplacingOccurrencesOfString:@"/" withString:@"\\"];
+    NSString *share = [NSString stringWithFormat:@"\\\\localhost\\%@$%@", [path substringToIndex:1], rest];
+    if (![[NSFileManager defaultManager] fileExistsAtPath:share]) {
+        // No administrative shares here (not an administrator).
+        [self removeFileIfPresent:path];
+        return;
+    }
+
+    NSString *escaped = [share stringByReplacingOccurrencesOfString:@"\\" withString:@"\\\\"];
+    NSString *markdown = [NSString stringWithFormat:@"![a](%@)\n\n![b](%@)\n",
+                          escaped, [share stringByReplacingOccurrencesOfString:@"\\" withString:@"/"]];
+    NSURL *base = [NSURL fileURLWithPath:[path stringByDeletingLastPathComponent] isDirectory:YES];
+    NSArray *urls = [OMMarkdownRenderer localImageURLsInMarkdown:markdown baseURL:base];
+    XCTAssertEqual([urls count], (NSUInteger)1);
+    XCTAssertEqualObjects([[urls lastObject] path], share);
+
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    [renderer setLayoutWidth:420.0];
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
+    NSUInteger attachments = 0;
+    NSUInteger index = 0;
+    while (index < [rendered length]) {
+        NSRange range;
+        if ([rendered attribute:NSAttachmentAttributeName atIndex:index effectiveRange:&range] != nil) {
+            attachments++;
+        }
+        index = NSMaxRange(range);
+    }
+    XCTAssertEqual(attachments, (NSUInteger)2);
+    [self removeFileIfPresent:path];
+}
+#endif
+
 // List markers draw in a font that has them: the theme's Helvetica may lack
 // the circle and square bullets and the task boxes, which drew as "?". The
 // two boxes come from the same font.
