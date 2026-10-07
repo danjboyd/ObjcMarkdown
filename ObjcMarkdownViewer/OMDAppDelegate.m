@@ -501,7 +501,6 @@ static CGFloat OMDClampedScrollSpeed(CGFloat value)
 #if defined(_WIN32)
 - (NSString *)windowsHeadlessBrowserPath;
 - (NSString *)temporaryHTMLExportPath;
-- (NSString *)windowsPDFSavePathWithSuggestedName:(NSString *)suggestedName;
 - (NSString *)styledHTMLDocumentWithBody:(NSString *)bodyHTML title:(NSString *)title;
 - (BOOL)writePandocHTMLForCurrentPreviewToPath:(NSString *)path;
 - (BOOL)writeHTMLForPrintView:(OMDTextView *)printView toPath:(NSString *)path;
@@ -3564,65 +3563,6 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
     return [temporaryDirectory stringByAppendingPathComponent:fileName];
 }
 
-- (NSString *)windowsPDFSavePathWithSuggestedName:(NSString *)suggestedName
-{
-    NSString *initialDirectory = nil;
-    if (_currentPath != nil && [_currentPath length] > 0) {
-        initialDirectory = [_currentPath stringByDeletingLastPathComponent];
-    } else {
-        initialDirectory = [@"~/Desktop" stringByExpandingTildeInPath];
-    }
-
-    NSString *fileName = (suggestedName != nil && [suggestedName length] > 0)
-        ? suggestedName
-        : @"Export.pdf";
-    if (![[[fileName pathExtension] lowercaseString] isEqualToString:@"pdf"]) {
-        fileName = [fileName stringByAppendingPathExtension:@"pdf"];
-    }
-
-    NSUInteger dirLength = [initialDirectory length];
-    wchar_t *wideDirectory = (wchar_t *)calloc(dirLength + 1, sizeof(wchar_t));
-    if (wideDirectory == NULL) {
-        return nil;
-    }
-    [initialDirectory getCharacters:(unichar *)wideDirectory range:NSMakeRange(0, dirLength)];
-    wideDirectory[dirLength] = L'\0';
-
-    NSUInteger fileLength = [fileName length];
-    wchar_t fileBuffer[32768];
-    memset(fileBuffer, 0, sizeof(fileBuffer));
-    if (fileLength > 0) {
-        NSUInteger copyLength = MIN(fileLength, ((sizeof(fileBuffer) / sizeof(wchar_t)) - 1));
-        [fileName getCharacters:(unichar *)fileBuffer range:NSMakeRange(0, copyLength)];
-        fileBuffer[copyLength] = L'\0';
-    }
-
-    const wchar_t filter[] = L"PDF Files (*.pdf)\0*.pdf\0All Files (*.*)\0*.*\0\0";
-    const wchar_t defaultExt[] = L"pdf";
-    const wchar_t title[] = L"Export as PDF";
-
-    OPENFILENAMEW ofn;
-    memset(&ofn, 0, sizeof(ofn));
-    ofn.lStructSize = sizeof(ofn);
-    ofn.hwndOwner = NULL;
-    ofn.lpstrFile = fileBuffer;
-    ofn.nMaxFile = sizeof(fileBuffer) / sizeof(wchar_t);
-    ofn.lpstrFilter = filter;
-    ofn.nFilterIndex = 1;
-    ofn.lpstrDefExt = defaultExt;
-    ofn.lpstrTitle = title;
-    ofn.lpstrInitialDir = wideDirectory;
-    ofn.Flags = OFN_EXPLORER | OFN_HIDEREADONLY | OFN_PATHMUSTEXIST | OFN_OVERWRITEPROMPT;
-
-    NSString *selectedPath = nil;
-    if (GetSaveFileNameW(&ofn)) {
-        selectedPath = [NSString stringWithCharacters:(const unichar *)fileBuffer length:wcslen(fileBuffer)];
-    }
-
-    free(wideDirectory);
-    return selectedPath;
-}
-
 - (NSString *)styledHTMLDocumentWithBody:(NSString *)bodyHTML title:(NSString *)title
 {
     NSString *safeTitle = OMDHTMLEscapedString(title != nil ? title : @"Document");
@@ -3909,13 +3849,8 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
         return;
     }
 
-#if defined(_WIN32)
-    NSString *path = [self windowsPDFSavePathWithSuggestedName:[self defaultExportFileNameWithExtension:@"pdf"]];
-    if (path == nil || [path length] == 0) {
-        OMDLogPrintDiagnostics(@"export PDF cancelled before destination selection on Windows");
-        return;
-    }
-#else
+    // The theme's save panel on every platform (on Windows, WinUITheme's
+    // is the shell's dialog).
     NSSavePanel *panel = [NSSavePanel savePanel];
     [panel setAllowedFileTypes:[NSArray arrayWithObject:@"pdf"]];
     [panel setCanCreateDirectories:YES];
@@ -3940,7 +3875,6 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
         OMDLogPrintDiagnostics(@"export PDF save panel returned empty filename");
         return;
     }
-#endif
     BOOL success = [self exportDocumentAsPDFToPath:path];
 
     if (!success) {
