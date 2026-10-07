@@ -6,6 +6,8 @@
 
 #import "OMDWin11SplitView.h"
 
+#include <math.h>
+
 @interface OMDWin11SplitViewTests : XCTestCase
 @end
 
@@ -99,6 +101,29 @@ static BOOL OMDTestRectIsIntegral(NSRect rect)
     [leading setHidden:YES];
     [splitView adjustSubviews];
 
+    XCTAssertTrue(NSEqualRects([trailing frame], NSMakeRect(0, 0, 1036, 760)));
+    [splitView release];
+}
+
+// Early in setup the window can be too narrow for the explorer: both panes
+// end up 0 wide, and libs-gui's proportional pass divided by their total,
+// giving NaN frames (the AppImage smoke launch died on them).
+- (void)testAdjustSubviewsWithNoWidthGivesFiniteFrames
+{
+    OMDWin11SplitView *splitView = [[OMDWin11SplitView alloc] initWithFrame:NSMakeRect(0, 0, 2, 760)];
+    [splitView setVertical:YES];
+    NSView *leading = [[[NSView alloc] initWithFrame:NSMakeRect(0, 0, 0, 760)] autorelease];
+    NSView *trailing = [[[NSView alloc] initWithFrame:NSMakeRect(3, 0, 0, 760)] autorelease];
+    [splitView addSubview:leading];
+    [splitView addSubview:trailing];
+
+    [leading setHidden:YES];
+    [splitView adjustSubviews];
+    [splitView setFrameSize:NSMakeSize(1036, 760)];
+    [splitView adjustSubviews];
+
+    XCTAssertTrue(isfinite(NSMinX([trailing frame])) && isfinite(NSWidth([trailing frame])));
+    XCTAssertTrue(isfinite(NSWidth([leading frame])));
     XCTAssertTrue(NSEqualRects([trailing frame], NSMakeRect(0, 0, 1036, 760)));
     [splitView release];
 }

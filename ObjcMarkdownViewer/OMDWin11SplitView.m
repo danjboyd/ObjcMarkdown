@@ -234,8 +234,44 @@
     }
 }
 
+// libs-gui shares a resize out in proportion to the subviews' lengths,
+// dividing by their total. Early in setup, with the window too narrow for
+// the explorer and the explorer then collapsed, both panes were 0 wide and
+// every frame came out NaN (the AppImage smoke launch died on them). Give
+// the last subview the length first so the proportions are defined.
+- (void)omdEnsureSubviewsHaveLength
+{
+    NSArray *subviews = [self subviews];
+    NSUInteger count = [subviews count];
+    BOOL vertical = [self isVertical];
+    CGFloat total = 0.0;
+    NSUInteger i = 0;
+
+    if (count == 0) {
+        return;
+    }
+    for (i = 0; i < count; i++) {
+        NSRect frame = [[subviews objectAtIndex:i] frame];
+        total += vertical ? NSWidth(frame) : NSHeight(frame);
+    }
+    if (isfinite(total) && total >= 1.0) {
+        return;
+    }
+    NSRect bounds = [self bounds];
+    CGFloat length = MAX(1.0, vertical ? NSWidth(bounds) : NSHeight(bounds));
+    for (i = 0; i < count; i++) {
+        NSView *subview = [subviews objectAtIndex:i];
+        BOOL last = (i + 1 == count);
+        NSRect frame = vertical
+            ? NSMakeRect(NSMinX(bounds), NSMinY(bounds), last ? length : 0.0, NSHeight(bounds))
+            : NSMakeRect(NSMinX(bounds), NSMinY(bounds), NSWidth(bounds), last ? length : 0.0);
+        [subview setFrame:frame];
+    }
+}
+
 - (void)adjustSubviews
 {
+    [self omdEnsureSubviewsHaveLength];
     [super adjustSubviews];
     [self omdSnapSubviewsToPixels];
     [self omdRebuildDividerTrackingRects];
