@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #import "OMDControlSupport.h"
+#import "OMDLayoutMetrics.h"
 
 CGFloat OMDControlWidthForTitle(NSString *title,
                                        NSFont *font,
@@ -18,7 +19,7 @@ CGFloat OMDControlWidthForTitle(NSString *title,
         return ceil(minWidth);
     }
     if (font == nil) {
-        font = [NSFont systemFontOfSize:11.0];
+        font = OMDChromeFont();
     }
     NSDictionary *attributes = [NSDictionary dictionaryWithObjectsAndKeys:
                                 font, NSFontAttributeName,

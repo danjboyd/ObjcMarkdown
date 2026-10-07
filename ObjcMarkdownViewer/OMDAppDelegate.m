@@ -1172,7 +1172,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [_launchOverlayTitleLabel setSelectable:NO];
     [_launchOverlayTitleLabel setDrawsBackground:NO];
     [_launchOverlayTitleLabel setAlignment:NSCenterTextAlignment];
-    [_launchOverlayTitleLabel setFont:[NSFont boldSystemFontOfSize:16.0]];
+    [_launchOverlayTitleLabel setFont:OMDChromeBoldFont()];
     [_launchOverlayTitleLabel setStringValue:@"Loading document..."];
     [[launchCard contentView] addSubview:_launchOverlayTitleLabel];
 
@@ -1183,7 +1183,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [_launchOverlayDetailLabel setDrawsBackground:NO];
     [_launchOverlayDetailLabel setAlignment:NSCenterTextAlignment];
     [_launchOverlayDetailLabel setTextColor:[NSColor disabledControlTextColor]];
-    [_launchOverlayDetailLabel setFont:[NSFont systemFontOfSize:12.0]];
+    [_launchOverlayDetailLabel setFont:OMDChromeFont()];
     [_launchOverlayDetailLabel setStringValue:@""];
     [[launchCard contentView] addSubview:_launchOverlayDetailLabel];
 

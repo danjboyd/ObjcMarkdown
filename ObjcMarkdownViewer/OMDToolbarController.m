@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #import "OMDToolbarController.h"
+#import "OMDLayoutMetrics.h"
 #import "OMDControlSupport.h"
 #import "OMDToolbarViews.h"
 #import "OMDViewerColors.h"
@@ -9,7 +10,8 @@
 
 #include <math.h>
 
-static const CGFloat OMDToolbarLabelHeight = 20.0;
+// Labels fit the theme's text (OMDChromeBoldFont).
+#define OMDToolbarLabelHeight MAX(20.0, OMDChromeLineHeight(OMDChromeBoldFont()) + 2.0)
 
 // Off Windows the toolbar is a few GNOME-style buttons around a flexible
 // space; with the Adwaita theme's header bar (GnomeThemeHeaderBarToolbar in
@@ -299,7 +301,7 @@ static BOOL OMDShouldUseToolbarFlexibleSpace(void)
             [_previewStatusLabel setSelectable:NO];
             [_previewStatusLabel setDrawsBackground:NO];
             [_previewStatusLabel setAlignment:NSRightTextAlignment];
-            [_previewStatusLabel setFont:[NSFont boldSystemFontOfSize:11.0]];
+            [_previewStatusLabel setFont:OMDChromeBoldFont()];
             [_previewStatusLabel setStringValue:@""];
             [_previewStatusLabel setHidden:YES];
             [_modeContainer addSubview:_previewStatusLabel];
@@ -346,7 +348,7 @@ static BOOL OMDShouldUseToolbarFlexibleSpace(void)
             [_modeLabel setSelectable:NO];
             [_modeLabel setDrawsBackground:NO];
             [_modeLabel setAlignment:NSRightTextAlignment];
-            [_modeLabel setFont:[NSFont boldSystemFontOfSize:11.0]];
+            [_modeLabel setFont:OMDChromeBoldFont()];
             [_modeLabel setTextColor:[_delegate modeLabelTextColor]];
             [_modeLabel setStringValue:@"View"];
             [_modeContainer addSubview:_modeLabel];
@@ -375,7 +377,7 @@ static BOOL OMDShouldUseToolbarFlexibleSpace(void)
             [_previewStatusLabel setSelectable:NO];
             [_previewStatusLabel setDrawsBackground:NO];
             [_previewStatusLabel setAlignment:NSLeftTextAlignment];
-            [_previewStatusLabel setFont:[NSFont boldSystemFontOfSize:11.0]];
+            [_previewStatusLabel setFont:OMDChromeBoldFont()];
             [_previewStatusLabel setStringValue:@""];
             [_previewStatusLabel setHidden:YES];
             [_modeContainer addSubview:_previewStatusLabel];
@@ -404,7 +406,7 @@ static BOOL OMDShouldUseToolbarFlexibleSpace(void)
             [_zoomLabel setSelectable:NO];
             [_zoomLabel setDrawsBackground:NO];
             [_zoomLabel setAlignment:NSRightTextAlignment];
-            [_zoomLabel setFont:[NSFont boldSystemFontOfSize:11.0]];
+            [_zoomLabel setFont:OMDChromeBoldFont()];
             [_zoomLabel setToolTip:@"Current zoom"];
 
             _zoomSlider = [[NSSlider alloc] initWithFrame:NSMakeRect(60, controlY, 130, OMDToolbarControlHeight)];
@@ -418,7 +420,7 @@ static BOOL OMDShouldUseToolbarFlexibleSpace(void)
             _zoomResetButton = [[NSButton alloc] initWithFrame:NSMakeRect(205, controlY, 90, OMDToolbarControlHeight)];
             [_zoomResetButton setTitle:@"100%"];
             [_zoomResetButton setBezelStyle:NSRoundedBezelStyle];
-            [_zoomResetButton setFont:[NSFont systemFontOfSize:11.0]];
+            [_zoomResetButton setFont:OMDChromeFont()];
             [_zoomResetButton setTarget:_delegate];
             [_zoomResetButton setAction:@selector(zoomReset:)];
             [_zoomResetButton setToolTip:@"Reset zoom to 100%"];

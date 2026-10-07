@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #import "OMDFormattingBarController.h"
+#import "OMDLayoutMetrics.h"
 #import "OMDControlSupport.h"
 #import "OMDViewerImages.h"
 
@@ -146,7 +147,7 @@ static NSString *OMDFormattingCommandName(const OMDFormattingCommand *command)
     [_formattingBarView addSubview:separator];
     [_containerView addSubview:_formattingBarView];
 
-    NSFont *buttonFont = [NSFont systemFontOfSize:(metrics.scale > 1.05 ? 11.5 : metrics.formattingBarFontSize)];
+    NSFont *buttonFont = OMDChromeFont();
     CGFloat compactPadding = (metrics.scale > 1.05 ? 8.0 : 7.0);
 
     // Paragraph style: one menu instead of a button per heading level.

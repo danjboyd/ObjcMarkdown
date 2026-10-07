@@ -55,7 +55,6 @@ OMDLayoutMetrics OMDLayoutMetricsForMode(OMDLayoutDensityMode mode)
     metrics.formattingBarButtonWideWidth = OMDFormattingBarButtonWideWidth + 2.0;
     metrics.formattingBarControlSpacing = OMDFormattingBarControlSpacing + 1.0;
     metrics.formattingBarGroupSpacing = OMDFormattingBarGroupSpacing + 2.0;
-    metrics.formattingBarFontSize = 11.0;
     metrics.preferencesWindowWidth = 820.0;
     metrics.preferencesWindowMinHeight = 380.0;
     metrics.preferencesOuterPadding = 20.0;
@@ -128,7 +127,6 @@ OMDLayoutMetrics OMDLayoutMetricsForMode(OMDLayoutDensityMode mode)
         metrics.formattingBarButtonWideWidth = 34.0;
         metrics.formattingBarControlSpacing = 4.0;
         metrics.formattingBarGroupSpacing = 12.0;
-        metrics.formattingBarFontSize = 12.0;
         metrics.preferencesWindowWidth = 860.0;
         metrics.preferencesWindowMinHeight = 420.0;
         metrics.preferencesOuterPadding = 24.0;
@@ -147,5 +145,47 @@ OMDLayoutMetrics OMDLayoutMetricsForMode(OMDLayoutDensityMode mode)
         metrics.preferencesEditingCardHeight = 460.0;
     }
 
+    // Controls and bars are at least as tall as the theme's text needs:
+    // Adwaita's is 14.7 pt, larger than the sizes these were made for.
+    CGFloat textHeight = OMDChromeLineHeight(OMDChromeFont());
+    CGFloat smallTextHeight = OMDChromeLineHeight(OMDChromeSmallFont());
+    CGFloat formattingBarPadding = metrics.formattingBarHeight - metrics.formattingBarControlHeight;
+    metrics.tabStripHeight = MAX(metrics.tabStripHeight, textHeight + 14.0);
+    metrics.explorerControlHeight = MAX(metrics.explorerControlHeight, textHeight + 8.0);
+    metrics.explorerMinorControlHeight = MAX(metrics.explorerMinorControlHeight, smallTextHeight + 4.0);
+    metrics.formattingBarControlHeight = MAX(metrics.formattingBarControlHeight, textHeight + 8.0);
+    metrics.formattingBarHeight = MAX(metrics.formattingBarHeight,
+                                      metrics.formattingBarControlHeight + formattingBarPadding);
+
     return metrics;
+}
+
+NSFont *OMDChromeFont(void)
+{
+    NSFont *font = [NSFont systemFontOfSize:0.0];
+    return font != nil ? font : [NSFont userFontOfSize:0.0];
+}
+
+NSFont *OMDChromeBoldFont(void)
+{
+    NSFont *font = [NSFont boldSystemFontOfSize:0.0];
+    return font != nil ? font : OMDChromeFont();
+}
+
+NSFont *OMDChromeSmallFont(void)
+{
+    NSFont *font = [NSFont systemFontOfSize:[NSFont smallSystemFontSize]];
+    return font != nil ? font : OMDChromeFont();
+}
+
+CGFloat OMDChromeLineHeight(NSFont *font)
+{
+    if (font == nil) {
+        return 16.0;
+    }
+    CGFloat height = [font defaultLineHeightForFont];
+    if (height <= 0.0) {
+        height = [font pointSize] * 1.25;
+    }
+    return ceil(height);
 }

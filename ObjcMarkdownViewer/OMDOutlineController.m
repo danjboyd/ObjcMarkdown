@@ -2,9 +2,14 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #import "OMDOutlineController.h"
+#import "OMDLayoutMetrics.h"
 #import "OMMarkdownRenderer.h"
 
-static const CGFloat OMDOutlineHeaderHeight = 30.0;
+// The header and rows fit the theme's text (OMDChromeFont).
+static CGFloat OMDOutlineHeaderHeight(void)
+{
+    return MAX(30.0, OMDChromeLineHeight(OMDChromeBoldFont()) + 12.0);
+}
 static const CGFloat OMDOutlineIndentPerLevel = 12.0;
 
 @interface OMDOutlineController ()
@@ -51,16 +56,18 @@ static NSTextField *OMDOutlineLabel(NSRect frame, NSFont *font, NSColor *color)
     [_view setAutoresizingMask:(NSViewMinXMargin | NSViewHeightSizable)];
 
     NSRect bounds = [_view bounds];
-    _titleLabel = OMDOutlineLabel(NSMakeRect(12.0, NSHeight(bounds) - OMDOutlineHeaderHeight + 6.0,
-                                             NSWidth(bounds) - 24.0, 18.0),
-                                  [NSFont boldSystemFontOfSize:12.0],
+    CGFloat headerHeight = OMDOutlineHeaderHeight();
+    CGFloat labelHeight = OMDChromeLineHeight(OMDChromeBoldFont());
+    _titleLabel = OMDOutlineLabel(NSMakeRect(12.0, NSHeight(bounds) - headerHeight + 6.0,
+                                             NSWidth(bounds) - 24.0, labelHeight),
+                                  OMDChromeBoldFont(),
                                   [NSColor controlTextColor]);
     [_titleLabel setStringValue:@"Outline"];
     [_titleLabel setAutoresizingMask:(NSViewWidthSizable | NSViewMinYMargin)];
     [_view addSubview:_titleLabel];
 
     _scrollView = [[NSScrollView alloc] initWithFrame:NSMakeRect(0.0, 0.0, NSWidth(bounds),
-                                                                 NSHeight(bounds) - OMDOutlineHeaderHeight)];
+                                                                 NSHeight(bounds) - headerHeight)];
     [_scrollView setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable)];
     [_scrollView setHasVerticalScroller:YES];
     [_scrollView setHasHorizontalScroller:NO];
@@ -75,7 +82,7 @@ static NSTextField *OMDOutlineLabel(NSRect frame, NSFont *font, NSColor *color)
     [_tableView addTableColumn:column];
     [_tableView setHeaderView:nil];
     [_tableView setCornerView:nil];
-    [_tableView setRowHeight:22.0];
+    [_tableView setRowHeight:MAX(22.0, OMDChromeLineHeight(OMDChromeBoldFont()) + 4.0)];
     [_tableView setIntercellSpacing:NSMakeSize(0.0, 2.0)];
     [_tableView setAllowsEmptySelection:YES];
     [_tableView setAllowsMultipleSelection:NO];
@@ -92,9 +99,10 @@ static NSTextField *OMDOutlineLabel(NSRect frame, NSFont *font, NSColor *color)
     [separator setAutoresizingMask:(NSViewMaxXMargin | NSViewHeightSizable)];
     [_view addSubview:separator];
 
-    _emptyLabel = OMDOutlineLabel(NSMakeRect(12.0, NSHeight(bounds) - OMDOutlineHeaderHeight - 24.0,
-                                             NSWidth(bounds) - 24.0, 18.0),
-                                  [NSFont systemFontOfSize:11.0],
+    CGFloat noteHeight = OMDChromeLineHeight(OMDChromeSmallFont());
+    _emptyLabel = OMDOutlineLabel(NSMakeRect(12.0, NSHeight(bounds) - headerHeight - noteHeight - 6.0,
+                                             NSWidth(bounds) - 24.0, noteHeight),
+                                  OMDChromeSmallFont(),
                                   [NSColor disabledControlTextColor]);
     [_emptyLabel setStringValue:@"No headings"];
     [_emptyLabel setAutoresizingMask:(NSViewWidthSizable | NSViewMinYMargin)];
@@ -231,7 +239,7 @@ static NSTextField *OMDOutlineLabel(NSRect frame, NSFont *font, NSColor *color)
     [style setFirstLineHeadIndent:indent];
     [style setHeadIndent:indent];
     [style setLineBreakMode:NSLineBreakByTruncatingTail];
-    NSFont *font = (level == _minimumLevel) ? [NSFont boldSystemFontOfSize:12.0] : [NSFont systemFontOfSize:12.0];
+    NSFont *font = (level == _minimumLevel) ? OMDChromeBoldFont() : OMDChromeFont();
     NSDictionary *attributes = [NSDictionary dictionaryWithObjectsAndKeys:
                                 font, NSFontAttributeName,
                                 style, NSParagraphStyleAttributeName,

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #import "OMDCopyButtonsController.h"
+#import "OMDLayoutMetrics.h"
 #import "OMDCodeCopyButton.h"
 #import "OMDTextView.h"
 #import "OMDViewerColors.h"
@@ -313,10 +314,7 @@ static const NSTimeInterval OMDCopyFeedbackDisplayInterval = 0.95;
         return;
     }
 
-    NSFont *buttonFont = [NSFont systemFontOfSize:10.0];
-    if (buttonFont == nil) {
-        buttonFont = [NSFont systemFontOfSize:9.0];
-    }
+    NSFont *buttonFont = OMDChromeSmallFont();
     NSDictionary *buttonAttributes = [NSDictionary dictionaryWithObjectsAndKeys:
                                       buttonFont, NSFontAttributeName,
                                       [NSColor secondaryLabelColor], NSForegroundColorAttributeName,

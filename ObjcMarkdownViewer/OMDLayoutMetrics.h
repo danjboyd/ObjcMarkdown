@@ -31,7 +31,6 @@ typedef struct {
     CGFloat formattingBarButtonWideWidth;
     CGFloat formattingBarControlSpacing;
     CGFloat formattingBarGroupSpacing;
-    CGFloat formattingBarFontSize;
     CGFloat preferencesWindowWidth;
     CGFloat preferencesWindowMinHeight;
     CGFloat preferencesOuterPadding;
@@ -53,3 +52,12 @@ typedef struct {
 OMDLayoutDensityMode OMDClampedLayoutDensityMode(NSInteger rawValue);
 BOOL OMDDefaultFormattingBarEnabledForMode(OMDLayoutDensityMode mode);
 OMDLayoutMetrics OMDLayoutMetricsForMode(OMDLayoutDensityMode mode);
+
+// The theme's fonts for the app's chrome (labels, tabs, bars), so its type
+// sizes apply; the layout density changes spacing, not type. The document
+// and editor fonts are separate.
+NSFont *OMDChromeFont(void);
+NSFont *OMDChromeBoldFont(void);
+NSFont *OMDChromeSmallFont(void);
+// The height a line of text in this font needs.
+CGFloat OMDChromeLineHeight(NSFont *font);

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #import "OMDDocumentTabsController.h"
+#import "OMDLayoutMetrics.h"
 #import "OMDTextFileSupport.h"
 
 #include <math.h>
@@ -133,7 +134,7 @@ NSString * const OMDTabRemoteURLKey = @"remoteURL";
         [label setSelectable:NO];
         [label setDrawsBackground:NO];
         [label setTextColor:[NSColor disabledControlTextColor]];
-        [label setFont:[NSFont systemFontOfSize:11.0]];
+        [label setFont:OMDChromeSmallFont()];
         [label setStringValue:@"No document open"];
         [_stripView addSubview:label];
         return;
@@ -161,12 +162,17 @@ NSString * const OMDTabRemoteURLKey = @"remoteURL";
             title = [title stringByAppendingString:@" [RO]"];
         }
 
-        CGFloat width = 30.0 + (CGFloat)[title length] * 6.8;
+        // As wide as the title in the theme's font, plus the button's
+        // padding and the close button.
+        NSDictionary *titleAttributes = [NSDictionary dictionaryWithObject:OMDChromeFont()
+                                                                    forKey:NSFontAttributeName];
+        CGFloat titleTextWidth = ceil([title sizeWithAttributes:titleAttributes].width);
+        CGFloat width = titleTextWidth + 28.0 + closeButtonSize + (closeButtonInset * 2.0);
         if (width < 108.0) {
             width = 108.0;
         }
-        if (width > 240.0) {
-            width = 240.0;
+        if (width > 280.0) {
+            width = 280.0;
         }
         if (x + width > available) {
             width = available - x;
@@ -194,7 +200,7 @@ NSString * const OMDTabRemoteURLKey = @"remoteURL";
         [button setState:(index == _selectedIndex ? NSOnState : NSOffState)];
         [button setTarget:self];
         [button setAction:@selector(tabButtonPressed:)];
-        [button setFont:[NSFont systemFontOfSize:11.0]];
+        [button setFont:OMDChromeFont()];
         [button setAlignment:NSLeftTextAlignment];
         [tabContainer addSubview:button];
 
@@ -208,7 +214,7 @@ NSString * const OMDTabRemoteURLKey = @"remoteURL";
         [closeButton setBezelStyle:NSRoundRectBezelStyle];
         [closeButton setTarget:self];
         [closeButton setAction:@selector(tabCloseButtonPressed:)];
-        [closeButton setFont:[NSFont boldSystemFontOfSize:10.0]];
+        [closeButton setFont:[NSFont boldSystemFontOfSize:[NSFont smallSystemFontSize]]];
         [tabContainer addSubview:closeButton];
 
         [_stripView addSubview:tabContainer];

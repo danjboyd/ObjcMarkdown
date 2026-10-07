@@ -272,8 +272,7 @@ static NSButtonCell *OMDExplorerIconDrawingCell(void)
 
 - (void)applyLayoutDensity
 {
-    OMDLayoutMetrics metrics = OMDLayoutMetricsForMode([_delegate effectiveLayoutDensityMode]);
-    NSFont *labelFont = [NSFont systemFontOfSize:(metrics.scale > 1.05 ? 12.0 : 11.0)];
+    NSFont *labelFont = OMDChromeSmallFont();
     [_explorerShowHiddenFilesButton setFont:labelFont];
     [_explorerMarkdownOnlyButton setFont:labelFont];
     [_explorerFilterStatusLabel setFont:labelFont];
@@ -637,7 +636,7 @@ static NSButtonCell *OMDExplorerIconDrawingCell(void)
     }
 
     NSRect bounds = [_containerView bounds];
-    NSFont *labelFont = [NSFont systemFontOfSize:(metrics.scale > 1.05 ? 12.0 : 11.0)];
+    NSFont *labelFont = OMDChromeSmallFont();
 
     _explorerRootPopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(metrics.explorerSidePadding,
                                                                          NSHeight(bounds) - 34,
