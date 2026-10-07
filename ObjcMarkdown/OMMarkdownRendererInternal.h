@@ -156,6 +156,7 @@ NSAttributedString *OMImageAttachmentAttributedString(cmark_node *imageNode,
                                                       NSMutableDictionary *attributes,
                                                       CGFloat scale,
                                                       const OMRenderContext *renderContext);
+NSAttributedString *OMAttributedStringFittingImagesToWidth(NSAttributedString *string, CGFloat width);
 NSURL *OMResolvedImageURL(NSString *urlString,
                           const OMRenderContext *renderContext);
 NSURL *OMResolvedLinkURL(NSString *urlString,

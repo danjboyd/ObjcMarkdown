@@ -996,6 +996,25 @@ static NSArray *OMTextTableWrappedCellLines(NSAttributedString *cell, CGFloat wi
     return lines;
 }
 
+// The rows with each cell's images no wider than its column: an image is
+// sized for the whole text width, so wider than its column it ran past the
+// cell and pushed the next cell onto a line of its own (#83).
+static NSArray *OMTextTableRowsFittingImages(NSArray *rows, NSArray *columnWidths)
+{
+    NSMutableArray *fitted = [NSMutableArray arrayWithCapacity:[rows count]];
+    for (NSArray *row in rows) {
+        NSMutableArray *cells = [NSMutableArray arrayWithCapacity:[row count]];
+        NSUInteger column = 0;
+        for (NSAttributedString *cell in row) {
+            CGFloat width = column < [columnWidths count] ? floor([[columnWidths objectAtIndex:column] doubleValue]) : 0.0;
+            [cells addObject:OMAttributedStringFittingImagesToWidth(cell, width)];
+            column += 1;
+        }
+        [fitted addObject:cells];
+    }
+    return fitted;
+}
+
 // Lays the table out as text: one paragraph per visual line, cells separated
 // by tabs placed (left tab stops only, all GNUstep has) where each cell's
 // alignment puts it, and an OMTextTable describing the grid to draw around them.
@@ -1299,7 +1318,7 @@ static void OMRenderPipeTable(NSArray *rows,
                                  &textVerticalPadding,
                                  NULL,
                                  NULL)) {
-        OMAppendTextTable(attributedRows,
+        OMAppendTextTable(OMTextTableRowsFittingImages(attributedRows, textColumnWidths),
                           alignments,
                           textColumnWidths,
                           indent,

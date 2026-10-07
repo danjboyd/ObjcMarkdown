@@ -48,6 +48,10 @@ static NSString *OMImageAttachmentCacheKey(NSString *urlKey,
             (int)(allowRemoteImages ? 1 : 0)];
 }
 
+@interface OMImageAttachmentCell (OMFitting)
+- (NSURL *)omSourceURL;
+@end
+
 @implementation OMImageAttachmentCell
 
 - (instancetype)initImageCell:(NSImage *)image sourceURL:(NSURL *)sourceURL
@@ -63,6 +67,11 @@ static NSString *OMImageAttachmentCacheKey(NSString *urlKey,
 {
     [_sourceURL release];
     [super dealloc];
+}
+
+- (NSURL *)omSourceURL
+{
+    return _sourceURL;
 }
 
 - (NSImage *)fullImage
@@ -671,4 +680,45 @@ NSAttributedString *OMImageAttachmentAttributedString(cmark_node *imageNode,
     NSString *attachmentString = [NSString stringWithCharacters:&attachmentChar length:1];
     return [[[NSAttributedString alloc] initWithString:attachmentString
                                             attributes:attachmentAttributes] autorelease];
+}
+
+// Images in string wider than width, replaced by copies scaled to it (a
+// table cell's images, sized for the whole text width, overflowed their
+// column: #83).
+NSAttributedString *OMAttributedStringFittingImagesToWidth(NSAttributedString *string, CGFloat width)
+{
+    if (string == nil || width < 1.0) {
+        return string;
+    }
+    NSMutableAttributedString *result = nil;
+    NSUInteger length = [string length];
+    NSUInteger index = 0;
+    while (index < length) {
+        NSRange range = NSMakeRange(index, 1);
+        NSTextAttachment *attachment = [string attribute:NSAttachmentAttributeName atIndex:index effectiveRange:&range];
+        id cell = [attachment attachmentCell];
+        if ([cell isKindOfClass:[OMImageAttachmentCell class]]) {
+            NSImage *image = [cell image];
+            NSSize size = [image size];
+            if (image != nil && size.width > width && size.height > 0.0) {
+                NSSize fitted = NSMakeSize(floor(width), MAX(1.0, floor(size.height * width / size.width)));
+                NSImage *scaled = OMDownscaledImage(image, fitted);
+                if (scaled == nil) {
+                    scaled = [[image copy] autorelease];
+                    [scaled setScalesWhenResized:YES];
+                    [scaled setSize:fitted];
+                }
+                NSTextAttachment *fittedAttachment = [[[NSTextAttachment alloc] initWithFileWrapper:nil] autorelease];
+                OMImageAttachmentCell *fittedCell = [[[OMImageAttachmentCell alloc] initImageCell:scaled
+                                                                                        sourceURL:[cell omSourceURL]] autorelease];
+                [fittedAttachment setAttachmentCell:fittedCell];
+                if (result == nil) {
+                    result = [[string mutableCopy] autorelease];
+                }
+                [result addAttribute:NSAttachmentAttributeName value:fittedAttachment range:range];
+            }
+        }
+        index = MAX(NSMaxRange(range), index + 1);
+    }
+    return result != nil ? result : string;
 }

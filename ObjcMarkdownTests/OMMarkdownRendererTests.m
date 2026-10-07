@@ -2591,4 +2591,49 @@ static NSRange OMFootnoteAnchorRange(NSAttributedString *rendered, NSString *anc
     XCTAssertEqualObjects([boxFonts[0] fontName], [boxFonts[1] fontName]);
 }
 
+// Images in table cells are scaled to their column: sized for the whole
+// text width, they ran past their cell and pushed the next cell's image
+// onto a line of its own (#83).
+- (void)testTableCellImagesFitTheirColumns
+{
+    NSString *left = [self writeTemporaryImageWithSize:NSMakeSize(800.0, 400.0)];
+    NSString *right = [self writeTemporaryImageWithSize:NSMakeSize(800.0, 400.0)];
+    NSString *markdown = [NSString stringWithFormat:@"| Left | Right |\n|:---:|:---:|\n| ![l](%@) | ![r](%@) |\n", left, right];
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    [renderer setLayoutWidth:600.0];
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
+    OMTextTable *table = [self textTableInRenderedString:rendered range:NULL];
+    XCTAssertNotNil(table);
+    NSArray *edges = [table columnEdges];
+    XCTAssertEqual([edges count], (NSUInteger)3);
+
+    NSString *text = [rendered string];
+    unichar attachmentCharacter = NSAttachmentCharacter;
+    NSString *attachmentString = [NSString stringWithCharacters:&attachmentCharacter length:1];
+    NSRange first = [text rangeOfString:attachmentString];
+    XCTAssertTrue(first.location != NSNotFound);
+    NSRange second = [text rangeOfString:attachmentString options:0
+                                   range:NSMakeRange(NSMaxRange(first), [text length] - NSMaxRange(first))];
+    XCTAssertTrue(second.location != NSNotFound);
+    if (first.location == NSNotFound || second.location == NSNotFound || [edges count] < 3) {
+        [self removeFileIfPresent:left];
+        [self removeFileIfPresent:right];
+        return;
+    }
+    // Both on the row's first line: no newline between them.
+    NSRange between = NSMakeRange(NSMaxRange(first), second.location - NSMaxRange(first));
+    XCTAssertEqual([[text substringWithRange:between] rangeOfString:@"\n"].location, (NSUInteger)NSNotFound);
+    NSUInteger indexes[2] = { first.location, second.location };
+    NSUInteger column = 0;
+    for (column = 0; column < 2; column++) {
+        NSTextAttachment *attachment = [rendered attribute:NSAttachmentAttributeName atIndex:indexes[column] effectiveRange:NULL];
+        NSSize size = [(NSTextAttachmentCell *)[attachment attachmentCell] cellSize];
+        CGFloat columnWidth = [[edges objectAtIndex:column + 1] doubleValue] - [[edges objectAtIndex:column] doubleValue];
+        XCTAssertTrue(size.width <= columnWidth, @"image %.0f wide in a %.0f column", size.width, columnWidth);
+        XCTAssertEqualWithAccuracy(size.width / size.height, 2.0, 0.05);
+    }
+    [self removeFileIfPresent:left];
+    [self removeFileIfPresent:right];
+}
+
 @end
