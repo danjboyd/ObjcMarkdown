@@ -351,14 +351,15 @@ void OMDFetchRemoteDocument(OMDRemoteDocument *document,
         }
         [markdown retain];
         [message retain];
-        dispatch_async(dispatch_get_main_queue(), ^{
+        // Not dispatch_get_main_queue(): GNUstep's run loop doesn't drain it on Windows.
+        [[NSOperationQueue mainQueue] addOperationWithBlock:^{
             callback(markdown, message);
             [markdown release];
             [message release];
             [callback release];
             [document release];
             [url release];
-        });
+        }];
         [pool release];
     });
 }
