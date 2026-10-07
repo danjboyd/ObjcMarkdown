@@ -26,3 +26,12 @@ ifneq ($(OMD_WERROR),)
 ObjcMarkdown_OBJCFLAGS += -Werror
 endif
 include $(GNUSTEP_MAKEFILES)/library.make
+
+# lld rewrites the import library only when its contents change, so after a
+# relink that doesn't change the exports, libObjcMarkdown.dll.a (the file
+# make checks) stays older than the objects and every build relinks. Mark
+# it current after a successful build.
+ifneq (,$(findstring mingw,$(GNUSTEP_HOST_OS)))
+after-all::
+	@if [ -f $(GNUSTEP_OBJ_DIR)/libObjcMarkdown.dll.a ]; then touch $(GNUSTEP_OBJ_DIR)/libObjcMarkdown.dll.a; fi
+endif
