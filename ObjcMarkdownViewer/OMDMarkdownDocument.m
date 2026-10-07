@@ -6,7 +6,28 @@
 
 NSString * const OMDMarkdownDocumentEditedStateDidChangeNotification = @"OMDMarkdownDocumentEditedStateDidChange";
 
+#if defined(GNUSTEP)
+// GNUstep's NSDocument counts a change as each undo group closes.
+@interface NSDocument (OMDUndoGroupCounting)
+- (void)_changeWasDone:(NSNotification *)notification;
+@end
+#endif
+
 @implementation OMDMarkdownDocument
+
+#if defined(GNUSTEP)
+// An edit made in an undo group (the formatting commands) sits in the
+// group the run loop opens around each event, and GNUstep counted both as
+// they closed: one edit, two changes, and Undo didn't bring the document
+// back to unchanged. Count the outermost group only, as macOS does.
+- (void)_changeWasDone:(NSNotification *)notification
+{
+    if ([[self undoManager] groupingLevel] > 1) {
+        return;
+    }
+    [super _changeWasDone:notification];
+}
+#endif
 
 @synthesize markdown = _markdown;
 @synthesize displayTitle = _displayTitle;
