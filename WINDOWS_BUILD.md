@@ -114,8 +114,8 @@ ObjcMarkdownViewer/MarkdownViewer.app/MarkdownViewer.exe TableRenderDemo.md
 ```
 
 Theme note (Windows):
-- The MSYS2 helper script prefers `WinUITheme` when it is installed and falls back to `WinUXTheme` on plain CLANG64 runtimes.
-- To try Sombre anyway, run with `OMD_USE_SOMBRE_THEME=1` (expect possible launch failures).
+- The app draws with the theme the global `GSTheme` default names: set it in Preferences (it takes effect on the next launch). The packaged app defaults to `WinUITheme`.
+- To try another theme for one launch, pass it on the command line: `./scripts/omd-viewer-msys2.sh -GSTheme Sombre` (Sombre may fail to launch on Windows, #66). A `GSTheme` environment variable has no effect.
 
 ### 5) Tests
 

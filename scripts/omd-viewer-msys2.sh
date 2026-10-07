@@ -45,19 +45,6 @@ RUNTIME_PATHS="$RUNTIME_PATHS:$ROOT/third_party/GPUpdaterCore/obj:$ROOT/third_pa
 PATH="$RUNTIME_PATHS:$PATH"
 export PATH
 
-if [[ -z "${GSTheme:-}" ]]; then
-  if [[ "${OMD_USE_SOMBRE_THEME:-0}" == "1" ]]; then
-    export GSTheme=Sombre
-  else
-    # Sombre is unstable on Windows GNUstep; prefer WinUI when available and
-    # fall back to WinUX on plain CLANG64 runtimes that do not include it.
-    if [[ -f "$HOME/GNUstep/Library/Themes/WinUITheme.theme/WinUITheme.dll" || \
-          -f "/clang64/lib/GNUstep/Themes/WinUITheme.theme/WinUITheme.dll" ]]; then
-      export GSTheme=WinUITheme
-    else
-      export GSTheme=WinUXTheme
-    fi
-  fi
-fi
-
+# The theme is the GSTheme default (Preferences, or GNUstep's own); pass
+# -GSTheme <Name> to try another for one launch.
 openapp "$APP" "$@"
