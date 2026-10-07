@@ -225,6 +225,19 @@ static NSButtonCell *OMDExplorerIconDrawingCell(void)
 - (void)refreshExplorerTree;
 @end
 
+// The explorer's options and status in the theme's system font, each row
+// at least as tall as that text needs.
+static NSFont *OMDExplorerLabelFont(void)
+{
+    return [NSFont systemFontOfSize:0.0];
+}
+
+static CGFloat OMDExplorerLabelTextHeight(void)
+{
+    NSDictionary *attributes = [NSDictionary dictionaryWithObject:OMDExplorerLabelFont() forKey:NSFontAttributeName];
+    return ceil([@"Ag" sizeWithAttributes:attributes].height);
+}
+
 @implementation OMDExplorerController
 
 - (instancetype)initWithDelegate:(id<OMDExplorerControllerDelegate>)delegate
@@ -272,7 +285,11 @@ static NSButtonCell *OMDExplorerIconDrawingCell(void)
 
 - (void)applyLayoutDensity
 {
+<<<<<<< Updated upstream
     NSFont *labelFont = OMDChromeSmallFont();
+=======
+    NSFont *labelFont = OMDExplorerLabelFont();
+>>>>>>> Stashed changes
     [_explorerShowHiddenFilesButton setFont:labelFont];
     [_explorerMarkdownOnlyButton setFont:labelFont];
     [_explorerFilterStatusLabel setFont:labelFont];
@@ -636,7 +653,11 @@ static NSButtonCell *OMDExplorerIconDrawingCell(void)
     }
 
     NSRect bounds = [_containerView bounds];
+<<<<<<< Updated upstream
     NSFont *labelFont = OMDChromeSmallFont();
+=======
+    NSFont *labelFont = OMDExplorerLabelFont();
+>>>>>>> Stashed changes
 
     _explorerRootPopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(metrics.explorerSidePadding,
                                                                          NSHeight(bounds) - 34,
@@ -795,22 +816,24 @@ static NSButtonCell *OMDExplorerIconDrawingCell(void)
                                               wideControlWidth,
                                               metrics.explorerControlHeight)];
     // The two options side by side under the field.
-    CGFloat optionsY = NSMinY([_explorerFilterField frame]) - 6.0 - metrics.explorerMinorControlHeight;
+    CGFloat optionHeight = MAX(metrics.explorerMinorControlHeight, OMDExplorerLabelTextHeight() + 4.0);
+    CGFloat statusHeight = OMDExplorerLabelTextHeight() + 2.0;
+    CGFloat optionsY = NSMinY([_explorerFilterField frame]) - 6.0 - optionHeight;
     CGFloat optionWidth = floor((wideControlWidth - 8.0) / 2.0);
     [_explorerMarkdownOnlyButton setFrame:NSMakeRect(metrics.explorerSidePadding,
                                                      optionsY,
                                                      optionWidth,
-                                                     metrics.explorerMinorControlHeight)];
+                                                     optionHeight)];
     [_explorerShowHiddenFilesButton setFrame:NSMakeRect(metrics.explorerSidePadding + optionWidth + 8.0,
                                                         optionsY,
                                                         wideControlWidth - optionWidth - 8.0,
-                                                        metrics.explorerMinorControlHeight)];
+                                                        optionHeight)];
     CGFloat controlsBottom = optionsY;
     if (![_explorerFilterStatusLabel isHidden]) {
         [_explorerFilterStatusLabel setFrame:NSMakeRect(metrics.explorerSidePadding,
-                                                        optionsY - 4.0 - 16.0,
+                                                        optionsY - 4.0 - statusHeight,
                                                         wideControlWidth,
-                                                        16.0)];
+                                                        statusHeight)];
         controlsBottom = NSMinY([_explorerFilterStatusLabel frame]);
     }
     CGFloat scrollBottomInset = 10.0;

@@ -5,11 +5,16 @@
 #import "OMDLayoutMetrics.h"
 #import "OMMarkdownRenderer.h"
 
+<<<<<<< Updated upstream
 // The header and rows fit the theme's text (OMDChromeFont).
 static CGFloat OMDOutlineHeaderHeight(void)
 {
     return MAX(30.0, OMDChromeLineHeight(OMDChromeBoldFont()) + 12.0);
 }
+=======
+static const CGFloat OMDOutlineMinimumHeaderHeight = 30.0;
+static const CGFloat OMDOutlineMinimumRowHeight = 22.0;
+>>>>>>> Stashed changes
 static const CGFloat OMDOutlineIndentPerLevel = 12.0;
 
 @interface OMDOutlineController ()
@@ -28,6 +33,25 @@ static const CGFloat OMDOutlineIndentPerLevel = 12.0;
 @implementation OMDOutlineController
 
 @synthesize delegate = _delegate;
+
+// The theme's fonts: bold for the title and the top-level rows, regular for
+// the rest, small for the note.
+static NSFont *OMDOutlineTitleFont(void)
+{
+    return [NSFont boldSystemFontOfSize:0.0];
+}
+
+static NSFont *OMDOutlineRowFont(BOOL topLevel)
+{
+    return topLevel ? [NSFont boldSystemFontOfSize:0.0] : [NSFont systemFontOfSize:0.0];
+}
+
+// The height a line of text in font needs.
+static CGFloat OMDOutlineTextHeight(NSFont *font)
+{
+    NSDictionary *attributes = [NSDictionary dictionaryWithObject:font forKey:NSFontAttributeName];
+    return ceil([@"Ag" sizeWithAttributes:attributes].height);
+}
 
 static NSTextField *OMDOutlineLabel(NSRect frame, NSFont *font, NSColor *color)
 {
@@ -56,11 +80,20 @@ static NSTextField *OMDOutlineLabel(NSRect frame, NSFont *font, NSColor *color)
     [_view setAutoresizingMask:(NSViewMinXMargin | NSViewHeightSizable)];
 
     NSRect bounds = [_view bounds];
+<<<<<<< Updated upstream
     CGFloat headerHeight = OMDOutlineHeaderHeight();
     CGFloat labelHeight = OMDChromeLineHeight(OMDChromeBoldFont());
     _titleLabel = OMDOutlineLabel(NSMakeRect(12.0, NSHeight(bounds) - headerHeight + 6.0,
                                              NSWidth(bounds) - 24.0, labelHeight),
                                   OMDChromeBoldFont(),
+=======
+    NSFont *titleFont = OMDOutlineTitleFont();
+    CGFloat titleHeight = OMDOutlineTextHeight(titleFont) + 2.0;
+    CGFloat headerHeight = MAX(OMDOutlineMinimumHeaderHeight, titleHeight + 12.0);
+    _titleLabel = OMDOutlineLabel(NSMakeRect(12.0, NSHeight(bounds) - headerHeight + floor((headerHeight - titleHeight) / 2.0),
+                                             NSWidth(bounds) - 24.0, titleHeight),
+                                  titleFont,
+>>>>>>> Stashed changes
                                   [NSColor controlTextColor]);
     [_titleLabel setStringValue:@"Outline"];
     [_titleLabel setAutoresizingMask:(NSViewWidthSizable | NSViewMinYMargin)];
@@ -82,7 +115,11 @@ static NSTextField *OMDOutlineLabel(NSRect frame, NSFont *font, NSColor *color)
     [_tableView addTableColumn:column];
     [_tableView setHeaderView:nil];
     [_tableView setCornerView:nil];
+<<<<<<< Updated upstream
     [_tableView setRowHeight:MAX(22.0, OMDChromeLineHeight(OMDChromeBoldFont()) + 4.0)];
+=======
+    [_tableView setRowHeight:MAX(OMDOutlineMinimumRowHeight, OMDOutlineTextHeight(OMDOutlineRowFont(YES)) + 6.0)];
+>>>>>>> Stashed changes
     [_tableView setIntercellSpacing:NSMakeSize(0.0, 2.0)];
     [_tableView setAllowsEmptySelection:YES];
     [_tableView setAllowsMultipleSelection:NO];
@@ -99,10 +136,18 @@ static NSTextField *OMDOutlineLabel(NSRect frame, NSFont *font, NSColor *color)
     [separator setAutoresizingMask:(NSViewMaxXMargin | NSViewHeightSizable)];
     [_view addSubview:separator];
 
+<<<<<<< Updated upstream
     CGFloat noteHeight = OMDChromeLineHeight(OMDChromeSmallFont());
     _emptyLabel = OMDOutlineLabel(NSMakeRect(12.0, NSHeight(bounds) - headerHeight - noteHeight - 6.0,
                                              NSWidth(bounds) - 24.0, noteHeight),
                                   OMDChromeSmallFont(),
+=======
+    NSFont *noteFont = [NSFont systemFontOfSize:[NSFont smallSystemFontSize]];
+    CGFloat noteHeight = OMDOutlineTextHeight(noteFont) + 2.0;
+    _emptyLabel = OMDOutlineLabel(NSMakeRect(12.0, NSHeight(bounds) - headerHeight - 6.0 - noteHeight,
+                                             NSWidth(bounds) - 24.0, noteHeight),
+                                  noteFont,
+>>>>>>> Stashed changes
                                   [NSColor disabledControlTextColor]);
     [_emptyLabel setStringValue:@"No headings"];
     [_emptyLabel setAutoresizingMask:(NSViewWidthSizable | NSViewMinYMargin)];
@@ -239,7 +284,11 @@ static NSTextField *OMDOutlineLabel(NSRect frame, NSFont *font, NSColor *color)
     [style setFirstLineHeadIndent:indent];
     [style setHeadIndent:indent];
     [style setLineBreakMode:NSLineBreakByTruncatingTail];
+<<<<<<< Updated upstream
     NSFont *font = (level == _minimumLevel) ? OMDChromeBoldFont() : OMDChromeFont();
+=======
+    NSFont *font = OMDOutlineRowFont(level == _minimumLevel);
+>>>>>>> Stashed changes
     NSDictionary *attributes = [NSDictionary dictionaryWithObjectsAndKeys:
                                 font, NSFontAttributeName,
                                 style, NSParagraphStyleAttributeName,

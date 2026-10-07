@@ -10,8 +10,28 @@
 
 #include <math.h>
 
+<<<<<<< Updated upstream
 // Labels fit the theme's text (OMDChromeBoldFont).
 #define OMDToolbarLabelHeight MAX(20.0, OMDChromeLineHeight(OMDChromeBoldFont()) + 2.0)
+=======
+// Toolbar labels in the theme's bold system font, as tall as it needs.
+static NSFont *OMDToolbarLabelFont(void)
+{
+    return [NSFont boldSystemFontOfSize:0.0];
+}
+
+static NSSize OMDToolbarLabelTextSize(NSString *text)
+{
+    NSDictionary *attributes = [NSDictionary dictionaryWithObject:OMDToolbarLabelFont() forKey:NSFontAttributeName];
+    NSSize size = [text sizeWithAttributes:attributes];
+    return NSMakeSize(ceil(size.width), ceil(size.height));
+}
+
+static CGFloat OMDToolbarLabelHeight(void)
+{
+    return MAX(20.0, OMDToolbarLabelTextSize(@"Ag").height + 2.0);
+}
+>>>>>>> Stashed changes
 
 // Off Windows the toolbar is a few GNOME-style buttons around a flexible
 // space; with the Adwaita theme's header bar (GnomeThemeHeaderBarToolbar in
@@ -291,17 +311,21 @@ static BOOL OMDShouldUseToolbarFlexibleSpace(void)
         CGFloat switcherWidth = 182.0;
         CGFloat containerWidth = statusWidth + 8.0 + switcherWidth;
         if (_modeContainer == nil) {
-            CGFloat labelY = floor((OMDToolbarItemHeight - OMDToolbarLabelHeight) * 0.5);
+            CGFloat labelY = floor((OMDToolbarItemHeight - OMDToolbarLabelHeight()) * 0.5);
             CGFloat controlY = floor((OMDToolbarItemHeight - OMDToolbarControlHeight) * 0.5);
             _modeContainer = [[OMDToolbarToolTipView alloc] initWithFrame:NSMakeRect(0, 0, containerWidth, OMDToolbarItemHeight)];
             // Vim's mode and command line, beside the switcher.
-            _previewStatusLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(0, labelY, statusWidth, OMDToolbarLabelHeight)];
+            _previewStatusLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(0, labelY, statusWidth, OMDToolbarLabelHeight())];
             [_previewStatusLabel setBezeled:NO];
             [_previewStatusLabel setEditable:NO];
             [_previewStatusLabel setSelectable:NO];
             [_previewStatusLabel setDrawsBackground:NO];
             [_previewStatusLabel setAlignment:NSRightTextAlignment];
+<<<<<<< Updated upstream
             [_previewStatusLabel setFont:OMDChromeBoldFont()];
+=======
+            [_previewStatusLabel setFont:OMDToolbarLabelFont()];
+>>>>>>> Stashed changes
             [_previewStatusLabel setStringValue:@""];
             [_previewStatusLabel setHidden:YES];
             [_modeContainer addSubview:_previewStatusLabel];
@@ -339,21 +363,27 @@ static BOOL OMDShouldUseToolbarFlexibleSpace(void)
 
     if ([identifier isEqualToString:@"ModeControls"]) {
         if (_modeContainer == nil) {
-            CGFloat labelY = floor((OMDToolbarItemHeight - OMDToolbarLabelHeight) * 0.5);
+            CGFloat labelY = floor((OMDToolbarItemHeight - OMDToolbarLabelHeight()) * 0.5);
             CGFloat controlY = floor((OMDToolbarItemHeight - OMDToolbarControlHeight) * 0.5);
-            _modeContainer = [[OMDToolbarToolTipView alloc] initWithFrame:NSMakeRect(0, 0, 356, OMDToolbarItemHeight)];
-            _modeLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(0, labelY, 32, OMDToolbarLabelHeight)];
+            CGFloat captionWidth = OMDToolbarLabelTextSize(@"View").width + 4.0;
+            CGFloat switcherX = captionWidth + 4.0;
+            _modeContainer = [[OMDToolbarToolTipView alloc] initWithFrame:NSMakeRect(0, 0, switcherX + 182.0 + 6.0 + 132.0, OMDToolbarItemHeight)];
+            _modeLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(0, labelY, captionWidth, OMDToolbarLabelHeight())];
             [_modeLabel setBezeled:NO];
             [_modeLabel setEditable:NO];
             [_modeLabel setSelectable:NO];
             [_modeLabel setDrawsBackground:NO];
             [_modeLabel setAlignment:NSRightTextAlignment];
+<<<<<<< Updated upstream
             [_modeLabel setFont:OMDChromeBoldFont()];
+=======
+            [_modeLabel setFont:OMDToolbarLabelFont()];
+>>>>>>> Stashed changes
             [_modeLabel setTextColor:[_delegate modeLabelTextColor]];
             [_modeLabel setStringValue:@"View"];
             [_modeContainer addSubview:_modeLabel];
 
-            _modeControl = [[NSSegmentedControl alloc] initWithFrame:NSMakeRect(36, controlY, 182, OMDToolbarControlHeight)];
+            _modeControl = [[NSSegmentedControl alloc] initWithFrame:NSMakeRect(switcherX, controlY, 182, OMDToolbarControlHeight)];
             [_modeControl setSegmentCount:3];
             [_modeControl setLabel:@"Read" forSegment:0];
             [_modeControl setLabel:@"Edit" forSegment:1];
@@ -365,19 +395,23 @@ static BOOL OMDShouldUseToolbarFlexibleSpace(void)
             [_modeControl setAction:@selector(modeControlChanged:)];
             [_modeContainer addSubview:_modeControl];
             [(OMDToolbarToolTipView *)_modeContainer setToolTip:@"Read mode"
-                                                        forRect:NSMakeRect(36.0, controlY, 60.0, OMDToolbarControlHeight)];
+                                                        forRect:NSMakeRect(switcherX, controlY, 60.0, OMDToolbarControlHeight)];
             [(OMDToolbarToolTipView *)_modeContainer setToolTip:@"Edit mode"
-                                                        forRect:NSMakeRect(96.0, controlY, 61.0, OMDToolbarControlHeight)];
+                                                        forRect:NSMakeRect(switcherX + 60.0, controlY, 61.0, OMDToolbarControlHeight)];
             [(OMDToolbarToolTipView *)_modeContainer setToolTip:@"Split mode"
-                                                        forRect:NSMakeRect(157.0, controlY, 61.0, OMDToolbarControlHeight)];
+                                                        forRect:NSMakeRect(switcherX + 121.0, controlY, 61.0, OMDToolbarControlHeight)];
 
-            _previewStatusLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(224, labelY, 132, OMDToolbarLabelHeight)];
+            _previewStatusLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(switcherX + 182.0 + 6.0, labelY, 132, OMDToolbarLabelHeight())];
             [_previewStatusLabel setBezeled:NO];
             [_previewStatusLabel setEditable:NO];
             [_previewStatusLabel setSelectable:NO];
             [_previewStatusLabel setDrawsBackground:NO];
             [_previewStatusLabel setAlignment:NSLeftTextAlignment];
+<<<<<<< Updated upstream
             [_previewStatusLabel setFont:OMDChromeBoldFont()];
+=======
+            [_previewStatusLabel setFont:OMDToolbarLabelFont()];
+>>>>>>> Stashed changes
             [_previewStatusLabel setStringValue:@""];
             [_previewStatusLabel setHidden:YES];
             [_modeContainer addSubview:_previewStatusLabel];
@@ -387,8 +421,8 @@ static BOOL OMDShouldUseToolbarFlexibleSpace(void)
         }
         NSToolbarItem *item = [[[NSToolbarItem alloc] initWithItemIdentifier:@"ModeControls"] autorelease];
         [item setView:_modeContainer];
-        [item setMinSize:NSMakeSize(356, OMDToolbarItemHeight)];
-        [item setMaxSize:NSMakeSize(356, OMDToolbarItemHeight)];
+        [item setMinSize:NSMakeSize(NSWidth([_modeContainer frame]), OMDToolbarItemHeight)];
+        [item setMaxSize:NSMakeSize(NSWidth([_modeContainer frame]), OMDToolbarItemHeight)];
         [item setLabel:@""];
         [item setPaletteLabel:@"View"];
         return item;
@@ -396,17 +430,21 @@ static BOOL OMDShouldUseToolbarFlexibleSpace(void)
 
     if ([identifier isEqualToString:@"ZoomControls"]) {
         if (_zoomContainer == nil) {
-            CGFloat labelY = floor((OMDToolbarItemHeight - OMDToolbarLabelHeight) * 0.5);
+            CGFloat labelY = floor((OMDToolbarItemHeight - OMDToolbarLabelHeight()) * 0.5);
             CGFloat controlY = floor((OMDToolbarItemHeight - OMDToolbarControlHeight) * 0.5);
             _zoomContainer = [[OMDToolbarToolTipView alloc] initWithFrame:NSMakeRect(0, 0, 300, OMDToolbarItemHeight)];
 
-            _zoomLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(0, labelY, 55, OMDToolbarLabelHeight)];
+            _zoomLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(0, labelY, 55, OMDToolbarLabelHeight())];
             [_zoomLabel setBezeled:NO];
             [_zoomLabel setEditable:NO];
             [_zoomLabel setSelectable:NO];
             [_zoomLabel setDrawsBackground:NO];
             [_zoomLabel setAlignment:NSRightTextAlignment];
+<<<<<<< Updated upstream
             [_zoomLabel setFont:OMDChromeBoldFont()];
+=======
+            [_zoomLabel setFont:OMDToolbarLabelFont()];
+>>>>>>> Stashed changes
             [_zoomLabel setToolTip:@"Current zoom"];
 
             _zoomSlider = [[NSSlider alloc] initWithFrame:NSMakeRect(60, controlY, 130, OMDToolbarControlHeight)];
@@ -420,7 +458,10 @@ static BOOL OMDShouldUseToolbarFlexibleSpace(void)
             _zoomResetButton = [[NSButton alloc] initWithFrame:NSMakeRect(205, controlY, 90, OMDToolbarControlHeight)];
             [_zoomResetButton setTitle:@"100%"];
             [_zoomResetButton setBezelStyle:NSRoundedBezelStyle];
+<<<<<<< Updated upstream
             [_zoomResetButton setFont:OMDChromeFont()];
+=======
+>>>>>>> Stashed changes
             [_zoomResetButton setTarget:_delegate];
             [_zoomResetButton setAction:@selector(zoomReset:)];
             [_zoomResetButton setToolTip:@"Reset zoom to 100%"];
@@ -429,7 +470,7 @@ static BOOL OMDShouldUseToolbarFlexibleSpace(void)
             [_zoomContainer addSubview:_zoomSlider];
             [_zoomContainer addSubview:_zoomResetButton];
             [(OMDToolbarToolTipView *)_zoomContainer setToolTip:@"Current zoom"
-                                                        forRect:NSMakeRect(0.0, labelY, 55.0, OMDToolbarLabelHeight)];
+                                                        forRect:NSMakeRect(0.0, labelY, 55.0, OMDToolbarLabelHeight())];
             [(OMDToolbarToolTipView *)_zoomContainer setToolTip:@"Adjust zoom"
                                                         forRect:NSMakeRect(60.0, controlY, 130.0, OMDToolbarControlHeight)];
             [(OMDToolbarToolTipView *)_zoomContainer setToolTip:@"Reset zoom to 100%"
