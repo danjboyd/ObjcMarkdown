@@ -12,10 +12,6 @@ MarkdownViewer_CPPFLAGS += -I../third_party/GPUpdaterUI/Headers
 ifneq (,$(findstring mingw,$(GNUSTEP_HOST_OS)))
 MarkdownViewer_WINDRES_FILES = MarkdownViewer.rc
 MarkdownViewer_LDFLAGS += -lgdi32
-# Native Win32 open and save dialogs. Elsewhere the GNUstep theme provides
-# the panels (the Adwaita theme: GNOME's file chooser).
-MarkdownViewer_CPPFLAGS += -I../third_party/libs-OpenSave/Headers
-MarkdownViewer_LDFLAGS += -L../third_party/libs-OpenSave/Source/$(GNUSTEP_OBJ_DIR) -lOpenSave
 endif
 MarkdownViewer_LDFLAGS += -L../ObjcMarkdown/$(GNUSTEP_OBJ_DIR) -lObjcMarkdown
 MarkdownViewer_LDFLAGS += -L../third_party/TextViewVimKitBuild/$(GNUSTEP_OBJ_DIR) -lTextViewVimKit

@@ -26,8 +26,8 @@ if ! command -v "$MAKE_TOOL" >/dev/null 2>&1; then
   MAKE_TOOL=make
 fi
 
-# The top-level build covers every library the app links (libs-OpenSave,
-# TextViewVimKit, the GPUpdater libraries, ObjcMarkdown) and the app.
+# The top-level build covers every library the app links (TextViewVimKit,
+# the GPUpdater libraries, ObjcMarkdown) and the app.
 # A failed build doesn't stop the launch: on Windows a running viewer
 # locks its DLLs, so relinking fails until it quits; the last build runs.
 APP="$ROOT/ObjcMarkdownViewer/MarkdownViewer.app"
@@ -40,7 +40,7 @@ if ! "$MAKE_TOOL" -C "$ROOT" OMD_SKIP_TESTS=1; then
 fi
 
 # Windows finds the app's DLLs on PATH: one directory per library above.
-RUNTIME_PATHS="$ROOT/ObjcMarkdown/obj:$ROOT/third_party/libs-OpenSave/Source/obj:$ROOT/third_party/TextViewVimKitBuild/obj"
+RUNTIME_PATHS="$ROOT/ObjcMarkdown/obj:$ROOT/third_party/TextViewVimKitBuild/obj"
 RUNTIME_PATHS="$RUNTIME_PATHS:$ROOT/third_party/GPUpdaterCore/obj:$ROOT/third_party/GPUpdaterUI/obj"
 PATH="$RUNTIME_PATHS:$PATH"
 export PATH

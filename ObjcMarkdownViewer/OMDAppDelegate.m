@@ -44,9 +44,6 @@
 #import "OMDPreferencesController.h"
 #import "GSVVimBindingController.h"
 #import "GSVVimConfigLoader.h"
-#if defined(_WIN32)
-#import "GSOpenSave.h"
-#endif
 #import <AppKit/NSInterfaceStyle.h>
 #import <AppKit/NSPrinter.h>
 #import <GNUstepGUI/GSPrinting.h>
@@ -818,12 +815,8 @@ static NSMutableArray *OMDSecondaryWindows(void)
 - (void)applicationDidFinishLaunching:(NSNotification *)notification
 {
     OMDStartupTrace(@"appDidFinishLaunching: enter");
-#if defined(_WIN32)
-    // Ensure OpenSave is initialized and prefers native Win32 dialogs.
-    // Elsewhere the GNUstep theme provides the open and save panels.
-    GSOpenSaveSetMode(GSOpenSaveModeWin32);
-    OMDStartupTrace(@"appDidFinishLaunching: open-save mode set");
-#endif
+    // The open and save panels are the theme's (WinUITheme: the Windows
+    // shell's dialogs; Adwaita: GNOME's file chooser), or GNUstep's own.
 
     [self setupWindow];
     OMDStartupTrace(@"appDidFinishLaunching: setupWindow returned");

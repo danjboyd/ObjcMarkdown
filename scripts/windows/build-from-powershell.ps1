@@ -79,7 +79,7 @@ function Get-MsysCommand {
     "test" {
       return @"
 mkdir -p ~/GNUstep/Defaults/.lck
-export PATH="$RepoRootMsys/ObjcMarkdown/obj:$RepoRootMsys/third_party/libs-OpenSave/Source/obj:$RepoRootMsys/third_party/TextViewVimKitBuild/obj:`$PATH"
+export PATH="$RepoRootMsys/ObjcMarkdown/obj:$RepoRootMsys/third_party/TextViewVimKitBuild/obj:`$PATH"
 xctest ObjcMarkdownTests/ObjcMarkdownTests.bundle
 "@.Trim()
     }
