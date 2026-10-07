@@ -1,54 +1,55 @@
 # ObjcMarkdown
 
-`ObjcMarkdown` includes `MarkdownViewer`, a GNUstep desktop Markdown app for reading, editing, previewing, importing, and exporting documents. The repository also includes the reusable Objective-C CommonMark renderer that powers the app for projects that want Markdown rendered to `NSAttributedString`.
+**MarkdownViewer** is a desktop Markdown reader and editor built on GNUstep: rendered previews with tables, math, Mermaid diagrams and highlighted code, a source editor with linked scrolling, and a file explorer. Under the hood is **ObjcMarkdown**, the reusable Objective-C renderer that turns CommonMark and GitHub-flavored Markdown into an `NSAttributedString`, ready for any `NSTextView`.
 
-## MarkdownViewer Highlights
+![MarkdownViewer in Read mode under the Adwaita theme: explorer, rendered document and outline](docs/screenshots/adwaita-read.png)
 
-`MarkdownViewer` is the main end-user app in this repo. Current capabilities include:
+## One App, Any Theme
 
-- `Read`, `Edit`, and `Split` modes
-- linked source/preview scrolling in split view
-- a syntax-highlighted source editor with line numbers, an optional formatting bar, and optional Vim key bindings
-- rendered preview with GitHub-style tables, math styling, drawn Mermaid entity-relationship diagrams and flowcharts, and copy buttons for code blocks and diagrams
-- theme, layout, source-editor, and explorer preferences
-- a file explorer sidebar: the document's repository as a tree, with a filter and a context menu
-- File > Open Location: Markdown files from GitHub or any web address, read-only
+MarkdownViewer uses only standard controls and system colours, and lets the GNUstep theme decide how they look. The same build looks like a GNOME app under [Adwaita](https://github.com/danjboyd/plugins-themes-Adwaita), with its header bar, GNOME's file chooser and dark mode, and like a classic GNUstep app under GNUstep's own theme. On Windows it will look like a WinUI app under WinUITheme; screenshots will follow when that theme is ready.
 
-## Import And Export
+| Adwaita, dark | GNUstep theme |
+|:---:|:---:|
+| ![Read mode under Adwaita in dark mode](docs/screenshots/adwaita-dark-read.png) | ![Read mode under GNUstep's default theme](docs/screenshots/gnustep-read.png) |
 
-`MarkdownViewer` is not limited to `.md` files. It opens Markdown directly, can print or export the rendered document as PDF, and, when `pandoc` is installed, can turn Word and other rich-text documents into editable Markdown.
+## Read, Edit, Split
 
-Native/document-first behavior:
+Read for the rendered document, Edit for the Markdown source, and Split for both side by side, with the preview following the editor as you scroll and type.
 
-- open and edit Markdown files directly
-- print or export the rendered document to PDF from the viewer
+![Split mode under Adwaita: source editor and live preview side by side](docs/screenshots/adwaita-split.png)
 
-Pandoc-backed conversions, when `pandoc` is installed:
+| Edit mode, with the formatting bar | Split mode, GNUstep theme |
+|:---:|:---:|
+| ![Edit mode under Adwaita with the formatting bar and line numbers](docs/screenshots/adwaita-edit.png) | ![Split mode under GNUstep's default theme](docs/screenshots/gnustep-split.png) |
 
-- import: `DOCX`, `RTF`, `ODT`, `HTML`, `HTM`
-- export: `DOCX`, `RTF`, `ODT`, `HTML`, `HTM`
+## Features
 
-If `pandoc` is unavailable, those non-Markdown import/export formats are disabled, but native Markdown editing plus print/PDF export remain available.
+- **Read, Edit and Split modes**, with linked scrolling between source and preview
+- **A source editor** with syntax highlighting, line numbers, an optional formatting bar and optional Vim key bindings
+- **An explorer sidebar**: the document's repository or folder as a tree, with recent folders, a filter, a Markdown-only option and a context menu (open in a new tab, reveal, copy paths)
+- **An outline** of the document's headings that follows where you are
+- **Tabs** for several documents in one window
+- **Open Location**: Markdown files straight from GitHub or any web address, read-only
+- **Import and export**: print or export to PDF, and, with `pandoc` installed, import and export `DOCX`, `RTF`, `ODT` and `HTML`
+- **Copy buttons** on code blocks and diagrams
+- **Preferences** for the theme, layout density, editor and explorer
 
-## Screenshots
+## Rendering
 
-A few views from the current app:
+The renderer parses with GitHub's [cmark-gfm](https://github.com/github/cmark-gfm), vendored and compiled in, so the app, the editor's highlighting and the scroll sync agree on the document's structure. Try it on [docs/showcase.md](docs/showcase.md).
 
-### Read mode
+| Tables and code | Math and diagrams |
+|:---:|:---:|
+| ![A table and syntax-highlighted Objective-C and Python](docs/screenshots/closeup-tables-code.png) | ![Inline and display math, a Mermaid flowchart and an ER diagram](docs/screenshots/closeup-math-diagrams.png) |
 
-![MarkdownViewer read mode](docs/screenshots/read-mode.png)
-
-### Split mode
-
-![MarkdownViewer split mode](docs/screenshots/split-mode.png)
-
-### Preferences
-
-![MarkdownViewer preferences window](docs/screenshots/preferences.png)
-
-### Edit mode
-
-![MarkdownViewer edit mode](docs/screenshots/edit-mode.png)
+- CommonMark: headings, emphasis, links, images, blockquotes, lists, code blocks, thematic breaks
+- GitHub-flavored Markdown: tables, task lists, strikethrough, autolinks and footnotes
+- **Tables laid out as text**: selectable and searchable, with links and cells that wrap to fit (or drawn as an image that may run wider than the view, via `allowTableHorizontalOverflow`)
+- **Mermaid** `flowchart` (with subgraphs, `classDef` and `style`) and `erDiagram` blocks drawn as diagrams, with the source one click away; other Mermaid types show their source with a note
+- **Math**: inline and display math as styled text, or typeset through LaTeX when a TeX toolchain is installed
+- **Syntax highlighting** for code blocks in Objective-C, C and C++, Swift, Python, JavaScript and TypeScript, Go, Rust, Java, Kotlin, C#, PHP, Ruby, SQL, JSON, YAML, TOML, HTML and XML
+- Relative links and images resolved against the document's location; inline and block HTML shown as safe text by default
+- Themes in TOML, with a GitHub-like default
 
 ## Use The Library In Your App
 
@@ -68,21 +69,10 @@ NSAttributedString *rendered = [renderer attributedStringFromMarkdown:
 
 `-init` uses the default GitHub-like theme and default parsing options, so the common embed case stays small. If you need more control, use `OMTheme` and `OMMarkdownParsingOptions` to load a TOML theme, set a base URL for relative links, change HTML handling, tune image behavior, or adjust syntax-highlighting and math-rendering behavior.
 
-## Renderer Capabilities
+## Install
 
-The shared renderer is centered on CommonMark, with a few pragmatic additions on top. These capabilities power `MarkdownViewer` preview and are also what you get when embedding the library directly.
-
-Currently supported in the renderer:
-
-- CommonMark headings, paragraphs, emphasis, strong emphasis, inline code, and fenced or indented code blocks
-- blockquotes, ordered lists, unordered lists, and thematic breaks
-- links, relative links with base-URL resolution, and image attachments with fallback text when decoding fails
-- inline and block HTML as safe fallback text by default, with an explicit ignore policy available in code
-- optional math styling for inline and display math
-- optional full LaTeX-backed math artifact rendering when the required external toolchain is available
-- GitHub-style pipe tables laid out as text: selectable, searchable, with clickable links and cells that wrap to fit (or drawn as an image that may run wider than the view, via `allowTableHorizontalOverflow`)
-- Mermaid `erDiagram` and `flowchart` blocks drawn as diagrams, with the diagram source kept one click away; other Mermaid types show their source with a note
-- optional renderer syntax highlighting for code blocks when the required tooling is available
+- **Windows**: the MSI or portable ZIP from [Releases](https://github.com/danjboyd/ObjcMarkdown/releases), with WinUITheme bundled as the default theme.
+- **Linux**: an AppImage with the GNUstep runtime and the Adwaita theme bundled, built by [linux-appimage.yml](.github/workflows/linux-appimage.yml); the next tagged release attaches it. Until then, build from source as below.
 
 ## Status
 
@@ -168,8 +158,8 @@ Release flow:
 
 - Ensure the target commit has already passed the separate Linux CI workflow if you want a GNUstep/Linux gate before release tagging.
 - Push an annotated tag like `v0.1.0`.
-- GitHub Actions runs `linux-appimage` as a thin caller to the reusable `gnustep-packager` workflow pinned to `bca864ff163e129100881145e017429fed155bf7`, using this repo's Linux manifest, stage script, and self-hosted GNUstep preflight.
-- GitHub Actions runs `windows-packaging` as a thin caller to the reusable `gnustep-packager` workflow pinned to `4fc362a68b3e55191942c01a92cf2f8da82031bb`, using this repo's Windows MSI manifest and normalized Windows stage script. The Windows manifest owns app-specific host dependencies (currently none: `cmark-gfm` is vendored). The staged Windows payload includes the GNUstep runtime, bundled Windows themes, and TinyTeX runtime for external LaTeX rendering. Windows releases are expected to bundle `WinUITheme` and use it as the default packaged theme.
+- GitHub Actions runs `linux-appimage` as a thin caller to the reusable `gnustep-packager` workflow pinned to `4814554c9e445170217bd6849efea05b98e62856`, on a GitHub-hosted runner inside the same CI image, using this repo's Linux manifest, stage script and preflight. It bundles the Adwaita theme at the commit pinned in [packaging/inputs.json](packaging/inputs.json).
+- GitHub Actions runs `windows-packaging` as a thin caller to the reusable `gnustep-packager` workflow pinned to `bac42892f79ae1c7d56017d7cdb1d1637d729e6b`, using this repo's Windows MSI manifest and normalized Windows stage script. The Windows manifest owns app-specific host dependencies (currently none: `cmark-gfm` is vendored). The staged Windows payload includes the GNUstep runtime, bundled Windows themes, and TinyTeX runtime for external LaTeX rendering. Windows releases are expected to bundle `WinUITheme` and use it as the default packaged theme.
 - Each tagged packaging workflow then downloads its `-packages` artifact and attaches the release files to the matching GitHub Release page. Linux publishes the `.AppImage` and `.zsync`; Windows publishes the `.msi` and portable ZIP, along with generated sidecars such as `.update-feed.json`.
 - Clean-machine Windows validation is documented in [docs/windows-otvm-msi-validation.md](docs/windows-otvm-msi-validation.md). Going forward, the supported Debian and Windows VM path is libvirt-backed `OracleTestVMs` leases. The older direct-OCI helper has been retired; [docs/windows-oci-msi-validation.md](docs/windows-oci-msi-validation.md) is kept only as a retirement note.
 
