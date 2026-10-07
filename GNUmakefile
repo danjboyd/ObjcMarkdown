@@ -28,6 +28,15 @@ endif
 
 include $(GNUSTEP_MAKEFILES)/aggregate.make
 
+# On Windows, each successful build is copied for the Start-menu launcher
+# (MarkdownViewer-dev.ps1), which runs the copy, so a running app doesn't
+# lock the DLLs the next build relinks.
+ifneq (,$(findstring mingw,$(GNUSTEP_HOST_OS)))
+after-all::
+	@bash "$(CURDIR)/scripts/windows/snapshot-dev-build.sh" \
+	  "$(CURDIR)/ObjcMarkdownViewer/MarkdownViewer.app" "$(OMD_RUNTIME_LIB_DIRS)"
+endif
+
 .PHONY: run
 run: all
 	. "$(GNUSTEP_MAKEFILES)/GNUstep.sh"; \
