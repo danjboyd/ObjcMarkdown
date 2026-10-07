@@ -14,7 +14,9 @@
         // A thin divider the theme draws (NSSplitView's own drawing, in the
         // theme's divider colour); the app paints no chrome (#84).
         [self setDividerStyle:NSSplitViewDividerStyleThin];
+#if defined(GNUSTEP)
         [self setDraggedBarWidth:OMDWin11SplitDividerHitThickness];
+#endif
     }
     return self;
 }

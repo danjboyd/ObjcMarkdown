@@ -185,6 +185,10 @@ static double OMDKeyLatencyMS(NSTimeInterval start, NSTimeInterval end)
         return;
     }
 
+    // From macOS 14 views don't clip to their bounds, and rect can reach
+    // over the text beside the ruler.
+    rect = NSIntersectionRect(rect, [self bounds]);
+
     NSColor *backgroundColor = [NSColor controlBackgroundColor];
     if (backgroundColor == nil) {
         backgroundColor = [NSColor windowBackgroundColor];

@@ -85,7 +85,7 @@ This repository is currently a `0.1` source-first preview.
 
 - Primary supported environment: GNUstep on Linux with a clang/libobjc2/libdispatch toolchain.
 - Windows support exists through the MSYS2 `clang64` toolchain. PowerShell/Codex sessions should use `scripts/windows/build-from-powershell.ps1`; see [WINDOWS_BUILD.md](WINDOWS_BUILD.md).
-- macOS compatibility is still a project goal, but there is not yet a maintained macOS setup guide in this repo.
+- macOS builds natively with Xcode's clang and Cocoa: `make -C macos` (app) and `make -C macos test`; see the macOS section of [AGENTS.md](AGENTS.md).
 
 ## Toolchain Requirements
 

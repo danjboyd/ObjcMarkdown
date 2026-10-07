@@ -7,12 +7,17 @@
 static NSString * const OMDMathRenderingPolicyDefaultsKey = @"ObjcMarkdownMathRenderingPolicy";
 static NSInteger const OMDMathRenderingPolicyExternalToolsValue = 2;
 #endif
+// GNUstep's global defaults (theme, menu style, window decoration). On
+// macOS NSGlobalDomain is the system's, shared with every app, and none of
+// these keys mean anything there, so nothing is written.
+#if defined(GNUSTEP)
 static NSString * const OMDMenuInterfaceStyleDefaultsKey = @"NSMenuInterfaceStyle";
 static NSString * const OMDWindowDecorationDefaultsKey = @"GSWindowDecoration";
 static NSString * const OMDBackChecksOffsetsWithoutNetRequestsDefaultsKey = @"GSBackChecksOffsetsWithoutNetRequests";
 static NSString * const OMDBackChecksOffsetsOnScreenDefaultsKey = @"GSBackChecksOffsetsOnScreen";
 static NSString * const OMDSuppressAppIconDefaultsKey = @"GSSuppressAppIcon";
 static NSString * const OMDThemeDefaultsKey = @"GSTheme";
+#endif
 
 static NSString *OMDApplicationName(void)
 {
@@ -54,6 +59,7 @@ static void OMDStartupTrace(NSString *message)
 #endif
 }
 
+#if defined(GNUSTEP)
 #if defined(_WIN32)
 static NSString *OMDWindowsInstallRoot(void)
 {
@@ -317,6 +323,7 @@ static void OMDEnsureDefaultPreferences(void)
     OMDEnsureWindowsDefaultPreferences();
 #endif
 }
+#endif
 
 static void OMDUncaughtExceptionHandler(NSException *exception)
 {
@@ -348,8 +355,10 @@ int main(int argc, char *argv[])
     if (applicationName != nil && [applicationName length] > 0) {
         [[NSProcessInfo processInfo] setProcessName:applicationName];
     }
+#if defined(GNUSTEP)
     OMDEnsureDefaultPreferences();
     OMDStartupTrace(@"main: default preferences ensured");
+#endif
     NSApplication *app = nil;
     @try {
         app = [NSApplication sharedApplication];

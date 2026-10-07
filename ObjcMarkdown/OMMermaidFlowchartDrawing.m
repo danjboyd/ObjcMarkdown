@@ -4,6 +4,7 @@
 #import "OMMermaidFlowchartDrawing.h"
 #import "OMMermaidFlowchart.h"
 #import "OMMermaidERDrawing.h"
+#import "OMFontSupport.h"
 #include <math.h>
 
 // Below this a diagram is too small to read; it draws wider than the page.
@@ -241,7 +242,7 @@ static NSColor *OMFlowTextColorOnFill(NSColor *fill, NSColor *fallback)
     if (font == nil || _drawScale >= 0.999) {
         return font;
     }
-    NSFont *scaled = [NSFont fontWithName:[font fontName] size:[font pointSize] * _drawScale];
+    NSFont *scaled = OMFontAtSize(font, [font pointSize] * _drawScale);
     return scaled != nil ? scaled : font;
 }
 

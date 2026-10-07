@@ -43,10 +43,13 @@
 #import "OMDPreferencesController.h"
 #import "GSVVimBindingController.h"
 #import "GSVVimConfigLoader.h"
-#import <AppKit/NSInterfaceStyle.h>
+#import "OMFontSupport.h"
 #import <AppKit/NSPrinter.h>
+#if defined(GNUSTEP)
+#import <AppKit/NSInterfaceStyle.h>
 #import <GNUstepGUI/GSPrinting.h>
 #import <GNUstepGUI/GSTheme.h>
+#endif
 
 #include <sys/types.h>
 #if defined(_WIN32)
@@ -62,6 +65,10 @@
 - (void)start;
 - (void)checkForUpdates:(id)sender;
 @end
+
+#if !defined(GNUSTEP)
+static void *OMDSystemAppearanceObservationContext = &OMDSystemAppearanceObservationContext;
+#endif
 
 static const CGFloat OMDPrintExportZoomScale = 0.8;
 static const NSTimeInterval OMDInteractiveRenderDebounceInterval = 0.15;
@@ -113,12 +120,15 @@ static NSUInteger OMDCountAttachmentsInAttributedString(NSAttributedString *attr
     return count;
 }
 
+// GNUstep's Windows-style menus (a menu bar in each window). macOS has
+// one menu bar at the top of the screen, so these do nothing there.
 static void OMDApplyWindowsMenuToWindow(NSWindow *window)
 {
     if (window == nil) {
         return;
     }
 
+#if defined(GNUSTEP)
 #if defined(_WIN32)
     if (YES) {
 #else
@@ -138,10 +148,12 @@ static void OMDApplyWindowsMenuToWindow(NSWindow *window)
             OMDStartupTrace(@"windows-style menu applied to window");
         }
     }
+#endif
 }
 
 static void OMDRefreshWindowsMainMenu(void)
 {
+#if defined(GNUSTEP)
 #if defined(_WIN32)
     if (YES) {
 #else
@@ -156,21 +168,23 @@ static void OMDRefreshWindowsMainMenu(void)
             OMDStartupTrace(@"windows-style main menu refreshed");
         }
     }
+#endif
 }
 
 static CGFloat OMDMinimumUsableWindowWidth(void)
 {
-#if defined(__APPLE__)
-    return 900.0;
-#else
     // The status bar is the widest row that can't shrink.
     return OMDStatusBarMinimumWidth + OMDUsableWindowWidthPadding;
-#endif
 }
 
 static CGFloat OMDDefaultWindowWidth(void)
 {
+#if defined(__APPLE__)
+    // Room for the toolbar's items without the overflow menu.
+    return MAX(900.0, OMDMinimumUsableWindowWidth());
+#else
     return OMDMinimumUsableWindowWidth();
+#endif
 }
 
 static CGFloat OMDDefaultWindowHeight(void)
@@ -258,8 +272,8 @@ typedef NS_ENUM(NSInteger, OMDLinkedScrollDriver) {
 #define NSModalResponseCancel (-1000)
 #endif
 
-#if !defined(_WIN32)
-// Only the non-Windows path uses it.
+#if defined(GNUSTEP) && !defined(_WIN32)
+// Only GNUstep on Linux uses it; macOS and Windows keep their own default printer.
 static NSString *OMDCUPSDefaultPrinterName(void)
 {
     NSString *lpstatPath = OMDExecutablePathNamed(@"lpstat");
@@ -640,6 +654,7 @@ static CGFloat OMDClampedScrollSpeed(CGFloat value)
 - (void)zoomToActualSize:(id)sender;
 - (void)checkForUpdates:(id)sender;
 - (void)showAboutPanel:(id)sender;
+- (void)showProjectHomePage:(id)sender;
 - (BOOL)isWordSelectionModifierShimEnabled;
 - (void)setWordSelectionModifierShimEnabled:(BOOL)enabled;
 - (void)toggleWordSelectionModifierShim:(id)sender;
@@ -740,6 +755,16 @@ static NSMutableArray *OMDSecondaryWindows(void)
 
 - (void)dealloc
 {
+#if !defined(GNUSTEP)
+    if (_observingSystemAppearance) {
+        [NSApp removeObserver:self
+                   forKeyPath:@"effectiveAppearance"
+                      context:OMDSystemAppearanceObservationContext];
+    }
+    [NSObject cancelPreviousPerformRequestsWithTarget:self
+                                             selector:@selector(systemAppearanceDidChange)
+                                               object:nil];
+#endif
     [self unregisterAsSecondaryWindow];
     [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(refreshOutline) object:nil];
     [[NSNotificationCenter defaultCenter] removeObserver:self
@@ -863,6 +888,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
     }
 
     [self presentWindowIfNeeded];
+#if defined(GNUSTEP)
     if (_updaterController == nil) {
         NSError *updateError = nil;
         GPStandardUpdaterController *controller = [[GPStandardUpdaterController alloc] initWithPackagedConfiguration:&updateError];
@@ -876,6 +902,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
     } else {
         [(GPStandardUpdaterController *)_updaterController setParentWindow:_window];
     }
+#endif
     if ([startupPath length] > 0 || shouldCheckRecovery) {
         _launchWorkScheduled = YES;
         [self performSelector:@selector(performDeferredInitialLaunchWork)
@@ -907,6 +934,11 @@ static NSMutableArray *OMDSecondaryWindows(void)
 {
     OMDStartupTrace(@"applicationWillFinishLaunching: enter");
     OMDRemoveRetiredDefaults();
+#if !defined(GNUSTEP)
+    // Documents open as the app's own tabs in one window, so macOS's window
+    // tabs (and their menu items) would be a second, conflicting set.
+    [NSWindow setAllowsAutomaticWindowTabbing:NO];
+#endif
     @try {
         [self setupMainMenu];
         OMDStartupTrace(@"applicationWillFinishLaunching: setupMainMenu returned");
@@ -921,6 +953,14 @@ static NSMutableArray *OMDSecondaryWindows(void)
 {
     return YES;
 }
+
+#if !defined(GNUSTEP)
+- (BOOL)applicationSupportsSecureRestorableState:(NSApplication *)app
+{
+    (void)app;
+    return YES;
+}
+#endif
 
 - (BOOL)application:(NSApplication *)theApplication openFile:(NSString *)filename
 {
@@ -967,6 +1007,33 @@ static NSMutableArray *OMDSecondaryWindows(void)
                 requireDirtyConfirm:!openInNewTab];
 }
 
+#if !defined(GNUSTEP)
+- (void)observeValueForKeyPath:(NSString *)keyPath
+                      ofObject:(id)object
+                        change:(NSDictionary *)change
+                       context:(void *)context
+{
+    if (context != OMDSystemAppearanceObservationContext) {
+        [super observeValueForKeyPath:keyPath ofObject:object change:change context:context];
+        return;
+    }
+    [NSObject cancelPreviousPerformRequestsWithTarget:self
+                                             selector:@selector(systemAppearanceDidChange)
+                                               object:nil];
+    [self performSelector:@selector(systemAppearanceDidChange) withObject:nil afterDelay:0.0];
+}
+
+// The preview's theme and the source colours follow the new appearance.
+- (void)systemAppearanceDidChange
+{
+    [[NSApp effectiveAppearance] performAsCurrentDrawingAppearance:^{
+        [_renderer setTheme:[OMTheme defaultThemeForDarkAppearance:OMDSystemAppearanceIsDark()]];
+        [self renderCurrentMarkdown];
+        [self requestSourceSyntaxHighlightingRefresh];
+    }];
+}
+#endif
+
 - (void)setupMainMenu
 {
     OMDStartupTrace(@"setupMainMenu: enter");
@@ -997,11 +1064,19 @@ static NSMutableArray *OMDSecondaryWindows(void)
                     backing:NSBackingStoreBuffered
                       defer:NO];
     [_window setMinSize:NSMakeSize(OMDMinimumUsableWindowWidth(), 600.0)];
+#if !defined(GNUSTEP)
+    [_window setCollectionBehavior:([_window collectionBehavior] | NSWindowCollectionBehaviorFullScreenPrimary)];
+#endif
     [_window setFrameAutosaveName:@"ObjcMarkdownViewerMainWindow"];
     [self normalizeWindowFrameIfNeeded];
     [_window setTitle:@"Markdown Viewer"];
     [_window setDelegate:self];
+#if defined(GNUSTEP)
+    // macOS takes the icon from the bundle (CFBundleIconFile).
     NSImage *appIcon = OMDImageNamed(@"markdown_icon.png");
+#else
+    NSImage *appIcon = nil;
+#endif
     if (appIcon != nil) {
         [NSApp setApplicationIconImage:appIcon];
         if ([_window respondsToSelector:@selector(setMiniwindowImage:)]) {
@@ -1070,7 +1145,13 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [_textView setVerticallyResizable:NO];
     [_textView setEditable:NO];
     [_textView setSelectable:YES];
+#if defined(GNUSTEP)
     [_textView setUsesFindPanel:YES];
+#else
+    // macOS's find bar, at the top of the pane.
+    [_textView setUsesFindBar:YES];
+    [_textView setIncrementalSearchingEnabled:YES];
+#endif
     [_textView setRichText:YES];
     [_textView setDrawsBackground:NO];
     [_textView setTextContainerInset:NSMakeSize(metrics.previewTextInsetX, metrics.previewTextInsetY)];
@@ -1122,7 +1203,12 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [_sourceTextView setSelectable:YES];
     [_sourceTextView setRichText:NO];
     [_sourceTextView setAllowsUndo:YES];
+#if defined(GNUSTEP)
     [_sourceTextView setUsesFindPanel:YES];
+#else
+    [_sourceTextView setUsesFindBar:YES];
+    [_sourceTextView setIncrementalSearchingEnabled:YES];
+#endif
     [_sourceTextView setUsesRuler:NO];
     [_sourceTextView setRulerVisible:NO];
     [_sourceTextView setTextContainerInset:NSMakeSize(metrics.sourceTextInsetX, metrics.sourceTextInsetY)];
@@ -1268,6 +1354,17 @@ static NSMutableArray *OMDSecondaryWindows(void)
                                              selector:@selector(remoteImagesDidWarm:)
                                                  name:OMMarkdownRendererRemoteImagesDidWarmNotification
                                                object:nil];
+#if !defined(GNUSTEP)
+    // macOS switches between light and dark while the app runs (by hand, or
+    // at sunset with Auto).
+    if (!_observingSystemAppearance) {
+        [NSApp addObserver:self
+                forKeyPath:@"effectiveAppearance"
+                   options:0
+                   context:OMDSystemAppearanceObservationContext];
+        _observingSystemAppearance = YES;
+    }
+#endif
 
     _viewerMode = OMDViewerModeFromInteger([[NSUserDefaults standardUserDefaults] integerForKey:@"ObjcMarkdownViewerMode"]);
     [self setViewerMode:_viewerMode persistPreference:NO];
@@ -1801,6 +1898,11 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
     if (action == @selector(performFindPanelAction:)) {
         return [self findTargetTextView] != nil;
     }
+#if !defined(GNUSTEP)
+    if (action == @selector(performTextFinderAction:)) {
+        return [self findTargetTextView] != nil;
+    }
+#endif
     if (action == @selector(setReadMode:) ||
         action == @selector(setEditMode:) ||
         action == @selector(setSplitMode:)) {
@@ -3273,7 +3375,7 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
 
 - (void)ensurePrintDefaultPrinterConfigured
 {
-#if defined(_WIN32)
+#if defined(_WIN32) || !defined(GNUSTEP)
     return;
 #else
     NSString *defaultPrinterName = OMDCUPSDefaultPrinterName();
@@ -3405,6 +3507,7 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
                                                           [exception reason]]);
     }
 
+#if defined(GNUSTEP)
     @try {
         printingBundle = [GSPrinting printingBundle];
     } @catch (NSException *exception) {
@@ -3412,13 +3515,19 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
                                                           stage,
                                                           [exception reason]]);
     }
+#endif
 
     OMDLogPrintDiagnostics([NSString stringWithFormat:@"%@ operationClass=%@ panelClass=%@ panelVisible=%@ panelFrame=%@ bundlePath=%@ selectedPrinter=%@ defaultPrinter=%@ printerNames=%@ jobDisposition=%@",
                                                       stage,
                                                       (operation != nil ? NSStringFromClass([operation class]) : @"<nil>"),
                                                       (panel != nil ? NSStringFromClass([panel class]) : @"<nil>"),
+#if defined(GNUSTEP)
                                                       (panel != nil && [panel isVisible] ? @"YES" : @"NO"),
                                                       (panel != nil ? NSStringFromRect([panel frame]) : @"<nil>"),
+#else
+                                                      @"<n/a>",
+                                                      @"<n/a>",
+#endif
                                                       (printingBundle != nil ? [printingBundle bundlePath] : @"<nil>"),
                                                       (selectedPrinter != nil ? [selectedPrinter name] : @"<nil>"),
                                                       (defaultPrinter != nil ? [defaultPrinter name] : @"<nil>"),
@@ -4735,7 +4844,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
 {
     NSFont *base = [[_renderer theme] baseFont];
     CGFloat size = (base != nil ? [base pointSize] : 16.0) * (_zoomScale > 0.0 ? _zoomScale : 1.0);
-    NSFont *font = base != nil ? [NSFont fontWithName:[base fontName] size:size] : nil;
+    NSFont *font = base != nil ? OMFontAtSize(base, size) : nil;
     if (font == nil) {
         font = [NSFont userFontOfSize:size];
     }
@@ -7020,6 +7129,12 @@ constrainSplitPosition:(CGFloat)proposedPosition
     [(GPStandardUpdaterController *)_updaterController checkForUpdates:sender];
 }
 
+- (void)showProjectHomePage:(id)sender
+{
+    (void)sender;
+    [[NSWorkspace sharedWorkspace] openURL:[NSURL URLWithString:@"https://github.com/danjboyd/ObjcMarkdown"]];
+}
+
 - (void)showAboutPanel:(id)sender
 {
     NSMutableDictionary *options = [NSMutableDictionary dictionary];
@@ -7106,6 +7221,10 @@ constrainSplitPosition:(CGFloat)proposedPosition
 
 - (void)setThemePreference:(NSString *)themeName
 {
+#if !defined(GNUSTEP)
+    // On macOS NSGlobalDomain is the system's; there is no theme to set.
+    (void)themeName;
+#else
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
     NSMutableDictionary *globalDomain = nil;
     NSDictionary *existingGlobalDomain = [defaults persistentDomainForName:NSGlobalDomain];
@@ -7128,6 +7247,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
     [globalDomain setObject:themeName forKey:OMDThemeDefaultsKey];
     [defaults setPersistentDomain:globalDomain forName:NSGlobalDomain];
     [defaults synchronize];
+#endif
 }
 
 - (NSArray *)availableThemeNames
@@ -7207,7 +7327,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
         size = OMDSourceEditorMaxFontSize;
     }
     if ([resolved pointSize] != size) {
-        NSFont *sized = [NSFont fontWithName:[resolved fontName] size:size];
+        NSFont *sized = OMFontAtSize(resolved, size);
         if (sized != nil) {
             resolved = sized;
         }
@@ -7338,6 +7458,20 @@ constrainSplitPosition:(CGFloat)proposedPosition
     [_window makeFirstResponder:target];
     [target performFindPanelAction:sender];
 }
+
+#if !defined(GNUSTEP)
+// The same on macOS, whose find bar takes NSTextFinder actions.
+- (void)performTextFinderAction:(id)sender
+{
+    NSTextView *target = [self findTargetTextView];
+    if (target == nil) {
+        NSBeep();
+        return;
+    }
+    [_window makeFirstResponder:target];
+    [target performTextFinderAction:sender];
+}
+#endif
 
 - (void)zoomToActualSize:(id)sender
 {

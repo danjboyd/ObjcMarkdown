@@ -3,6 +3,7 @@
 
 #import "OMMarkdownRenderer.h"
 #import "OMMarkdownRendererInternal.h"
+#import "OMFontSupport.h"
 #include "OMEmojiShortcodes.inc"
 
 NSString * const OMMarkdownRendererMathArtifactsDidWarmNotification = @"OMMarkdownRendererMathArtifactsDidWarmNotification";
@@ -1296,8 +1297,7 @@ void OMPerformOnMainThread(void (^block)(void))
     NSMutableDictionary *attributes = [[[self.theme baseAttributes] mutableCopy] autorelease];
     CGFloat scale = self.zoomScale > 0.01 ? self.zoomScale : 1.0;
     if (self.theme.baseFont != nil) {
-        NSFont *scaledFont = [NSFont fontWithName:[self.theme.baseFont fontName]
-                                             size:[self.theme.baseFont pointSize] * scale];
+        NSFont *scaledFont = OMFontAtSize(self.theme.baseFont, [self.theme.baseFont pointSize] * scale);
         if (scaledFont != nil) {
             [attributes setObject:scaledFont forKey:NSFontAttributeName];
         } else {
@@ -2189,7 +2189,7 @@ void OMRenderInlines(cmark_node *node,
                 NSMutableDictionary *refAttrs = [attributes mutableCopy];
                 NSFont *font = [attributes objectForKey:NSFontAttributeName];
                 CGFloat size = font != nil ? [font pointSize] : 14.0 * scale;
-                NSFont *smaller = font != nil ? [NSFont fontWithName:[font fontName] size:size * 0.72] : nil;
+                NSFont *smaller = font != nil ? OMFontAtSize(font, size * 0.72) : nil;
                 if (smaller != nil) {
                     [refAttrs setObject:smaller forKey:NSFontAttributeName];
                 }

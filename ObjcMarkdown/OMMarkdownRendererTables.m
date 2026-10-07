@@ -4,6 +4,7 @@
 // Pipe tables: laid out as text, or drawn as an attachment when allowed to overflow.
 
 #import "OMMarkdownRendererInternal.h"
+#import "OMFontSupport.h"
 
 typedef NS_ENUM(NSUInteger, OMPipeTableAlignment) {
     OMPipeTableAlignmentLeft = 0,
@@ -299,7 +300,7 @@ static NSFont *OMPipeTableGridFont(NSFont *fallbackFont, CGFloat size)
     }
 
     if (fallbackFont != nil) {
-        NSFont *resized = [NSFont fontWithName:[fallbackFont fontName] size:resolvedSize];
+        NSFont *resized = OMFontAtSize(fallbackFont, resolvedSize);
         if (resized != nil) {
             return resized;
         }
@@ -1158,8 +1159,7 @@ static void OMRenderPipeTable(NSArray *rows,
     }
     NSFont *tableFont = font;
     if (tableFont == nil && theme.baseFont != nil) {
-        tableFont = [NSFont fontWithName:[theme.baseFont fontName]
-                                    size:[theme.baseFont pointSize] * scale];
+        tableFont = OMFontAtSize(theme.baseFont, [theme.baseFont pointSize] * scale);
     }
     if (tableFont == nil) {
         tableFont = [NSFont systemFontOfSize:tableFontSize];

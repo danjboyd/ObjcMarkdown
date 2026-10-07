@@ -165,7 +165,15 @@ CGFloat OMDChromeLineHeight(NSFont *font)
     if (font == nil) {
         return 16.0;
     }
+#if defined(GNUSTEP)
     CGFloat height = [font defaultLineHeightForFont];
+#else
+    static NSLayoutManager *layoutManager = nil;
+    if (layoutManager == nil) {
+        layoutManager = [[NSLayoutManager alloc] init];
+    }
+    CGFloat height = [layoutManager defaultLineHeightForFont:font];
+#endif
     if (height <= 0.0) {
         height = [font pointSize] * 1.25;
     }

@@ -9,6 +9,7 @@
 // kept, comments go.
 
 #import "OMMarkdownRendererInternal.h"
+#import "OMFontSupport.h"
 
 #include <math.h>
 
@@ -282,7 +283,7 @@ static NSFont *OMHTMLFontResized(NSFont *font, CGFloat factor)
     if (font == nil) {
         return nil;
     }
-    NSFont *resized = [NSFont fontWithName:[font fontName] size:MAX(6.0, floor([font pointSize] * factor + 0.5))];
+    NSFont *resized = OMFontAtSize(font, MAX(6.0, floor([font pointSize] * factor + 0.5)));
     return resized != nil ? resized : font;
 }
 

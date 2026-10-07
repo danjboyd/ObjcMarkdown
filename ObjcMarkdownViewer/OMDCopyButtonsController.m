@@ -347,8 +347,14 @@ static const NSTimeInterval OMDCopyFeedbackDisplayInterval = 0.95;
     NSTextField *hud = [[NSTextField alloc] initWithFrame:NSZeroRect];
     [hud setStringValue:@"Copied!"];
     [hud setFont:[NSFont toolTipsFontOfSize:0.0]];
+#if defined(GNUSTEP)
     [hud setTextColor:[NSColor toolTipTextColor]];
     [hud setBackgroundColor:[NSColor toolTipColor]];
+#else
+    // AppKit on macOS has no public tooltip colours.
+    [hud setTextColor:[NSColor labelColor]];
+    [hud setBackgroundColor:[NSColor windowBackgroundColor]];
+#endif
     [hud setDrawsBackground:YES];
     [hud setBezeled:NO];
     [hud setBordered:NO];

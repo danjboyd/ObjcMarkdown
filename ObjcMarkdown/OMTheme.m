@@ -3,6 +3,7 @@
 
 #import "OMTheme.h"
 #import "OMAppKitSerialization.h"
+#import "OMFontSupport.h"
 
 #ifndef OBJCMARKDOWN_ENABLE_TOML_THEME
 #define OBJCMARKDOWN_ENABLE_TOML_THEME 1
@@ -379,7 +380,7 @@
 {
     NSMutableDictionary *attributes = [NSMutableDictionary dictionary];
     if (self.headingFont != nil) {
-        NSFont *font = [NSFont fontWithName:[self.headingFont fontName] size:size];
+        NSFont *font = OMFontAtSize(self.headingFont, size);
         if (font == nil) {
             font = [NSFont boldSystemFontOfSize:size];
         }
@@ -397,7 +398,7 @@
 {
     NSMutableDictionary *attributes = [NSMutableDictionary dictionary];
     if (self.codeFont != nil) {
-        NSFont *font = [NSFont fontWithName:[self.codeFont fontName] size:size];
+        NSFont *font = OMFontAtSize(self.codeFont, size);
         if (font == nil) {
             font = [NSFont userFixedPitchFontOfSize:size];
         }
