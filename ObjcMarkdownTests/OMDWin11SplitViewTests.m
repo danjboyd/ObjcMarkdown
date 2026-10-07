@@ -68,6 +68,27 @@ static BOOL OMDTestRectIsIntegral(NSRect rect)
     [splitView release];
 }
 
+// The position is where the divider starts, as in Cocoa (libs-gui centres
+// the divider on it): a split ratio read back from the leading width must
+// give that width again, or it shrinks each time it's applied.
+- (void)testSetPositionIsTheLeadingSubviewsWidth
+{
+    NSView *leading = nil;
+    NSView *trailing = nil;
+    OMDWin11SplitView *splitView = [self newSplitViewWithLeading:&leading trailing:&trailing];
+    NSUInteger i = 0;
+
+    for (i = 0; i < 5; i++) {
+        [splitView setPosition:NSWidth([leading frame]) ofDividerAtIndex:0];
+    }
+    [splitView setPosition:647.0 ofDividerAtIndex:0];
+
+    XCTAssertEqualWithAccuracy(NSWidth([leading frame]), 647.0, 0.001);
+    XCTAssertEqualWithAccuracy(NSMinX([trailing frame]), 647.0 + [splitView dividerThickness], 0.001);
+    XCTAssertEqualWithAccuracy(NSMaxX([trailing frame]), 1036.0, 0.001);
+    [splitView release];
+}
+
 // The collapsed explorer: the document takes the whole width from x = 0.
 - (void)testHiddenSubviewTakesNoRoom
 {

@@ -242,12 +242,36 @@
     [self omdInvalidateCursorRects];
 }
 
+// As in Cocoa, the position is where the divider starts: the leading
+// subview ends there. libs-gui centres the divider on it instead, which
+// made the leading subview half a divider narrower than asked, and a split
+// ratio read back from it shrink a little every time it was applied.
 - (void)setPosition:(CGFloat)position ofDividerAtIndex:(NSInteger)dividerIndex
 {
-    [super setPosition:round(position) ofDividerAtIndex:dividerIndex];
+    NSArray *subviews = [self subviews];
+    id delegate = [self delegate];
+
+    if (dividerIndex < 0 || (NSUInteger)dividerIndex + 1 >= [subviews count]) {
+        return;
+    }
+    if ([delegate respondsToSelector:@selector(splitView:constrainSplitPosition:ofSubviewAt:)]) {
+        position = [delegate splitView:self constrainSplitPosition:position ofSubviewAt:dividerIndex];
+    }
+    // libs-gui also lays the subviews out first if it never has.
+    [super setPosition:position ofDividerAtIndex:dividerIndex];
+
+    NSView *leading = [subviews objectAtIndex:(NSUInteger)dividerIndex];
+    NSRect frame = [leading frame];
+    if ([self isVertical]) {
+        frame.size.width = MAX(0.0, round(position - NSMinX(frame)));
+    } else {
+        frame.size.height = MAX(0.0, round(position - NSMinY(frame)));
+    }
+    [leading setFrame:frame];
     [self omdSnapSubviewsToPixels];
     [self omdRebuildDividerTrackingRects];
     [self omdInvalidateCursorRects];
+    [self setNeedsDisplay:YES];
 }
 
 - (void)mouseEntered:(NSEvent *)event

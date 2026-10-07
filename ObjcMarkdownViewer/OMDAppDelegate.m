@@ -1629,6 +1629,8 @@ static NSMutableArray *OMDSecondaryWindows(void)
         }
         [_workspaceSplitView setPosition:0.0 ofDividerAtIndex:0];
         [_sidebarContainer setHidden:YES];
+        // Hidden, it takes no room: the document fills the width.
+        [_workspaceSplitView adjustSubviews];
     }
 
     [self layoutWorkspaceChrome];
@@ -5067,9 +5069,15 @@ constrainSplitPosition:(CGFloat)proposedPosition
     [_previewScrollView setHidden:NO];
     // GNUstep can defer split subview geometry until the next resize event.
     // Force one immediate pass so Edit->Split transitions are visually correct.
+    // The panes come back with the frames another mode left them (the
+    // preview as wide as the whole area), so the first pass shares the width
+    // out wrongly: don't keep that as the user's split ratio.
+    BOOL wasApplying = _isApplyingSplitViewRatio;
+    _isApplyingSplitViewRatio = YES;
     [_splitView adjustSubviews];
     [self applySplitViewRatio];
     [_splitView adjustSubviews];
+    _isApplyingSplitViewRatio = wasApplying;
     [self layoutSourceEditorContainer];
     [self updateFormattingBarContextState];
     [_splitView setNeedsDisplay:YES];
@@ -6226,16 +6234,19 @@ constrainSplitPosition:(CGFloat)proposedPosition
 
     CGFloat minWidth = 180.0;
     CGFloat available = width - divider;
-    CGFloat position = floor(available * _splitRatio);
+    // round, not floor: the ratio read back from the editor's width must
+    // give the same width again.
+    CGFloat position = round(available * _splitRatio);
     if (position < minWidth) {
         position = minWidth;
     }
     if (position > (available - minWidth)) {
         position = available - minWidth;
     }
+    BOOL wasApplying = _isApplyingSplitViewRatio;
     _isApplyingSplitViewRatio = YES;
     [_splitView setPosition:position ofDividerAtIndex:0];
-    _isApplyingSplitViewRatio = NO;
+    _isApplyingSplitViewRatio = wasApplying;
 }
 
 - (void)persistSplitViewRatio
