@@ -1,0 +1,3 @@
+# The CommonMark spec files are parsed line by line and their examples
+# compared byte for byte; keep them LF on every checkout (Windows too).
+ObjcMarkdownTests/Spec/*.txt text eol=lf

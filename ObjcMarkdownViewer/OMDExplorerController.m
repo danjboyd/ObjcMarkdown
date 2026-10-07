@@ -1065,7 +1065,8 @@ static NSButtonCell *OMDExplorerIconDrawingCell(void)
         NSArray *files = [OMDExplorerFindFiles(root, filter, showHidden, markdownOnly,
                                                OMDExplorerFilterVisitLimit, OMDExplorerFilterMatchLimit,
                                                &complete) retain];
-        dispatch_async(dispatch_get_main_queue(), ^{
+        // Not dispatch_get_main_queue(): GNUstep's run loop doesn't drain it on Windows.
+        [[NSOperationQueue mainQueue] addOperationWithBlock:^{
             if (generation == _explorerFilterGeneration &&
                 [root isEqualToString:[_explorerRootNode path]]) {
                 [self showExplorerFilterResult:files complete:complete restoreExpansion:restore];
@@ -1074,7 +1075,7 @@ static NSButtonCell *OMDExplorerIconDrawingCell(void)
             [root release];
             [filter release];
             [self release];
-        });
+        }];
         [pool release];
     });
 }
