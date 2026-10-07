@@ -78,6 +78,15 @@ static NSArray *OMDExecutableSearchDirectories(void)
         @"C:/msys64/clang64/bin",
         @"C:/clang64/bin"
     ]];
+#elif defined(__APPLE__)
+    // Apps opened from the Finder or the Dock get a minimal PATH, without
+    // where Homebrew and MacPorts put pandoc and friends.
+    [directories addObjectsFromArray:@[
+        @"/opt/homebrew/bin",
+        @"/usr/local/bin",
+        @"/opt/local/bin",
+        @"/usr/bin"
+    ]];
 #else
     [directories addObject:@"/usr/bin"];
 #endif
@@ -209,6 +218,8 @@ BOOL OMDOpenURLUsingXDGOpen(NSURL *url)
 #endif
 }
 
+// Windows and Linux open and reveal things with helper programs.
+#if !defined(__APPLE__)
 static BOOL OMDRunTask(NSString *launchPath, NSArray *arguments)
 {
     if (launchPath == nil) {
@@ -225,6 +236,7 @@ static BOOL OMDRunTask(NSString *launchPath, NSArray *arguments)
     }
     return [task terminationStatus] == 0;
 }
+#endif
 
 BOOL OMDOpenFolderInFileManager(NSString *folder)
 {
@@ -252,6 +264,9 @@ BOOL OMDRevealPathInFileManager(NSString *path)
     // Explorer exits with 1 even when it worked.
     OMDRunTask(OMDExecutablePathNamed(@"explorer"),
                [NSArray arrayWithObject:[NSString stringWithFormat:@"/select,%@", path]]);
+    return YES;
+#elif defined(__APPLE__)
+    [[NSWorkspace sharedWorkspace] activateFileViewerSelectingURLs:@[[NSURL fileURLWithPath:path]]];
     return YES;
 #else
     // The freedesktop file-manager interface selects the item (Files,

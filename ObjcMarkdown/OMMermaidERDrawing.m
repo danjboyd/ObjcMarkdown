@@ -3,6 +3,7 @@
 
 #import "OMMermaidERDrawing.h"
 #import "OMMermaidERDiagram.h"
+#import "OMFontSupport.h"
 
 #include <math.h>
 
@@ -288,7 +289,7 @@ static NSFont *OMMermaidScaledFont(NSFont *font, CGFloat scale)
     if (scale >= 0.999) {
         return font;
     }
-    NSFont *scaled = [NSFont fontWithName:[font fontName] size:[font pointSize] * scale];
+    NSFont *scaled = OMFontAtSize(font, [font pointSize] * scale);
     return scaled != nil ? scaled : font;
 }
 

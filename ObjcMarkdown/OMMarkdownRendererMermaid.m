@@ -4,6 +4,7 @@
 // Mermaid diagrams: drawing supported types, diagnostics for the rest.
 
 #import "OMMarkdownRendererInternal.h"
+#import "OMFontSupport.h"
 
 static NSColor *OMMermaidDiagnosticColorForTheme(OMTheme *theme)
 {
@@ -54,14 +55,14 @@ static OMMermaidERDrawingStyle *OMMermaidStyleForTheme(OMTheme *theme,
     CGFloat labelSize = MAX(baseSize * 0.76, 7.5 * scale);
 
     NSFont *attributeFont = baseFont != nil
-        ? [NSFont fontWithName:[baseFont fontName] size:attributeSize]
+        ? OMFontAtSize(baseFont, attributeSize)
         : [NSFont systemFontOfSize:attributeSize];
     NSFont *titleFont = baseFont != nil
-        ? [NSFont fontWithName:[baseFont fontName] size:titleSize]
+        ? OMFontAtSize(baseFont, titleSize)
         : [NSFont systemFontOfSize:titleSize];
     NSFont *boldTitleFont = OMFontWithTraits(titleFont, NSBoldFontMask);
     NSFont *labelFont = baseFont != nil
-        ? [NSFont fontWithName:[baseFont fontName] size:labelSize]
+        ? OMFontAtSize(baseFont, labelSize)
         : [NSFont systemFontOfSize:labelSize];
 
     NSColor *textColor = [attributes objectForKey:NSForegroundColorAttributeName];
@@ -276,7 +277,7 @@ void OMAppendMermaidDiagnostic(NSString *diagnostic,
     NSMutableDictionary *diagnosticAttrs = [blockAttributes mutableCopy];
     NSFont *blockFont = [diagnosticAttrs objectForKey:NSFontAttributeName];
     CGFloat diagnosticSize = codeFontSize * 0.92;
-    NSFont *sizedFont = blockFont != nil ? [NSFont fontWithName:[blockFont fontName] size:diagnosticSize] : nil;
+    NSFont *sizedFont = blockFont != nil ? OMFontAtSize(blockFont, diagnosticSize) : nil;
     if (sizedFont == nil) {
         sizedFont = blockFont;
     }

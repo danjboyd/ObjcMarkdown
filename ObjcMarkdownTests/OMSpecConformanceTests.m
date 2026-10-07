@@ -267,6 +267,10 @@ static NSString *OMSpecElementFailure(NSAttributedString *rendered, NSRange foun
     BOOL absolute = [scheme numberOfMatchesInString:expected options:0 range:NSMakeRange(0, [expected length])] > 0;
     if (resolved != nil && !absolute && ![expected hasPrefix:@"#"]) {
         expected = [resolved absoluteString];
+    } else if (resolved == nil && !absolute && ![expected hasPrefix:@"#"] && ![expected hasPrefix:@"/"]) {
+        // macOS's NSURL rejects a relative path with ":" in its first
+        // segment ("foo):"), which the base directory still prefixes.
+        expected = [[OMSpecBaseURL() absoluteString] stringByAppendingString:expected];
     }
     NSString *actual = OMSpecLinkString(link);
     // Schemes are case-insensitive, and NSURL may lowercase them.

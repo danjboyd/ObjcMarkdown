@@ -5,7 +5,7 @@
 #import "OMRenderedObject.h"
 #import "OMTextTable.h"
 
-static const NSUInteger OMDCompareChunkLength = 4096;
+enum { OMDCompareChunkLength = 4096 };
 
 // How attributes are compared. Before an edit nothing moves; after it,
 // rendered objects keep their content but their source positions shift,

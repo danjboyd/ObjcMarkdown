@@ -8,6 +8,105 @@
 - (NSMenu *)buildMenubarWithTarget:(id)target;
 @end
 
+#if !defined(GNUSTEP)
+// macOS's own menus and items, which AppKit fills in or acts on.
+
+static NSMenuItem *OMDAddMenuItem(NSMenu *menu, NSString *title, SEL action, NSString *key, id target)
+{
+    NSMenuItem *item = (NSMenuItem *)[menu addItemWithTitle:title action:action keyEquivalent:key];
+    [item setTarget:target];
+    return item;
+}
+
+static NSMenuItem *OMDAddSubmenu(NSMenu *menubar, NSMenu *menu)
+{
+    NSMenuItem *item = [[[NSMenuItem alloc] initWithTitle:[menu title] action:NULL keyEquivalent:@""] autorelease];
+    [menubar addItem:item];
+    [menubar setSubmenu:menu forItem:item];
+    return item;
+}
+
+static void OMDBuildMacApplicationMenu(NSMenu *appMenu, NSString *appName, id target)
+{
+    OMDAddMenuItem(appMenu, [NSString stringWithFormat:@"About %@", appName], @selector(showAboutPanel:), @"", target);
+    [appMenu addItem:[NSMenuItem separatorItem]];
+    // "Preferences" became "Settings" in macOS 13.
+    NSString *settingsTitle = @"Preferences...";
+    if (@available(macOS 13.0, *)) {
+        settingsTitle = @"Settings...";
+    }
+    OMDAddMenuItem(appMenu, settingsTitle, @selector(showPreferences:), @",", target);
+    [appMenu addItem:[NSMenuItem separatorItem]];
+
+    NSMenu *servicesMenu = [[[NSMenu alloc] initWithTitle:@"Services"] autorelease];
+    NSMenuItem *servicesItem = OMDAddMenuItem(appMenu, @"Services", NULL, @"", nil);
+    [appMenu setSubmenu:servicesMenu forItem:servicesItem];
+    [NSApp setServicesMenu:servicesMenu];
+    [appMenu addItem:[NSMenuItem separatorItem]];
+
+    OMDAddMenuItem(appMenu, [NSString stringWithFormat:@"Hide %@", appName], @selector(hide:), @"h", NSApp);
+    NSMenuItem *hideOthersItem = OMDAddMenuItem(appMenu, @"Hide Others", @selector(hideOtherApplications:), @"h", NSApp);
+    [hideOthersItem setKeyEquivalentModifierMask:(NSEventModifierFlagCommand | NSEventModifierFlagOption)];
+    OMDAddMenuItem(appMenu, @"Show All", @selector(unhideAllApplications:), @"", NSApp);
+    [appMenu addItem:[NSMenuItem separatorItem]];
+
+    OMDAddMenuItem(appMenu, [NSString stringWithFormat:@"Quit %@", appName], @selector(terminate:), @"q", NSApp);
+}
+
+// Find in the preview and the source: the text views' find bars.
+static void OMDAddMacFindMenu(NSMenu *editMenu)
+{
+    NSMenu *findMenu = [[[NSMenu alloc] initWithTitle:@"Find"] autorelease];
+    NSMenuItem *item = OMDAddMenuItem(findMenu, @"Find...", @selector(performTextFinderAction:), @"f", nil);
+    [item setTag:NSTextFinderActionShowFindInterface];
+    item = OMDAddMenuItem(findMenu, @"Find and Replace...", @selector(performTextFinderAction:), @"f", nil);
+    [item setKeyEquivalentModifierMask:(NSEventModifierFlagCommand | NSEventModifierFlagOption)];
+    [item setTag:NSTextFinderActionShowReplaceInterface];
+    item = OMDAddMenuItem(findMenu, @"Find Next", @selector(performTextFinderAction:), @"g", nil);
+    [item setTag:NSTextFinderActionNextMatch];
+    item = OMDAddMenuItem(findMenu, @"Find Previous", @selector(performTextFinderAction:), @"G", nil);
+    [item setTag:NSTextFinderActionPreviousMatch];
+    item = OMDAddMenuItem(findMenu, @"Use Selection for Find", @selector(performTextFinderAction:), @"e", nil);
+    [item setTag:NSTextFinderActionSetSearchString];
+    OMDAddMenuItem(findMenu, @"Jump to Selection", @selector(centerSelectionInVisibleArea:), @"j", nil);
+
+    NSMenuItem *findItem = OMDAddMenuItem(editMenu, @"Find", NULL, @"", nil);
+    [editMenu setSubmenu:findMenu forItem:findItem];
+}
+
+static void OMDAddMacWindowAndHelpMenus(NSMenu *menubar, NSString *appName, id target)
+{
+    NSMenu *windowMenu = [[[NSMenu alloc] initWithTitle:@"Window"] autorelease];
+    OMDAddMenuItem(windowMenu, @"Minimize", @selector(performMiniaturize:), @"m", nil);
+    OMDAddMenuItem(windowMenu, @"Zoom", @selector(performZoom:), @"", nil);
+    [windowMenu addItem:[NSMenuItem separatorItem]];
+    OMDAddMenuItem(windowMenu, @"Bring All to Front", @selector(arrangeInFront:), @"", NSApp);
+    OMDAddSubmenu(menubar, windowMenu);
+    [NSApp setWindowsMenu:windowMenu];
+
+    NSMenu *helpMenu = [[[NSMenu alloc] initWithTitle:@"Help"] autorelease];
+    OMDAddMenuItem(helpMenu, [NSString stringWithFormat:@"%@ on GitHub", appName],
+                   @selector(showProjectHomePage:), @"", target);
+    OMDAddSubmenu(menubar, helpMenu);
+    [NSApp setHelpMenu:helpMenu];
+}
+
+// macOS menus end the title of an item that asks for more with an ellipsis
+// character rather than three dots.
+static void OMDUseEllipsisCharacters(NSMenu *menu)
+{
+    for (NSMenuItem *item in [menu itemArray]) {
+        NSString *title = [item title];
+        if ([title hasSuffix:@"..."]) {
+            [item setTitle:[[title substringToIndex:[title length] - 3] stringByAppendingString:@"…"]];
+        }
+        if ([item submenu] != nil) {
+            OMDUseEllipsisCharacters([item submenu]);
+        }
+    }
+}
+#endif
+
 @implementation OMDMainMenu
 
 - (instancetype)initWithTarget:(id)target
@@ -51,6 +150,9 @@
     [menubar addItem:appMenuItem];
     [menubar setSubmenu:appMenu forItem:appMenuItem];
 
+#if !defined(GNUSTEP)
+    OMDBuildMacApplicationMenu(appMenu, appName, target);
+#else
     NSString *aboutTitle = [NSString stringWithFormat:@"About %@", appName];
     NSMenuItem *aboutItem = [[[NSMenuItem alloc] initWithTitle:aboutTitle
                                                          action:@selector(showAboutPanel:)
@@ -74,6 +176,7 @@
                                                              action:@selector(terminate:)
                                                       keyEquivalent:@"q"];
     [quitItem setTarget:NSApp];
+#endif
 
     NSMenuItem *fileMenuItem = [[[NSMenuItem alloc] initWithTitle:@"File"
                                                            action:NULL
@@ -157,6 +260,12 @@
 
     [fileMenu addItem:[NSMenuItem separatorItem]];
 
+#if !defined(GNUSTEP)
+    NSMenuItem *pageSetupItem = (NSMenuItem *)[fileMenu addItemWithTitle:@"Page Setup..."
+                                                                   action:@selector(runPageLayout:)
+                                                            keyEquivalent:@"P"];
+    [pageSetupItem setTarget:nil];
+#endif
     NSMenuItem *printItem = (NSMenuItem *)[fileMenu addItemWithTitle:@"Print..."
                                                                action:@selector(printDocument:)
                                                         keyEquivalent:@"p"];
@@ -203,6 +312,10 @@
                                                             keyEquivalent:@"a"];
     [selectAllItem setTarget:nil];
     [editMenu addItem:[NSMenuItem separatorItem]];
+#if !defined(GNUSTEP)
+    // macOS's find bar, in its usual Find submenu (with the same fallback).
+    OMDAddMacFindMenu(editMenu);
+#else
     // Find in the editor or the preview (#87): the focused text view takes
     // them, else the app delegate passes them to the one on show.
     struct { NSString *title; NSString *key; NSInteger tag; } findItems[] = {
@@ -219,6 +332,7 @@
         [findItem setTag:findItems[findIndex].tag];
         [findItem setTarget:nil];
     }
+#endif
     [editMenu addItem:[NSMenuItem separatorItem]];
     NSMenuItem *toggleBoldItem = (NSMenuItem *)[editMenu addItemWithTitle:@"Toggle Bold"
                                                                     action:@selector(toggleBoldFormatting:)
@@ -305,7 +419,27 @@
                                                            keyEquivalent:@"0"];
     [actualSizeItem setTarget:target];
 
+#if !defined(GNUSTEP)
+    // AppKit retitles these (Hide Toolbar, Exit Full Screen) as they apply.
+    [viewMenu addItem:[NSMenuItem separatorItem]];
+    NSMenuItem *toolbarItem = (NSMenuItem *)[viewMenu addItemWithTitle:@"Show Toolbar"
+                                                                 action:@selector(toggleToolbarShown:)
+                                                          keyEquivalent:@"t"];
+    [toolbarItem setKeyEquivalentModifierMask:(NSEventModifierFlagCommand | NSEventModifierFlagOption)];
+    [toolbarItem setTarget:nil];
+    NSMenuItem *fullScreenItem = (NSMenuItem *)[viewMenu addItemWithTitle:@"Enter Full Screen"
+                                                                    action:@selector(toggleFullScreen:)
+                                                             keyEquivalent:@"f"];
+    [fullScreenItem setKeyEquivalentModifierMask:(NSEventModifierFlagCommand | NSEventModifierFlagControl)];
+    [fullScreenItem setTarget:nil];
+#endif
+
     [viewMenuItem setSubmenu:viewMenu];
+
+#if !defined(GNUSTEP)
+    OMDAddMacWindowAndHelpMenus(menubar, appName, target);
+    OMDUseEllipsisCharacters(menubar);
+#endif
 
     return menubar;
 }

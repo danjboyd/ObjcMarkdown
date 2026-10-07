@@ -9,6 +9,16 @@ NSString * const OMDThemeDefaultsKey = @"GSTheme";
 // Adwaita theme picks its palette from GNOME's colour scheme at launch).
 BOOL OMDSystemAppearanceIsDark(void)
 {
+#if !defined(GNUSTEP)
+    // macOS says which appearance the app has (the system's, or Light or
+    // Dark), and changes it while the app runs.
+    if (NSApp != nil) {
+        NSAppearanceName match = [[NSApp effectiveAppearance]
+            bestMatchFromAppearancesWithNames:[NSArray arrayWithObjects:NSAppearanceNameAqua,
+                                                                        NSAppearanceNameDarkAqua, nil]];
+        return [match isEqualToString:NSAppearanceNameDarkAqua];
+    }
+#endif
     NSColor *background = [[NSColor windowBackgroundColor] colorUsingColorSpaceName:NSCalibratedRGBColorSpace];
     if (background == nil) {
         return NO;

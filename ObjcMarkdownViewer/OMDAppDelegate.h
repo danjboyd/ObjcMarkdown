@@ -26,7 +26,15 @@ typedef unsigned short mode_t;
 @class OMDRenderScheduler;
 @class OMDOutlineController;
 
-@interface OMDAppDelegate : NSObject <NSApplicationDelegate, NSWindowDelegate, NSTextViewDelegate, NSMenuValidation, NSSplitViewDelegate, NSControlTextEditingDelegate, OMDSourceTextViewVimEventHandling>
+// GNUstep names the menu validation protocol NSMenuValidation; macOS 10.14
+// renamed it NSMenuItemValidation.
+#if defined(GNUSTEP)
+#define OMDMenuItemValidation NSMenuValidation
+#else
+#define OMDMenuItemValidation NSMenuItemValidation
+#endif
+
+@interface OMDAppDelegate : NSObject <NSApplicationDelegate, NSWindowDelegate, NSTextViewDelegate, OMDMenuItemValidation, NSSplitViewDelegate, NSControlTextEditingDelegate, OMDSourceTextViewVimEventHandling>
 {
     NSWindow *_window;
     NSSplitView *_workspaceSplitView;
@@ -113,6 +121,7 @@ typedef unsigned short mode_t;
     NSInteger _activeLinkedScrollDriver;
     NSString *_sourceVimCommandLine;
     BOOL _externalReloadPromptVisible;
+    BOOL _observingSystemAppearance;
 }
 
 @end
