@@ -373,6 +373,7 @@ static CGFloat OMDClampedScrollSpeed(CGFloat value)
 @interface OMDAppDelegate () <OMDCopyButtonsControllerDelegate, OMDRenderSchedulerDelegate, OMDDocumentTabsControllerDelegate, OMDToolbarControllerDelegate, OMDStatusBarControllerDelegate, OMDExplorerControllerDelegate, OMDOpenLocationDelegate, OMDFormattingBarControllerDelegate, OMDPreferencesControllerDelegate, GSVVimBindingControllerDelegate, OMDTextViewRenderedObjectDelegate, OMDOutlineControllerDelegate>
 - (void)importDocument:(id)sender;
 - (void)newWindow:(id)sender;
+- (void)newDocument:(id)sender;
 - (void)saveDocument:(id)sender;
 - (void)saveDocumentAsMarkdown:(id)sender;
 - (void)printDocument:(id)sender;
@@ -2073,6 +2074,29 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
 {
     [[NSDocumentController sharedDocumentController] clearRecentDocuments:sender];
     [self rebuildOpenRecentMenu];
+}
+
+// A new, empty Markdown document (#88): "Untitled", in Edit mode; the
+// first Save asks where to put it.
+- (void)newDocument:(id)sender
+{
+    (void)sender;
+    static NSUInteger untitledCount = 0;
+    untitledCount += 1;
+    NSString *title = untitledCount == 1 ? @"Untitled" : [NSString stringWithFormat:@"Untitled %lu", (unsigned long)untitledCount];
+    BOOL inNewTab = !([_documentTabsController count] == 0 && _currentPath == nil && _currentMarkdown == nil);
+    if (![self openDocumentWithMarkdown:@""
+                             sourcePath:nil
+                           displayTitle:title
+                               readOnly:NO
+                             renderMode:OMDDocumentRenderModeMarkdown
+                         syntaxLanguage:nil
+                               inNewTab:inNewTab
+                    requireDirtyConfirm:!inNewTab]) {
+        return;
+    }
+    [self setViewerMode:OMDViewerModeEdit persistPreference:NO];
+    [_window makeFirstResponder:_sourceTextView];
 }
 
 - (void)newWindow:(id)sender

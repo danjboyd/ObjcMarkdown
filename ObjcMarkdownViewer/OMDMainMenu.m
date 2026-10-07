@@ -81,6 +81,10 @@
     [menubar addItem:fileMenuItem];
 
     NSMenu *fileMenu = [[[NSMenu alloc] initWithTitle:@"File"] autorelease];
+    NSMenuItem *newItem = (NSMenuItem *)[fileMenu addItemWithTitle:@"New"
+                                                            action:@selector(newDocument:)
+                                                     keyEquivalent:@"n"];
+    [newItem setTarget:target];
     NSMenuItem *openItem = (NSMenuItem *)[fileMenu addItemWithTitle:@"Open Markdown..."
                                                              action:@selector(openDocument:)
                                                       keyEquivalent:@"o"];
@@ -91,7 +95,7 @@
 
     NSMenuItem *newWindowItem = (NSMenuItem *)[fileMenu addItemWithTitle:@"New Window"
                                                                    action:@selector(newWindow:)
-                                                            keyEquivalent:@"n"];
+                                                            keyEquivalent:@"N"];
     [newWindowItem setTarget:target];
 
     NSMenuItem *openRecentItem = (NSMenuItem *)[fileMenu addItemWithTitle:@"Open Recent"
