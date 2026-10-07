@@ -4,7 +4,7 @@ param(
   [string]$ReleaseTag = $(if (-not [string]::IsNullOrWhiteSpace($env:OMD_TINYTEX_RELEASE_TAG)) {
       $env:OMD_TINYTEX_RELEASE_TAG
     } else {
-      "v2026.04"
+      "v2026.10"
     }),
   [string]$AssetName = $(if (-not [string]::IsNullOrWhiteSpace($env:OMD_TINYTEX_ASSET_NAME)) {
       $env:OMD_TINYTEX_ASSET_NAME
@@ -33,6 +33,41 @@ function Resolve-OmdFullPath {
   }
 
   return [System.IO.Path]::GetFullPath((Join-Path (Get-Location).Path $Path))
+}
+
+# Runs tlmgr, echoing its output and appending it to $LogPath, and fails
+# with its last lines when it exits non-zero or stops itself ("tlmgr itself
+# needs to be updated ... Terminating"), which it can do with exit code 0.
+# Output goes through cmd.exe so tlmgr's stderr isn't a PowerShell error.
+function Invoke-OmdTlmgr {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$TlmgrPath,
+    [Parameter(Mandatory = $true)]
+    [string]$TinyTeXRoot,
+    [Parameter(Mandatory = $true)]
+    [string]$LogPath,
+    [Parameter(Mandatory = $true)]
+    [string[]]$Arguments
+  )
+
+  $commandLine = '"' + $TlmgrPath + '" ' + ($Arguments -join ' ') + ' 2>&1'
+  "> tlmgr $($Arguments -join ' ')" | Add-Content -Path $LogPath -Encoding Ascii
+  Push-Location $TinyTeXRoot
+  try {
+    $output = @(& cmd.exe /d /c $commandLine)
+    $exitCode = $LASTEXITCODE
+  } finally {
+    Pop-Location
+  }
+  $output | Add-Content -Path $LogPath -Encoding Ascii
+  $output | ForEach-Object { Write-Host "  tlmgr: $_" }
+
+  $terminated = @($output | Where-Object { $_ -match 'Terminating|tlmgr itself needs to be updated' }).Count -gt 0
+  if ($exitCode -ne 0 -or $terminated) {
+    $tail = ($output | Select-Object -Last 15) -join [Environment]::NewLine
+    throw "TinyTeX tlmgr $($Arguments -join ' ') failed (exit code $exitCode). See $LogPath. Last output:$([Environment]::NewLine)$tail"
+  }
 }
 
 function Invoke-OmdTinyTeXFormulaSmoke {
@@ -142,6 +177,7 @@ $dvisvgmPath = Join-Path $tinyTeXBin "dvisvgm.exe"
 $dvipngPath = Join-Path $tinyTeXBin "dvipng.exe"
 $tlmgrPath = Join-Path $tinyTeXBin "tlmgr.bat"
 $validationStamp = Join-Path $extractRoot ".omd-tinytex-validated"
+$tlmgrLog = Join-Path $extractRoot "omd-tlmgr.log"
 
 if ($ForceRefresh) {
   if (Test-Path $extractRoot) {
@@ -172,44 +208,30 @@ if (-not (Test-Path $latexPath)) {
   throw "TinyTeX latex executable not found after extraction: $latexPath"
 }
 
+# The pinned TinyTeX-1 has neither dvisvgm nor dvipng; tlmgr installs them
+# from CTAN. CTAN can need a newer tlmgr than the pinned release ships (#62),
+# so update tlmgr itself first. (Within a TeX Live year that works; a release
+# pinned from an earlier year needs a newer pin.)
+$missingPackages = @()
 if (-not (Test-Path $dvisvgmPath)) {
+  $missingPackages += "dvisvgm.windows"
+}
+if (-not (Test-Path $dvipngPath)) {
+  $missingPackages += "dvipng"
+}
+if ($missingPackages.Count -gt 0) {
   if (-not (Test-Path $tlmgrPath)) {
-    throw "TinyTeX tlmgr not found and dvisvgm.exe is missing: $tlmgrPath"
+    throw "TinyTeX tlmgr not found and $($missingPackages -join ', ') missing: $tlmgrPath"
   }
-
-  Push-Location $tinyTeXRoot
-  try {
-    & $tlmgrPath "install" "dvisvgm.windows" | Out-Null
-    if ($LASTEXITCODE -ne 0) {
-      throw "TinyTeX tlmgr install dvisvgm.windows failed with exit code $LASTEXITCODE."
-    }
-  } finally {
-    Pop-Location
-  }
+  Invoke-OmdTlmgr -TlmgrPath $tlmgrPath -TinyTeXRoot $tinyTeXRoot -LogPath $tlmgrLog -Arguments @("update", "--self")
+  Invoke-OmdTlmgr -TlmgrPath $tlmgrPath -TinyTeXRoot $tinyTeXRoot -LogPath $tlmgrLog -Arguments (@("install") + $missingPackages)
 }
 
 if (-not (Test-Path $dvisvgmPath)) {
-  throw "TinyTeX dvisvgm executable not found after extraction: $dvisvgmPath"
+  throw "TinyTeX dvisvgm executable not found after tlmgr install (see $tlmgrLog): $dvisvgmPath"
 }
-
 if (-not (Test-Path $dvipngPath)) {
-  if (-not (Test-Path $tlmgrPath)) {
-    throw "TinyTeX tlmgr not found and dvipng.exe is missing: $tlmgrPath"
-  }
-
-  Push-Location $tinyTeXRoot
-  try {
-    & $tlmgrPath "install" "dvipng" | Out-Null
-    if ($LASTEXITCODE -ne 0) {
-      throw "TinyTeX tlmgr install dvipng failed with exit code $LASTEXITCODE."
-    }
-  } finally {
-    Pop-Location
-  }
-}
-
-if (-not (Test-Path $dvipngPath)) {
-  throw "TinyTeX dvipng executable not found after extraction: $dvipngPath"
+  throw "TinyTeX dvipng executable not found after tlmgr install (see $tlmgrLog): $dvipngPath"
 }
 
 if ($ForceRefresh -or -not (Test-Path $validationStamp)) {
