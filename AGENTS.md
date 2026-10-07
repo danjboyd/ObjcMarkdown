@@ -54,6 +54,7 @@ The app is the app; the theme and the user's theme settings decide whether it lo
 
 GNUstep notes for this:
 - Images drawn with `-lockFocus` are window-cached reps and may composite blank; `graphicsContextWithBitmapImageRep:` can stay empty. Prefer a standard control, or write pixels directly.
+- On Windows a shared image's cached copy can stay blank too (the formatting bar's icons drew nothing under any theme), so `OMDSymbolicImageNamed()` sets `NSImageCacheNever`. A theme's tinted copies need the same care (plugins-themes-winuitheme#64).
 - Image-only buttons: don't use rounded/textured bezels, whose padding can squeeze the image to nothing; use plain toolbar items or borderless buttons.
 - NSPopover isn't usable in GNUstep 0.32; a custom popover panel may be an unavoidable exception, drawn in system colours.
 - Custom views in toolbars must handle `-mouseDown:` themselves (or be real NSControls), or a header bar may take the press for a window drag.

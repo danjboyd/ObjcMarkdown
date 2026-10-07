@@ -51,7 +51,6 @@ static BOOL OMDShouldUseToolbarFlexibleSpace(void)
 - (void)dealloc
 {
     [_toolbarPrimaryActionsContainer release];
-    [_toolbarActionGlyphOverlay release];
     [_toolbarFileActionsControl release];
     [_toolbarUtilityActionsControl release];
     [_zoomSlider release];
@@ -132,9 +131,9 @@ static BOOL OMDShouldUseToolbarFlexibleSpace(void)
             [_toolbarFileActionsControl setTarget:self];
             [_toolbarFileActionsControl setAction:@selector(toolbarActionControlChanged:)];
             [_toolbarFileActionsControl setTag:1];
-            [_toolbarFileActionsControl setImage:OMDToolbarTintedImage(OMDSymbolicImageNamed(@"omd-sidebar-show-symbolic"), OMDResolvedControlTextColor()) forSegment:0];
-            [_toolbarFileActionsControl setImage:OMDToolbarTintedImage(OMDSymbolicImageNamed(@"omd-document-open-symbolic"), OMDResolvedControlTextColor()) forSegment:1];
-            [_toolbarFileActionsControl setImage:OMDToolbarTintedImage(OMDSymbolicImageNamed(@"omd-document-save-symbolic"), OMDResolvedControlTextColor()) forSegment:2];
+            [_toolbarFileActionsControl setImage:OMDSymbolicImageNamed(@"omd-sidebar-show-symbolic") forSegment:0];
+            [_toolbarFileActionsControl setImage:OMDSymbolicImageNamed(@"omd-document-open-symbolic") forSegment:1];
+            [_toolbarFileActionsControl setImage:OMDSymbolicImageNamed(@"omd-document-save-symbolic") forSegment:2];
             [[_toolbarFileActionsControl cell] setToolTip:@"Show or hide the file explorer" forSegment:0];
             [[_toolbarFileActionsControl cell] setToolTip:@"Open a Markdown file" forSegment:1];
             [[_toolbarFileActionsControl cell] setToolTip:@"Save current markdown changes" forSegment:2];
@@ -153,9 +152,9 @@ static BOOL OMDShouldUseToolbarFlexibleSpace(void)
             [_toolbarUtilityActionsControl setTarget:self];
             [_toolbarUtilityActionsControl setAction:@selector(toolbarActionControlChanged:)];
             [_toolbarUtilityActionsControl setTag:2];
-            [_toolbarUtilityActionsControl setImage:OMDToolbarTintedImage(OMDSymbolicImageNamed(@"omd-document-export-symbolic"), OMDResolvedControlTextColor()) forSegment:0];
-            [_toolbarUtilityActionsControl setImage:OMDToolbarTintedImage(OMDSymbolicImageNamed(@"omd-document-print-symbolic"), OMDResolvedControlTextColor()) forSegment:1];
-            [_toolbarUtilityActionsControl setImage:OMDToolbarTintedImage(OMDSymbolicImageNamed(@"omd-preferences-symbolic"), OMDResolvedControlTextColor()) forSegment:2];
+            [_toolbarUtilityActionsControl setImage:OMDSymbolicImageNamed(@"omd-document-export-symbolic") forSegment:0];
+            [_toolbarUtilityActionsControl setImage:OMDSymbolicImageNamed(@"omd-document-print-symbolic") forSegment:1];
+            [_toolbarUtilityActionsControl setImage:OMDSymbolicImageNamed(@"omd-preferences-symbolic") forSegment:2];
             [[_toolbarUtilityActionsControl cell] setToolTip:@"Export the current document as PDF" forSegment:0];
             [[_toolbarUtilityActionsControl cell] setToolTip:@"Print the current document" forSegment:1];
             [[_toolbarUtilityActionsControl cell] setToolTip:@"Open Preferences" forSegment:2];
@@ -164,23 +163,20 @@ static BOOL OMDShouldUseToolbarFlexibleSpace(void)
             [_toolbarUtilityActionsControl setWidth:OMDToolbarActionSegmentWidth forSegment:2];
             [_toolbarPrimaryActionsContainer addSubview:_toolbarUtilityActionsControl];
 
-            _toolbarActionGlyphOverlay = [[OMDToolbarActionGlyphOverlayView alloc] initWithFrame:[_toolbarPrimaryActionsContainer bounds]];
-            [_toolbarActionGlyphOverlay setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable)];
-            [(OMDToolbarActionGlyphOverlayView *)_toolbarActionGlyphOverlay setFileActionsControl:_toolbarFileActionsControl
-                                                                             utilityActionsControl:_toolbarUtilityActionsControl];
-            [(OMDToolbarToolTipView *)_toolbarActionGlyphOverlay setToolTip:@"Show the file explorer"
+            // GNUstep doesn't show a segment's own tooltip; the container's
+            // rects do, as for the mode and zoom controls.
+            [(OMDToolbarToolTipView *)_toolbarPrimaryActionsContainer setToolTip:@"Show the file explorer"
                                                                     forRect:NSMakeRect(0.0, controlY, OMDToolbarActionSegmentWidth, OMDToolbarControlHeight)];
-            [(OMDToolbarToolTipView *)_toolbarActionGlyphOverlay setToolTip:@"Open a Markdown file"
+            [(OMDToolbarToolTipView *)_toolbarPrimaryActionsContainer setToolTip:@"Open a Markdown file"
                                                                     forRect:NSMakeRect(OMDToolbarActionSegmentWidth, controlY, OMDToolbarActionSegmentWidth, OMDToolbarControlHeight)];
-            [(OMDToolbarToolTipView *)_toolbarActionGlyphOverlay setToolTip:@"No unsaved changes to save"
+            [(OMDToolbarToolTipView *)_toolbarPrimaryActionsContainer setToolTip:@"No unsaved changes to save"
                                                                     forRect:NSMakeRect(OMDToolbarActionSegmentWidth * 2.0, controlY, OMDToolbarActionSegmentWidth, OMDToolbarControlHeight)];
-            [(OMDToolbarToolTipView *)_toolbarActionGlyphOverlay setToolTip:@"Export the current document as PDF"
+            [(OMDToolbarToolTipView *)_toolbarPrimaryActionsContainer setToolTip:@"Export the current document as PDF"
                                                                     forRect:NSMakeRect(fileActionsWidth + OMDToolbarActionGroupSpacing, controlY, OMDToolbarActionSegmentWidth, OMDToolbarControlHeight)];
-            [(OMDToolbarToolTipView *)_toolbarActionGlyphOverlay setToolTip:@"Print the current document"
+            [(OMDToolbarToolTipView *)_toolbarPrimaryActionsContainer setToolTip:@"Print the current document"
                                                                     forRect:NSMakeRect(fileActionsWidth + OMDToolbarActionGroupSpacing + OMDToolbarActionSegmentWidth, controlY, OMDToolbarActionSegmentWidth, OMDToolbarControlHeight)];
-            [(OMDToolbarToolTipView *)_toolbarActionGlyphOverlay setToolTip:@"Open Preferences"
+            [(OMDToolbarToolTipView *)_toolbarPrimaryActionsContainer setToolTip:@"Open Preferences"
                                                                     forRect:NSMakeRect(fileActionsWidth + OMDToolbarActionGroupSpacing + (OMDToolbarActionSegmentWidth * 2.0), controlY, OMDToolbarActionSegmentWidth, OMDToolbarControlHeight)];
-            [_toolbarPrimaryActionsContainer addSubview:_toolbarActionGlyphOverlay];
 
             [self updateToolbarActionControlsState];
         }
@@ -534,13 +530,7 @@ static BOOL OMDShouldUseToolbarFlexibleSpace(void)
     _lastToolbarExplorerSidebarVisible = [_delegate isExplorerSidebarVisible];
     _hasLastToolbarActionState = YES;
 
-    NSColor *activeIconTint = OMDResolvedControlTextColor();
-    NSColor *disabledIconTint = OMDResolvedMutedTextColor();
     if (_toolbarFileActionsControl != nil) {
-        NSImage *saveBaseImage = OMDSymbolicImageNamed(@"omd-document-save-symbolic");
-        [_toolbarFileActionsControl setImage:OMDToolbarTintedImage(saveBaseImage,
-                                                                   (canSaveDocument ? activeIconTint : disabledIconTint))
-                                  forSegment:2];
         [_toolbarFileActionsControl setEnabled:YES forSegment:0];
         [_toolbarFileActionsControl setEnabled:YES forSegment:1];
         [_toolbarFileActionsControl setEnabled:canSaveDocument forSegment:2];
@@ -552,32 +542,27 @@ static BOOL OMDShouldUseToolbarFlexibleSpace(void)
                                                        ? @"Save current markdown changes"
                                                        : @"No unsaved changes to save")
                                            forSegment:2];
-        if ([_toolbarActionGlyphOverlay isKindOfClass:[OMDToolbarToolTipView class]]) {
+        if ([_toolbarPrimaryActionsContainer isKindOfClass:[OMDToolbarToolTipView class]]) {
             CGFloat controlY = floor((OMDToolbarItemHeight - OMDToolbarControlHeight) * 0.5);
-            [(OMDToolbarToolTipView *)_toolbarActionGlyphOverlay setToolTip:([_delegate isExplorerSidebarVisible]
+            [(OMDToolbarToolTipView *)_toolbarPrimaryActionsContainer setToolTip:([_delegate isExplorerSidebarVisible]
                                                                               ? @"Hide the file explorer"
                                                                               : @"Show the file explorer")
                                                                     forRect:NSMakeRect(0.0, controlY, OMDToolbarActionSegmentWidth, OMDToolbarControlHeight)];
-            [(OMDToolbarToolTipView *)_toolbarActionGlyphOverlay setToolTip:(canSaveDocument
+            [(OMDToolbarToolTipView *)_toolbarPrimaryActionsContainer setToolTip:(canSaveDocument
                                                                               ? @"Save current markdown changes"
                                                                               : @"No unsaved changes to save")
                                                                     forRect:NSMakeRect(OMDToolbarActionSegmentWidth * 2.0, controlY, OMDToolbarActionSegmentWidth, OMDToolbarControlHeight)];
         }
     }
     if (_toolbarUtilityActionsControl != nil) {
-        NSImage *exportBaseImage = OMDSymbolicImageNamed(@"omd-document-export-symbolic");
-        NSImage *printBaseImage = OMDSymbolicImageNamed(@"omd-document-print-symbolic");
-        [_toolbarUtilityActionsControl setImage:OMDToolbarTintedImage(exportBaseImage,
-                                                                      (hasDocument ? activeIconTint : disabledIconTint))
-                                     forSegment:0];
-        [_toolbarUtilityActionsControl setImage:OMDToolbarTintedImage(printBaseImage,
-                                                                      (hasDocument ? activeIconTint : disabledIconTint))
-                                     forSegment:1];
         [_toolbarUtilityActionsControl setEnabled:hasDocument forSegment:0];
         [_toolbarUtilityActionsControl setEnabled:hasDocument forSegment:1];
         [_toolbarUtilityActionsControl setEnabled:YES forSegment:2];
     }
-    [_toolbarActionGlyphOverlay setNeedsDisplay:YES];
+    // GNUstep doesn't redraw a segmented control when a segment's enabled
+    // state changes.
+    [_toolbarFileActionsControl setNeedsDisplay:YES];
+    [_toolbarUtilityActionsControl setNeedsDisplay:YES];
 }
 
 @end

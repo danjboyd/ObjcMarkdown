@@ -18,11 +18,3 @@ static const CGFloat OMDToolbarZoomControlsWidth = 300.0;
 - (void)setToolTip:(NSString *)toolTip forRect:(NSRect)rect;
 @end
 
-@interface OMDToolbarActionGlyphOverlayView : OMDToolbarToolTipView
-{
-    NSSegmentedControl *_fileActionsControl;
-    NSSegmentedControl *_utilityActionsControl;
-}
-- (void)setFileActionsControl:(NSSegmentedControl *)fileControl
-        utilityActionsControl:(NSSegmentedControl *)utilityControl;
-@end

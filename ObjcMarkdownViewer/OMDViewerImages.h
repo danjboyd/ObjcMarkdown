@@ -10,6 +10,3 @@ NSImage *OMDImageNamed(NSString *resourceName);
 // @"omd-document-open-symbolic". The image keeps that name, so a theme
 // that tints template images draws it in the colour of the text around it.
 NSImage *OMDSymbolicImageNamed(NSString *name);
-// Windows toolbar only (waits with the Windows work): a toolbar-sized copy
-// of image in tint.
-NSImage *OMDToolbarTintedImage(NSImage *image, NSColor *tint);

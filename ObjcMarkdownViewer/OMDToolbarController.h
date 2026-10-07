@@ -31,7 +31,6 @@
 {
     id<OMDToolbarControllerDelegate> _delegate;
     NSView *_toolbarPrimaryActionsContainer;
-    NSView *_toolbarActionGlyphOverlay;
     NSSegmentedControl *_toolbarFileActionsControl;
     NSSegmentedControl *_toolbarUtilityActionsControl;
     NSSlider *_zoomSlider;
