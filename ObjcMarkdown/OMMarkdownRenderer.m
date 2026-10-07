@@ -425,7 +425,9 @@ static NSArray *OMRangesClampedToLength(NSArray *ranges, NSUInteger length)
 static NSCharacterSet *OMEmojiCharacterSet(void);
 
 // Fonts chosen for emoji by default are colour fonts GNUstep can't draw
-// (they show as "?"); draw the table's emoji with Symbola instead.
+// (they show as "?"); draw the table's emoji with Symbola instead, where
+// the text's own font lacks them (a list's task box already has one that
+// draws it, so both boxes match).
 static void OMApplyEmojiFont(NSMutableAttributedString *output, NSArray *codeRanges)
 {
     static NSString *emojiFontName = @"Symbola";
@@ -442,7 +444,9 @@ static void OMApplyEmojiFont(NSMutableAttributedString *output, NSArray *codeRan
     while (found.location != NSNotFound) {
         if (![code containsIndex:found.location]) {
             NSFont *font = [output attribute:NSFontAttributeName atIndex:found.location effectiveRange:NULL];
-            NSFont *emojiFont = [NSFont fontWithName:emojiFontName size:(font != nil ? [font pointSize] : 14.0)];
+            BOOL covered = (found.length == 1 && font != nil &&
+                            [[font coveredCharacterSet] characterIsMember:[text characterAtIndex:found.location]]);
+            NSFont *emojiFont = covered ? nil : [NSFont fontWithName:emojiFontName size:(font != nil ? [font pointSize] : 14.0)];
             if (emojiFont != nil) {
                 [output addAttribute:NSFontAttributeName value:emojiFont range:found];
             }
@@ -492,6 +496,55 @@ BOOL OMIsTightList(NSMutableArray *listStack)
         return NO;
     }
     return [[list objectForKey:@"tight"] boolValue];
+}
+
+// Circle and square bullets and task boxes aren't in every body font (a
+// real Helvetica has none of them), and where the text system finds no
+// fallback they drew as "?". A marker character the font lacks is drawn in
+// a font that has it.
+static NSFont *OMListMarkerFallbackFont(unichar character, CGFloat size)
+{
+    static NSArray *candidates = nil;
+    if (candidates == nil) {
+        candidates = [[NSArray alloc] initWithObjects:@"DejaVuSans", @"Segoe UI Symbol", @"FreeSans", nil];
+    }
+    NSUInteger index = 0;
+    for (index = 0; index <= [candidates count]; index++) {
+        NSFont *font = (index < [candidates count])
+            ? [NSFont fontWithName:[candidates objectAtIndex:index] size:size]
+            : [NSFont systemFontOfSize:size];
+        if (font != nil && [[font coveredCharacterSet] characterIsMember:character]) {
+            return font;
+        }
+    }
+    return nil;
+}
+
+static void OMAppendListMarker(NSMutableAttributedString *output,
+                               NSString *marker,
+                               NSDictionary *attributes)
+{
+    NSUInteger start = [output length];
+    OMAppendString(output, marker, attributes);
+    NSFont *font = [attributes objectForKey:NSFontAttributeName];
+    NSCharacterSet *covered = [font coveredCharacterSet];
+    if (font == nil || covered == nil) {
+        return;
+    }
+    // The two task boxes come from one font, or they differ in size.
+    BOOL boxesCovered = [covered characterIsMember:0x2610] && [covered characterIsMember:0x2611];
+    NSUInteger index = 0;
+    for (index = 0; index < [marker length]; index++) {
+        unichar character = [marker characterAtIndex:index];
+        BOOL box = (character == 0x2610 || character == 0x2611);
+        if (character < 0x80 || (box ? boxesCovered : [covered characterIsMember:character])) {
+            continue;
+        }
+        NSFont *fallback = OMListMarkerFallbackFont(character, [font pointSize]);
+        if (fallback != nil) {
+            [output addAttribute:NSFontAttributeName value:fallback range:NSMakeRange(start + index, 1)];
+        }
+    }
 }
 
 static NSString *OMListPrefix(NSMutableArray *listStack)
@@ -1579,7 +1632,7 @@ static void OMRenderListItem(cmark_node *node,
         BOOL bullet = ((cmark_list_type)[[OMListContext(listStack) objectForKey:@"type"] intValue] == CMARK_BULLET_LIST);
         prefix = bullet ? box : [prefix stringByAppendingString:box];
     }
-    OMAppendString(output, prefix, attributes);
+    OMAppendListMarker(output, prefix, attributes);
 
     cmark_node *child = cmark_node_first_child(node);
     while (child != NULL) {

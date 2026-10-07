@@ -2561,4 +2561,34 @@ static NSRange OMFootnoteAnchorRange(NSAttributedString *rendered, NSString *anc
     XCTAssertEqualObjects([link fragment], @"frag");
 }
 
+// List markers draw in a font that has them: the theme's Helvetica may lack
+// the circle and square bullets and the task boxes, which drew as "?". The
+// two boxes come from the same font.
+- (void)testListMarkersDrawInAFontThatHasThem
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:
+        @"- one\n  - two\n    - three\n\n- [x] done\n- [ ] open\n"];
+    NSString *text = [rendered string];
+    unichar markers[4] = { 0x25E6, 0x25AA, 0x2611, 0x2610 };
+    NSFont *boxFonts[2] = { nil, nil };
+    NSUInteger i = 0;
+    for (i = 0; i < 4; i++) {
+        NSRange found = [text rangeOfString:[NSString stringWithCharacters:&markers[i] length:1]];
+        XCTAssertTrue(found.location != NSNotFound);
+        if (found.location == NSNotFound) {
+            continue;
+        }
+        NSFont *font = [rendered attribute:NSFontAttributeName atIndex:found.location effectiveRange:NULL];
+        NSCharacterSet *covered = [font coveredCharacterSet];
+        if (covered != nil && [NSFont fontWithName:@"DejaVuSans" size:12.0] != nil) {
+            XCTAssertTrue([covered characterIsMember:markers[i]], @"marker %04X in %@", markers[i], [font fontName]);
+        }
+        if (i >= 2) {
+            boxFonts[i - 2] = font;
+        }
+    }
+    XCTAssertEqualObjects([boxFonts[0] fontName], [boxFonts[1] fontName]);
+}
+
 @end
