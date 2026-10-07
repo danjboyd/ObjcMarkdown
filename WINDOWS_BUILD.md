@@ -18,7 +18,7 @@ this project.
 - Objective-C capable compiler toolchain
 - `make`
 - `pkg-config`
-- `xctest` (from GNUstep tools-xctest) if you want unit tests on Windows
+- `xctest` from [danjboyd/tools-xctest](https://github.com/danjboyd/tools-xctest) if you want unit tests on Windows (see Tests below)
 - the sibling [gnustep-packager](/C:/Users/Support/git/gnustep-packager) repo if you are producing the MSI package from this repo
 
 ### 2) Environment Expectations
@@ -90,9 +90,8 @@ This builds:
 - `ObjcMarkdownTests`
 
 Windows/MSYS2 note:
-- The current tree includes a viewer-target workaround for the MSYS2 `clang64` + GNUstep header issue where `dispatch/io.h` fails with `unknown type name 'mode_t'`.
-- The workaround is applied in `ObjcMarkdownViewer/GNUmakefile` by forcing `sys/types.h` into the Objective-C compile and defining `mode_t` for that target's Windows build.
-- If that error reappears in a future Codex session, inspect the actual compile line with `make -n messages=yes` inside `ObjcMarkdownViewer/` before changing unrelated code.
+- MinGW's `sys/types.h` and libdispatch's `os/generic_win_base.h` both declare `mode_t`. The top-level `GNUmakefile` includes `sys/types.h` first and defines `HAVE_MODE_T` for every subproject, which keeps one declaration with old and current headers. Don't define `_MODE_T_` or `mode_t` yourself: that hides the CRT's declaration and `dispatch/io.h` fails.
+- If a `mode_t` error comes back, inspect the actual compile line with `make -n messages=yes` in the failing subproject before changing unrelated code.
 
 ### 4) Run
 
@@ -120,6 +119,20 @@ Theme note (Windows):
 
 ### 5) Tests
 
+The tests need `xctest` from [danjboyd/tools-xctest](https://github.com/danjboyd/tools-xctest),
+which builds on Windows (upstream's and older installs don't), installed into
+`clang64` and built against the gnustep-base that's installed now. An `xctest`
+built for an older gnustep-base doesn't start (`gnustep-base-1_30.dll` not
+found), so rebuild it after updating MSYS2's GNUstep packages:
+
+```bash
+source /clang64/share/GNUstep/Makefiles/GNUstep.sh
+git clone https://github.com/danjboyd/tools-xctest.git && cd tools-xctest
+make && make GNUSTEP_INSTALLATION_DOMAIN=SYSTEM install
+```
+
+Then, in the repo:
+
 ```bash
 source /etc/profile
 source /clang64/share/GNUstep/Makefiles/GNUstep.sh
@@ -135,6 +148,9 @@ From PowerShell/Codex, use:
 
 The PowerShell helper creates `~/GNUstep/Defaults/.lck` and prepends the repo build
 output directories to `PATH` before invoking `xctest`.
+
+The tests run under the theme your GNUstep defaults select (`GSTheme`), so they
+shouldn't depend on one theme's fonts or metrics.
 
 If dynamic library loading fails on Windows, add repo build output directories to your runtime DLL search path (`PATH`) before running tests/app.
 

@@ -75,8 +75,12 @@
     NSParagraphStyle *setupStyle = [setup attribute:NSParagraphStyleAttributeName atIndex:0 effectiveRange:NULL];
     NSParagraphStyle *detailsStyle = [details attribute:NSParagraphStyleAttributeName atIndex:0 effectiveRange:NULL];
     XCTAssertTrue([detailsStyle firstLineHeadIndent] > [setupStyle firstLineHeadIndent]);
+    // Top-level rows in the theme's bold system font, others in its regular
+    // one. (A theme's bold needn't carry NSBoldFontMask: WinUI's is Semibold.)
     NSFont *setupFont = [setup attribute:NSFontAttributeName atIndex:0 effectiveRange:NULL];
-    XCTAssertTrue(([[NSFontManager sharedFontManager] traitsOfFont:setupFont] & NSBoldFontMask) != 0);
+    NSFont *detailsFont = [details attribute:NSFontAttributeName atIndex:0 effectiveRange:NULL];
+    XCTAssertEqualObjects([setupFont fontName], [[NSFont boldSystemFontOfSize:[setupFont pointSize]] fontName]);
+    XCTAssertEqualObjects([detailsFont fontName], [[NSFont systemFontOfSize:[detailsFont pointSize]] fontName]);
 }
 
 - (void)testChoosingARowNotifiesDelegateButSettingCurrentDoesNot
