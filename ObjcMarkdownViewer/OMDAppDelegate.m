@@ -1049,6 +1049,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [_textView setVerticallyResizable:NO];
     [_textView setEditable:NO];
     [_textView setSelectable:YES];
+    [_textView setUsesFindPanel:YES];
     [_textView setRichText:YES];
     [_textView setDrawsBackground:NO];
     [_textView setTextContainerInset:NSMakeSize(metrics.previewTextInsetX, metrics.previewTextInsetY)];
@@ -1100,6 +1101,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [_sourceTextView setSelectable:YES];
     [_sourceTextView setRichText:NO];
     [_sourceTextView setAllowsUndo:YES];
+    [_sourceTextView setUsesFindPanel:YES];
     [_sourceTextView setUsesRuler:NO];
     [_sourceTextView setRulerVisible:NO];
     [_sourceTextView setTextContainerInset:NSMakeSize(metrics.sourceTextInsetX, metrics.sourceTextInsetY)];
@@ -1782,6 +1784,9 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
 - (BOOL)validateMenuItem:(NSMenuItem *)menuItem
 {
     SEL action = [menuItem action];
+    if (action == @selector(performFindPanelAction:)) {
+        return [self findTargetTextView] != nil;
+    }
     if (action == @selector(setReadMode:) ||
         action == @selector(setEditMode:) ||
         action == @selector(setSplitMode:)) {
@@ -7259,6 +7264,30 @@ constrainSplitPosition:(CGFloat)proposedPosition
         return;
     }
     [self setPreviewZoomScale:(floor(_zoomScale * 10.0 + 0.5) - 1.0) / 10.0];
+}
+
+// Find with no text view focused (Read mode, or the explorer focused): the
+// editor in Edit mode, else the preview (#87).
+- (NSTextView *)findTargetTextView
+{
+    if (![self hasLoadedDocument]) {
+        return nil;
+    }
+    if (_viewerMode == OMDViewerModeEdit) {
+        return _sourceTextView;
+    }
+    return _textView;
+}
+
+- (void)performFindPanelAction:(id)sender
+{
+    NSTextView *target = [self findTargetTextView];
+    if (target == nil) {
+        NSBeep();
+        return;
+    }
+    [_window makeFirstResponder:target];
+    [target performFindPanelAction:sender];
 }
 
 - (void)zoomToActualSize:(id)sender
