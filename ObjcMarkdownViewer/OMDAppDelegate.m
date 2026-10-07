@@ -7061,8 +7061,15 @@ constrainSplitPosition:(CGFloat)proposedPosition
     [self updatePreviewStatusIndicator];
 
     if (_currentMarkdown != nil && [self isPreviewVisible]) {
-        _lastRenderedLayoutWidth = -1.0;
-        [self renderCurrentMarkdown];
+        // The density reaches the rendered document only through its layout
+        // width. At launch the width usually hasn't changed, and rendering a
+        // large document a second time costs as much as the first (#94).
+        CGFloat width = [self currentPreviewLayoutWidth];
+        if (_lastRenderedLayoutWidth < 0.0 || fabs(width - _lastRenderedLayoutWidth) >= 0.5) {
+            [self renderCurrentMarkdown];
+        } else {
+            [self updatePreviewDocumentGeometry];
+        }
     }
 
     [_preferencesController layoutDensityDidChange];
