@@ -13,4 +13,5 @@ static const CGFloat OMDWin11SplitDividerHitThickness = 12.0;
     NSInteger _activeDividerIndex;
 }
 - (void)omdRebuildDividerTrackingRects;
+- (void)omdSnapSubviewsToPixels;
 @end

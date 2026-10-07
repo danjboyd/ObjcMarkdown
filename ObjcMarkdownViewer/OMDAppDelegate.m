@@ -1629,8 +1629,12 @@ static NSMutableArray *OMDSecondaryWindows(void)
         }
         [_workspaceSplitView setPosition:0.0 ofDividerAtIndex:0];
         [_sidebarContainer setHidden:YES];
-        // Hidden, it takes no room: the document fills the width.
-        [_workspaceSplitView adjustSubviews];
+        // Hidden, it takes no room: the document fills the width. Only the
+        // frames: a full -adjustSubviews here, during setup, made the
+        // AppImage exit at launch in CI (libs-gui 549f639).
+        OMDWin11SplitView *workspaceSplitView = (OMDWin11SplitView *)_workspaceSplitView;
+        [workspaceSplitView omdSnapSubviewsToPixels];
+        [workspaceSplitView omdRebuildDividerTrackingRects];
     }
 
     [self layoutWorkspaceChrome];
