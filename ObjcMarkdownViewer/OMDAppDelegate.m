@@ -30,6 +30,7 @@
 #import "OMDLayoutMetrics.h"
 #import "OMDMainMenu.h"
 #import "OMDToolbarController.h"
+#import "OMDStatusBarController.h"
 #import "OMDCopyButtonsController.h"
 #import "OMDRenderScheduler.h"
 #import "OMDPreviewTextUpdate.h"
@@ -163,8 +164,8 @@ static CGFloat OMDMinimumUsableWindowWidth(void)
 #if defined(__APPLE__)
     return 900.0;
 #else
-    CGFloat primaryActionsWidth = (OMDToolbarActionSegmentWidth * 6.0) + OMDToolbarActionGroupSpacing;
-    return primaryActionsWidth + OMDToolbarModeControlsWidth + OMDToolbarZoomControlsWidth + OMDUsableWindowWidthPadding;
+    // The status bar is the widest row that can't shrink.
+    return OMDStatusBarMinimumWidth + OMDUsableWindowWidthPadding;
 #endif
 }
 
@@ -369,7 +370,7 @@ static CGFloat OMDClampedScrollSpeed(CGFloat value)
 }
 
 
-@interface OMDAppDelegate () <OMDCopyButtonsControllerDelegate, OMDRenderSchedulerDelegate, OMDDocumentTabsControllerDelegate, OMDToolbarControllerDelegate, OMDExplorerControllerDelegate, OMDOpenLocationDelegate, OMDFormattingBarControllerDelegate, OMDPreferencesControllerDelegate, GSVVimBindingControllerDelegate, OMDTextViewRenderedObjectDelegate, OMDOutlineControllerDelegate>
+@interface OMDAppDelegate () <OMDCopyButtonsControllerDelegate, OMDRenderSchedulerDelegate, OMDDocumentTabsControllerDelegate, OMDToolbarControllerDelegate, OMDStatusBarControllerDelegate, OMDExplorerControllerDelegate, OMDOpenLocationDelegate, OMDFormattingBarControllerDelegate, OMDPreferencesControllerDelegate, GSVVimBindingControllerDelegate, OMDTextViewRenderedObjectDelegate, OMDOutlineControllerDelegate>
 - (void)importDocument:(id)sender;
 - (void)newWindow:(id)sender;
 - (void)saveDocument:(id)sender;
@@ -590,7 +591,6 @@ static CGFloat OMDClampedScrollSpeed(CGFloat value)
 - (void)persistSplitViewRatio;
 - (BOOL)isPreviewVisible;
 - (void)updateWindowTitle;
-- (NSColor *)modeLabelTextColor;
 - (void)applySourceEditorFontFromDefaults;
 - (void)setSourceEditorFont:(NSFont *)font persistPreference:(BOOL)persistPreference;
 - (void)updateRendererParsingOptionsForSourcePath:(NSString *)sourcePath;
@@ -768,6 +768,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [_remoteDocumentBar release];
     [_preferencesController release];
     [_toolbarController release];
+    [_statusBarController release];
     [_updaterController release];
     if (_fileOpenRecentMenu != nil) {
         [_fileOpenRecentMenu setDelegate:nil];
@@ -1001,6 +1002,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
         }
     }
     _toolbarController = [[OMDToolbarController alloc] initWithDelegate:self];
+    _statusBarController = [[OMDStatusBarController alloc] initWithDelegate:self];
     _copyButtonsController = [[OMDCopyButtonsController alloc] initWithDelegate:self];
     _renderScheduler = [[OMDRenderScheduler alloc] initWithDelegate:self];
     [_toolbarController installInWindow:_window];
@@ -1425,8 +1427,15 @@ static NSMutableArray *OMDSecondaryWindows(void)
         initialMainWidth = 0.0;
     }
 
+    // The status bar along the bottom; the workspace fills the rest.
+    NSView *statusBar = [_statusBarController viewWithWidth:contentWidth];
+    CGFloat statusHeight = MIN(NSHeight([statusBar frame]), contentHeight);
+    [statusBar setFrameOrigin:NSMakePoint(NSMinX(contentBounds), NSMinY(contentBounds))];
+    [[_window contentView] addSubview:statusBar];
+    contentHeight -= statusHeight;
+
     _workspaceSplitView = [[OMDWin11SplitView alloc] initWithFrame:NSMakeRect(NSMinX(contentBounds),
-                                                                               NSMinY(contentBounds),
+                                                                               NSMinY(contentBounds) + statusHeight,
                                                                                contentWidth,
                                                                                contentHeight)];
     [_workspaceSplitView setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable)];
@@ -1719,18 +1728,18 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
 
 - (void)updateZoomLabel
 {
-    NSTextField *zoomLabel = [_toolbarController zoomLabel];
+    NSButton *zoomButton = [_statusBarController zoomButton];
     NSInteger percent = (NSInteger)lrint(_zoomScale * 100.0);
-    // Without the toolbar's zoom controls, the menu says what the zoom is.
+    // The menu says what the zoom is too.
     NSMenuItem *actualSize = OMDMenuItemWithAction([NSApp mainMenu], @selector(zoomToActualSize:));
     if (actualSize != nil) {
         [actualSize setTitle:(percent == 100 ? @"Actual Size"
                                              : [NSString stringWithFormat:@"Actual Size (now %ld%%)", (long)percent])];
     }
-    if (zoomLabel == nil) {
+    if (zoomButton == nil) {
         return;
     }
-    [zoomLabel setStringValue:[NSString stringWithFormat:@"%ld%%", (long)percent]];
+    [zoomButton setTitle:[NSString stringWithFormat:@"%ld%%", (long)percent]];
 }
 
 - (BOOL)canSaveCurrentDocument
@@ -1740,7 +1749,7 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
 
 - (void)zoomSliderChanged:(id)sender
 {
-    NSSlider *zoomSlider = [_toolbarController zoomSlider];
+    NSSlider *zoomSlider = [_statusBarController zoomSlider];
     _zoomScale = [zoomSlider doubleValue] / 100.0;
     [[NSUserDefaults standardUserDefaults] setDouble:_zoomScale forKey:@"ObjcMarkdownZoomScale"];
     [self updateZoomLabel];
@@ -1755,7 +1764,7 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
 
 - (void)zoomReset:(id)sender
 {
-    NSSlider *zoomSlider = [_toolbarController zoomSlider];
+    NSSlider *zoomSlider = [_statusBarController zoomSlider];
     _zoomScale = 1.0;
     [[NSUserDefaults standardUserDefaults] setDouble:_zoomScale forKey:@"ObjcMarkdownZoomScale"];
     [zoomSlider setDoubleValue:100.0];
@@ -5499,20 +5508,16 @@ constrainSplitPosition:(CGFloat)proposedPosition
 - (void)updateModeControlSelection
 {
     NSSegmentedControl *modeControl = [_toolbarController modeControl];
-    NSTextField *modeLabel = [_toolbarController modeLabel];
     if (modeControl == nil) {
         return;
     }
     [modeControl setSelectedSegment:_viewerMode];
-    if (modeLabel != nil) {
-        [modeLabel setTextColor:[self modeLabelTextColor]];
-    }
     [self updatePreviewStatusIndicator];
 }
 
 - (void)updatePreviewStatusIndicator
 {
-    NSTextField *previewStatusLabel = [_toolbarController previewStatusLabel];
+    NSTextField *previewStatusLabel = [_statusBarController statusLabel];
     [_toolbarController updateToolbarActionControlsState];
     if (previewStatusLabel == nil) {
         return;
@@ -7225,7 +7230,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
 
 - (void)setPreviewZoomScale:(CGFloat)scale
 {
-    NSSlider *zoomSlider = [_toolbarController zoomSlider];
+    NSSlider *zoomSlider = [_statusBarController zoomSlider];
     scale = MAX(0.5, MIN(2.0, scale));
     _zoomScale = scale;
     [[NSUserDefaults standardUserDefaults] setDouble:_zoomScale forKey:@"ObjcMarkdownZoomScale"];
@@ -7337,11 +7342,6 @@ constrainSplitPosition:(CGFloat)proposedPosition
 - (BOOL)isPreviewVisible
 {
     return _viewerMode != OMDViewerModeEdit;
-}
-
-- (NSColor *)modeLabelTextColor
-{
-    return OMDResolvedControlTextColor();
 }
 
 - (void)updateWindowTitle

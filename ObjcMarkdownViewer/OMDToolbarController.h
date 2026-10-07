@@ -8,57 +8,37 @@
 - (BOOL)hasLoadedDocument;
 - (BOOL)canSaveCurrentDocument;
 - (BOOL)isExplorerSidebarVisible;
-- (CGFloat)previewZoomScale;
-- (NSColor *)modeLabelTextColor;
 - (void)updateModeControlSelection;
-- (void)updatePreviewStatusIndicator;
-- (void)updateZoomLabel;
 - (void)toggleExplorerSidebar:(id)sender;
 - (void)openDocument:(id)sender;
 // A new menu of the recent documents, each item opening its file.
 - (NSMenu *)recentDocumentsMenu;
 - (void)saveDocument:(id)sender;
-- (void)exportDocumentAsPDF:(id)sender;
-- (void)printDocument:(id)sender;
-- (void)showPreferences:(id)sender;
 @end
 
-// The window's toolbar: in the GNOME header bar the explorer, open and
-// save buttons and the Read/Edit/Split switcher; on Windows the action
-// groups, the switcher and the zoom controls. The controls' actions go to
-// the delegate, which also validates the toolbar items.
+// The window's toolbar, the same on every platform: the explorer, open and
+// save buttons, a flexible space and the Read/Edit/Split switcher. The
+// theme presents it (the Adwaita theme puts it in the header bar,
+// GnomeThemeHeaderBarToolbar; WinUITheme draws a CommandBar). Export,
+// Print and Preferences are in the menus; zoom and status are in the
+// status bar. The controls' actions go to the delegate, which also
+// validates the toolbar items.
 @interface OMDToolbarController : NSObject <NSToolbarDelegate>
 {
     id<OMDToolbarControllerDelegate> _delegate;
-    NSView *_toolbarPrimaryActionsContainer;
-    NSSegmentedControl *_toolbarFileActionsControl;
-    NSSegmentedControl *_toolbarUtilityActionsControl;
-    NSSlider *_zoomSlider;
-    NSTextField *_zoomLabel;
-    NSButton *_zoomResetButton;
-    NSView *_zoomContainer;
+    NSToolbar *_toolbar;
     NSView *_modeContainer;
     NSSegmentedControl *_modeControl;
-    NSTextField *_modeLabel;
-    NSTextField *_previewStatusLabel;
-    BOOL _lastToolbarHadDocument;
-    BOOL _lastToolbarCanSaveDocument;
-    BOOL _lastToolbarExplorerSidebarVisible;
-    BOOL _hasLastToolbarActionState;
 }
 
 // The delegate is not retained.
 - (instancetype)initWithDelegate:(id<OMDToolbarControllerDelegate>)delegate;
 
 - (void)installInWindow:(NSWindow *)window;
-// Refreshes the action buttons' enabled state, icons and tooltips.
+// Validates the toolbar items again (Save's enabled state, for one).
 - (void)updateToolbarActionControlsState;
 
-// The switcher and status views, nil until the toolbar builds them.
+// The Read/Edit/Split switcher, nil until the toolbar builds it.
 - (NSSegmentedControl *)modeControl;
-- (NSTextField *)modeLabel;
-- (NSTextField *)previewStatusLabel;
-- (NSSlider *)zoomSlider;
-- (NSTextField *)zoomLabel;
 
 @end

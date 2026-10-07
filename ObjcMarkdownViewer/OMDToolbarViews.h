@@ -5,10 +5,6 @@
 
 static const CGFloat OMDToolbarControlHeight = 28.0;
 static const CGFloat OMDToolbarItemHeight = 32.0;
-static const CGFloat OMDToolbarActionSegmentWidth = 46.0;
-static const CGFloat OMDToolbarActionGroupSpacing = 8.0;
-static const CGFloat OMDToolbarModeControlsWidth = 356.0;
-static const CGFloat OMDToolbarZoomControlsWidth = 300.0;
 
 @interface OMDToolbarToolTipView : NSView
 {
