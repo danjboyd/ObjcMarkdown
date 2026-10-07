@@ -48,7 +48,6 @@ mkdir -p \
 cp -R "$ROOT/ObjcMarkdownViewer/MarkdownViewer.app" "$APP_ROOT/"
 
 copy_required "$ROOT/ObjcMarkdown/obj/ObjcMarkdown-0.dll" "$RUNTIME_BIN_DIR/"
-copy_required "$ROOT/third_party/libs-OpenSave/Source/obj/OpenSave-0.dll" "$RUNTIME_BIN_DIR/"
 copy_required "$ROOT/third_party/TextViewVimKitBuild/obj/TextViewVimKit-0.dll" "$RUNTIME_BIN_DIR/"
 copy_required "$ROOT/third_party/GPUpdaterCore/obj/GPUpdaterCore-0.dll" "$RUNTIME_BIN_DIR/"
 copy_required "$ROOT/third_party/GPUpdaterUI/obj/GPUpdaterUI-0.dll" "$RUNTIME_BIN_DIR/"
@@ -219,7 +218,6 @@ collect_deps() {
 
 collect_deps "$APP_BUNDLE_DIR/MarkdownViewer.exe"
 collect_deps "$RUNTIME_BIN_DIR/ObjcMarkdown-0.dll"
-collect_deps "$RUNTIME_BIN_DIR/OpenSave-0.dll"
 collect_deps "$RUNTIME_BIN_DIR/TextViewVimKit-0.dll"
 collect_deps "$RUNTIME_BIN_DIR/GPUpdaterCore-0.dll"
 collect_deps "$RUNTIME_BIN_DIR/GPUpdaterUI-0.dll"
