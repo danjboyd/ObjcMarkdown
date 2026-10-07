@@ -1,0 +1,38 @@
+name: linux-flatpak
+
+# MarkdownViewer as a Flatpak bundle (#67), from
+# packaging/flatpak/io.github.danjboyd.MarkdownViewer.yml: by hand, or on a
+# release tag, which attaches the bundle to the release.
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  flatpak:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:freedesktop-25.08
+      options: --privileged
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Build the Flatpak
+        uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          manifest-path: packaging/flatpak/io.github.danjboyd.MarkdownViewer.yml
+          bundle: MarkdownViewer.flatpak
+          cache-key: flatpak-builder-${{ hashFiles('packaging/flatpak/io.github.danjboyd.MarkdownViewer.yml') }}
+          upload-artifact: true
+
+      - name: Attach to the release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: MarkdownViewer.flatpak

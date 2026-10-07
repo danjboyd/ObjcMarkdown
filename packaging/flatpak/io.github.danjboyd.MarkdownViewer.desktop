@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=MarkdownViewer
+Comment=Read, edit and preview Markdown documents
+Exec=markdownviewer %F
+Icon=io.github.danjboyd.MarkdownViewer
+Terminal=false
+StartupNotify=true
+StartupWMClass=MarkdownViewer
+Categories=Office;Viewer;TextTools;
+MimeType=text/markdown;text/x-markdown;
+Keywords=markdown;md;preview;editor;
