@@ -1616,12 +1616,11 @@ static void OMScheduleAsyncMathAssetGeneration(NSString *formula,
                                                           NULL);
                 if (svgData != nil) {
                     [OMMathBaseSVGDataCache() setObject:svgData forKey:assetKeyCopy];
-                    // Not dispatch_get_main_queue(): GNUstep's run loop doesn't drain it on Windows.
-                    [[NSOperationQueue mainQueue] addOperationWithBlock:^{
+                    OMPerformOnMainThread(^{
                         [[NSNotificationCenter defaultCenter]
                             postNotificationName:OMMarkdownRendererMathArtifactsDidWarmNotification
                                           object:nil];
-                    }];
+                    });
                 }
             } @finally {
                 @synchronized (pending) {

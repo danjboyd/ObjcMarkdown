@@ -304,8 +304,7 @@ static void OMScheduleAsyncRemoteImageWarm(NSURL *url,
                 data = [NSData dataWithContentsOfURL:remoteURL];
             }
             NSData *dataCopy = [data retain];
-            // Not dispatch_get_main_queue(): GNUstep's run loop doesn't drain it on Windows.
-            [[NSOperationQueue mainQueue] addOperationWithBlock:^{
+            OMPerformOnMainThread(^{
                 if (dataCopy != nil && [dataCopy length] > 0) {
                     NSImage *loaded = [[[NSImage alloc] initWithData:dataCopy] autorelease];
                     NSImage *prepared = OMPreparedImageForAttachment(loaded, scale, layoutWidth);
@@ -324,7 +323,7 @@ static void OMScheduleAsyncRemoteImageWarm(NSURL *url,
                 }
                 [urlStringCopy release];
                 [cacheKeyCopy release];
-            }];
+            });
         }
     });
 }

@@ -252,6 +252,13 @@ BOOL OMTryRenderMermaidDiagram(cmark_node *node,
                                const OMRenderContext *renderContext,
                                NSString **diagnosticOut);
 
+// OMMarkdownRenderer.m
+// Runs the block on the main thread, later, from any thread: not
+// dispatch_get_main_queue(), which GNUstep's run loop doesn't drain on
+// Windows, nor NSOperationQueue's mainQueue, which GNUstep runs on a worker
+// thread.
+void OMPerformOnMainThread(void (^block)(void));
+
 // OMMarkdownRendererHTML.m
 extern NSString * const OMHTMLStyleStackAttributeName;
 NSString *OMHTMLDecodeEntities(NSString *text);

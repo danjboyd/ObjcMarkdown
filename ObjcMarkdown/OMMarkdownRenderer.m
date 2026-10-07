@@ -1039,6 +1039,48 @@ static void OMPrepareFootnotes(cmark_node *document);
 - (NSAttributedString *)om_attributedStringFromMarkdown:(NSString *)markdown;
 @end
 
+@interface OMMainThreadBlock : NSObject
+{
+    void (^_block)(void);
+}
+- (instancetype)initWithBlock:(void (^)(void))block;
+- (void)run;
+@end
+
+@implementation OMMainThreadBlock
+
+- (instancetype)initWithBlock:(void (^)(void))block
+{
+    self = [super init];
+    if (self != nil) {
+        _block = [block copy];
+    }
+    return self;
+}
+
+- (void)dealloc
+{
+    [_block release];
+    [super dealloc];
+}
+
+- (void)run
+{
+    _block();
+}
+
+@end
+
+void OMPerformOnMainThread(void (^block)(void))
+{
+    if (block == nil) {
+        return;
+    }
+    OMMainThreadBlock *runner = [[OMMainThreadBlock alloc] initWithBlock:block];
+    [runner performSelectorOnMainThread:@selector(run) withObject:nil waitUntilDone:NO];
+    [runner release];
+}
+
 @implementation OMMarkdownRenderer
 
 + (NSString *)anchorSlugForHeadingTitle:(NSString *)title

@@ -23,7 +23,6 @@
 #import "OMDMainWindow.h"
 #import "OMDFillViews.h"
 #import "OMDToolbarViews.h"
-#import "OMDPreferencesPopup.h"
 #import "OMDWin11SplitView.h"
 #import "OMDTextFileSupport.h"
 #import "OMDExternalTools.h"
@@ -177,6 +176,27 @@ static CGFloat OMDDefaultWindowWidth(void)
 static CGFloat OMDDefaultWindowHeight(void)
 {
     return 760.0;
+}
+
+// The documents named on the command line: the arguments before the first
+// option, as GNUstep's NSApplication reads them. After that come defaults
+// and their values ("-GSTheme GNUstep"), which aren't files even when a
+// file of that name exists.
+static NSArray *OMDLaunchDocumentArguments(void)
+{
+    NSArray *args = [[NSProcessInfo processInfo] arguments];
+    NSMutableArray *names = [NSMutableArray array];
+    NSUInteger i = 1;
+    for (; i < [args count]; i++) {
+        NSString *arg = [args objectAtIndex:i];
+        if ([arg hasPrefix:@"-"]) {
+            break;
+        }
+        if ([arg length] > 0) {
+            [names addObject:arg];
+        }
+    }
+    return names;
 }
 
 static void OMDLogMenuSnapshot(NSString *label, NSMenu *menu, NSWindow *window)
@@ -373,6 +393,7 @@ static CGFloat OMDClampedScrollSpeed(CGFloat value)
 @interface OMDAppDelegate () <OMDCopyButtonsControllerDelegate, OMDRenderSchedulerDelegate, OMDDocumentTabsControllerDelegate, OMDToolbarControllerDelegate, OMDStatusBarControllerDelegate, OMDExplorerControllerDelegate, OMDOpenLocationDelegate, OMDFormattingBarControllerDelegate, OMDPreferencesControllerDelegate, GSVVimBindingControllerDelegate, OMDTextViewRenderedObjectDelegate, OMDOutlineControllerDelegate>
 - (void)importDocument:(id)sender;
 - (void)newWindow:(id)sender;
+- (void)newDocument:(id)sender;
 - (void)saveDocument:(id)sender;
 - (void)saveDocumentAsMarkdown:(id)sender;
 - (void)printDocument:(id)sender;
@@ -1049,6 +1070,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [_textView setVerticallyResizable:NO];
     [_textView setEditable:NO];
     [_textView setSelectable:YES];
+    [_textView setUsesFindPanel:YES];
     [_textView setRichText:YES];
     [_textView setDrawsBackground:NO];
     [_textView setTextContainerInset:NSMakeSize(metrics.previewTextInsetX, metrics.previewTextInsetY)];
@@ -1100,6 +1122,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [_sourceTextView setSelectable:YES];
     [_sourceTextView setRichText:NO];
     [_sourceTextView setAllowsUndo:YES];
+    [_sourceTextView setUsesFindPanel:YES];
     [_sourceTextView setUsesRuler:NO];
     [_sourceTextView setRulerVisible:NO];
     [_sourceTextView setTextContainerInset:NSMakeSize(metrics.sourceTextInsetX, metrics.sourceTextInsetY)];
@@ -1292,15 +1315,8 @@ static NSMutableArray *OMDSecondaryWindows(void)
 
 - (NSString *)firstLaunchDocumentPathFromArguments
 {
-    NSArray *args = [[NSProcessInfo processInfo] arguments];
-    if ([args count] <= 1) {
-        return nil;
-    }
-
     NSFileManager *fm = [NSFileManager defaultManager];
-    NSUInteger i = 1;
-    for (; i < [args count]; i++) {
-        NSString *candidate = [args objectAtIndex:i];
+    for (NSString *candidate in OMDLaunchDocumentArguments()) {
         NSString *expanded = [self resolvedAbsolutePathForLocalPath:candidate];
         if ([expanded length] == 0) {
             continue;
@@ -1782,6 +1798,9 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
 - (BOOL)validateMenuItem:(NSMenuItem *)menuItem
 {
     SEL action = [menuItem action];
+    if (action == @selector(performFindPanelAction:)) {
+        return [self findTargetTextView] != nil;
+    }
     if (action == @selector(setReadMode:) ||
         action == @selector(setEditMode:) ||
         action == @selector(setSplitMode:)) {
@@ -2068,6 +2087,29 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
 {
     [[NSDocumentController sharedDocumentController] clearRecentDocuments:sender];
     [self rebuildOpenRecentMenu];
+}
+
+// A new, empty Markdown document (#88): "Untitled", in Edit mode; the
+// first Save asks where to put it.
+- (void)newDocument:(id)sender
+{
+    (void)sender;
+    static NSUInteger untitledCount = 0;
+    untitledCount += 1;
+    NSString *title = untitledCount == 1 ? @"Untitled" : [NSString stringWithFormat:@"Untitled %lu", (unsigned long)untitledCount];
+    BOOL inNewTab = !([_documentTabsController count] == 0 && _currentPath == nil && _currentMarkdown == nil);
+    if (![self openDocumentWithMarkdown:@""
+                             sourcePath:nil
+                           displayTitle:title
+                               readOnly:NO
+                             renderMode:OMDDocumentRenderModeMarkdown
+                         syntaxLanguage:nil
+                               inNewTab:inNewTab
+                    requireDirtyConfirm:!inNewTab]) {
+        return;
+    }
+    [self setViewerMode:OMDViewerModeEdit persistPreference:NO];
+    [_window makeFirstResponder:_sourceTextView];
 }
 
 - (void)newWindow:(id)sender
@@ -6989,7 +7031,15 @@ constrainSplitPosition:(CGFloat)proposedPosition
         [options setObject:appName forKey:@"ApplicationName"];
     }
 
-    NSString *release = OMDInfoStringForKey(@"ApplicationRelease");
+    // The version the build was made from (VERSION, or OMD_VERSION), else
+    // the Info.plist's (#89).
+    NSString *release = nil;
+#ifdef OMD_APP_VERSION
+    release = [NSString stringWithUTF8String:OMD_APP_VERSION];
+#endif
+    if (release == nil || [release length] == 0) {
+        release = OMDInfoStringForKey(@"ApplicationRelease");
+    }
     if (release == nil || [release length] == 0) {
         release = OMDInfoStringForKey(@"ApplicationVersion");
     }
@@ -7019,6 +7069,10 @@ constrainSplitPosition:(CGFloat)proposedPosition
     if (icon != nil) {
         [options setObject:icon forKey:@"ApplicationIcon"];
     }
+    [options setObject:@"A Markdown reader and editor for GNUstep." forKey:@"ApplicationDescription"];
+    [options setObject:@"https://github.com/danjboyd/ObjcMarkdown" forKey:@"URL"];
+    [options setObject:@"MarkdownViewer is GPL-2.0-or-later; the ObjcMarkdown library is LGPL-2.1-or-later."
+                forKey:@"CopyrightDescription"];
 
     if ([options count] > 0 && [NSApp respondsToSelector:@selector(orderFrontStandardAboutPanelWithOptions:)]) {
         [NSApp orderFrontStandardAboutPanelWithOptions:options];
@@ -7259,6 +7313,30 @@ constrainSplitPosition:(CGFloat)proposedPosition
         return;
     }
     [self setPreviewZoomScale:(floor(_zoomScale * 10.0 + 0.5) - 1.0) / 10.0];
+}
+
+// Find with no text view focused (Read mode, or the explorer focused): the
+// editor in Edit mode, else the preview (#87).
+- (NSTextView *)findTargetTextView
+{
+    if (![self hasLoadedDocument]) {
+        return nil;
+    }
+    if (_viewerMode == OMDViewerModeEdit) {
+        return _sourceTextView;
+    }
+    return _textView;
+}
+
+- (void)performFindPanelAction:(id)sender
+{
+    NSTextView *target = [self findTargetTextView];
+    if (target == nil) {
+        NSBeep();
+        return;
+    }
+    [_window makeFirstResponder:target];
+    [target performFindPanelAction:sender];
 }
 
 - (void)zoomToActualSize:(id)sender
@@ -8600,15 +8678,8 @@ static BOOL OMDIsMarkdownPath(NSString *path)
 
 - (BOOL)openDocumentFromArguments
 {
-    NSArray *args = [[NSProcessInfo processInfo] arguments];
-    if ([args count] <= 1) {
-        return NO;
-    }
-
     NSFileManager *fm = [NSFileManager defaultManager];
-    NSUInteger i = 1;
-    for (; i < [args count]; i++) {
-        NSString *candidate = [args objectAtIndex:i];
+    for (NSString *candidate in OMDLaunchDocumentArguments()) {
         NSString *expanded = [self resolvedAbsolutePathForLocalPath:candidate];
         if ([expanded length] == 0) {
             continue;

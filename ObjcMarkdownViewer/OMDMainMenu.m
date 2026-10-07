@@ -81,6 +81,10 @@
     [menubar addItem:fileMenuItem];
 
     NSMenu *fileMenu = [[[NSMenu alloc] initWithTitle:@"File"] autorelease];
+    NSMenuItem *newItem = (NSMenuItem *)[fileMenu addItemWithTitle:@"New"
+                                                            action:@selector(newDocument:)
+                                                     keyEquivalent:@"n"];
+    [newItem setTarget:target];
     NSMenuItem *openItem = (NSMenuItem *)[fileMenu addItemWithTitle:@"Open Markdown..."
                                                              action:@selector(openDocument:)
                                                       keyEquivalent:@"o"];
@@ -91,7 +95,7 @@
 
     NSMenuItem *newWindowItem = (NSMenuItem *)[fileMenu addItemWithTitle:@"New Window"
                                                                    action:@selector(newWindow:)
-                                                            keyEquivalent:@"n"];
+                                                            keyEquivalent:@"N"];
     [newWindowItem setTarget:target];
 
     NSMenuItem *openRecentItem = (NSMenuItem *)[fileMenu addItemWithTitle:@"Open Recent"
@@ -198,6 +202,23 @@
                                                                    action:@selector(selectAll:)
                                                             keyEquivalent:@"a"];
     [selectAllItem setTarget:nil];
+    [editMenu addItem:[NSMenuItem separatorItem]];
+    // Find in the editor or the preview (#87): the focused text view takes
+    // them, else the app delegate passes them to the one on show.
+    struct { NSString *title; NSString *key; NSInteger tag; } findItems[] = {
+        { @"Find...", @"f", NSFindPanelActionShowFindPanel },
+        { @"Find Next", @"g", NSFindPanelActionNext },
+        { @"Find Previous", @"G", NSFindPanelActionPrevious },
+        { @"Use Selection for Find", @"e", NSFindPanelActionSetFindString },
+    };
+    NSUInteger findIndex = 0;
+    for (; findIndex < sizeof(findItems) / sizeof(findItems[0]); findIndex++) {
+        NSMenuItem *findItem = (NSMenuItem *)[editMenu addItemWithTitle:findItems[findIndex].title
+                                                                 action:@selector(performFindPanelAction:)
+                                                          keyEquivalent:findItems[findIndex].key];
+        [findItem setTag:findItems[findIndex].tag];
+        [findItem setTarget:nil];
+    }
     [editMenu addItem:[NSMenuItem separatorItem]];
     NSMenuItem *toggleBoldItem = (NSMenuItem *)[editMenu addItemWithTitle:@"Toggle Bold"
                                                                     action:@selector(toggleBoldFormatting:)

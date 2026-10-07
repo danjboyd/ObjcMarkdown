@@ -5,7 +5,6 @@
 #import "OMDExplorerController.h"
 #import "OMDFillViews.h"
 #import "OMDPanelSelection.h"
-#import "OMDPreferencesPopup.h"
 #import "OMDTextFileSupport.h"
 #import "OMDViewerColors.h"
 #import "OMDViewerDefaults.h"
@@ -502,7 +501,6 @@ static CGFloat OMDPreferencesFinishCard(NSView *card, CGFloat height)
     [_preferencesThemePopup setAction:@selector(preferencesThemeChanged:)];
     [_preferencesThemePopup setToolTip:@"Theme changes apply after relaunch."];
     [card addSubview:_preferencesThemePopup];
-    OMDAddPreferencesPopupOverlay(card, _preferencesThemePopup);
 
     rowY += layout.controlHeight + layout.rowGap;
     OMDPreferencesAddRowLabel(card, @"Layout Mode", pad, rowY, rowLabelWidth, layout.titleColor, layout);
@@ -519,7 +517,6 @@ static CGFloat OMDPreferencesFinishCard(NSView *card, CGFloat height)
     [_preferencesLayoutModePopup setAction:@selector(preferencesLayoutModeChanged:)];
     [_preferencesLayoutModePopup setToolTip:@"Switch between compact, balanced, and roomier Adwaita-style spacing."];
     [card addSubview:_preferencesLayoutModePopup];
-    OMDAddPreferencesPopupOverlay(card, _preferencesLayoutModePopup);
 
     rowY += layout.controlHeight + layout.rowGap;
     OMDPreferencesAddRowLabel(card, @"Scroll Speed", pad, rowY, rowLabelWidth, layout.titleColor, layout);
@@ -630,7 +627,6 @@ static CGFloat OMDPreferencesFinishCard(NSView *card, CGFloat height)
     [_preferencesSplitSyncModePopup setTarget:self];
     [_preferencesSplitSyncModePopup setAction:@selector(preferencesSplitSyncModeChanged:)];
     [card addSubview:_preferencesSplitSyncModePopup];
-    OMDAddPreferencesPopupOverlay(card, _preferencesSplitSyncModePopup);
 
     rowY += layout.controlHeight + 6.0;
     rowY += OMDPreferencesAddNote(card,
@@ -651,7 +647,6 @@ static CGFloat OMDPreferencesFinishCard(NSView *card, CGFloat height)
     [_preferencesMathPolicyPopup setTarget:self];
     [_preferencesMathPolicyPopup setAction:@selector(preferencesMathPolicyChanged:)];
     [card addSubview:_preferencesMathPolicyPopup];
-    OMDAddPreferencesPopupOverlay(card, _preferencesMathPolicyPopup);
 
     rowY += layout.controlHeight + layout.rowGap;
     OMDPreferencesAddRowLabel(card, @"Diagrams", pad, rowY, rowLabelWidth, layout.titleColor, layout);
@@ -665,7 +660,6 @@ static CGFloat OMDPreferencesFinishCard(NSView *card, CGFloat height)
     [_preferencesDiagramPolicyPopup setTarget:self];
     [_preferencesDiagramPolicyPopup setAction:@selector(preferencesDiagramPolicyChanged:)];
     [card addSubview:_preferencesDiagramPolicyPopup];
-    OMDAddPreferencesPopupOverlay(card, _preferencesDiagramPolicyPopup);
 
     rowY += layout.controlHeight + 6.0;
     rowY += OMDPreferencesAddNote(card,
@@ -1300,10 +1294,8 @@ static CGFloat OMDPreferencesFinishCard(NSView *card, CGFloat height)
     NSString *value = (_preferencesExplorerListFontSizeField != nil
                        ? [_preferencesExplorerListFontSizeField stringValue]
                        : @"");
+    // Empty: back to the theme's size.
     CGFloat fontSize = (CGFloat)[OMDTrimmedString(value) doubleValue];
-    if (fontSize <= 0.0) {
-        fontSize = OMDExplorerListDefaultFontSize;
-    }
     [[_delegate explorerController] setExplorerListFontSizePreference:fontSize];
     [self syncPreferencesPanelFromSettings];
 }

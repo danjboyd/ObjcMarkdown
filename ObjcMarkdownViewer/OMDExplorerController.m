@@ -10,6 +10,7 @@
 #import "OMDTextFileSupport.h"
 #import "OMDViewerDefaults.h"
 #import "OMDViewerImages.h"
+#import "OMDMainThread.h"
 
 #include <math.h>
 
@@ -563,8 +564,8 @@ static NSButtonCell *OMDExplorerIconDrawingCell(void)
 {
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
     id value = [defaults objectForKey:OMDExplorerListFontSizeDefaultsKey];
-    CGFloat fontSize = OMDExplorerListDefaultFontSize;
-    if ([value respondsToSelector:@selector(doubleValue)]) {
+    CGFloat fontSize = OMDExplorerListDefaultFontSize();
+    if ([value respondsToSelector:@selector(doubleValue)] && [value doubleValue] > 0.0) {
         fontSize = (CGFloat)[value doubleValue];
     }
     if (fontSize < OMDExplorerListMinFontSize) {
@@ -576,8 +577,14 @@ static NSButtonCell *OMDExplorerIconDrawingCell(void)
     return fontSize;
 }
 
+// 0 or less: no preference, so the list follows the theme's size.
 - (void)setExplorerListFontSizePreference:(CGFloat)fontSize
 {
+    if (fontSize <= 0.0) {
+        [[NSUserDefaults standardUserDefaults] removeObjectForKey:OMDExplorerListFontSizeDefaultsKey];
+        [self applyExplorerListFontPreference];
+        return;
+    }
     if (fontSize < OMDExplorerListMinFontSize) {
         fontSize = OMDExplorerListMinFontSize;
     }
@@ -609,7 +616,7 @@ static NSButtonCell *OMDExplorerIconDrawingCell(void)
     CGFloat fontSize = [self explorerListFontSizePreference];
     NSFont *font = [NSFont systemFontOfSize:fontSize];
     if (font == nil) {
-        font = [NSFont systemFontOfSize:OMDExplorerListDefaultFontSize];
+        font = OMDChromeFont();
     }
     CGFloat rowHeight = ceil(MAX(fontSize, OMDExplorerIconSize) + metrics.explorerRowPadding);
     if (rowHeight < OMDExplorerListMinimumRowHeight) {
@@ -1065,8 +1072,7 @@ static NSButtonCell *OMDExplorerIconDrawingCell(void)
         NSArray *files = [OMDExplorerFindFiles(root, filter, showHidden, markdownOnly,
                                                OMDExplorerFilterVisitLimit, OMDExplorerFilterMatchLimit,
                                                &complete) retain];
-        // Not dispatch_get_main_queue(): GNUstep's run loop doesn't drain it on Windows.
-        [[NSOperationQueue mainQueue] addOperationWithBlock:^{
+        OMDPerformOnMainThread(^{
             if (generation == _explorerFilterGeneration &&
                 [root isEqualToString:[_explorerRootNode path]]) {
                 [self showExplorerFilterResult:files complete:complete restoreExpansion:restore];
@@ -1075,7 +1081,7 @@ static NSButtonCell *OMDExplorerIconDrawingCell(void)
             [root release];
             [filter release];
             [self release];
-        }];
+        });
         [pool release];
     });
 }

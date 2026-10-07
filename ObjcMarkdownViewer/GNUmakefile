@@ -2,8 +2,11 @@ include $(GNUSTEP_MAKEFILES)/common.make
 
 APP_NAME = MarkdownViewer
 
-MarkdownViewer_OBJC_FILES = main.m OMDAppDelegate.m OMDTextView.m OMDOutlineController.m OMDSourceTextView.m OMDSourceHighlighter.m OMDLineNumberRulerView.m OMDDocumentConverter.m OMDPandocConverter.m OMDPreviewSync.m OMDViewerModeState.m OMDCodeCopyButton.m OMDInlineToggle.m OMDPanelSelection.m OMDViewerDiagnostics.m OMDViewerColors.m OMDMainWindow.m OMDFillViews.m OMDToolbarViews.m OMDPreferencesPopup.m OMDWin11SplitView.m OMDTextFileSupport.m OMDExternalTools.m OMDLayoutMetrics.m OMDViewerDefaults.m OMDViewerImages.m OMDExplorerController.m OMDExplorerRoot.m OMDExplorerTree.m OMDRemoteDocument.m OMDRemoteDocumentBar.m OMDOpenLocationController.m OMDPreferencesController.m OMDControlSupport.m OMDFormattingBarController.m OMDDocumentTabsController.m OMDMainMenu.m OMDToolbarController.m OMDStatusBarController.m OMDCopyButtonsController.m OMDRenderScheduler.m OMDPreviewTextUpdate.m
+MarkdownViewer_OBJC_FILES = main.m OMDAppDelegate.m OMDTextView.m OMDOutlineController.m OMDSourceTextView.m OMDSourceHighlighter.m OMDLineNumberRulerView.m OMDDocumentConverter.m OMDPandocConverter.m OMDPreviewSync.m OMDViewerModeState.m OMDCodeCopyButton.m OMDInlineToggle.m OMDPanelSelection.m OMDViewerDiagnostics.m OMDViewerColors.m OMDMainWindow.m OMDFillViews.m OMDToolbarViews.m OMDWin11SplitView.m OMDTextFileSupport.m OMDExternalTools.m OMDLayoutMetrics.m OMDViewerDefaults.m OMDViewerImages.m OMDExplorerController.m OMDExplorerRoot.m OMDExplorerTree.m OMDRemoteDocument.m OMDRemoteDocumentBar.m OMDOpenLocationController.m OMDPreferencesController.m OMDControlSupport.m OMDFormattingBarController.m OMDDocumentTabsController.m OMDMainMenu.m OMDToolbarController.m OMDStatusBarController.m OMDMainThread.m OMDCopyButtonsController.m OMDRenderScheduler.m OMDPreviewTextUpdate.m
 MarkdownViewer_CPPFLAGS += -I../ObjcMarkdown
+# The version About shows: VERSION at the top, or OMD_VERSION=... for a build.
+OMD_VERSION ?= $(strip $(shell cat ../VERSION 2>/dev/null))
+MarkdownViewer_CPPFLAGS += -DOMD_APP_VERSION=\"$(OMD_VERSION)\"
 # cmark-gfm is compiled into libObjcMarkdown; the source highlighter uses it too.
 MarkdownViewer_CPPFLAGS += -I../third_party/cmark-gfm/compat -I../third_party/cmark-gfm/src -I../third_party/cmark-gfm/extensions -DCMARK_GFM_STATIC_DEFINE
 MarkdownViewer_CPPFLAGS += -I../third_party/TextViewVimKit/src
