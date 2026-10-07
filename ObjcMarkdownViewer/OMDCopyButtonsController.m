@@ -314,11 +314,7 @@ static const NSTimeInterval OMDCopyFeedbackDisplayInterval = 0.95;
         return;
     }
 
-<<<<<<< Updated upstream
     NSFont *buttonFont = OMDChromeSmallFont();
-=======
-    NSFont *buttonFont = [NSFont systemFontOfSize:[NSFont smallSystemFontSize]];
->>>>>>> Stashed changes
     NSDictionary *buttonAttributes = [NSDictionary dictionaryWithObjectsAndKeys:
                                       buttonFont, NSFontAttributeName,
                                       [NSColor secondaryLabelColor], NSForegroundColorAttributeName,

@@ -64,19 +64,6 @@ static NSString *OMDFormattingCommandName(const OMDFormattingCommand *command)
 - (void)formattingOverflowItemChosen:(id)sender;
 @end
 
-// The bar's pop-ups in the theme's control font; its controls are at least
-// as tall as that text needs.
-static NSFont *OMDFormattingBarFont(void)
-{
-    return [NSFont controlContentFontOfSize:0.0];
-}
-
-static CGFloat OMDFormattingBarControlHeight(OMDLayoutMetrics metrics)
-{
-    NSDictionary *attributes = [NSDictionary dictionaryWithObject:OMDFormattingBarFont() forKey:NSFontAttributeName];
-    return MAX(metrics.formattingBarControlHeight, ceil([@"Ag" sizeWithAttributes:attributes].height) + 8.0);
-}
-
 @implementation OMDFormattingBarController
 
 - (instancetype)initWithDelegate:(id<OMDFormattingBarControllerDelegate>)delegate
@@ -160,11 +147,7 @@ static CGFloat OMDFormattingBarControlHeight(OMDLayoutMetrics metrics)
     [_formattingBarView addSubview:separator];
     [_containerView addSubview:_formattingBarView];
 
-<<<<<<< Updated upstream
     NSFont *buttonFont = OMDChromeFont();
-=======
-    NSFont *buttonFont = OMDFormattingBarFont();
->>>>>>> Stashed changes
     CGFloat compactPadding = (metrics.scale > 1.05 ? 8.0 : 7.0);
 
     // Paragraph style: one menu instead of a button per heading level.
@@ -174,7 +157,7 @@ static CGFloat OMDFormattingBarControlHeight(OMDLayoutMetrics metrics)
     _formatHeadingPopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(0.0,
                                                                           0.0,
                                                                           popupWidth,
-                                                                          OMDFormattingBarControlHeight(metrics))
+                                                                          metrics.formattingBarControlHeight)
                                                      pullsDown:NO];
     [_formatHeadingPopup addItemsWithTitles:styles];
     [_formatHeadingPopup setFont:buttonFont];
@@ -193,7 +176,7 @@ static CGFloat OMDFormattingBarControlHeight(OMDLayoutMetrics metrics)
         NSSegmentedControl *control = [[[NSSegmentedControl alloc] initWithFrame:NSMakeRect(0.0,
                                                                                             0.0,
                                                                                             segmentWidth * group.count,
-                                                                                            OMDFormattingBarControlHeight(metrics))] autorelease];
+                                                                                            metrics.formattingBarControlHeight)] autorelease];
         [control setSegmentCount:(NSInteger)group.count];
         [control setSegmentStyle:NSSegmentStyleRounded];
         [[control cell] setTrackingMode:NSSegmentSwitchTrackingMomentary];
@@ -208,7 +191,7 @@ static CGFloat OMDFormattingBarControlHeight(OMDLayoutMetrics metrics)
             [control addToolTipRect:NSMakeRect(segmentWidth * segment,
                                                0.0,
                                                segmentWidth,
-                                               OMDFormattingBarControlHeight(metrics))
+                                               metrics.formattingBarControlHeight)
                               owner:OMDFormattingCommandName(command)
                            userData:NULL];
         }
@@ -223,7 +206,7 @@ static CGFloat OMDFormattingBarControlHeight(OMDLayoutMetrics metrics)
     _formatOverflowButton = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(0.0,
                                                                             0.0,
                                                                             segmentWidth + 14.0,
-                                                                            OMDFormattingBarControlHeight(metrics))
+                                                                            metrics.formattingBarControlHeight)
                                                        pullsDown:YES];
     [_formatOverflowButton addItemWithTitle:@"»"];
     [_formatOverflowButton setFont:buttonFont];
@@ -240,7 +223,7 @@ static CGFloat OMDFormattingBarControlHeight(OMDLayoutMetrics metrics)
                                   applyFrames:(BOOL)applyFrames
 {
     OMDLayoutMetrics metrics = OMDLayoutMetricsForMode([_delegate effectiveLayoutDensityMode]);
-    CGFloat controlHeight = OMDFormattingBarControlHeight(metrics);
+    CGFloat controlHeight = metrics.formattingBarControlHeight;
     CGFloat insetX = metrics.formattingBarInsetX;
     CGFloat rowInsetY = (metrics.scale > 1.05 ? 6.0 : 5.0);
     CGFloat spacing = metrics.formattingBarGroupSpacing;

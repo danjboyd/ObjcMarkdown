@@ -19,11 +19,7 @@ CGFloat OMDControlWidthForTitle(NSString *title,
         return ceil(minWidth);
     }
     if (font == nil) {
-<<<<<<< Updated upstream
         font = OMDChromeFont();
-=======
-        font = [NSFont controlContentFontOfSize:0.0];
->>>>>>> Stashed changes
     }
     NSDictionary *attributes = [NSDictionary dictionaryWithObjectsAndKeys:
                                 font, NSFontAttributeName,

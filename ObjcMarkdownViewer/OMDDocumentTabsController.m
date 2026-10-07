@@ -98,20 +98,6 @@ NSString * const OMDTabRemoteURLKey = @"remoteURL";
     return _stripView;
 }
 
-// Tab titles in the theme's system font; the strip is at least as tall as
-// they need.
-static NSFont *OMDTabTitleFont(void)
-{
-    return [NSFont systemFontOfSize:0.0];
-}
-
-static NSSize OMDTabTextSize(NSString *text, NSFont *font)
-{
-    NSDictionary *attributes = [NSDictionary dictionaryWithObject:font forKey:NSFontAttributeName];
-    NSSize size = [text sizeWithAttributes:attributes];
-    return NSMakeSize(ceil(size.width), ceil(size.height));
-}
-
 - (CGFloat)currentTabStripHeight
 {
     OMDLayoutMetrics metrics = OMDLayoutMetricsForMode([_delegate effectiveLayoutDensityMode]);
@@ -121,7 +107,7 @@ static NSSize OMDTabTextSize(NSString *text, NSFont *font)
     if ([_tabs count] <= 1) {
         return 0.0;
     }
-    return MAX(metrics.tabStripHeight, OMDTabTextSize(@"Ag", OMDTabTitleFont()).height + 14.0);
+    return metrics.tabStripHeight;
 }
 
 - (void)updateTabStrip
@@ -148,11 +134,7 @@ static NSSize OMDTabTextSize(NSString *text, NSFont *font)
         [label setSelectable:NO];
         [label setDrawsBackground:NO];
         [label setTextColor:[NSColor disabledControlTextColor]];
-<<<<<<< Updated upstream
         [label setFont:OMDChromeSmallFont()];
-=======
-        [label setFont:[NSFont systemFontOfSize:[NSFont smallSystemFontSize]]];
->>>>>>> Stashed changes
         [label setStringValue:@"No document open"];
         [_stripView addSubview:label];
         return;
@@ -180,16 +162,12 @@ static NSSize OMDTabTextSize(NSString *text, NSFont *font)
             title = [title stringByAppendingString:@" [RO]"];
         }
 
-<<<<<<< Updated upstream
         // As wide as the title in the theme's font, plus the button's
         // padding and the close button.
         NSDictionary *titleAttributes = [NSDictionary dictionaryWithObject:OMDChromeFont()
                                                                     forKey:NSFontAttributeName];
         CGFloat titleTextWidth = ceil([title sizeWithAttributes:titleAttributes].width);
         CGFloat width = titleTextWidth + 28.0 + closeButtonSize + (closeButtonInset * 2.0);
-=======
-        CGFloat width = OMDTabTextSize(title, OMDTabTitleFont()).width + 24.0 + closeButtonSize + (closeButtonInset * 2.0);
->>>>>>> Stashed changes
         if (width < 108.0) {
             width = 108.0;
         }
@@ -222,11 +200,7 @@ static NSSize OMDTabTextSize(NSString *text, NSFont *font)
         [button setState:(index == _selectedIndex ? NSOnState : NSOffState)];
         [button setTarget:self];
         [button setAction:@selector(tabButtonPressed:)];
-<<<<<<< Updated upstream
         [button setFont:OMDChromeFont()];
-=======
-        [button setFont:OMDTabTitleFont()];
->>>>>>> Stashed changes
         [button setAlignment:NSLeftTextAlignment];
         [tabContainer addSubview:button];
 
