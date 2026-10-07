@@ -5,6 +5,7 @@
 #   make -C macos test       # build and run the tests
 #   make -C macos run        # build and open the app
 #   make -C macos ARCHS=arm64   # one architecture only (faster)
+#   make -C macos dmg        # build/MarkdownViewer-<version>-macos.dmg
 #
 # Source lists are read from the GNUstep makefiles, so a file added there is
 # built here too.
@@ -13,7 +14,11 @@ ROOT := $(abspath ..)
 BUILD := $(abspath build)
 OBJDIR := $(BUILD)/obj
 
-VERSION ?= 0.1.1
+# The version, as the GNUstep build takes it: VERSION at the top, or
+# OMD_VERSION=0.1.2-rc1. Info.plist's CFBundleShortVersionString takes only
+# its numbers ("0.1.2"); About shows all of it.
+OMD_VERSION ?= $(strip $(shell cat $(ROOT)/VERSION 2>/dev/null))
+SHORT_VERSION := $(shell echo '$(OMD_VERSION)' | sed -E 's/^([0-9]+(\.[0-9]+)*).*/\1/')
 BUILD_NUMBER ?= 1
 ARCHS ?= arm64 x86_64
 MACOSX_DEPLOYMENT_TARGET ?= 11.0
@@ -52,18 +57,19 @@ TEST_OBJS := $(call obj,test,$(TEST_OBJC))
 
 LIB_FLAGS := $(COMMON_FLAGS) -I$(ROOT)/ObjcMarkdown $(CMARK_CPPFLAGS) -I$(ROOT)/third_party/tomlc99 -DOBJCMARKDOWN_ENABLE_TOML_THEME=1
 VIM_FLAGS := $(COMMON_FLAGS) -fobjc-arc -I$(VIM_DIR)
-APP_FLAGS := $(COMMON_FLAGS) $(WERROR) -I$(ROOT)/ObjcMarkdown -I$(ROOT)/ObjcMarkdownViewer $(CMARK_CPPFLAGS) -I$(VIM_DIR)
+APP_FLAGS := $(COMMON_FLAGS) $(WERROR) -DOMD_APP_VERSION=\"$(OMD_VERSION)\" -I$(ROOT)/ObjcMarkdown -I$(ROOT)/ObjcMarkdownViewer $(CMARK_CPPFLAGS) -I$(VIM_DIR)
 TEST_FLAGS := $(APP_FLAGS) -F$(PLATFORM_DIR)/Developer/Library/Frameworks -DOM_SPEC_DIR=\"$(ROOT)/ObjcMarkdownTests/Spec\"
 
 LIB := $(BUILD)/libObjcMarkdown.a
 VIM_LIB := $(BUILD)/libTextViewVimKit.a
 APP := $(BUILD)/MarkdownViewer.app
 TESTS := $(BUILD)/ObjcMarkdownTests.xctest
+DMG := $(BUILD)/MarkdownViewer-$(OMD_VERSION)-macos.dmg
 
 APP_RESOURCES := $(ROOT)/Resources/theme-github.toml $(ROOT)/Resources/theme-github-dark.toml \
 	$(ROOT)/Resources/markdown_icon.png $(wildcard $(ROOT)/Resources/icons/*-symbolic.png)
 
-.PHONY: all app test run clean
+.PHONY: all app dmg test run clean
 all: app
 app: $(APP)
 
@@ -104,7 +110,7 @@ $(APP): $(APP_OBJS) $(LIB) $(VIM_LIB) Info.plist $(APP_RESOURCES) $(BUILD)/Markd
 	@mkdir -p $@/Contents/MacOS $@/Contents/Resources
 	@echo "  LD $(notdir $@)"
 	$(Q)$(CC) $(ARCH_FLAGS) -o $@/Contents/MacOS/MarkdownViewer $(APP_OBJS) $(LIB) $(VIM_LIB) $(FRAMEWORKS)
-	$(Q)sed -e 's/@VERSION@/$(VERSION)/g' -e 's/@BUILD_NUMBER@/$(BUILD_NUMBER)/g' Info.plist > $@/Contents/Info.plist
+	$(Q)sed -e 's/@VERSION@/$(SHORT_VERSION)/g' -e 's/@BUILD_NUMBER@/$(BUILD_NUMBER)/g' Info.plist > $@/Contents/Info.plist
 	$(Q)plutil -lint -s $@/Contents/Info.plist
 	$(Q)printf 'APPL????' > $@/Contents/PkgInfo
 	$(Q)cp $(APP_RESOURCES) $(BUILD)/MarkdownViewer.icns $@/Contents/Resources/
@@ -129,8 +135,20 @@ $(TESTS): $(TEST_OBJS) $(LIB)
 	$(Q)$(CC) $(ARCH_FLAGS) -mmacosx-version-min=14.0 -bundle -o $@/Contents/MacOS/ObjcMarkdownTests $(TEST_OBJS) $(LIB) \
 		$(FRAMEWORKS) -F$(PLATFORM_DIR)/Developer/Library/Frameworks -framework XCTest \
 		-Wl,-rpath,$(PLATFORM_DIR)/Developer/Library/Frameworks
-	$(Q)sed -e 's/@VERSION@/$(VERSION)/g' TestsInfo.plist > $@/Contents/Info.plist
+	$(Q)sed -e 's/@VERSION@/$(SHORT_VERSION)/g' TestsInfo.plist > $@/Contents/Info.plist
 	$(Q)codesign --force --sign - $@
+
+# A disk image with the app and a link to Applications to drag it to.
+dmg: $(DMG)
+$(DMG): $(APP)
+	@echo "  DMG $(notdir $@)"
+	@rm -rf $(BUILD)/dmg $@
+	@mkdir -p $(BUILD)/dmg
+	$(Q)cp -R $(APP) $(BUILD)/dmg/
+	$(Q)ln -s /Applications $(BUILD)/dmg/Applications
+	$(Q)hdiutil create -quiet -volname "MarkdownViewer $(OMD_VERSION)" -srcfolder $(BUILD)/dmg \
+		-format UDZO -imagekey zlib-level=9 -fs HFS+ $@
+	@rm -rf $(BUILD)/dmg
 
 test: $(TESTS)
 	xcrun xctest $(TESTS)

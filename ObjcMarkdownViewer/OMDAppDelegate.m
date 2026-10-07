@@ -7189,6 +7189,40 @@ constrainSplitPosition:(CGFloat)proposedPosition
     [options setObject:@"MarkdownViewer is GPL-2.0-or-later; the ObjcMarkdown library is LGPL-2.1-or-later."
                 forKey:@"CopyrightDescription"];
 
+#if !defined(GNUSTEP)
+    // macOS's About panel takes other keys: the version, and credits below
+    // it for the description, website and licence. Copyright and icon come
+    // from the bundle.
+    NSMutableDictionary *macOptions = [NSMutableDictionary dictionary];
+    if (appName != nil && [appName length] > 0) {
+        [macOptions setObject:appName forKey:NSAboutPanelOptionApplicationName];
+    }
+    if (release != nil && [release length] > 0) {
+        [macOptions setObject:release forKey:NSAboutPanelOptionApplicationVersion];
+        // Not "(1)" after it: the build number means nothing to readers.
+        [macOptions setObject:@"" forKey:NSAboutPanelOptionVersion];
+    }
+    NSMutableParagraphStyle *centered = [[[NSMutableParagraphStyle alloc] init] autorelease];
+    [centered setAlignment:NSTextAlignmentCenter];
+    NSDictionary *creditAttributes = @{
+        NSFontAttributeName: [NSFont systemFontOfSize:[NSFont smallSystemFontSize]],
+        NSForegroundColorAttributeName: [NSColor labelColor],
+        NSParagraphStyleAttributeName: centered
+    };
+    NSString *website = [options objectForKey:@"URL"];
+    NSMutableAttributedString *credits = [[[NSMutableAttributedString alloc]
+        initWithString:[NSString stringWithFormat:@"%@\n\n%@\n\n%@",
+                                                  @"A Markdown reader and editor.",
+                                                  website,
+                                                  [options objectForKey:@"CopyrightDescription"]]
+            attributes:creditAttributes] autorelease];
+    [credits addAttribute:NSLinkAttributeName
+                    value:[NSURL URLWithString:website]
+                    range:[[credits string] rangeOfString:website]];
+    [macOptions setObject:credits forKey:NSAboutPanelOptionCredits];
+    options = macOptions;
+#endif
+
     if ([options count] > 0 && [NSApp respondsToSelector:@selector(orderFrontStandardAboutPanelWithOptions:)]) {
         [NSApp orderFrontStandardAboutPanelWithOptions:options];
     } else {

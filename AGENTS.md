@@ -69,7 +69,7 @@ Prereqs: Xcode (or its command line tools plus XCTest), and `git submodule updat
 Steps:
 1) `make -C macos` builds `macos/build/MarkdownViewer.app` (universal; `ARCHS=arm64` for a quicker native build, `OMD_WERROR=1` to treat warnings as errors).
 2) `make -C macos test` builds and runs the XCTest bundle with `xcrun xctest`.
-3) `make -C macos run` opens the app.
+3) `make -C macos run` opens the app; `make -C macos dmg` makes the disk image (`OMD_VERSION=0.1.2-rc1` for another version than `VERSION`).
 
 Notes:
 - GNUstep-only code is under `#if defined(GNUSTEP)` (gnustep-make defines it); macOS-only code under `#if !defined(GNUSTEP)`. Never write to `NSGlobalDomain` on macOS: it is the system's, shared with every app.
