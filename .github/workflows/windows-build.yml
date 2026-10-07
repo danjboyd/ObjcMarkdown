@@ -75,15 +75,6 @@ jobs:
             (Join-Path $root $dir) | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
           }
 
-      - name: Diagnose MSYS2 paths (temporary)
-        continue-on-error: true
-        run: |
-          $envExe = Join-Path $env:GP_GNUSTEP_CLI_ROOT 'usr/bin/env.exe'
-          Push-Location (Split-Path $envExe)
-          & $envExe MSYSTEM=CLANG64 CHERE_INVOKING=1 /usr/bin/bash -lc 'echo "pwd=$PWD"; mount; echo ---; ls -la / | head -30; echo ---; cygpath -u "D:/a"; ls -d /d /d/a /cygdrive/d 2>&1; cat /etc/fstab'
-          Pop-Location
-          Get-ChildItem Env: | Where-Object Name -match 'MSYS|CHERE|HOME|PATH' | Format-Table -AutoSize | Out-String -Width 300
-
       - name: Toolchain
         run: |
           ./scripts/windows/build-from-powershell.ps1 -Task command -Command "clang --version | head -1; gnustep-config --variable=GNUSTEP_MAKE_VERSION 2>/dev/null || true; grep -h 'define GNUSTEP_BASE_VERSION' `"`$(gnustep-config --variable=GNUSTEP_SYSTEM_HEADERS)/GNUstepBase/GSConfig.h`" || true; echo 'tools-xctest $env:TOOLS_XCTEST_REPO $env:TOOLS_XCTEST_COMMIT'"
@@ -91,7 +82,10 @@ jobs:
       - name: Build and install tools-xctest
         run: |
           # Serial: its XCTestHost library links -lXCTest, built alongside it.
-          ./scripts/windows/build-from-powershell.ps1 -Task command -Command "cd .ci/tools-xctest && make GNUSTEP_INSTALLATION_DOMAIN=SYSTEM && make GNUSTEP_INSTALLATION_DOMAIN=SYSTEM install"
+          # The mode_t flags are the top-level GNUmakefile's (MinGW's and
+          # libdispatch's headers both declare it).
+          $flags = "ADDITIONAL_OBJCFLAGS='-include sys/types.h -DHAVE_MODE_T=1' ADDITIONAL_CFLAGS='-include sys/types.h -DHAVE_MODE_T=1' GNUSTEP_INSTALLATION_DOMAIN=SYSTEM"
+          ./scripts/windows/build-from-powershell.ps1 -Task command -Command "cd .ci/tools-xctest && make $flags && make $flags install"
           if ($LASTEXITCODE -ne 0) { throw "tools-xctest build failed" }
 
       - name: Build
