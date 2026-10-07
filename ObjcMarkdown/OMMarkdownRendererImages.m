@@ -609,6 +609,16 @@ NSAttributedString *OMImageAttachmentAttributedString(cmark_node *imageNode,
 
     const char *urlLiteral = cmark_node_get_url(imageNode);
     NSString *urlString = urlLiteral != NULL ? [NSString stringWithUTF8String:urlLiteral] : nil;
+    return OMImageAttachmentForURLString(urlString, attributes, scale, renderContext);
+}
+
+// The image at urlString (resolved against the document) as an attachment,
+// or nil if it can't be had yet (a remote image still loading) or at all.
+NSAttributedString *OMImageAttachmentForURLString(NSString *urlString,
+                                                  NSMutableDictionary *attributes,
+                                                  CGFloat scale,
+                                                  const OMRenderContext *renderContext)
+{
     NSURL *url = OMResolvedImageURL(urlString, renderContext);
     if (url == nil) {
         return nil;

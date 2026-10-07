@@ -822,7 +822,10 @@ static BOOL OMDMathToolchainAvailable(void)
 
 - (void)testInlineHTMLIsRenderedAsText
 {
-    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    OMMarkdownParsingOptions *options = [OMMarkdownParsingOptions defaultOptions];
+    [options setInlineHTMLPolicy:OMMarkdownHTMLPolicyRenderAsText];
+    [options setBlockHTMLPolicy:OMMarkdownHTMLPolicyRenderAsText];
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] initWithTheme:nil parsingOptions:options] autorelease];
     NSString *markdown = @"Before <span class=\"hot\">inline</span> after.";
     NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
     XCTAssertNotNil(rendered);
@@ -833,7 +836,10 @@ static BOOL OMDMathToolchainAvailable(void)
 
 - (void)testBlockHTMLIsRenderedAsText
 {
-    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    OMMarkdownParsingOptions *options = [OMMarkdownParsingOptions defaultOptions];
+    [options setInlineHTMLPolicy:OMMarkdownHTMLPolicyRenderAsText];
+    [options setBlockHTMLPolicy:OMMarkdownHTMLPolicyRenderAsText];
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] initWithTheme:nil parsingOptions:options] autorelease];
     NSString *markdown = @"<div>Block HTML</div>\n\nTail.";
     NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
     XCTAssertNotNil(rendered);
@@ -2634,6 +2640,83 @@ static NSRange OMFootnoteAnchorRange(NSAttributedString *rendered, NSString *anc
     }
     [self removeFileIfPresent:left];
     [self removeFileIfPresent:right];
+}
+
+// The safe HTML subset (#65), the default: inline tags style the text that
+// follows until they close, and the tags themselves aren't shown.
+- (void)testSafeInlineHTMLStylesTextAndHidesTags
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:
+        @"A <b>bold</b> word, <kbd>Ctrl</kbd>, E = mc<sup>2</sup>, <a href=\"https://example.com\">link</a>,<br>\nand <span>plain</span> &amp; done."];
+    NSString *text = [rendered string];
+    XCTAssertEqual([text rangeOfString:@"<"].location, (NSUInteger)NSNotFound);
+    XCTAssertTrue([text rangeOfString:@"& done"].location != NSNotFound);
+    XCTAssertTrue([text rangeOfString:@"link,\nand plain"].location != NSNotFound);
+
+    NSUInteger bold = [text rangeOfString:@"bold"].location;
+    NSUInteger after = [text rangeOfString:@" word"].location;
+    NSFont *boldFont = [rendered attribute:NSFontAttributeName atIndex:bold effectiveRange:NULL];
+    NSFont *plainFont = [rendered attribute:NSFontAttributeName atIndex:after effectiveRange:NULL];
+    XCTAssertTrue(([[NSFontManager sharedFontManager] traitsOfFont:boldFont] & NSBoldFontMask) != 0);
+    XCTAssertTrue(([[NSFontManager sharedFontManager] traitsOfFont:plainFont] & NSBoldFontMask) == 0);
+
+    NSFont *keyFont = [rendered attribute:NSFontAttributeName atIndex:[text rangeOfString:@"Ctrl"].location effectiveRange:NULL];
+    XCTAssertTrue([keyFont isFixedPitch] || ![[keyFont familyName] isEqualToString:[plainFont familyName]]);
+    XCTAssertEqualObjects([rendered attribute:NSSuperscriptAttributeName
+                                      atIndex:[text rangeOfString:@"2,"].location effectiveRange:NULL],
+                          [NSNumber numberWithInt:1]);
+    id url = [rendered attribute:NSLinkAttributeName atIndex:[text rangeOfString:@"link"].location effectiveRange:NULL];
+    XCTAssertEqualObjects([url absoluteString], @"https://example.com");
+    XCTAssertNil([rendered attribute:@"OMHTMLStyleStack" atIndex:bold effectiveRange:NULL]);
+}
+
+- (void)testSafeBlockHTMLCentresAndSizesImages
+{
+    NSString *path = [self writeTemporaryImageWithSize:NSMakeSize(400.0, 200.0)];
+    NSString *markdown = [NSString stringWithFormat:@"<p align=\"center\">\n  <img src=\"%@\" width=\"100\" alt=\"Logo\">\n</p>\n<h1 align=\"center\">Title</h1>\n\nTail.", path];
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    [renderer setLayoutWidth:800.0];
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
+    NSString *text = [rendered string];
+    XCTAssertEqual([text rangeOfString:@"<"].location, (NSUInteger)NSNotFound);
+    unichar attachmentCharacter = NSAttachmentCharacter;
+    NSUInteger image = [text rangeOfString:[NSString stringWithCharacters:&attachmentCharacter length:1]].location;
+    XCTAssertTrue(image != NSNotFound);
+    if (image != NSNotFound) {
+        NSTextAttachment *attachment = [rendered attribute:NSAttachmentAttributeName atIndex:image effectiveRange:NULL];
+        NSSize size = [(NSTextAttachmentCell *)[attachment attachmentCell] cellSize];
+        XCTAssertEqualWithAccuracy(size.width, 100.0, 1.0);
+        XCTAssertEqualWithAccuracy(size.height, 50.0, 1.0);
+        NSParagraphStyle *style = [rendered attribute:NSParagraphStyleAttributeName atIndex:image effectiveRange:NULL];
+        XCTAssertEqual([style alignment], NSCenterTextAlignment);
+    }
+    NSUInteger title = [text rangeOfString:@"Title"].location;
+    XCTAssertTrue(title != NSNotFound);
+    if (title != NSNotFound) {
+        NSParagraphStyle *style = [rendered attribute:NSParagraphStyleAttributeName atIndex:title effectiveRange:NULL];
+        XCTAssertEqual([style alignment], NSCenterTextAlignment);
+        NSFont *titleFont = [rendered attribute:NSFontAttributeName atIndex:title effectiveRange:NULL];
+        NSFont *tailFont = [rendered attribute:NSFontAttributeName atIndex:[text rangeOfString:@"Tail"].location effectiveRange:NULL];
+        XCTAssertTrue([titleFont pointSize] > [tailFont pointSize]);
+    }
+    [self removeFileIfPresent:path];
+}
+
+- (void)testSafeBlockHTMLDropsScriptsAndCommentsKeepsDetails
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:
+        @"<details>\n<summary>More</summary>\n\nInside **text**.\n\n</details>\n\n<script>alert('no')</script>\n\n<!-- hidden -->\n\n<div><custom-tag>kept</custom-tag> &copy; 2026</div>\n"];
+    NSString *text = [rendered string];
+    XCTAssertTrue([text rangeOfString:@"More"].location != NSNotFound);
+    XCTAssertTrue([text rangeOfString:@"Inside text."].location != NSNotFound);
+    XCTAssertEqual([text rangeOfString:@"alert"].location, (NSUInteger)NSNotFound);
+    XCTAssertEqual([text rangeOfString:@"hidden"].location, (NSUInteger)NSNotFound);
+    XCTAssertTrue([text rangeOfString:@"kept © 2026"].location != NSNotFound);
+    XCTAssertEqual([text rangeOfString:@"<"].location, (NSUInteger)NSNotFound);
+    NSFont *summaryFont = [rendered attribute:NSFontAttributeName atIndex:[text rangeOfString:@"More"].location effectiveRange:NULL];
+    XCTAssertTrue(([[NSFontManager sharedFontManager] traitsOfFont:summaryFont] & NSBoldFontMask) != 0);
 }
 
 @end

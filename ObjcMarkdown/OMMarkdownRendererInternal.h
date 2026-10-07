@@ -83,6 +83,13 @@ typedef struct {
 void OMAppendAttributedSegment(NSMutableAttributedString *output,
                                NSAttributedString *segment);
 void OMAppendInlineTextFromNode(cmark_node *node, NSMutableString *buffer);
+extern NSString * const OMHardLineBreakAttributeName;
+BOOL OMShouldRenderImages(const OMRenderContext *renderContext);
+NSDictionary *OMHeadingAttributesForLevel(OMTheme *theme, NSUInteger level, CGFloat scale);
+void OMRenderHTMLThematicBreak(OMTheme *theme,
+                               NSMutableAttributedString *output,
+                               NSMutableDictionary *attributes,
+                               CGFloat layoutWidth);
 void OMAppendString(NSMutableAttributedString *output,
                     NSString *string,
                     NSDictionary *attributes);
@@ -157,6 +164,10 @@ NSAttributedString *OMImageAttachmentAttributedString(cmark_node *imageNode,
                                                       CGFloat scale,
                                                       const OMRenderContext *renderContext);
 NSAttributedString *OMAttributedStringFittingImagesToWidth(NSAttributedString *string, CGFloat width);
+NSAttributedString *OMImageAttachmentForURLString(NSString *urlString,
+                                                  NSMutableDictionary *attributes,
+                                                  CGFloat scale,
+                                                  const OMRenderContext *renderContext);
 NSURL *OMResolvedImageURL(NSString *urlString,
                           const OMRenderContext *renderContext);
 NSURL *OMResolvedLinkURL(NSString *urlString,
@@ -243,4 +254,21 @@ BOOL OMTryRenderMermaidDiagram(cmark_node *node,
 
 #if defined(__GNUC__) && !defined(_WIN32)
 #pragma GCC visibility pop
+
+// OMMarkdownRendererHTML.m
+extern NSString * const OMHTMLStyleStackAttributeName;
+NSString *OMHTMLDecodeEntities(NSString *text);
+void OMAppendSafeInlineHTML(NSString *html,
+                            NSMutableAttributedString *output,
+                            NSMutableDictionary *attributes,
+                            OMTheme *theme,
+                            CGFloat scale,
+                            const OMRenderContext *renderContext);
+void OMAppendSafeBlockHTML(NSString *html,
+                           NSMutableAttributedString *output,
+                           NSMutableDictionary *blockAttributes,
+                           OMTheme *theme,
+                           CGFloat scale,
+                           const OMRenderContext *renderContext);
+
 #endif

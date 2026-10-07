@@ -3,9 +3,14 @@
 
 #import <Foundation/Foundation.h>
 
+// RenderSafeSubset (the default) renders the HTML GitHub READMEs use:
+// emphasis, code, links, images, line breaks, centred paragraphs, headings,
+// lists, details, rules and simple tables; scripts, styles and embedded
+// content are dropped, other tags dropped with their text kept.
 typedef NS_ENUM(NSInteger, OMMarkdownHTMLPolicy) {
     OMMarkdownHTMLPolicyRenderAsText = 0,
-    OMMarkdownHTMLPolicyIgnore = 1
+    OMMarkdownHTMLPolicyIgnore = 1,
+    OMMarkdownHTMLPolicyRenderSafeSubset = 2
 };
 
 typedef NS_ENUM(NSInteger, OMMarkdownMathRenderingPolicy) {
