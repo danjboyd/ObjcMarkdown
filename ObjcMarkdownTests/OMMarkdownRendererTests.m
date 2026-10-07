@@ -1859,6 +1859,36 @@ static BOOL OMDMathToolchainAvailable(void)
     [self removeFileIfPresent:path];
 }
 
+- (void)testImagesFindTheirInnermostBlockAmongManyAnchors
+{
+    // Objects resolve against an index of the block anchors (#94): each
+    // takes the lines of the innermost block around it, also inside a
+    // quote's list, and also far down a long document.
+    NSString *path = [self writeTemporaryImage];
+    NSMutableString *markdown = [NSMutableString string];
+    NSUInteger index = 0;
+    for (; index < 60; index++) {
+        [markdown appendFormat:@"## Heading %lu\n\n![i](%@)\n\n", (unsigned long)index, path];
+    }
+    [markdown appendFormat:@"> Quote\n>\n> - one\n> - two ![j](%@)\n>   more\n", path];
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    NSArray *objects = [self renderedObjectsInString:[renderer attributedStringFromMarkdown:markdown]];
+    XCTAssertEqual([objects count], (NSUInteger)61);
+    if ([objects count] != 61) {
+        [self removeFileIfPresent:path];
+        return;
+    }
+    for (index = 0; index < 60; index++) {
+        NSRange lines = [[objects objectAtIndex:index] sourceLineRange];
+        XCTAssertEqual(lines.location, (NSUInteger)(3 + 4 * index));
+        XCTAssertEqual(lines.length, (NSUInteger)1);
+    }
+    NSRange nested = [[objects lastObject] sourceLineRange];
+    XCTAssertEqual(nested.location, (NSUInteger)244);
+    XCTAssertEqual(nested.length, (NSUInteger)2);
+    [self removeFileIfPresent:path];
+}
+
 - (void)testMathCarriesItsLaTeXAsRenderedObject
 {
     if (!OMDMathToolchainAvailable()) {

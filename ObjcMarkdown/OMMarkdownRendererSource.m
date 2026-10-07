@@ -72,23 +72,100 @@ NSString *OMImageMarkdownForNode(cmark_node *imageNode)
 }
 
 // The smallest block anchor containing location gives the object's source lines.
-static NSRange OMSourceLineRangeForTargetLocation(NSArray *blockAnchors, NSUInteger location)
+// The block anchors' target spans, sorted by start, for finding the
+// innermost block at a location without scanning every anchor (#94).
+typedef struct {
+    NSUInteger start;
+    NSUInteger length;
+    NSUInteger startLine;
+    NSUInteger endLine;
+    NSUInteger order;
+} OMAnchorSpan;
+
+typedef struct {
+    OMAnchorSpan *spans;
+    NSUInteger count;
+} OMAnchorIndex;
+
+static int OMCompareAnchorSpans(const void *a, const void *b)
+{
+    const OMAnchorSpan *left = (const OMAnchorSpan *)a;
+    const OMAnchorSpan *right = (const OMAnchorSpan *)b;
+    if (left->start != right->start) {
+        return left->start < right->start ? -1 : 1;
+    }
+    if (left->order != right->order) {
+        return left->order < right->order ? -1 : 1;
+    }
+    return 0;
+}
+
+static OMAnchorIndex OMAnchorIndexMake(NSArray *blockAnchors)
+{
+    OMAnchorIndex index = { NULL, 0 };
+    NSUInteger capacity = [blockAnchors count];
+    if (capacity == 0) {
+        return index;
+    }
+    index.spans = (OMAnchorSpan *)malloc(sizeof(OMAnchorSpan) * capacity);
+    if (index.spans == NULL) {
+        return index;
+    }
+    NSUInteger order = 0;
+    for (NSDictionary *anchor in blockAnchors) {
+        OMAnchorSpan span;
+        span.order = order++;
+        span.start = [[anchor objectForKey:OMMarkdownRendererAnchorTargetStartKey] unsignedIntegerValue];
+        span.length = [[anchor objectForKey:OMMarkdownRendererAnchorTargetLengthKey] unsignedIntegerValue];
+        span.startLine = [[anchor objectForKey:OMMarkdownRendererAnchorSourceStartLineKey] unsignedIntegerValue];
+        span.endLine = [[anchor objectForKey:OMMarkdownRendererAnchorSourceEndLineKey] unsignedIntegerValue];
+        if (span.length == 0 || span.startLine == 0 || span.endLine < span.startLine) {
+            continue;
+        }
+        index.spans[index.count++] = span;
+    }
+    qsort(index.spans, index.count, sizeof(OMAnchorSpan), OMCompareAnchorSpans);
+    return index;
+}
+
+static void OMAnchorIndexFree(OMAnchorIndex *index)
+{
+    free(index->spans);
+    index->spans = NULL;
+    index->count = 0;
+}
+
+// The source lines of the shortest anchor around location, the first in
+// the anchors' order among equals. Anchors starting further back than the
+// best length so far can't be as short, so the backwards scan stops there.
+static NSRange OMSourceLineRangeForTargetLocation(const OMAnchorIndex *index, NSUInteger location)
 {
     NSRange best = NSMakeRange(NSNotFound, 0);
     NSUInteger bestLength = NSUIntegerMax;
-    for (NSDictionary *anchor in blockAnchors) {
-        NSUInteger targetStart = [[anchor objectForKey:OMMarkdownRendererAnchorTargetStartKey] unsignedIntegerValue];
-        NSUInteger targetLength = [[anchor objectForKey:OMMarkdownRendererAnchorTargetLengthKey] unsignedIntegerValue];
-        if (location < targetStart || location >= targetStart + targetLength || targetLength >= bestLength) {
+    NSUInteger bestOrder = NSUIntegerMax;
+    NSUInteger low = 0;
+    NSUInteger high = index->count;
+    // The first anchor starting after location.
+    while (low < high) {
+        NSUInteger mid = low + (high - low) / 2;
+        if (index->spans[mid].start <= location) {
+            low = mid + 1;
+        } else {
+            high = mid;
+        }
+    }
+    while (low > 0) {
+        const OMAnchorSpan *span = &index->spans[--low];
+        if (location - span->start >= bestLength) {
+            break;
+        }
+        if (location >= span->start + span->length || span->length > bestLength ||
+            (span->length == bestLength && span->order > bestOrder)) {
             continue;
         }
-        NSUInteger startLine = [[anchor objectForKey:OMMarkdownRendererAnchorSourceStartLineKey] unsignedIntegerValue];
-        NSUInteger endLine = [[anchor objectForKey:OMMarkdownRendererAnchorSourceEndLineKey] unsignedIntegerValue];
-        if (startLine == 0 || endLine < startLine) {
-            continue;
-        }
-        best = NSMakeRange(startLine, endLine - startLine + 1);
-        bestLength = targetLength;
+        best = NSMakeRange(span->startLine, span->endLine - span->startLine + 1);
+        bestLength = span->length;
+        bestOrder = span->order;
     }
     return best;
 }
@@ -305,6 +382,7 @@ void OMResolvePendingRenderedObjects(NSMutableAttributedString *output,
     }
     // Repeats of the same object in one block resolve in document order.
     NSMutableDictionary *occurrences = [NSMutableDictionary dictionary];
+    OMAnchorIndex anchorIndex = OMAnchorIndexMake(blockAnchors);
 
     NSUInteger index = 0;
     while (index < [output length]) {
@@ -317,7 +395,7 @@ void OMResolvePendingRenderedObjects(NSMutableAttributedString *output,
             for (; location < NSMaxRange(effective); location++) {
                 OMRenderedObjectKind kind = (OMRenderedObjectKind)[[pending objectForKey:OMPendingObjectKindKey] integerValue];
                 NSString *source = [pending objectForKey:OMPendingObjectSourceKey];
-                NSRange lineRange = OMSourceLineRangeForTargetLocation(blockAnchors, location);
+                NSRange lineRange = OMSourceLineRangeForTargetLocation(&anchorIndex, location);
                 NSRange span = OMCharacterSpanForLines(markdown, lineStarts, lineRange);
                 // Count repeats by what the search matches on: images by destination.
                 NSString *matchText = source;
@@ -353,7 +431,7 @@ void OMResolvePendingRenderedObjects(NSMutableAttributedString *output,
         if (table == nil || [table renderedObject] != nil || [table markdown] == nil) {
             continue;
         }
-        NSRange lineRange = OMSourceLineRangeForTargetLocation(blockAnchors, effective.location);
+        NSRange lineRange = OMSourceLineRangeForTargetLocation(&anchorIndex, effective.location);
         NSRange span = OMCharacterSpanForLines(markdown, lineStarts, lineRange);
         OMRenderedObject *object = [[OMRenderedObject alloc]
             initWithKind:OMRenderedObjectKindTable
@@ -364,6 +442,7 @@ void OMResolvePendingRenderedObjects(NSMutableAttributedString *output,
         [table setRenderedObject:object];
         [object release];
     }
+    OMAnchorIndexFree(&anchorIndex);
 }
 
 static BOOL OMIsFrontMatterFence(NSString *line, BOOL closing)
