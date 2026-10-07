@@ -749,7 +749,23 @@ static NSButtonCell *OMDExplorerIconDrawingCell(void)
                                              selector:@selector(windowDidBecomeKey:)
                                                  name:NSWindowDidBecomeKeyNotification
                                                object:nil];
+    // Lay the controls out for each new sidebar width rather than leave it
+    // to autoresizing, which can't bring them back from a collapsed sidebar
+    // and left them wider than it, clipped at its right edge.
+    [_containerView setPostsFrameChangedNotifications:YES];
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(containerFrameDidChange:)
+                                                 name:NSViewFrameDidChangeNotification
+                                               object:_containerView];
     [self layoutExplorerControls];
+}
+
+- (void)containerFrameDidChange:(NSNotification *)notification
+{
+    (void)notification;
+    if (NSWidth([_containerView bounds]) >= 1.0 && ![_containerView isHidden]) {
+        [self layoutExplorerControls];
+    }
 }
 
 - (void)layoutExplorerControls

@@ -51,6 +51,10 @@
         return NSZeroRect;
     }
 
+    // No divider next to a hidden subview (the collapsed explorer).
+    if ([[subviews objectAtIndex:index] isHidden] || [[subviews objectAtIndex:index + 1] isHidden]) {
+        return NSZeroRect;
+    }
     leadingFrame = [[subviews objectAtIndex:index] frame];
     if ([self isVertical]) {
         return NSMakeRect(NSMaxX(leadingFrame),
@@ -176,9 +180,72 @@
     [self omdInvalidateCursorRects];
 }
 
+// libs-gui shares out a resize in proportion, which leaves subviews at
+// fractions of a pixel (and a hidden one's neighbour slightly outside the
+// split view). Views under a fractional offset redraw slivers that don't
+// line up, which repaints the preview over the theme's overlay scroller
+// while it's dragged. Put every edge back on a whole pixel: each visible
+// subview keeps its rounded length, the last visible one takes the rest,
+// and a hidden one (left as it is, for when it's shown again) takes no
+// room and no divider.
+- (void)omdSnapSubviewsToPixels
+{
+    NSArray *subviews = [self subviews];
+    NSUInteger count = [subviews count];
+    NSRect bounds = [self bounds];
+    BOOL vertical = [self isVertical];
+    CGFloat total = vertical ? NSWidth(bounds) : NSHeight(bounds);
+    CGFloat divider = [self dividerThickness];
+    CGFloat offset = 0.0;
+    NSInteger lastVisible = -1;
+    NSUInteger i = 0;
+
+    for (i = 0; i < count; i++) {
+        if (![[subviews objectAtIndex:i] isHidden]) {
+            lastVisible = (NSInteger)i;
+        }
+    }
+    for (i = 0; i < count; i++) {
+        NSView *subview = [subviews objectAtIndex:i];
+        NSRect current = [subview frame];
+        CGFloat length = 0.0;
+        NSRect frame;
+
+        if ([subview isHidden]) {
+            continue;
+        }
+        if ((NSInteger)i == lastVisible) {
+            length = total - offset;
+        } else {
+            length = MIN(round(vertical ? NSWidth(current) : NSHeight(current)), total - offset);
+        }
+        length = MAX(0.0, length);
+        if (vertical) {
+            frame = NSMakeRect(NSMinX(bounds) + offset, NSMinY(bounds), length, NSHeight(bounds));
+        } else {
+            frame = NSMakeRect(NSMinX(bounds), NSMinY(bounds) + offset, NSWidth(bounds), length);
+        }
+        if (!NSEqualRects(frame, current)) {
+            [subview setFrame:frame];
+        }
+        if ((NSInteger)i != lastVisible) {
+            offset += length + divider;
+        }
+    }
+}
+
 - (void)adjustSubviews
 {
     [super adjustSubviews];
+    [self omdSnapSubviewsToPixels];
+    [self omdRebuildDividerTrackingRects];
+    [self omdInvalidateCursorRects];
+}
+
+- (void)setPosition:(CGFloat)position ofDividerAtIndex:(NSInteger)dividerIndex
+{
+    [super setPosition:round(position) ofDividerAtIndex:dividerIndex];
+    [self omdSnapSubviewsToPixels];
     [self omdRebuildDividerTrackingRects];
     [self omdInvalidateCursorRects];
 }
@@ -219,6 +286,7 @@
     }
 
     [super mouseDown:event];
+    [self omdSnapSubviewsToPixels];
 
     _activeDividerIndex = -1;
     if (window != nil) {
