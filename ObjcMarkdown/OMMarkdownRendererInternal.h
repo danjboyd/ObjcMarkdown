@@ -252,9 +252,6 @@ BOOL OMTryRenderMermaidDiagram(cmark_node *node,
                                const OMRenderContext *renderContext,
                                NSString **diagnosticOut);
 
-#if defined(__GNUC__) && !defined(_WIN32)
-#pragma GCC visibility pop
-
 // OMMarkdownRendererHTML.m
 extern NSString * const OMHTMLStyleStackAttributeName;
 NSString *OMHTMLDecodeEntities(NSString *text);
@@ -271,4 +268,6 @@ void OMAppendSafeBlockHTML(NSString *html,
                            CGFloat scale,
                            const OMRenderContext *renderContext);
 
+#if defined(__GNUC__) && !defined(_WIN32)
+#pragma GCC visibility pop
 #endif
