@@ -1294,10 +1294,8 @@ static CGFloat OMDPreferencesFinishCard(NSView *card, CGFloat height)
     NSString *value = (_preferencesExplorerListFontSizeField != nil
                        ? [_preferencesExplorerListFontSizeField stringValue]
                        : @"");
+    // Empty: back to the theme's size.
     CGFloat fontSize = (CGFloat)[OMDTrimmedString(value) doubleValue];
-    if (fontSize <= 0.0) {
-        fontSize = OMDExplorerListDefaultFontSize;
-    }
     [[_delegate explorerController] setExplorerListFontSizePreference:fontSize];
     [self syncPreferencesPanelFromSettings];
 }

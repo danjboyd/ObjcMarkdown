@@ -563,8 +563,8 @@ static NSButtonCell *OMDExplorerIconDrawingCell(void)
 {
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
     id value = [defaults objectForKey:OMDExplorerListFontSizeDefaultsKey];
-    CGFloat fontSize = OMDExplorerListDefaultFontSize;
-    if ([value respondsToSelector:@selector(doubleValue)]) {
+    CGFloat fontSize = OMDExplorerListDefaultFontSize();
+    if ([value respondsToSelector:@selector(doubleValue)] && [value doubleValue] > 0.0) {
         fontSize = (CGFloat)[value doubleValue];
     }
     if (fontSize < OMDExplorerListMinFontSize) {
@@ -576,8 +576,14 @@ static NSButtonCell *OMDExplorerIconDrawingCell(void)
     return fontSize;
 }
 
+// 0 or less: no preference, so the list follows the theme's size.
 - (void)setExplorerListFontSizePreference:(CGFloat)fontSize
 {
+    if (fontSize <= 0.0) {
+        [[NSUserDefaults standardUserDefaults] removeObjectForKey:OMDExplorerListFontSizeDefaultsKey];
+        [self applyExplorerListFontPreference];
+        return;
+    }
     if (fontSize < OMDExplorerListMinFontSize) {
         fontSize = OMDExplorerListMinFontSize;
     }
@@ -609,7 +615,7 @@ static NSButtonCell *OMDExplorerIconDrawingCell(void)
     CGFloat fontSize = [self explorerListFontSizePreference];
     NSFont *font = [NSFont systemFontOfSize:fontSize];
     if (font == nil) {
-        font = [NSFont systemFontOfSize:OMDExplorerListDefaultFontSize];
+        font = OMDChromeFont();
     }
     CGFloat rowHeight = ceil(MAX(fontSize, OMDExplorerIconSize) + metrics.explorerRowPadding);
     if (rowHeight < OMDExplorerListMinimumRowHeight) {

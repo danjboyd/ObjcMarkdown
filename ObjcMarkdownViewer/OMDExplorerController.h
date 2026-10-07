@@ -6,7 +6,11 @@
 
 @class OMDExplorerController;
 
-static const CGFloat OMDExplorerListDefaultFontSize = 14.0;
+// The file list's font size unless the user sets one: the theme's (#90).
+static inline CGFloat OMDExplorerListDefaultFontSize(void)
+{
+    return [OMDChromeFont() pointSize];
+}
 
 // What the explorer needs from the window that hosts it.
 @protocol OMDExplorerControllerDelegate <NSObject>
