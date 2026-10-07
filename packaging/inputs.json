@@ -6,8 +6,8 @@
       "id": "linux-adwaita-theme",
       "kind": "git",
       "repo": "https://github.com/danjboyd/plugins-themes-Adwaita.git",
-      "ref": "aa78037e696ef4609e9ef5614bcd6000caad061f",
-      "refName": "0.1.0-alpha5-7-gaa78037",
+      "ref": "2d7862aa2a6b451dfd4f6b763e90512f606bcdaa",
+      "refName": "0.1.0-alpha6-3-g2d7862a",
       "workspacePath": "../gnustep/plugins-themes-adwaita",
       "platforms": [
         "linux"
@@ -18,6 +18,7 @@
         "Treat this as a packaging-time workspace dependency, not a source submodule.",
         "danjboyd/plugins-themes-Adwaita carries what the app relies on: the header bar, symbolic icon and segmented-control tinting, and the portal file chooser (121c5cd and later), which Linux uses since libOpenSave was dropped (#43).",
         "aa78037 keeps the overlay scrollbar drawn while its knob is dragged (plugins-themes-Adwaita#47); without it the preview's scrollbar vanished during a drag in Read mode.",
+        "2d7862a defines the dimmed label colours (plugins-themes-Adwaita#51); without it secondary text (Preferences notes, the status bar) was black in dark mode.",
         "packaging/scripts/stage-linux-runtime.sh fetches and builds this ref; the Linux release workflow adds it to the release notes, and the package records it in metadata/docs/BundledThemes.txt."
       ]
     },
