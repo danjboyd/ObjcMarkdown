@@ -60,78 +60,6 @@ NSColor *OMDColorFromDefaultsString(NSString *value)
     return [NSColor colorWithCalibratedRed:red green:green blue:blue alpha:alpha];
 }
 
-static BOOL OMDColorRGBAComponents(NSColor *color,
-                                   CGFloat *red,
-                                   CGFloat *green,
-                                   CGFloat *blue,
-                                   CGFloat *alpha)
-{
-    if (color == nil) {
-        return NO;
-    }
-    @try {
-        NSColor *rgbColor = [color colorUsingColorSpaceName:NSCalibratedRGBColorSpace];
-        if (rgbColor == nil) {
-            return NO;
-        }
-        if (red != NULL) {
-            *red = [rgbColor redComponent];
-        }
-        if (green != NULL) {
-            *green = [rgbColor greenComponent];
-        }
-        if (blue != NULL) {
-            *blue = [rgbColor blueComponent];
-        }
-        if (alpha != NULL) {
-            *alpha = [rgbColor alphaComponent];
-        }
-        return YES;
-    } @catch (NSException *exception) {
-        (void)exception;
-        return NO;
-    }
-}
-
-BOOL OMDColorIsDark(NSColor *color)
-{
-    CGFloat red = 0.0;
-    CGFloat green = 0.0;
-    CGFloat blue = 0.0;
-    if (!OMDColorRGBAComponents(color, &red, &green, &blue, NULL)) {
-        return NO;
-    }
-    return ((0.2126 * red) + (0.7152 * green) + (0.0722 * blue)) < 0.55;
-}
-
-NSColor *OMDColorByBlending(NSColor *baseColor, NSColor *mixColor, CGFloat fraction)
-{
-    CGFloat baseRed = 0.0;
-    CGFloat baseGreen = 0.0;
-    CGFloat baseBlue = 0.0;
-    CGFloat baseAlpha = 1.0;
-    CGFloat mixRed = 0.0;
-    CGFloat mixGreen = 0.0;
-    CGFloat mixBlue = 0.0;
-    CGFloat mixAlpha = 1.0;
-
-    if (fraction < 0.0) {
-        fraction = 0.0;
-    } else if (fraction > 1.0) {
-        fraction = 1.0;
-    }
-
-    if (!OMDColorRGBAComponents(baseColor, &baseRed, &baseGreen, &baseBlue, &baseAlpha) ||
-        !OMDColorRGBAComponents(mixColor, &mixRed, &mixGreen, &mixBlue, &mixAlpha)) {
-        return baseColor;
-    }
-
-    return [NSColor colorWithCalibratedRed:(baseRed + ((mixRed - baseRed) * fraction))
-                                     green:(baseGreen + ((mixGreen - baseGreen) * fraction))
-                                      blue:(baseBlue + ((mixBlue - baseBlue) * fraction))
-                                     alpha:(baseAlpha + ((mixAlpha - baseAlpha) * fraction))];
-}
-
 // The chrome's colours are the theme's system colours; the app picks
 // none of its own.
 NSColor *OMDResolvedControlTextColor(void)
@@ -154,22 +82,3 @@ NSColor *OMDResolvedPanelBackdropColor(void)
     return [NSColor windowBackgroundColor];
 }
 
-NSColor *OMDResolvedControlBackgroundColor(void)
-{
-    return [NSColor controlBackgroundColor];
-}
-
-NSColor *OMDResolvedSubtleSeparatorColor(void)
-{
-    return [NSColor controlShadowColor];
-}
-
-NSColor *OMDResolvedPanelCardBorderColor(void)
-{
-    return [NSColor controlShadowColor];
-}
-
-NSColor *OMDResolvedAccentColor(void)
-{
-    return [NSColor selectedControlColor];
-}

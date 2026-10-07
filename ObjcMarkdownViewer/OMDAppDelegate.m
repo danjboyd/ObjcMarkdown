@@ -23,7 +23,6 @@
 #import "OMDMainWindow.h"
 #import "OMDFillViews.h"
 #import "OMDToolbarViews.h"
-#import "OMDPreferencesPopup.h"
 #import "OMDWin11SplitView.h"
 #import "OMDTextFileSupport.h"
 #import "OMDExternalTools.h"
