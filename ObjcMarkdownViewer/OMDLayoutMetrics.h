@@ -37,16 +37,10 @@ typedef struct {
     CGFloat preferencesColumnGap;
     CGFloat preferencesCardPadding;
     CGFloat preferencesRowGap;
-    CGFloat preferencesNoteHeight;
     CGFloat preferencesLabelWidth;
     CGFloat preferencesControlHeight;
     CGFloat preferencesSmallFieldWidth;
     CGFloat preferencesSmallButtonWidth;
-    CGFloat preferencesAppearanceCardHeight;
-    CGFloat preferencesExplorerCardHeight;
-    CGFloat preferencesPreviewCardHeight;
-    CGFloat preferencesRenderingCardHeight;
-    CGFloat preferencesEditingCardHeight;
 } OMDLayoutMetrics;
 
 OMDLayoutDensityMode OMDClampedLayoutDensityMode(NSInteger rawValue);
