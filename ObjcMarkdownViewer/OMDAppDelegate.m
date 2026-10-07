@@ -20,7 +20,6 @@
 #import "OMDPanelSelection.h"
 #import "OMDViewerColors.h"
 #import "OMDViewerDiagnostics.h"
-#import "OMDWindowsMenuBar.h"
 #import "OMDMainWindow.h"
 #import "OMDFillViews.h"
 #import "OMDToolbarViews.h"
@@ -136,9 +135,6 @@ static void OMDApplyWindowsMenuToWindow(NSWindow *window)
             if ([theme respondsToSelector:@selector(updateMenu:forWindow:)]) {
                 [theme updateMenu:mainMenu forWindow:window];
             }
-#if defined(_WIN32)
-            OMDInstallWinUIStyleWindowsMenuBar(window, mainMenu);
-#endif
             OMDStartupTrace(@"windows-style menu applied to window");
         }
     }
@@ -157,11 +153,6 @@ static void OMDRefreshWindowsMainMenu(void)
             if ([[GSTheme theme] respondsToSelector:@selector(updateAllWindowsWithMenu:)]) {
                 [[GSTheme theme] updateAllWindowsWithMenu:mainMenu];
             }
-#if defined(_WIN32)
-            for (NSWindow *window in [NSApp windows]) {
-                OMDInstallWinUIStyleWindowsMenuBar(window, mainMenu);
-            }
-#endif
             OMDStartupTrace(@"windows-style main menu refreshed");
         }
     }
