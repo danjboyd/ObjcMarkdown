@@ -178,6 +178,27 @@ static CGFloat OMDDefaultWindowHeight(void)
     return 760.0;
 }
 
+// The documents named on the command line: the arguments before the first
+// option, as GNUstep's NSApplication reads them. After that come defaults
+// and their values ("-GSTheme GNUstep"), which aren't files even when a
+// file of that name exists.
+static NSArray *OMDLaunchDocumentArguments(void)
+{
+    NSArray *args = [[NSProcessInfo processInfo] arguments];
+    NSMutableArray *names = [NSMutableArray array];
+    NSUInteger i = 1;
+    for (; i < [args count]; i++) {
+        NSString *arg = [args objectAtIndex:i];
+        if ([arg hasPrefix:@"-"]) {
+            break;
+        }
+        if ([arg length] > 0) {
+            [names addObject:arg];
+        }
+    }
+    return names;
+}
+
 static void OMDLogMenuSnapshot(NSString *label, NSMenu *menu, NSWindow *window)
 {
     NSMutableArray *titles = [NSMutableArray array];
@@ -1294,15 +1315,8 @@ static NSMutableArray *OMDSecondaryWindows(void)
 
 - (NSString *)firstLaunchDocumentPathFromArguments
 {
-    NSArray *args = [[NSProcessInfo processInfo] arguments];
-    if ([args count] <= 1) {
-        return nil;
-    }
-
     NSFileManager *fm = [NSFileManager defaultManager];
-    NSUInteger i = 1;
-    for (; i < [args count]; i++) {
-        NSString *candidate = [args objectAtIndex:i];
+    for (NSString *candidate in OMDLaunchDocumentArguments()) {
         NSString *expanded = [self resolvedAbsolutePathForLocalPath:candidate];
         if ([expanded length] == 0) {
             continue;
@@ -8664,15 +8678,8 @@ static BOOL OMDIsMarkdownPath(NSString *path)
 
 - (BOOL)openDocumentFromArguments
 {
-    NSArray *args = [[NSProcessInfo processInfo] arguments];
-    if ([args count] <= 1) {
-        return NO;
-    }
-
     NSFileManager *fm = [NSFileManager defaultManager];
-    NSUInteger i = 1;
-    for (; i < [args count]; i++) {
-        NSString *candidate = [args objectAtIndex:i];
+    for (NSString *candidate in OMDLaunchDocumentArguments()) {
         NSString *expanded = [self resolvedAbsolutePathForLocalPath:candidate];
         if ([expanded length] == 0) {
             continue;
