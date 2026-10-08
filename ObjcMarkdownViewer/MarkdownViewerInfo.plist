@@ -1,5 +1,8 @@
 {
   ApplicationName = MarkdownViewer;
+  /* The name shown to people (window titles, the taskbar); ApplicationName
+     stays the program's name, which settings are kept under. */
+  CFBundleDisplayName = "Markdown Viewer";
   ApplicationVersion = "0.2.0";
   ApplicationRelease = "0.2.0";
   Authors = ("Daniel Boyd");
@@ -15,6 +18,11 @@
      Menu bar or main menu button is the user's choice (GnomeThemeMenuStyle
      as a user default), so it isn't declared here. */
   GnomeThemeHeaderBarToolbar = YES;
+  /* For the same reason the toolbar may share the menu bar's row: a theme
+     with an in-window menu bar (WinUITheme) may draw the menus at the
+     start of that row and the toolbar's items after them, instead of a
+     row of its own. */
+  GSThemeToolbarInMenuBar = YES;
   NSMIMETypes = (
     "text/markdown",
     "text/x-markdown",
