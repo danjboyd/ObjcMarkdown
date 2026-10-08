@@ -4,6 +4,7 @@
 #import "OMDWindowController.h"
 #import "OMDAppDelegate.h"
 #import "OMDDocumentWindows.h"
+#import "OMDWindowTabbing.h"
 #import "OMMarkdownRenderer.h"
 #import "OMRenderedObject.h"
 #import "OMTheme.h"
@@ -929,6 +930,16 @@ static NSMutableArray *OMDSecondaryWindows(void)
 
 - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)sender
 {
+    (void)sender;
+#if defined(GNUSTEP)
+    // GNUstep asks as the last window on screen closes; the other tabs of
+    // a group are off screen then. Quit only when no document window shows.
+    for (NSWindow *window in [NSApp windows]) {
+        if ([[window delegate] isKindOfClass:[OMDWindowController class]] && [window isVisible]) {
+            return NO;
+        }
+    }
+#endif
     return YES;
 }
 
@@ -1066,6 +1077,10 @@ static NSMutableArray *OMDSecondaryWindows(void)
     OMDApplyWindowsMenuToWindow(_window);
 #if !defined(GNUSTEP)
     [self setUpDocumentWindow];
+#else
+    if (OMDWindowTabbingAvailable()) {
+        [_window setTabbingIdentifier:OMDWindowTabbingIdentifier];
+    }
 #endif
 
     _zoomScale = 1.0;
@@ -2190,6 +2205,79 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
     [self rebuildOpenRecentMenu];
 }
 
+// Whether a document opened in a new tab goes to a window of its own in
+// this window's tab group (GNUstep with window tabs) rather than here.
+// That window shows it; this one, now a tab behind it, stays as it is.
+- (BOOL)newTabOpensWindow:(BOOL)inNewTab
+{
+#if defined(GNUSTEP)
+    return inNewTab && OMDWindowTabbingAvailable() && [_documentTabsController count] > 0;
+#else
+    (void)inNewTab;
+    return NO;
+#endif
+}
+
+#if defined(GNUSTEP)
+#pragma mark - Window tabs (GNUstep)
+
+// A window for a document opened in a new tab, in this window's tab group
+// (OMDWindowTabbingAvailable()). It is on screen already; opening a
+// document in it shows it, and the caller then runs its post-presentation
+// setup.
+- (OMDWindowController *)newTabbedWindowController
+{
+    OMDWindowController *controller = [[[OMDWindowController alloc] init] autorelease];
+    [controller setupWindow];
+    [controller registerAsSecondaryWindow];
+    [controller->_explorerController startAtRootOfExplorer:_explorerController];
+    [_window addTabbedWindow:controller->_window ordered:NSWindowAbove];
+
+    // Its explorer takes this window's width. Now: being on screen, it
+    // won't lay the explorer out when it is shown.
+    CGFloat sidebarWidth = _explorerSidebarLastVisibleWidth;
+    if (_explorerSidebarVisible && ![_sidebarContainer isHidden]) {
+        sidebarWidth = NSWidth([_sidebarContainer frame]);
+    }
+    if (sidebarWidth > 20.0) {
+        controller->_explorerSidebarLastVisibleWidth = sidebarWidth;
+        [controller applyExplorerSidebarVisibility];
+    }
+    return controller;
+}
+
+// Brings the window (its tab) showing the file at path, or the document
+// from the web address, to the front. NO when no window shows it.
++ (BOOL)showWindowWithDocumentAtPath:(NSString *)path remoteURL:(NSString *)remoteURL
+{
+    for (NSWindow *window in [NSApp windows]) {
+        id delegate = [window delegate];
+        if (![delegate isKindOfClass:[OMDWindowController class]]) {
+            continue;
+        }
+        OMDWindowController *controller = (OMDWindowController *)delegate;
+        NSInteger index = -1;
+        if ([path length] > 0) {
+            index = [controller->_documentTabsController documentTabIndexForLocalPath:path];
+        } else if ([remoteURL length] > 0) {
+            index = [controller->_documentTabsController documentTabIndexForRemoteURL:remoteURL];
+        }
+        if (index >= 0) {
+            [controller selectDocumentTabAtIndex:index];
+            [window makeKeyAndOrderFront:nil];
+            return YES;
+        }
+    }
+    return NO;
+}
+
+// The tab bar's new-tab button: a new document in a new tab.
+- (void)newWindowForTab:(id)sender
+{
+    [self newDocument:sender];
+}
+#endif
+
 // A new, empty Markdown document (#88): "Untitled", in Edit mode; the
 // first Save asks where to put it.
 - (void)newDocument:(id)sender
@@ -2203,18 +2291,31 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
     untitledCount += 1;
     NSString *title = untitledCount == 1 ? @"Untitled" : [NSString stringWithFormat:@"Untitled %lu", (unsigned long)untitledCount];
     BOOL inNewTab = !([_documentTabsController count] == 0 && _currentPath == nil && _currentMarkdown == nil);
-    if (![self openDocumentWithMarkdown:@""
-                             sourcePath:nil
-                           displayTitle:title
-                               readOnly:NO
-                             renderMode:OMDDocumentRenderModeMarkdown
-                         syntaxLanguage:nil
-                               inNewTab:inNewTab
-                    requireDirtyConfirm:!inNewTab]) {
+    // With window tabs the new document has a window of its own, which
+    // then takes Edit mode.
+    OMDWindowController *target = self;
+    if (inNewTab && OMDWindowTabbingAvailable()) {
+        target = [self newTabbedWindowController];
+        inNewTab = NO;
+    }
+    if (![target openDocumentWithMarkdown:@""
+                               sourcePath:nil
+                             displayTitle:title
+                                 readOnly:NO
+                               renderMode:OMDDocumentRenderModeMarkdown
+                           syntaxLanguage:nil
+                                 inNewTab:inNewTab
+                      requireDirtyConfirm:!inNewTab]) {
+        if (target != self) {
+            [target->_window close];
+        }
         return;
     }
-    [self setViewerMode:OMDViewerModeEdit persistPreference:NO];
-    [_window makeFirstResponder:_sourceTextView];
+    if (target != self) {
+        [target schedulePostPresentationSetupIfNeeded];
+    }
+    [target setViewerMode:OMDViewerModeEdit persistPreference:NO];
+    [target->_window makeFirstResponder:target->_sourceTextView];
 }
 
 - (void)newWindow:(id)sender
@@ -5415,6 +5516,19 @@ constrainSplitPosition:(CGFloat)proposedPosition
         return;
     }
     inNewTab = NO;
+#else
+    // Where the theme gives windows tabs, one document per window too: a
+    // new tab is a new window in this window's tab group.
+    if (OMDWindowTabbingAvailable()) {
+        if ([self newTabOpensWindow:inNewTab]) {
+            OMDWindowController *controller = [self newTabbedWindowController];
+            [controller installDocumentTabRecord:tab inNewTab:NO resetViewport:resetViewport];
+            [controller presentWindowIfNeeded];
+            [controller schedulePostPresentationSetupIfNeeded];
+            return;
+        }
+        inNewTab = NO;
+    }
 #endif
     [self commitPendingDirtyState];
     if (inNewTab || [_documentTabsController selectedIndex] < 0 || [_documentTabsController selectedIndex] >= (NSInteger)[_documentTabsController count]) {
@@ -5503,6 +5617,11 @@ constrainSplitPosition:(CGFloat)proposedPosition
         if ([self showOpenDocumentAtPath:normalizedSourcePath]) {
             return YES;
         }
+#else
+        if (OMDWindowTabbingAvailable() &&
+            [OMDWindowController showWindowWithDocumentAtPath:normalizedSourcePath remoteURL:nil]) {
+            return YES;
+        }
 #endif
         NSInteger existingIndex = [_documentTabsController documentTabIndexForLocalPath:normalizedSourcePath];
         if (existingIndex >= 0) {
@@ -5526,8 +5645,11 @@ constrainSplitPosition:(CGFloat)proposedPosition
                                                   syntaxLanguage:syntaxLanguage
                                                  diskFingerprint:initialDiskFingerprint];
 
+    BOOL elsewhere = [self newTabOpensWindow:inNewTab];
     [self installDocumentTabRecord:tab inNewTab:inNewTab resetViewport:YES];
-    [self presentWindowIfNeeded];
+    if (!elsewhere) {
+        [self presentWindowIfNeeded];
+    }
     return YES;
 }
 
@@ -8783,6 +8905,13 @@ static BOOL OMDIsMarkdownPath(NSString *path)
         completion(nil);
         return;
     }
+#if defined(GNUSTEP)
+    if (OMDWindowTabbingAvailable() &&
+        [OMDWindowController showWindowWithDocumentAtPath:nil remoteURL:[[document rawURL] absoluteString]]) {
+        completion(nil);
+        return;
+    }
+#endif
     void (^done)(NSString *) = [[completion copy] autorelease];
     [document retain];
     OMDFetchRemoteDocument(document, [_explorerController explorerMaxOpenFileSizeBytes], ^(NSString *markdown, NSString *errorMessage) {
@@ -8804,8 +8933,11 @@ static BOOL OMDIsMarkdownPath(NSString *path)
                                                      syntaxLanguage:nil
                                                     diskFingerprint:nil];
         [tab setRemoteURL:[[document rawURL] absoluteString]];
+        BOOL elsewhere = [self newTabOpensWindow:inNewTab];
         [self installDocumentTabRecord:tab inNewTab:inNewTab resetViewport:YES];
-        [self presentWindowIfNeeded];
+        if (!elsewhere) {
+            [self presentWindowIfNeeded];
+        }
         done(nil);
     });
 }
