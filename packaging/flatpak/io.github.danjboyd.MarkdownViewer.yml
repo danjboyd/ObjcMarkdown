@@ -94,6 +94,8 @@ modules:
       - type: git
         url: https://github.com/gnustep/libs-base
         commit: 68f3d75694f0a7edf9fb1c6c7f19582e8cff1b5f
+      - type: patch
+        path: ../patches/libs-base/0001-GSAttributedString-hash-cached-attribute-dictionarie.patch
 
   - name: gnustep-gui
     buildsystem: simple
@@ -105,6 +107,8 @@ modules:
       - type: git
         url: https://github.com/gnustep/libs-gui
         commit: 549f639137a600936acde4cd618f0e4b858d883d
+      - type: patch
+        path: ../patches/libs-gui/0001-GSLayoutManager-compile-out-the-glyph-run-sanity-che.patch
 
   - name: gnustep-back
     buildsystem: simple
