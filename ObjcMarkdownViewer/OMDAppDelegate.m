@@ -5,6 +5,9 @@
 #import "OMDWindowController.h"
 #import "OMDPreferencesController.h"
 #import <objc/runtime.h>
+#if !defined(GNUSTEP)
+#import "OMDDocumentWindows.h"
+#endif
 
 #if defined(GNUSTEP)
 @interface GPStandardUpdaterController : NSObject
@@ -36,6 +39,13 @@ static BOOL OMDIsPreferencesSetterSelector(SEL selector)
     self = [super init];
     if (self != nil) {
         _windowActionNames = [[NSMutableSet alloc] init];
+#if !defined(GNUSTEP)
+        // The first document controller made is the app's shared one.
+        static OMDDocumentController *documentController = nil;
+        if (documentController == nil) {
+            documentController = [[OMDDocumentController alloc] init];
+        }
+#endif
         _mainWindowController = [[OMDWindowController alloc] init];
     }
     return self;
@@ -59,7 +69,16 @@ static BOOL OMDIsPreferencesSetterSelector(SEL selector)
 
 - (void)applicationDidFinishLaunching:(NSNotification *)notification
 {
+#if !defined(GNUSTEP)
+    // Documents opened from the Finder or reopened from last time have
+    // their windows; the empty window is for when there are none.
+    // (AppKit opens files named on the command line as documents too.)
+    if ([[[NSDocumentController sharedDocumentController] documents] count] == 0) {
+        [_mainWindowController applicationDidFinishLaunching:notification];
+    }
+#else
     [_mainWindowController applicationDidFinishLaunching:notification];
+#endif
 #if defined(GNUSTEP)
     if (_updaterController == nil) {
         NSError *updateError = nil;
@@ -82,8 +101,33 @@ static BOOL OMDIsPreferencesSetterSelector(SEL selector)
 
 - (BOOL)application:(NSApplication *)application openFile:(NSString *)filename
 {
+#if !defined(GNUSTEP)
+    // A file from the Finder (or the Dock): the document controller's.
+    NSString *lowerName = [filename lowercaseString];
+    if (![lowerName hasPrefix:@"http://"] && ![lowerName hasPrefix:@"https://"] && ![lowerName hasPrefix:@"github.com/"]) {
+        [[NSDocumentController sharedDocumentController] openDocumentWithContentsOfURL:[NSURL fileURLWithPath:filename]
+                                                                               display:YES
+                                                                     completionHandler:^(NSDocument *document, BOOL alreadyOpen, NSError *error) {
+            (void)document;
+            (void)alreadyOpen;
+            if (error != nil) {
+                [NSApp presentError:error];
+            }
+        }];
+        return YES;
+    }
+#endif
     return [_mainWindowController application:application openFile:filename];
 }
+
+#if !defined(GNUSTEP)
+// The app's window, not an untitled document, is what shows with nothing open.
+- (BOOL)applicationShouldOpenUntitledFile:(NSApplication *)application
+{
+    (void)application;
+    return NO;
+}
+#endif
 
 // Quitting asks about every unsaved document in every window first.
 - (NSApplicationTerminateReply)applicationShouldTerminate:(NSApplication *)application
