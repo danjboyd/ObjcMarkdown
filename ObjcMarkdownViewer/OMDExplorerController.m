@@ -723,6 +723,9 @@ static NSButtonCell *OMDExplorerIconDrawingCell(void)
     [_explorerScrollView setBorderType:NSBezelBorder];
 
     _explorerOutlineView = [[OMDExplorerOutlineView alloc] initWithFrame:[_explorerScrollView bounds]];
+#if !defined(GNUSTEP)
+    [_explorerOutlineView setAccessibilityLabel:@"Files"];
+#endif
     [_explorerOutlineView setHeaderView:nil];
     [_explorerOutlineView setAllowsEmptySelection:YES];
     [_explorerOutlineView setAllowsMultipleSelection:NO];

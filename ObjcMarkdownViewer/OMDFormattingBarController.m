@@ -53,7 +53,15 @@ static const NSUInteger OMDFormattingCommandGroupCount = 4;
 
 static NSString *OMDFormattingCommandName(const OMDFormattingCommand *command)
 {
-    return [NSString stringWithUTF8String:command->name];
+    return OMDShortcutText([NSString stringWithUTF8String:command->name]);
+}
+
+// The command alone, without its shortcut: what VoiceOver says.
+static NSString *OMDFormattingCommandSpokenName(const OMDFormattingCommand *command)
+{
+    NSString *name = [NSString stringWithUTF8String:command->name];
+    NSRange shortcut = [name rangeOfString:@" ("];
+    return shortcut.location != NSNotFound ? [name substringToIndex:shortcut.location] : name;
 }
 
 @interface OMDFormattingBarController ()
@@ -184,7 +192,11 @@ static NSString *OMDFormattingCommandName(const OMDFormattingCommand *command)
         for (; segment < group.count; segment++) {
             const OMDFormattingCommand *command = &group.commands[segment];
             [control setLabel:@"" forSegment:(NSInteger)segment];
-            [control setImage:OMDSymbolicImageNamed(command->iconName) forSegment:(NSInteger)segment];
+            [control setImage:OMDSymbolicImageNamedForCommand(command->iconName, OMDFormattingCommandSpokenName(command))
+                   forSegment:(NSInteger)segment];
+#if !defined(GNUSTEP)
+            [control setToolTip:OMDFormattingCommandName(command) forSegment:(NSInteger)segment];
+#endif
             [control setWidth:segmentWidth forSegment:(NSInteger)segment];
             // Per-segment cell tooltips aren't shown by GNUstep; a tooltip
             // rect per segment is. The string is its own owner.

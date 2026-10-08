@@ -74,6 +74,9 @@ static NSTextField *OMDOutlineLabel(NSRect frame, NSFont *font, NSColor *color)
     [_scrollView setBorderType:NSNoBorder];
 
     _tableView = [[NSTableView alloc] initWithFrame:[[_scrollView contentView] bounds]];
+#if !defined(GNUSTEP)
+    [_tableView setAccessibilityLabel:@"Outline"];
+#endif
     NSTableColumn *column = [[[NSTableColumn alloc] initWithIdentifier:@"heading"] autorelease];
     [column setWidth:NSWidth(bounds)];
     [column setResizingMask:NSTableColumnAutoresizingMask];

@@ -1130,6 +1130,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
 #else
     // macOS's find bar, at the top of the pane.
     [_textView setUsesFindBar:YES];
+    [_textView setAccessibilityLabel:@"Preview"];
     [_textView setIncrementalSearchingEnabled:YES];
 #endif
     [_textView setRichText:YES];
@@ -1187,6 +1188,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [_sourceTextView setUsesFindPanel:YES];
 #else
     [_sourceTextView setUsesFindBar:YES];
+    [_sourceTextView setAccessibilityLabel:@"Markdown Source"];
     [_sourceTextView setIncrementalSearchingEnabled:YES];
 #endif
     [_sourceTextView setUsesRuler:NO];
