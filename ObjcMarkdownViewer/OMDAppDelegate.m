@@ -5,6 +5,7 @@
 #import "OMDWindowController.h"
 #import "OMDPreferencesController.h"
 #import <objc/runtime.h>
+#import "OMDWindowTabbing.h"
 #if !defined(GNUSTEP)
 #import "OMDDocumentWindows.h"
 #import <Sparkle/Sparkle.h>
@@ -179,7 +180,9 @@ static BOOL OMDIsPreferencesSetterSelector(SEL selector)
     return controllers;
 }
 
-// The controllers of the windows on screen or in the Dock, front first.
+// The controllers of the windows on screen or in the Dock, front first,
+// and of the other tabs in their groups: GNUstep orders a group's
+// unselected tabs out, but each holds a document.
 - (NSArray *)openWindowControllers
 {
     NSMutableArray *controllers = [NSMutableArray arrayWithArray:[self visibleWindowControllers]];
@@ -188,6 +191,20 @@ static BOOL OMDIsPreferencesSetterSelector(SEL selector)
         if ([window isMiniaturized] && [delegate isKindOfClass:[OMDWindowController class]] &&
             ![controllers containsObject:delegate]) {
             [controllers addObject:delegate];
+        }
+    }
+    NSArray *shown = [NSArray arrayWithArray:controllers];
+    for (OMDWindowController *controller in shown) {
+        NSWindow *window = [controller mainWindow];
+        if (![window respondsToSelector:@selector(tabbedWindows)]) {
+            continue;
+        }
+        for (NSWindow *tab in [window tabbedWindows]) {
+            id delegate = [tab delegate];
+            if ([delegate isKindOfClass:[OMDWindowController class]] &&
+                ![controllers containsObject:delegate]) {
+                [controllers addObject:delegate];
+            }
         }
     }
     return controllers;
