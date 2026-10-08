@@ -71,6 +71,9 @@ static inline CGFloat OMDExplorerListDefaultFontSize(void)
 // default folder from Preferences. A root picked in the explorer's root
 // menu stays until another is picked.
 - (void)setDocumentPath:(NSString *)path;
+// A new tab's explorer starts at its opener's root (picked by hand or not)
+// instead of the default folder; its document can move it from there.
+- (void)startAtRootOfExplorer:(OMDExplorerController *)opener;
 
 // Puts the keyboard in the explorer's filter field.
 - (void)focusFilterField;

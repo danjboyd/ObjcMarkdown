@@ -492,6 +492,16 @@ static NSButtonCell *OMDExplorerIconDrawingCell(void)
     [self revealDocumentExpandingFolders:YES];
 }
 
+- (void)startAtRootOfExplorer:(OMDExplorerController *)opener
+{
+    NSString *root = (opener != nil ? opener->_explorerLocalRootPath : nil);
+    if ([root length] == 0) {
+        return;
+    }
+    _explorerRootChosenByHand = opener->_explorerRootChosenByHand;
+    [self showRoot:root remember:NO];
+}
+
 // Selects the open document's row. With expand, opens the folders above
 // it and scrolls to it, reading its folder again if it is new (just saved
 // there); otherwise only selects it if it is already visible.
