@@ -8,13 +8,15 @@ images (the Adwaita theme) draw them in the colour of the text around
 them; GNUstep's default theme draws them as they are, in black. Only the
 shape (alpha) matters.
 
-- The toolbar and copy icons come from the artwork in Resources/ (their
-  alpha): toolbar icons cropped to the drawing and fitted into 22x22
-  with a 2-point margin, the copy icon scaled to 16x16.
+- The toolbar icons are drawn here at 22x22 (18x18 of drawing with a
+  2-point margin), and the copy icon at 16x16, as GNOME draws its symbolic
+  icons: 2-point strokes on whole pixels, so every edge is sharp. (They
+  were once scaled down from the artwork in Resources/, which left their
+  strokes between pixels and blurred them.)
 - The other small icons (formatting bar, chevron, explorer files and folders, copied
   check) are drawn here at 16x16 with cairo, y pointing up as in AppKit.
 
-Needs python3-cairo and python3-pil. Run from anywhere:
+Needs python3-cairo. Run from anywhere:
     tools/icons/make-symbolic-icons.py
 """
 
@@ -22,7 +24,6 @@ import math
 import os
 
 import cairo
-from PIL import Image
 
 ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
 RESOURCES = os.path.join(ROOT, "Resources")
@@ -30,36 +31,155 @@ OUT = os.path.join(RESOURCES, "icons")
 
 SMALL = 16
 TOOLBAR = 22
-TOOLBAR_INSET = 2
 STROKE = 1.5
 
-# Artwork -> (symbolic name, size, margin, crop to the drawing).
-ARTWORK_ICONS = {
-    "toolbar-explorer-toggle.png": ("omd-sidebar-show-symbolic", TOOLBAR, TOOLBAR_INSET, True),
-    "toolbar-open.png": ("omd-document-open-symbolic", TOOLBAR, TOOLBAR_INSET, True),
-    "toolbar-saveas.png": ("omd-document-save-symbolic", TOOLBAR, TOOLBAR_INSET, True),
-    "toolbar-export.png": ("omd-document-export-symbolic", TOOLBAR, TOOLBAR_INSET, True),
-    "toolbar-print.png": ("omd-document-print-symbolic", TOOLBAR, TOOLBAR_INSET, True),
-    "toolbar-preferences.png": ("omd-preferences-symbolic", TOOLBAR, TOOLBAR_INSET, True),
-    "code-copy-icon.png": ("omd-edit-copy-symbolic", SMALL, 0, False),
+# Toolbar icons: drawn in cairo's own y-down space on a 22x22 canvas
+# (the copy icon on 16x16). A box is (x, y, w, h) in whole pixels, the
+# outside of its stroke; strokes are W wide, so their edges fall on pixel
+# boundaries.
+
+W = 2.0
+
+
+def box_path(cr, x, y, w, h, r=0.0, width=W):
+    """The path of a stroke whose outside edge is the pixel box."""
+    inset = width / 2.0
+    x, y, w, h = x + inset, y + inset, w - width, h - width
+    if r <= 0.0:
+        cr.rectangle(x, y, w, h)
+        return
+    r = max(0.0, r - inset)
+    cr.new_sub_path()
+    cr.arc(x + w - r, y + r, r, -math.pi / 2, 0)
+    cr.arc(x + w - r, y + h - r, r, 0, math.pi / 2)
+    cr.arc(x + r, y + h - r, r, math.pi / 2, math.pi)
+    cr.arc(x + r, y + r, r, math.pi, 3 * math.pi / 2)
+    cr.close_path()
+
+
+def box(cr, x, y, w, h, r=0.0, width=W):
+    box_path(cr, x, y, w, h, r, width)
+    cr.set_line_width(width)
+    cr.stroke()
+
+
+def fill(cr, x, y, w, h):
+    cr.rectangle(x, y, w, h)
+    cr.fill()
+
+
+def triangle(cr, points):
+    cr.move_to(*points[0])
+    for point in points[1:]:
+        cr.line_to(*point)
+    cr.close_path()
+    cr.fill()
+
+
+def sidebar_show(cr):
+    # A window with its sidebar filled in.
+    box(cr, 2, 3, 18, 16, r=3)
+    fill(cr, 3, 4, 6, 14)
+    cr.set_operator(cairo.OPERATOR_CLEAR)
+    fill(cr, 5, 6, 2, 2)
+    fill(cr, 5, 10, 2, 2)
+    cr.set_operator(cairo.OPERATOR_OVER)
+
+
+def document_open(cr):
+    # A folder with an arrow going in.
+    cr.set_line_width(W)
+    cr.set_line_join(cairo.LINE_JOIN_ROUND)
+    cr.move_to(3, 17)
+    cr.line_to(3, 5)
+    cr.line_to(8, 5)
+    cr.line_to(10, 7)
+    cr.line_to(19, 7)
+    cr.line_to(19, 17)
+    cr.close_path()
+    cr.stroke()
+    fill(cr, 10, 9, 2, 4)
+    triangle(cr, [(7, 12), (15, 12), (11, 16)])
+
+
+def document_save(cr):
+    # A floppy disk: its shutter and its label.
+    cr.set_line_width(W)
+    cr.set_line_join(cairo.LINE_JOIN_ROUND)
+    cr.move_to(3, 3)
+    cr.line_to(16, 3)
+    cr.line_to(19, 6)
+    cr.line_to(19, 19)
+    cr.line_to(3, 19)
+    cr.close_path()
+    cr.stroke()
+    fill(cr, 7, 4, 7, 4)
+    box(cr, 6, 11, 10, 8)
+
+
+def document_export(cr):
+    # A page with an arrow coming out of it.
+    cr.set_line_width(W)
+    cr.set_line_join(cairo.LINE_JOIN_ROUND)
+    cr.move_to(12, 8)
+    cr.line_to(12, 3)
+    cr.line_to(4, 3)
+    cr.line_to(4, 19)
+    cr.line_to(12, 19)
+    cr.line_to(12, 14)
+    cr.stroke()
+    fill(cr, 8, 10, 8, 2)
+    triangle(cr, [(15, 7), (20, 11), (15, 15)])
+
+
+def document_print(cr):
+    # A printer: the paper in, the body, the paper out.
+    box(cr, 6, 3, 10, 6)
+    box(cr, 2, 8, 18, 9, r=2)
+    cr.set_operator(cairo.OPERATOR_CLEAR)
+    fill(cr, 5, 13, 12, 7)
+    cr.set_operator(cairo.OPERATOR_OVER)
+    box(cr, 6, 13, 10, 7)
+    fill(cr, 15, 10, 2, 1)
+
+
+def preferences(cr):
+    # Three sliders.
+    for x, knob in ((4, 7), (10, 14), (16, 10)):
+        fill(cr, x, 3, 2, 16)
+        fill(cr, x - 2, knob - 2, 6, 4)
+
+
+def edit_copy(cr):
+    # Two sheets, one in front of the other.
+    box(cr, 5, 5, 10, 10, r=2)
+    cr.set_line_width(W)
+    cr.move_to(11, 4)
+    cr.line_to(11, 2)
+    cr.line_to(2, 2)
+    cr.line_to(2, 11)
+    cr.line_to(4, 11)
+    cr.stroke()
+
+
+TOOLBAR_ICONS = {
+    "omd-sidebar-show-symbolic": (sidebar_show, TOOLBAR),
+    "omd-document-open-symbolic": (document_open, TOOLBAR),
+    "omd-document-save-symbolic": (document_save, TOOLBAR),
+    "omd-document-export-symbolic": (document_export, TOOLBAR),
+    "omd-document-print-symbolic": (document_print, TOOLBAR),
+    "omd-preferences-symbolic": (preferences, TOOLBAR),
+    "omd-edit-copy-symbolic": (edit_copy, SMALL),
 }
 
 
-def artwork_icon(source, name, size, inset, crop):
-    image = Image.open(os.path.join(RESOURCES, source)).convert("RGBA")
-    alpha = image.getchannel("A")
-    box = alpha.point(lambda a: 255 if a > 2 else 0).getbbox()
-    if crop and box is not None:
-        alpha = alpha.crop(box)
-    side = size - 2 * inset
-    scale = min(side / alpha.width, side / alpha.height)
-    fitted = (max(1, round(alpha.width * scale)), max(1, round(alpha.height * scale)))
-    alpha = alpha.resize(fitted, Image.LANCZOS)
-    mask = Image.new("L", (size, size), 0)
-    mask.paste(alpha, ((size - fitted[0]) // 2, (size - fitted[1]) // 2))
-    icon = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    icon.putalpha(mask)
-    icon.save(os.path.join(OUT, name + ".png"))
+def toolbar_icon(name, draw, size):
+    surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, size, size)
+    cr = cairo.Context(surface)
+    cr.set_source_rgb(0, 0, 0)
+    draw(cr)
+    surface.flush()
+    surface.write_to_png(os.path.join(OUT, name + ".png"))
 
 
 # Small icons: each function draws on a cairo context whose y axis points
@@ -300,11 +420,11 @@ def small_icon(name, draw):
 
 def main():
     os.makedirs(OUT, exist_ok=True)
-    for source, (name, size, inset, crop) in ARTWORK_ICONS.items():
-        artwork_icon(source, name, size, inset, crop)
+    for name, (draw, size) in TOOLBAR_ICONS.items():
+        toolbar_icon(name, draw, size)
     for name, draw in SMALL_ICONS.items():
         small_icon(name, draw)
-    print("wrote %d icons to %s" % (len(ARTWORK_ICONS) + len(SMALL_ICONS), os.path.relpath(OUT, ROOT)))
+    print("wrote %d icons to %s" % (len(TOOLBAR_ICONS) + len(SMALL_ICONS), os.path.relpath(OUT, ROOT)))
 
 
 if __name__ == "__main__":
