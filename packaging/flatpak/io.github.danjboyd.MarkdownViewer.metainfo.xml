@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
   <id>io.github.danjboyd.MarkdownViewer</id>
-  <name>MarkdownViewer</name>
+  <name>Markdown Viewer</name>
   <summary>Read, edit and preview Markdown documents</summary>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>GPL-2.0-or-later AND LGPL-2.1-or-later</project_license>
@@ -10,7 +10,7 @@
   </developer>
   <description>
     <p>
-      MarkdownViewer is a GNUstep Markdown reader and editor: rendered previews with
+      Markdown Viewer is a GNUstep Markdown reader and editor: rendered previews with
       tables, math, Mermaid diagrams and highlighted code, a source editor with linked
       scrolling, an explorer and an outline. It takes its look from the GNUstep theme,
       here Adwaita.

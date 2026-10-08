@@ -1,6 +1,6 @@
 [Desktop Entry]
 Type=Application
-Name=MarkdownViewer
+Name=Markdown Viewer
 Comment=Read, edit and preview Markdown documents
 Exec=markdownviewer %F
 Icon=io.github.danjboyd.MarkdownViewer
