@@ -1,11 +1,11 @@
 {
   ApplicationName = MarkdownViewer;
-  ApplicationVersion = "0.1.1";
-  ApplicationRelease = "0.1.1";
+  ApplicationVersion = "0.2.0";
+  ApplicationRelease = "0.2.0";
   Authors = ("Daniel Boyd");
   Copyright = "Copyright (C) 2026 Daniel Boyd";
-  CFBundleShortVersionString = "0.1.1";
-  CFBundleVersion = "0.1.1";
+  CFBundleShortVersionString = "0.2.0";
+  CFBundleVersion = "0.2.0";
   NSExecutable = MarkdownViewer;
   NSHumanReadableCopyright = "Copyright (C) 2026 Daniel Boyd";
   NSPrincipalClass = NSApplication;
