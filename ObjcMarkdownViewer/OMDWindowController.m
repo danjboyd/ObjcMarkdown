@@ -4451,6 +4451,42 @@ constrainSplitPosition:(CGFloat)proposedPosition
     return NSIntersectionRect(effectiveRect, [splitView bounds]);
 }
 
+// The explorer keeps its width when the window is resized (or joins a tab
+// group, which gives it the group's frame); the document takes the rest.
+- (void)splitView:(NSSplitView *)splitView resizeSubviewsWithOldSize:(NSSize)oldSize
+{
+    NSArray *subviews = [splitView subviews];
+    if (splitView != _workspaceSplitView || [subviews count] != 2) {
+        [splitView adjustSubviews];
+        return;
+    }
+
+    NSView *sidebar = [subviews objectAtIndex:0];
+    NSView *main = [subviews objectAtIndex:1];
+    NSRect bounds = [splitView bounds];
+    CGFloat height = NSHeight(bounds);
+    if ([sidebar isHidden]) {
+        [main setFrame:NSMakeRect(0.0, 0.0, NSWidth(bounds), height)];
+        return;
+    }
+
+    OMDLayoutMetrics metrics = OMDLayoutMetricsForMode([self effectiveLayoutDensityMode]);
+    CGFloat divider = [splitView dividerThickness];
+    CGFloat available = NSWidth(bounds) - divider;
+    CGFloat sidebarWidth = NSWidth([sidebar frame]);
+    CGFloat minMain = (metrics.scale > 1.05 ? 400.0 : 360.0);
+    if (sidebarWidth > available - minMain) {
+        sidebarWidth = available - minMain;
+    }
+    if (sidebarWidth < 0.0) {
+        sidebarWidth = 0.0;
+    }
+    [sidebar setFrame:NSMakeRect(0.0, 0.0, sidebarWidth, height)];
+    [main setFrame:NSMakeRect(sidebarWidth + divider, 0.0, MAX(available - sidebarWidth, 0.0), height)];
+    [(OMDWin11SplitView *)splitView omdSnapSubviewsToPixels];
+    (void)oldSize;
+}
+
 - (void)splitViewDidResizeSubviews:(NSNotification *)notification
 {
     id object = [notification object];
