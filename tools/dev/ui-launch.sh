@@ -18,7 +18,17 @@ source /usr/GNUstep/System/Library/Makefiles/GNUstep.sh >/dev/null 2>&1
 $(dirname "$0")/ui-stop-app.sh
 LIBS=$REPO/ObjcMarkdown/obj:$REPO/third_party/GPUpdaterCore/obj:$REPO/third_party/GPUpdaterUI/obj:$REPO/third_party/TextViewVimKitBuild/obj
 cd "$REPO"
-DBUS_SESSION_BUS_ADDRESS="$BUS" XDG_RUNTIME_DIR="$WORK/gsession/run" \
+# A private temporary directory (GNUstep reads TEMP), which holds the port
+# names GNUstep apps find each other by. Without it, launching MarkdownViewer
+# on the desktop hands its file to this copy (GNUstep forwards a second
+# launch's files to the running app), and the document opens here unseen.
+# Kept short: the names become Unix socket paths, which a long work
+# directory would overflow.
+APPTMP=$(cat "$WORK/apptmp" 2>/dev/null)
+if [ -z "$APPTMP" ] || [ ! -d "$APPTMP" ]; then
+  APPTMP=$(mktemp -d /tmp/omdui.XXXXXX) && echo "$APPTMP" > "$WORK/apptmp"
+fi
+TEMP="$APPTMP" DBUS_SESSION_BUS_ADDRESS="$BUS" XDG_RUNTIME_DIR="$WORK/gsession/run" \
   GSETTINGS_BACKEND=keyfile XDG_CONFIG_HOME="$WORK/gsession/gs" \
   GNUSTEP_CONFIG_FILE="$WORK/gnustep/GNUstep.conf" \
   LD_LIBRARY_PATH=$LIBS:/usr/GNUstep/System/Library/Libraries:${LD_LIBRARY_PATH:-} \

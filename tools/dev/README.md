@@ -32,6 +32,12 @@ Drive it with `xdotool` (`export DISPLAY=$(cat $OMD_UI_WORK/display)`).
   their dialogs on the private display, never on your desktop.
   `ui-launch.sh` refuses to start without it; restart the session if it
   predates this.
+- The app runs with its own temporary directory (`TEMP`, a short
+  `/tmp/omdui.*` directory named in `$OMD_UI_WORK/apptmp`), which holds the
+  port names GNUstep apps find each other by. GNUstep hands
+  a second launch's files to the copy already running, so without it a
+  MarkdownViewer started on your desktop would open its document in the
+  private copy, out of sight.
 - The scripts stop only the MarkdownViewer they started (its process ID is
   in `$OMD_UI_WORK/app.pid`, checked against the private display). Never
   stop the app with `pkill -x MarkdownViewer` or `kill` by name: that also
