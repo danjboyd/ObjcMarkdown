@@ -13,7 +13,7 @@
 // The main menu's commands come here and go on to the window in front, so
 // Save, Print or Open act on the window you are looking at. Settings is one
 // window for the app: what it changes applies to every window.
-@interface OMDAppDelegate : NSObject <NSApplicationDelegate, NSMenuDelegate>
+@interface OMDAppDelegate : NSObject <NSApplicationDelegate>
 {
     OMDWindowController *_mainWindowController;
     OMDPreferencesController *_preferencesController;
