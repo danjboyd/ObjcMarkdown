@@ -4,6 +4,7 @@
 #import <XCTest/XCTest.h>
 #import <AppKit/AppKit.h>
 #import "OMDDocumentTabsController.h"
+#import "OMDMarkdownDocument.h"
 #import "OMTestPaths.h"
 
 @interface OMDDocumentTabsControllerTests : XCTestCase <OMDDocumentTabsControllerDelegate>
@@ -38,9 +39,11 @@
     _closedIndex = index;
 }
 
-- (NSMutableDictionary *)tabWithPath:(NSString *)path
+- (OMDMarkdownDocument *)tabWithPath:(NSString *)path
 {
-    return [NSMutableDictionary dictionaryWithObject:path forKey:OMDTabSourcePathKey];
+    OMDMarkdownDocument *document = [[[OMDMarkdownDocument alloc] init] autorelease];
+    [document setSourcePath:path];
+    return document;
 }
 
 // The tab buttons in the strip, in order (each tab is a container holding
@@ -71,10 +74,10 @@
     [tabs addTab:[self tabWithPath:@"/tmp/a.md"]];
     [tabs addTab:[self tabWithPath:@"/tmp/b.md"]];
     [tabs setSelectedIndex:1];
-    XCTAssertEqualObjects([[tabs selectedTab] objectForKey:OMDTabSourcePathKey], @"/tmp/b.md");
+    XCTAssertEqualObjects([[tabs selectedTab] sourcePath], @"/tmp/b.md");
 
     [tabs replaceTabAtIndex:1 withTab:[self tabWithPath:@"/tmp/c.md"]];
-    XCTAssertEqualObjects([[tabs selectedTab] objectForKey:OMDTabSourcePathKey], @"/tmp/c.md");
+    XCTAssertEqualObjects([[tabs selectedTab] sourcePath], @"/tmp/c.md");
 
     [tabs removeTabAtIndex:1];
     XCTAssertEqual([tabs count], (NSUInteger)1);
@@ -104,11 +107,11 @@
 - (void)testStripButtonsShowStateAndReportToTheDelegate
 {
     OMDDocumentTabsController *tabs = [[[OMDDocumentTabsController alloc] initWithDelegate:self] autorelease];
-    NSMutableDictionary *dirty = [self tabWithPath:@"/tmp/b.md"];
-    [dirty setObject:[NSNumber numberWithBool:YES] forKey:OMDTabDirtyKey];
-    NSMutableDictionary *readOnly = [self tabWithPath:@"/tmp/c.md"];
-    [readOnly setObject:@"Notes" forKey:OMDTabDisplayTitleKey];
-    [readOnly setObject:[NSNumber numberWithBool:YES] forKey:OMDTabReadOnlyKey];
+    OMDMarkdownDocument *dirty = [self tabWithPath:@"/tmp/b.md"];
+    [dirty markChangedOutsideUndo];
+    OMDMarkdownDocument *readOnly = [self tabWithPath:@"/tmp/c.md"];
+    [readOnly setDisplayTitle:@"Notes"];
+    [readOnly setReadOnly:YES];
     [tabs addTab:[self tabWithPath:@"/tmp/a.md"]];
     [tabs addTab:dirty];
     [tabs addTab:readOnly];

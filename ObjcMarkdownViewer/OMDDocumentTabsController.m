@@ -2,26 +2,11 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #import "OMDDocumentTabsController.h"
+#import "OMDMarkdownDocument.h"
 #import "OMDLayoutMetrics.h"
 #import "OMDTextFileSupport.h"
 
 #include <math.h>
-
-NSString * const OMDTabMarkdownKey = @"markdown";
-NSString * const OMDTabSourcePathKey = @"sourcePath";
-NSString * const OMDTabDisplayTitleKey = @"displayTitle";
-NSString * const OMDTabDirtyKey = @"dirty";
-NSString * const OMDTabReadOnlyKey = @"readOnly";
-NSString * const OMDTabRenderModeKey = @"renderMode";
-NSString * const OMDTabSyntaxLanguageKey = @"syntaxLanguage";
-NSString * const OMDTabLoadedDiskFingerprintKey = @"loadedDiskFingerprint";
-NSString * const OMDTabObservedDiskFingerprintKey = @"observedDiskFingerprint";
-NSString * const OMDTabSuppressedDiskFingerprintKey = @"suppressedDiskFingerprint";
-NSString * const OMDTabImageFingerprintsKey = @"imageFingerprints";
-NSString * const OMDTabSuppressedImageFingerprintsKey = @"suppressedImageFingerprints";
-NSString * const OMDTabImageMarkdownKey = @"imageMarkdown";
-NSString * const OMDTabImageSourcePathKey = @"imageSourcePath";
-NSString * const OMDTabRemoteURLKey = @"remoteURL";
 
 @interface OMDDocumentTabsController ()
 - (void)tabButtonPressed:(id)sender;
@@ -55,17 +40,17 @@ NSString * const OMDTabRemoteURLKey = @"remoteURL";
     return [_tabs count];
 }
 
-- (NSMutableDictionary *)tabAtIndex:(NSInteger)index
+- (OMDMarkdownDocument *)tabAtIndex:(NSInteger)index
 {
     return [_tabs objectAtIndex:index];
 }
 
-- (void)addTab:(NSMutableDictionary *)tab
+- (void)addTab:(OMDMarkdownDocument *)tab
 {
     [_tabs addObject:tab];
 }
 
-- (void)replaceTabAtIndex:(NSInteger)index withTab:(NSMutableDictionary *)tab
+- (void)replaceTabAtIndex:(NSInteger)index withTab:(OMDMarkdownDocument *)tab
 {
     [_tabs replaceObjectAtIndex:index withObject:tab];
 }
@@ -85,7 +70,7 @@ NSString * const OMDTabRemoteURLKey = @"remoteURL";
     _selectedIndex = index;
 }
 
-- (NSMutableDictionary *)selectedTab
+- (OMDMarkdownDocument *)selectedTab
 {
     if (_selectedIndex < 0 || _selectedIndex >= (NSInteger)[_tabs count]) {
         return nil;
@@ -149,16 +134,12 @@ NSString * const OMDTabRemoteURLKey = @"remoteURL";
 
     NSInteger index = 0;
     for (; index < (NSInteger)[_tabs count]; index++) {
-        NSDictionary *tab = [_tabs objectAtIndex:index];
-        NSString *title = [tab objectForKey:OMDTabDisplayTitleKey];
-        if (title == nil || [title length] == 0) {
-            NSString *path = [tab objectForKey:OMDTabSourcePathKey];
-            title = (path != nil ? [path lastPathComponent] : @"Untitled");
-        }
-        if ([[tab objectForKey:OMDTabDirtyKey] boolValue]) {
+        OMDMarkdownDocument *tab = [_tabs objectAtIndex:index];
+        NSString *title = [tab tabTitle];
+        if ([tab isDocumentEdited]) {
             title = [title stringByAppendingString:@" *"];
         }
-        if ([[tab objectForKey:OMDTabReadOnlyKey] boolValue]) {
+        if ([tab readOnly]) {
             title = [title stringByAppendingString:@" [RO]"];
         }
 
@@ -241,7 +222,7 @@ NSString * const OMDTabRemoteURLKey = @"remoteURL";
     }
     NSInteger index = 0;
     for (; index < (NSInteger)[_tabs count]; index++) {
-        if ([rawURL isEqualToString:[[_tabs objectAtIndex:index] objectForKey:OMDTabRemoteURLKey]]) {
+        if ([rawURL isEqualToString:[[_tabs objectAtIndex:index] remoteURL]]) {
             return index;
         }
     }
@@ -258,8 +239,7 @@ NSString * const OMDTabRemoteURLKey = @"remoteURL";
 
     NSInteger index = 0;
     for (; index < (NSInteger)[_tabs count]; index++) {
-        NSDictionary *tab = [_tabs objectAtIndex:index];
-        NSString *tabPath = OMDTrimmedString([tab objectForKey:OMDTabSourcePathKey]);
+        NSString *tabPath = OMDTrimmedString([[_tabs objectAtIndex:index] sourcePath]);
         if ([tabPath length] == 0) {
             continue;
         }
