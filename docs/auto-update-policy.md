@@ -24,6 +24,8 @@ Stable feed URLs:
   `https://danjboyd.github.io/ObjcMarkdown/updates/linux/stable.json`
 - Windows MSI:
   `https://danjboyd.github.io/ObjcMarkdown/updates/windows/stable.json`
+- macOS (Sparkle appcast):
+  `https://danjboyd.github.io/ObjcMarkdown/updates/macos/appcast.xml`
 
 The feeds point at GitHub Release assets for the actual downloads.
 
@@ -130,3 +132,29 @@ This policy does not add:
 - repo-local binary self-replacement logic
 - custom Windows patching outside MSI upgrade behavior
 - channel inference from free-form GitHub release titles
+
+## macOS Policy
+
+macOS updates use Sparkle 2, the standard update framework for Mac apps
+outside the App Store:
+
+- the app embeds `Sparkle.framework` (pinned version and checksum in
+  `macos/Makefile`) and offers **Check for Updates…** in the app menu;
+  Sparkle asks on the second launch whether to check automatically
+- the feed URL (`SUFeedURL`) and the public half of the project's EdDSA key
+  (`SUPublicEDKey`) are in `macos/Info.plist`
+- `macos.yml` signs each tagged release's disk image with the private key
+  (the `SPARKLE_ED_PRIVATE_KEY` Actions secret), writes a one-item appcast
+  pointing at the GitHub Release asset, and publishes it to
+  `updates/macos/appcast.xml`; release candidates (tags with `-`) are not
+  published to the feed
+- `CFBundleVersion` is the workflow's run number, so every release is newer
+  than the one before; `CFBundleShortVersionString` is the version's numbers
+- Sparkle refuses an update whose signature doesn't match the public key.
+  The app is ad-hoc signed (no Developer ID yet); an update from one
+  ad-hoc-signed build to another installs and relaunches (checked
+  end to end against a local feed)
+- the private key also lives in the maintainer's login Keychain (account
+  `io.github.danjboyd.MarkdownViewer`); replacing it means shipping a build
+  with the new public key before releases signed with it can install
+

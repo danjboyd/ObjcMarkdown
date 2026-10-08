@@ -29,6 +29,7 @@ static NSMenuItem *OMDAddSubmenu(NSMenu *menubar, NSMenu *menu)
 static void OMDBuildMacApplicationMenu(NSMenu *appMenu, NSString *appName, id target)
 {
     OMDAddMenuItem(appMenu, [NSString stringWithFormat:@"About %@", appName], @selector(showAboutPanel:), @"", target);
+    OMDAddMenuItem(appMenu, @"Check for Updates...", @selector(checkForUpdates:), @"", target);
     [appMenu addItem:[NSMenuItem separatorItem]];
     // "Preferences" became "Settings" in macOS 13.
     NSString *settingsTitle = @"Preferences...";
