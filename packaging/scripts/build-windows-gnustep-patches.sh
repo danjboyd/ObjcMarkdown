@@ -51,6 +51,8 @@ BASE_SHA256=e7546f1c978a7c75b676953a360194a61e921cb45a4804497b4f346a460545cd
 BASE_MSYS2_PATCH="$ROOT/packaging/windows/patches/libs-base-bace6f54.patch"
 GUI_URL="https://github.com/gnustep/libs-gui/releases/download/gui-0_32_0/gnustep-gui-$GUI_VERSION.tar.gz"
 GUI_SHA256=0c03a1b6313babd592ec58fcb825091f77eb27429a4ce4306ec3a7cfa7f9a1f6
+CURL_PKG_URL="https://mirror.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-curl-8.22.0-1-any.pkg.tar.zst"
+CURL_PKG_SHA256=ce6192a63fbdbd52a6440abcb0d89b81cdaea4a73798b39f569667af27fcb9e4
 
 die() { echo "build-windows-gnustep-patches: $*" >&2; exit 1; }
 
@@ -72,16 +74,6 @@ have_gui=$(version_from "$PREFIX/include/GNUstepGUI/GSVersion.h" GNUSTEP_GUI)
 [[ "$have_gui" == "$GUI_VERSION" ]] || die "toolchain has gnustep-gui $have_gui, these patches are for $GUI_VERSION"
 [[ -f "$PREFIX/bin/$BASE_DLL" && -f "$PREFIX/bin/$GUI_DLL" ]] || die "no $BASE_DLL or $GUI_DLL in $PREFIX/bin"
 
-# gnustep-base's configure needs libcurl (MSYS2's PKGBUILD has it as a
-# make dependency). In CI, add it to the throwaway toolchain if missing.
-if ! pkg-config --exists libcurl 2>/dev/null; then
-  if [[ -n "${CI:-}" ]] && command -v pacman >/dev/null 2>&1; then
-    pacman -S --needed --noconfirm "${MINGW_PACKAGE_PREFIX:-mingw-w64-clang-x86_64}-curl"
-  fi
-  pkg-config --exists libcurl 2>/dev/null \
-    || die "gnustep-base needs libcurl's development files (${MINGW_PACKAGE_PREFIX:-mingw-w64-clang-x86_64}-curl)"
-fi
-
 fetch() { # <url> <sha256> <dest>
   local url="$1" sum="$2" dest="$3"
   if [[ ! -f "$dest" ]] || ! echo "$sum  $dest" | sha256sum -c --status; then
@@ -94,6 +86,25 @@ fetch() { # <url> <sha256> <dest>
 mkdir -p "$WORK/downloads" "$OUT"
 fetch "$BASE_URL" "$BASE_SHA256" "$WORK/downloads/gnustep-base-$BASE_VERSION.tar.gz"
 fetch "$GUI_URL" "$GUI_SHA256" "$WORK/downloads/gnustep-gui-$GUI_VERSION.tar.gz"
+
+# gnustep-base's configure insists on libcurl (MSYS2's PKGBUILD has it as a
+# make dependency) though, configured like the toolchain's (no libdispatch,
+# so no NSURLSession), the library doesn't link it: the import check below
+# makes sure. Without curl's development files in the toolchain, MSYS2's
+# curl package is unpacked into the work directory just for configure.
+if ! pkg-config --exists libcurl 2>/dev/null; then
+  fetch "$CURL_PKG_URL" "$CURL_PKG_SHA256" "$WORK/downloads/curl.pkg.tar.zst"
+  rm -rf "$WORK/curl-dev"
+  mkdir -p "$WORK/curl-dev"
+  tar --zstd -xf "$WORK/downloads/curl.pkg.tar.zst" -C "$WORK/curl-dev" \
+    clang64/include/curl clang64/lib/libcurl.dll.a clang64/lib/pkgconfig/libcurl.pc
+  sed -i "s|^prefix=.*|prefix=$WORK/curl-dev/clang64|" "$WORK/curl-dev/clang64/lib/pkgconfig/libcurl.pc"
+  export PKG_CONFIG_PATH="$WORK/curl-dev/clang64/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+  # MSYS2's pkgconf can leave the -I and -L out; give them to configure.
+  export CPPFLAGS="-I$WORK/curl-dev/clang64/include${CPPFLAGS:+ $CPPFLAGS}"
+  export LDFLAGS="-L$WORK/curl-dev/clang64/lib${LDFLAGS:+ $LDFLAGS}"
+  pkg-config --exists libcurl || die "libcurl's development files still not found"
+fi
 
 export CC="$PREFIX/bin/clang" CXX="$PREFIX/bin/clang++"
 JOBS="$(nproc 2>/dev/null || echo 2)"
