@@ -176,6 +176,20 @@ export PKG_CONFIG_PATH="$pc_path" PKG_CONFIG_LIBDIR="$pc_path"
 echo "pkg-config: $PKG_CONFIG; libcurl $("$PKG_CONFIG" --modversion libcurl)"
 
 export CC="$PREFIX/bin/clang" CXX="$PREFIX/bin/clang++"
+# MSYS2 CLANG64's libdispatch header redefines mode_t (docs/upstream/
+# windows-msys2-clang64-mode-t-header-bug.md); the rest of the packaging
+# passes the same workaround to its theme and tool builds.
+# As environment variables, which the makefiles' own ADDITIONAL_* add to;
+# on make's command line they would replace them (and the DLL's export
+# defines with them).
+export ADDITIONAL_CPPFLAGS="-DHAVE_MODE_T=1${ADDITIONAL_CPPFLAGS:+ $ADDITIONAL_CPPFLAGS}"
+export ADDITIONAL_OBJCFLAGS="-DHAVE_MODE_T=1${ADDITIONAL_OBJCFLAGS:+ $ADDITIONAL_OBJCFLAGS}"
+# The toolchain's patch, if it has one (on a CI runner PATH can give
+# Strawberry Perl's).
+PATCH=patch
+if [[ -x /usr/bin/patch ]]; then
+  PATCH=/usr/bin/patch
+fi
 JOBS="$(nproc 2>/dev/null || echo 2)"
 
 # gnustep-base
@@ -183,9 +197,9 @@ rm -rf "$WORK/gnustep-base-$BASE_VERSION"
 tar -xzf "$WORK/downloads/gnustep-base-$BASE_VERSION.tar.gz" -C "$WORK"
 (
   cd "$WORK/gnustep-base-$BASE_VERSION"
-  patch -p1 -i "$BASE_MSYS2_PATCH"
+  "$PATCH" -p1 -i "$BASE_MSYS2_PATCH"
   for p in "$ROOT"/packaging/patches/libs-base/*.patch; do
-    patch -p1 -i "$p"
+    "$PATCH" -p1 -i "$p"
   done
   # Configured as the toolchain's gnustep-base was: an older MSYS2 build
   # may have been made without libdispatch (and so without NSURLSession).
@@ -212,7 +226,7 @@ tar -xzf "$WORK/downloads/gnustep-gui-$GUI_VERSION.tar.gz" -C "$WORK"
 (
   cd "$WORK/gnustep-gui-$GUI_VERSION"
   for p in "$ROOT"/packaging/patches/libs-gui/*.patch; do
-    patch -p1 -i "$p"
+    "$PATCH" -p1 -i "$p"
   done
   LDFLAGS="-lc++" ./configure --prefix="$PREFIX" > "$WORK/gui-configure.log" 2>&1 \
     || { tail -40 "$WORK/gui-configure.log"; exit 1; }
