@@ -74,6 +74,16 @@ static double OMDKeyLatencyMS(NSTimeInterval start, NSTimeInterval end)
                      object:clipView];
 
         [self updateRuleThickness];
+#if !defined(GNUSTEP)
+        // From macOS 14 views don't clip to their bounds, and the ruler's
+        // separator was drawn up through the formatting bar above the
+        // editor: keep the ruler's drawing inside the ruler and the scroll
+        // view.
+        if (@available(macOS 14.0, *)) {
+            [self setClipsToBounds:YES];
+            [scrollView setClipsToBounds:YES];
+        }
+#endif
     }
     return self;
 }
@@ -186,8 +196,12 @@ static double OMDKeyLatencyMS(NSTimeInterval start, NSTimeInterval end)
     }
 
     // From macOS 14 views don't clip to their bounds, and rect can reach
-    // over the text beside the ruler.
-    rect = NSIntersectionRect(rect, [self bounds]);
+    // over the text beside the ruler or the formatting bar above the
+    // editor: draw only where the ruler shows.
+    rect = NSIntersectionRect(rect, [self visibleRect]);
+    if (NSIsEmptyRect(rect)) {
+        return;
+    }
 
     NSColor *backgroundColor = [NSColor controlBackgroundColor];
     if (backgroundColor == nil) {
