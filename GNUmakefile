@@ -22,11 +22,13 @@ include $(GNUSTEP_MAKEFILES)/aggregate.make
 
 # On Windows, each successful build is copied for the Start-menu launcher
 # (MarkdownViewer-dev.ps1), which runs the copy, so a running app doesn't
-# lock the DLLs the next build relinks.
+# lock the DLLs the next build relinks. Not in CI (GitHub sets CI).
 ifneq (,$(findstring mingw,$(GNUSTEP_HOST_OS)))
+ifeq ($(CI),)
 after-all::
 	@bash "$(CURDIR)/scripts/windows/snapshot-dev-build.sh" \
 	  "$(CURDIR)/ObjcMarkdownViewer/MarkdownViewer.app" "$(OMD_RUNTIME_LIB_DIRS)"
+endif
 endif
 
 .PHONY: run

@@ -79,7 +79,7 @@ function Get-MsysCommand {
     "test" {
       return @"
 mkdir -p ~/GNUstep/Defaults/.lck
-export PATH="$RepoRootMsys/ObjcMarkdown/obj:$RepoRootMsys/third_party/TextViewVimKitBuild/obj:`$PATH"
+export PATH="`$PWD/ObjcMarkdown/obj:`$PWD/third_party/TextViewVimKitBuild/obj:`$PATH"
 xctest ObjcMarkdownTests/ObjcMarkdownTests.bundle
 "@.Trim()
     }
@@ -122,7 +122,7 @@ $script:MsysDrivePrefix = Resolve-MsysDrivePrefix -EnvExe $envExe
 $resolvedRepoRoot = (Resolve-Path $RepoRoot).Path
 $RepoRootMsys = Convert-ToMsysPath -WindowsPath $resolvedRepoRoot
 $msysCommand = Get-MsysCommand -SelectedTask $Task -CustomCommand $Command -SelectedRunTarget $RunTarget -SelectedStageDir $StageDir
-$bootstrap = "if [ -f /etc/profile ]; then source /etc/profile; fi; source /clang64/share/GNUstep/Makefiles/GNUstep.sh; cd '$RepoRootMsys'; $msysCommand"
+$bootstrap = "if [ -f /etc/profile ]; then source /etc/profile; fi; source /clang64/share/GNUstep/Makefiles/GNUstep.sh; cd `"`$(cygpath -u '$resolvedRepoRoot')`" && { $msysCommand; }"
 
 Write-Host "Task: $Task"
 Write-Host "Repo: $resolvedRepoRoot"
