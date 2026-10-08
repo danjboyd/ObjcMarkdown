@@ -34,6 +34,10 @@
 	<true/>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<key>SUFeedURL</key>
+	<string>https://danjboyd.github.io/ObjcMarkdown/updates/macos/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>zhJy7ojERZsU55cvzuifdKiIIR2u3KeSp5M8GRFJrhM=</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>Copyright (C) 2026 Daniel Boyd</string>
 	<key>CFBundleDocumentTypes</key>

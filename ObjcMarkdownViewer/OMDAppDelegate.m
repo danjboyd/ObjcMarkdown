@@ -7,6 +7,7 @@
 #import <objc/runtime.h>
 #if !defined(GNUSTEP)
 #import "OMDDocumentWindows.h"
+#import <Sparkle/Sparkle.h>
 #endif
 
 #if defined(GNUSTEP)
@@ -45,6 +46,10 @@ static BOOL OMDIsPreferencesSetterSelector(SEL selector)
         if (documentController == nil) {
             documentController = [[OMDDocumentController alloc] init];
         }
+        // Updates (Sparkle): the feed and key are in Info.plist.
+        _updaterController = [[SPUStandardUpdaterController alloc] initWithStartingUpdater:YES
+                                                                          updaterDelegate:nil
+                                                                       userDriverDelegate:nil];
 #endif
         _mainWindowController = [[OMDWindowController alloc] init];
     }
@@ -238,7 +243,11 @@ static BOOL OMDIsPreferencesSetterSelector(SEL selector)
 {
     SEL action = [item action];
     if (action == @selector(checkForUpdates:)) {
+#if !defined(GNUSTEP)
+        return [[(SPUStandardUpdaterController *)_updaterController updater] canCheckForUpdates];
+#else
         return _updaterController != nil;
+#endif
     }
     OMDWindowController *controller = [self activeWindowController];
     if ([self routesWindowAction:action] && [controller respondsToSelector:action]) {
@@ -249,14 +258,14 @@ static BOOL OMDIsPreferencesSetterSelector(SEL selector)
 
 - (void)checkForUpdates:(id)sender
 {
-#if defined(GNUSTEP)
     if (_updaterController != nil) {
+#if defined(GNUSTEP)
         [(GPStandardUpdaterController *)_updaterController checkForUpdates:sender];
+#else
+        [(SPUStandardUpdaterController *)_updaterController checkForUpdates:sender];
+#endif
         return;
     }
-#else
-    (void)sender;
-#endif
     NSBeep();
 }
 

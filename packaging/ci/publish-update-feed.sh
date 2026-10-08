@@ -3,10 +3,11 @@ set -euo pipefail
 
 usage() {
   cat >&2 <<'USAGE'
-Usage: publish-update-feed.sh <linux|windows> <artifact-directory>
+Usage: publish-update-feed.sh <linux|windows|macos> <artifact-directory>
 
 Publishes the single generated *.update-feed.json in <artifact-directory> to
-the gh-pages branch at updates/<platform>/stable.json.
+the gh-pages branch at updates/<platform>/stable.json; for macos, the single
+*.appcast.xml (Sparkle's feed) to updates/macos/appcast.xml.
 USAGE
 }
 
@@ -17,8 +18,14 @@ fi
 
 platform="$1"
 artifact_dir="$2"
+feed_pattern='*.update-feed.json'
+feed_name='stable.json'
 case "$platform" in
   linux|windows) ;;
+  macos)
+    feed_pattern='*.appcast.xml'
+    feed_name='appcast.xml'
+    ;;
   *)
     usage
     exit 2
@@ -40,16 +47,16 @@ if [[ ! -d "$artifact_dir" ]]; then
   exit 1
 fi
 
-mapfile -t feeds < <(find "$artifact_dir" -maxdepth 1 -type f -name '*.update-feed.json' | sort)
+mapfile -t feeds < <(find "$artifact_dir" -maxdepth 1 -type f -name "$feed_pattern" | sort)
 if [[ "${#feeds[@]}" -ne 1 ]]; then
-  echo "Expected exactly one *.update-feed.json in $artifact_dir, found ${#feeds[@]}." >&2
+  echo "Expected exactly one $feed_pattern in $artifact_dir, found ${#feeds[@]}." >&2
   printf '  %s\n' "${feeds[@]}" >&2
   exit 1
 fi
 
 feed_path="$(realpath "${feeds[0]}")"
 target_branch="${UPDATE_FEED_BRANCH:-gh-pages}"
-target_path="updates/$platform/stable.json"
+target_path="updates/$platform/$feed_name"
 work_dir="$(mktemp -d)"
 cleanup() {
   rm -rf "$work_dir"

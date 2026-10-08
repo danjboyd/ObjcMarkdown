@@ -41,6 +41,13 @@ else
 Q := @
 endif
 
+# Sparkle (updates), a release download checked against its checksum and
+# kept in .cache.
+SPARKLE_VERSION := 2.9.6
+SPARKLE_SHA256 := 52bf9e88cdd972fc0c81501377a880e90d47031bd8ca5462488f843e2609e192
+SPARKLE_DIR := $(abspath .cache)/sparkle-$(SPARKLE_VERSION)
+SPARKLE_FRAMEWORK := $(SPARKLE_DIR)/Sparkle.framework
+
 CMARK_DIR := $(ROOT)/third_party/cmark-gfm
 CMARK_CPPFLAGS := -I$(CMARK_DIR)/compat -I$(CMARK_DIR)/src -I$(CMARK_DIR)/extensions -DCMARK_GFM_STATIC_DEFINE
 VIM_DIR := $(ROOT)/third_party/TextViewVimKit/src
@@ -64,7 +71,7 @@ QL_OBJS := $(call obj,ql,$(QL_OBJC))
 
 LIB_FLAGS := $(COMMON_FLAGS) -I$(ROOT)/ObjcMarkdown $(CMARK_CPPFLAGS) -I$(ROOT)/third_party/tomlc99 -DOBJCMARKDOWN_ENABLE_TOML_THEME=1
 VIM_FLAGS := $(COMMON_FLAGS) -fobjc-arc -I$(VIM_DIR)
-APP_FLAGS := $(COMMON_FLAGS) $(WERROR) -DOMD_APP_VERSION=\"$(OMD_VERSION)\" -I$(ROOT)/ObjcMarkdown -I$(ROOT)/ObjcMarkdownViewer $(CMARK_CPPFLAGS) -I$(VIM_DIR)
+APP_FLAGS := $(COMMON_FLAGS) $(WERROR) -DOMD_APP_VERSION=\"$(OMD_VERSION)\" -F$(SPARKLE_DIR) -I$(ROOT)/ObjcMarkdown -I$(ROOT)/ObjcMarkdownViewer $(CMARK_CPPFLAGS) -I$(VIM_DIR)
 QL_FLAGS := $(APP_FLAGS) -fapplication-extension
 TEST_FLAGS := $(APP_FLAGS) -F$(PLATFORM_DIR)/Developer/Library/Frameworks -DOM_SPEC_DIR=\"$(ROOT)/ObjcMarkdownTests/Spec\"
 
@@ -78,9 +85,24 @@ DMG := $(BUILD)/MarkdownViewer-$(OMD_VERSION)-macos.dmg
 APP_RESOURCES := $(ROOT)/Resources/theme-github.toml $(ROOT)/Resources/theme-github-dark.toml \
 	$(ROOT)/Resources/markdown_icon.png $(wildcard $(ROOT)/Resources/icons/*-symbolic.png)
 
-.PHONY: all app dmg test run clean
+.PHONY: all app dmg test run clean print-sparkle-dir
 all: app
 app: $(APP)
+
+$(SPARKLE_FRAMEWORK):
+	@mkdir -p $(SPARKLE_DIR)
+	@echo "  GET Sparkle $(SPARKLE_VERSION)"
+	$(Q)curl -fsSL -o $(SPARKLE_DIR).tar.xz \
+		https://github.com/sparkle-project/Sparkle/releases/download/$(SPARKLE_VERSION)/Sparkle-$(SPARKLE_VERSION).tar.xz
+	$(Q)echo "$(SPARKLE_SHA256)  $(SPARKLE_DIR).tar.xz" | shasum -a 256 -c - >/dev/null
+	$(Q)tar -xf $(SPARKLE_DIR).tar.xz -C $(SPARKLE_DIR)
+	@rm -f $(SPARKLE_DIR).tar.xz
+
+# Where Sparkle's tools are (bin/sign_update), for the release workflow.
+print-sparkle-dir: $(SPARKLE_FRAMEWORK)
+	@echo $(SPARKLE_DIR)
+
+$(APP_OBJS): | $(SPARKLE_FRAMEWORK)
 
 $(OBJDIR)/lib/%.c.o: $(ROOT)/%.c
 	@mkdir -p $(dir $@)
@@ -134,13 +156,16 @@ $(APP): $(APP_OBJS) $(LIB) $(VIM_LIB) Info.plist $(APP_RESOURCES) $(BUILD)/Markd
 	@rm -rf $@
 	@mkdir -p $@/Contents/MacOS $@/Contents/Resources
 	@echo "  LD $(notdir $@)"
-	$(Q)$(CC) $(ARCH_FLAGS) -o $@/Contents/MacOS/MarkdownViewer $(APP_OBJS) $(LIB) $(VIM_LIB) $(FRAMEWORKS)
+	$(Q)$(CC) $(ARCH_FLAGS) -o $@/Contents/MacOS/MarkdownViewer $(APP_OBJS) $(LIB) $(VIM_LIB) $(FRAMEWORKS) \
+		-F$(SPARKLE_DIR) -framework Sparkle -Wl,-rpath,@executable_path/../Frameworks
 	$(Q)sed -e 's/@VERSION@/$(SHORT_VERSION)/g' -e 's/@BUILD_NUMBER@/$(BUILD_NUMBER)/g' Info.plist > $@/Contents/Info.plist
 	$(Q)plutil -lint -s $@/Contents/Info.plist
 	$(Q)printf 'APPL????' > $@/Contents/PkgInfo
 	$(Q)cp $(APP_RESOURCES) $(BUILD)/MarkdownViewer.icns $@/Contents/Resources/
-	@mkdir -p $@/Contents/PlugIns
+	@mkdir -p $@/Contents/PlugIns $@/Contents/Frameworks
 	$(Q)cp -R $(APPEX) $@/Contents/PlugIns/
+	$(Q)ditto $(SPARKLE_FRAMEWORK) $@/Contents/Frameworks/Sparkle.framework
+	$(Q)codesign --force --deep --sign - $@/Contents/Frameworks/Sparkle.framework
 	$(Q)codesign --force --sign - $@
 
 # The app icon from Resources/markdown_icon.png.

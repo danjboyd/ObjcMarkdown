@@ -76,10 +76,47 @@ jobs:
           make -C macos OMD_VERSION='${{ steps.version.outputs.version }}' \
             BUILD_NUMBER='${{ github.run_number }}' dmg
 
+      # Sparkle's feed for this release: the disk image, signed with the
+      # project's EdDSA key (the app holds the public half, SUPublicEDKey).
+      - name: Update feed
+        if: github.ref_type == 'tag'
+        shell: bash
+        env:
+          SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          version='${{ steps.version.outputs.version }}'
+          dmg="macos/build/MarkdownViewer-${version}-macos.dmg"
+          sparkle_dir="$(make -s -C macos print-sparkle-dir)"
+          enclosure="$(echo "$SPARKLE_ED_PRIVATE_KEY" | "$sparkle_dir/bin/sign_update" --ed-key-file - "$dmg")"
+          url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/$(basename "$dmg")"
+          short="$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' macos/build/MarkdownViewer.app/Contents/Info.plist)"
+          cat > macos/build/MarkdownViewer.appcast.xml <<EOF
+          <?xml version="1.0" encoding="utf-8"?>
+          <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+            <channel>
+              <title>MarkdownViewer</title>
+              <link>https://github.com/${GITHUB_REPOSITORY}</link>
+              <item>
+                <title>${version}</title>
+                <link>https://github.com/${GITHUB_REPOSITORY}/releases/tag/${GITHUB_REF_NAME}</link>
+                <sparkle:version>${{ github.run_number }}</sparkle:version>
+                <sparkle:shortVersionString>${short}</sparkle:shortVersionString>
+                <sparkle:minimumSystemVersion>11.0</sparkle:minimumSystemVersion>
+                <pubDate>$(LC_ALL=C date -u '+%a, %d %b %Y %H:%M:%S +0000')</pubDate>
+                <enclosure url="${url}" ${enclosure} type="application/octet-stream"/>
+              </item>
+            </channel>
+          </rss>
+          EOF
+          cat macos/build/MarkdownViewer.appcast.xml
+
       - uses: actions/upload-artifact@v4
         with:
           name: objcmarkdown-macos
-          path: macos/build/*.dmg
+          path: |
+            macos/build/*.dmg
+            macos/build/*.appcast.xml
           if-no-files-found: error
 
   publish-release-assets:
@@ -92,6 +129,9 @@ jobs:
       group: objcmarkdown-update-feeds
       cancel-in-progress: false
     steps:
+      # The feed publisher script.
+      - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
         with:
           name: objcmarkdown-macos
@@ -110,3 +150,13 @@ jobs:
           files: dist/macos/*.dmg
           body_path: release-macos-notes.md
           append_body: true
+
+      # Sparkle's feed at updates/macos/appcast.xml on GitHub Pages, for
+      # releases only: a release candidate (a tag with "-") isn't offered
+      # to the app as an update.
+      - name: Publish macOS update feed
+        if: ${{ !contains(github.ref_name, '-') }}
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: packaging/ci/publish-update-feed.sh macos dist/macos
