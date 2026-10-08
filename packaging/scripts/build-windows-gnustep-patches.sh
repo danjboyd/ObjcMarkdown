@@ -180,9 +180,11 @@ tar -xzf "$WORK/downloads/gnustep-base-$BASE_VERSION.tar.gz" -C "$WORK"
   fi
   OBJCFLAGS="-Wno-incompatible-pointer-types" ./configure --prefix="$PREFIX" "${base_options[@]}" \
     > "$WORK/base-configure.log" 2>&1 || { tail -40 "$WORK/base-configure.log"; exit 1; }
-  # The same features as the DLL it replaces, or stop.
-  if ! diff <(grep -E '^#define' "$PREFIX/include/GNUstepBase/GSConfig.h") \
-            <(grep -E '^#define' Headers/GNUstepBase/GSConfig.h); then
+  # The same features as the DLL it replaces, or stop. (Files, not <(...):
+  # the packaging toolchain's bash has no /dev/fd.)
+  grep -E '^#define' "$PREFIX/include/GNUstepBase/GSConfig.h" > "$WORK/gsconfig-toolchain.txt"
+  grep -E '^#define' Headers/GNUstepBase/GSConfig.h > "$WORK/gsconfig-patched.txt"
+  if ! diff "$WORK/gsconfig-toolchain.txt" "$WORK/gsconfig-patched.txt"; then
     die "gnustep-base configured differently from the toolchain's (GSConfig.h above)"
   fi
   make -j"$JOBS" messages=no > "$WORK/base-make.log" 2>&1 || { grep -iE "error" "$WORK/base-make.log" | head -40; exit 1; }
@@ -211,7 +213,9 @@ tar -xzf "$WORK/downloads/gnustep-gui-$GUI_VERSION.tar.gz" -C "$WORK"
 # Each DLL must need what the one it replaces needs, no more, no less.
 imports() { "$PREFIX/bin/llvm-objdump" -p "$1" | awk '/DLL Name:/ {print $3}' | sort; }
 for dll in "$BASE_DLL" "$GUI_DLL"; do
-  if ! diff <(imports "$PREFIX/bin/$dll") <(imports "$OUT/$dll"); then
+  imports "$PREFIX/bin/$dll" > "$WORK/imports-toolchain.txt"
+  imports "$OUT/$dll" > "$WORK/imports-patched.txt"
+  if ! diff "$WORK/imports-toolchain.txt" "$WORK/imports-patched.txt"; then
     die "the patched $dll imports different DLLs from the toolchain's (above)"
   fi
 done
