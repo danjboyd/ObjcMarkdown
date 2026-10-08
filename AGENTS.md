@@ -34,6 +34,7 @@ Workflow:
 - Before asking the user to run the app, the agent should build and get tests green.
 - To check the app by eye without touching the desktop, use the private GNOME display scripts in `tools/dev/` (see `tools/dev/README.md`). The latest session handoff is `docs/internal/handoff-2026-10-05.md`.
 - Track bugs and work as GitHub issues in `danjboyd/ObjcMarkdown`. `OpenIssues.md` and `ClosedIssues.md` are the archive of the earlier file-based tracker; don't add to them.
+- Anything sent to a project we don't own (GNUstep above all: patches, issues, comments) follows `docs/UPSTREAM_POLICY.md`: prepared with tests or a reproducer and the GCC check, reviewed and signed off by Dan in `docs/UPSTREAM_SIGNOFF.md` for that exact hash, sent only when he asks. GNUstep fixes the Linux packages carry meanwhile are in `packaging/patches/`.
 - Use git commit author `Daniel Boyd <danieljboyd@icloud.com>` for all commits in this repo.
 - Use the GitHub account `danjboyd` for commits, pushes, PRs, releases, and other GitHub-authenticated operations for this repo.
 - If `gh auth status` shows a different active account, switch with `gh auth switch -u danjboyd` before doing GitHub-authenticated work.
