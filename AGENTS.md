@@ -39,6 +39,8 @@ Workflow:
 - Use the GitHub account `danjboyd` for commits, pushes, PRs, releases, and other GitHub-authenticated operations for this repo.
 - If `gh auth status` shows a different active account, switch with `gh auth switch -u danjboyd` before doing GitHub-authenticated work.
 - Going forward, use `OracleTestVMs` configured for libvirt-backed leases as the default VM path for Debian and Windows UAT/validation unless the user explicitly asks for a different backend.
+- Release checks (UAT, theme audits, by-eye passes for a release) run on the installed package from CI: the MSI, the AppImage or Flatpak, the dmg. Not a dev build or a locally installed theme. Record the theme commit the package bundles (Linux and Windows) in the check's report; the 0.2.0 MSI shipped a WinUITheme months older than the one its audits ran against.
+- Release candidates are tags with a `-` (`v0.2.1-rc1`): marked pre-release and kept out of the stable update feeds. Only Dan approves a tag.
 - Windows MSI release requirements:
   - bundle `WinUITheme` with the installed runtime payload
   - set `WinUITheme` as the default packaged Windows theme unless the user explicitly changes it

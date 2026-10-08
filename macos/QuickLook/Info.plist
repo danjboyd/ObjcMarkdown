@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-	<string>MarkdownViewer Preview</string>
+	<string>Markdown Viewer Preview</string>
 	<key>CFBundleExecutable</key>
 	<string>MarkdownPreview</string>
 	<key>CFBundleIdentifier</key>
