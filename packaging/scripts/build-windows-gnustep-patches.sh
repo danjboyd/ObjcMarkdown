@@ -179,9 +179,9 @@ export CC="$PREFIX/bin/clang" CXX="$PREFIX/bin/clang++"
 # MSYS2 CLANG64's libdispatch header redefines mode_t (docs/upstream/
 # windows-msys2-clang64-mode-t-header-bug.md); the rest of the packaging
 # passes the same workaround to its theme and tool builds.
-# Given to gnustep-base's configure in OBJCFLAGS, which it writes into the
-# build's config.mak for every compile. (gnustep-gui doesn't include
-# libdispatch's headers.) (On make's command line ADDITIONAL_*FLAGS
+# Given to configure, which records it for every compile: gnustep-base's
+# OBJCFLAGS go into its config.mak, gnustep-gui's CPPFLAGS into its
+# config.make (CONFIG_SYSTEM_INCL). (On make's command line ADDITIONAL_*FLAGS
 # replace the makefiles' own, the DLL's export defines with them; in the
 # environment they don't reach the compiler.)
 MODE_T_FLAG=-DHAVE_MODE_T=1
@@ -229,7 +229,7 @@ tar -xzf "$WORK/downloads/gnustep-gui-$GUI_VERSION.tar.gz" -C "$WORK"
   for p in "$ROOT"/packaging/patches/libs-gui/*.patch; do
     "$PATCH" -p1 -i "$p"
   done
-  LDFLAGS="-lc++" ./configure --prefix="$PREFIX" > "$WORK/gui-configure.log" 2>&1 \
+  CPPFLAGS="$MODE_T_FLAG${CPPFLAGS:+ $CPPFLAGS}" LDFLAGS="-lc++" ./configure --prefix="$PREFIX" > "$WORK/gui-configure.log" 2>&1 \
     || { tail -40 "$WORK/gui-configure.log"; exit 1; }
   make -j"$JOBS" messages=no > "$WORK/gui-make.log" 2>&1 || { grep -iE "error" "$WORK/gui-make.log" | head -40; exit 1; }
   dll="$(find . -name "$GUI_DLL" -path '*obj*' | head -1)"
