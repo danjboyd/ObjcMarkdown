@@ -109,11 +109,18 @@ jobs:
       - name: Publish Linux Release Assets
         uses: softprops/action-gh-release@v2
         with:
+          # A release candidate is a pre-release, so GitHub's latest release
+          # (which the AppImage's zsync update information follows) stays
+          # the last real one.
+          prerelease: ${{ contains(github.ref_name, '-') }}
           files: release-assets/*
           body_path: release-theme-notes.md
           append_body: true
 
+      # Releases only: a release candidate (a tag with "-") isn't offered
+      # to installed copies as an update.
       - name: Publish Linux Stable Update Feed
+        if: ${{ !contains(github.ref_name, '-') }}
         shell: bash
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
