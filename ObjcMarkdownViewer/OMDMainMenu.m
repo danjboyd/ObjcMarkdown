@@ -154,7 +154,10 @@ static void OMDUseEllipsisCharacters(NSMenu *menu)
 #if !defined(GNUSTEP)
     OMDBuildMacApplicationMenu(appMenu, appName, target);
 #else
-    NSString *aboutTitle = [NSString stringWithFormat:@"About %@", appName];
+    // Items name the app as people see it; the app menu itself keeps the
+    // program's name, which GNUstep's menu bar folds into its own title.
+    NSString *displayName = OMDApplicationDisplayName();
+    NSString *aboutTitle = [NSString stringWithFormat:@"About %@", displayName];
     NSMenuItem *aboutItem = [[[NSMenuItem alloc] initWithTitle:aboutTitle
                                                          action:@selector(showAboutPanel:)
                                                   keyEquivalent:@""] autorelease];
@@ -172,7 +175,7 @@ static void OMDUseEllipsisCharacters(NSMenu *menu)
     [preferencesItem setTarget:target];
     [appMenu addItem:[NSMenuItem separatorItem]];
 
-    NSString *quitTitle = [NSString stringWithFormat:@"Quit %@", appName];
+    NSString *quitTitle = [NSString stringWithFormat:@"Quit %@", displayName];
     NSMenuItem *quitItem = (NSMenuItem *)[appMenu addItemWithTitle:quitTitle
                                                              action:@selector(terminate:)
                                                       keyEquivalent:@"q"];

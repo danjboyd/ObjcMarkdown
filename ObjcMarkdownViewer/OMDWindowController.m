@@ -7425,7 +7425,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
     }
     [options setObject:@"A Markdown reader and editor for GNUstep." forKey:@"ApplicationDescription"];
     [options setObject:@"https://github.com/danjboyd/ObjcMarkdown" forKey:@"URL"];
-    [options setObject:@"MarkdownViewer is GPL-2.0-or-later; the ObjcMarkdown library is LGPL-2.1-or-later."
+    [options setObject:[NSString stringWithFormat:@"%@ is GPL-2.0-or-later; the ObjcMarkdown library is LGPL-2.1-or-later.", appName]
                 forKey:@"CopyrightDescription"];
 
 #if !defined(GNUSTEP)
