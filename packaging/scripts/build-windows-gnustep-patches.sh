@@ -53,6 +53,8 @@ GUI_URL="https://github.com/gnustep/libs-gui/releases/download/gui-0_32_0/gnuste
 GUI_SHA256=0c03a1b6313babd592ec58fcb825091f77eb27429a4ce4306ec3a7cfa7f9a1f6
 CURL_PKG_URL="https://mirror.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-curl-8.22.0-1-any.pkg.tar.zst"
 CURL_PKG_SHA256=ce6192a63fbdbd52a6440abcb0d89b81cdaea4a73798b39f569667af27fcb9e4
+PKGCONF_PKG_URL="https://mirror.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-pkgconf-1~2.5.1-1-any.pkg.tar.zst"
+PKGCONF_PKG_SHA256=6b25519602ce5e799805b3a3c1ade81184b5a7ee2e4b815cd47ce6a2da7b3aeb
 
 die() { echo "build-windows-gnustep-patches: $*" >&2; exit 1; }
 
@@ -99,24 +101,60 @@ mkdir -p "$WORK/downloads" "$OUT"
 fetch "$BASE_URL" "$BASE_SHA256" "$WORK/downloads/gnustep-base-$BASE_VERSION.tar.gz"
 fetch "$GUI_URL" "$GUI_SHA256" "$WORK/downloads/gnustep-gui-$GUI_VERSION.tar.gz"
 
+# Tools configure needs that a packaging toolchain may lack. They are
+# taken from MSYS2's CLANG64 packages (pinned, checksummed) and unpacked
+# into the work directory, never into the toolchain.
+# OMD_GNUSTEP_PATCHES_SELF_CONTAINED=1 ignores the toolchain's own copies,
+# to try what CI does on a box that has them.
+SELF_CONTAINED="${OMD_GNUSTEP_PATCHES_SELF_CONTAINED:-}"
+unpack() { # <package file> <dest> <paths...>
+  local pkg="$1" dest="$2"; shift 2
+  rm -rf "$dest"
+  mkdir -p "$dest"
+  tar --zstd -xf "$pkg" -C "$dest" "$@"
+}
+# A native Windows program takes Windows paths ("C:/..."); MSYS doesn't
+# convert the -I and -L in configure's flags, or pkgconf's search path.
+winpath() { cygpath -m "$1"; }
+
+# pkgconf: configure looks pkg-config up on PATH, which on a CI runner can
+# find something else (Strawberry Perl's, broken there).
+if [[ -z "$SELF_CONTAINED" && -x "$PREFIX/bin/pkgconf.exe" ]]; then
+  export PKG_CONFIG="$PREFIX/bin/pkgconf.exe"
+else
+  fetch "$PKGCONF_PKG_URL" "$PKGCONF_PKG_SHA256" "$WORK/downloads/pkgconf.pkg.tar.zst"
+  unpack "$WORK/downloads/pkgconf.pkg.tar.zst" "$WORK/pkgconf" \
+    clang64/bin/pkgconf.exe clang64/bin/libpkgconf-7.dll
+  export PKG_CONFIG="$WORK/pkgconf/clang64/bin/pkgconf.exe"
+fi
+pc_path="$(winpath "$PREFIX/lib/pkgconfig");$(winpath "$PREFIX/share/pkgconfig")"
+# Some of configure's checks (libffi's) run "pkg-config" by name rather
+# than $PKG_CONFIG, so that name comes first on PATH too.
+mkdir -p "$WORK/bin-overrides"
+printf '#!/bin/sh\nexec "%s" "$@"\n' "$PKG_CONFIG" > "$WORK/bin-overrides/pkg-config"
+chmod +x "$WORK/bin-overrides/pkg-config"
+export PATH="$WORK/bin-overrides:$PATH"
+
 # gnustep-base's configure insists on libcurl (MSYS2's PKGBUILD has it as a
 # make dependency) though, configured like the toolchain's (no libdispatch,
 # so no NSURLSession), the library doesn't link it: the import check below
 # makes sure. Without curl's development files in the toolchain, MSYS2's
 # curl package is unpacked into the work directory just for configure.
-if ! pkg-config --exists libcurl 2>/dev/null; then
+if [[ -n "$SELF_CONTAINED" ]] \
+   || ! PKG_CONFIG_PATH="$pc_path" "$PKG_CONFIG" --exists libcurl 2>/dev/null; then
   fetch "$CURL_PKG_URL" "$CURL_PKG_SHA256" "$WORK/downloads/curl.pkg.tar.zst"
-  rm -rf "$WORK/curl-dev"
-  mkdir -p "$WORK/curl-dev"
-  tar --zstd -xf "$WORK/downloads/curl.pkg.tar.zst" -C "$WORK/curl-dev" \
+  unpack "$WORK/downloads/curl.pkg.tar.zst" "$WORK/curl-dev" \
     clang64/include/curl clang64/lib/libcurl.dll.a clang64/lib/pkgconfig/libcurl.pc
-  sed -i "s|^prefix=.*|prefix=$WORK/curl-dev/clang64|" "$WORK/curl-dev/clang64/lib/pkgconfig/libcurl.pc"
-  export PKG_CONFIG_PATH="$WORK/curl-dev/clang64/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
-  # MSYS2's pkgconf can leave the -I and -L out; give them to configure.
-  export CPPFLAGS="-I$WORK/curl-dev/clang64/include${CPPFLAGS:+ $CPPFLAGS}"
-  export LDFLAGS="-L$WORK/curl-dev/clang64/lib${LDFLAGS:+ $LDFLAGS}"
-  pkg-config --exists libcurl || die "libcurl's development files still not found"
+  curl_dev="$(winpath "$WORK/curl-dev/clang64")"
+  sed -i "s|^prefix=.*|prefix=$curl_dev|" "$WORK/curl-dev/clang64/lib/pkgconfig/libcurl.pc"
+  pc_path="$curl_dev/lib/pkgconfig;$pc_path"
+  # pkgconf can leave the -I and -L out; give them to configure.
+  export CPPFLAGS="-I$curl_dev/include${CPPFLAGS:+ $CPPFLAGS}"
+  export LDFLAGS="-L$curl_dev/lib${LDFLAGS:+ $LDFLAGS}"
 fi
+export PKG_CONFIG_PATH="$pc_path"
+"$PKG_CONFIG" --exists libcurl || die "libcurl's development files not found by $PKG_CONFIG"
+echo "pkg-config: $PKG_CONFIG; libcurl $("$PKG_CONFIG" --modversion libcurl)"
 
 export CC="$PREFIX/bin/clang" CXX="$PREFIX/bin/clang++"
 JOBS="$(nproc 2>/dev/null || echo 2)"
