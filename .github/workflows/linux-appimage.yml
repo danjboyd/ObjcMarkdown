@@ -74,6 +74,20 @@ jobs:
           name: objcmarkdown-linux-packages
           path: dist/linux
 
+      # Each payload in the feed gets an Ed25519 signature (edSignature),
+      # made with the key Sparkle signs the macOS updates with; copies whose
+      # update config has the public key refuse an unsigned payload.
+      - name: Sign Linux Update Feed
+        shell: bash
+        env:
+          UPDATE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          export UPDATE_ED_PUBLIC_KEY="$(python3 -c 'import plistlib; print(plistlib.load(open("macos/Info.plist", "rb"))["SUPublicEDKey"])')"
+          for feed in dist/linux/*.update-feed.json; do
+            python3 packaging/ci/sign-update-feed.py "$feed" dist/linux
+          done
+
       - name: Stage Linux Release Assets
         shell: bash
         run: |
