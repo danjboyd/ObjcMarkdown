@@ -231,7 +231,9 @@ tar -xzf "$WORK/downloads/gnustep-gui-$GUI_VERSION.tar.gz" -C "$WORK"
   done
   CPPFLAGS="$MODE_T_FLAG${CPPFLAGS:+ $CPPFLAGS}" LDFLAGS="-lc++" ./configure --prefix="$PREFIX" > "$WORK/gui-configure.log" 2>&1 \
     || { tail -40 "$WORK/gui-configure.log"; exit 1; }
-  make -j"$JOBS" messages=no > "$WORK/gui-make.log" 2>&1 || { grep -iE "error" "$WORK/gui-make.log" | head -40; exit 1; }
+  # Only Source, which builds the DLL: the rest of the tree (Model's
+  # libgmodel, the tools) isn't shipped, and doesn't read config.make.
+  make -C Source -j"$JOBS" messages=no > "$WORK/gui-make.log" 2>&1 || { grep -iE "error" "$WORK/gui-make.log" | head -40; exit 1; }
   dll="$(find . -name "$GUI_DLL" -path '*obj*' | head -1)"
   [[ -n "$dll" ]] || die "the gnustep-gui build made no $GUI_DLL"
   cp "$dll" "$OUT/$GUI_DLL"
