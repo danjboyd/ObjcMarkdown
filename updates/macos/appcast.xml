@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+  <channel>
+    <title>MarkdownViewer</title>
+    <link>https://github.com/danjboyd/ObjcMarkdown</link>
+    <item>
+      <title>0.2.0</title>
+      <link>https://github.com/danjboyd/ObjcMarkdown/releases/tag/v0.2.0</link>
+      <sparkle:version>45</sparkle:version>
+      <sparkle:shortVersionString>0.2.0</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>11.0</sparkle:minimumSystemVersion>
+      <pubDate>Thu, 08 Oct 2026 19:45:06 +0000</pubDate>
+      <enclosure url="https://github.com/danjboyd/ObjcMarkdown/releases/download/v0.2.0/MarkdownViewer-0.2.0-macos.dmg" sparkle:edSignature="nHmS/4TJVZ6dcMTUsyhbGa9lurVhgaEZuiz98os/ApkXuGmaIXABa2lj9yOC7p7UrChAI1Nj1oIvO/ZBUVw7AQ==" length="5304405" type="application/octet-stream"/>
+    </item>
+  </channel>
+</rss>
