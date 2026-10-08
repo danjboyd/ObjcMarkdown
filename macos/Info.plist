@@ -49,6 +49,22 @@
 			<array>
 				<string>net.daringfireball.markdown</string>
 			</array>
+			<key>NSDocumentClass</key>
+			<string>OMDMarkdownDocument</string>
+		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Text Document</string>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>public.plain-text</string>
+			</array>
+			<key>NSDocumentClass</key>
+			<string>OMDMarkdownDocument</string>
 		</dict>
 		<dict>
 			<key>CFBundleTypeName</key>

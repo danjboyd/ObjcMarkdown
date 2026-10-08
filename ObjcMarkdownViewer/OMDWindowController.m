@@ -3,6 +3,7 @@
 
 #import "OMDWindowController.h"
 #import "OMDAppDelegate.h"
+#import "OMDDocumentWindows.h"
 #import "OMMarkdownRenderer.h"
 #import "OMRenderedObject.h"
 #import "OMTheme.h"
@@ -748,6 +749,9 @@ static NSMutableArray *OMDSecondaryWindows(void)
 - (void)dealloc
 {
 #if !defined(GNUSTEP)
+    [[NSNotificationCenter defaultCenter] removeObserver:self name:OMDMarkdownDocumentDidSaveNotification object:nil];
+    [[NSNotificationCenter defaultCenter] removeObserver:self name:OMDMarkdownDocumentDidRevertNotification object:nil];
+    [_documentWindowController release];
     if (_observingSystemAppearance) {
         [NSApp removeObserver:self
                    forKeyPath:@"effectiveAppearance"
@@ -913,11 +917,6 @@ static NSMutableArray *OMDSecondaryWindows(void)
 {
     OMDStartupTrace(@"applicationWillFinishLaunching: enter");
     OMDRemoveRetiredDefaults();
-#if !defined(GNUSTEP)
-    // Documents open as the app's own tabs in one window, so macOS's window
-    // tabs (and their menu items) would be a second, conflicting set.
-    [NSWindow setAllowsAutomaticWindowTabbing:NO];
-#endif
     @try {
         [self setupMainMenu];
         OMDStartupTrace(@"applicationWillFinishLaunching: setupMainMenu returned");
@@ -1065,6 +1064,9 @@ static NSMutableArray *OMDSecondaryWindows(void)
     OMDStartupTrace(@"setupWindow: window created");
 
     OMDApplyWindowsMenuToWindow(_window);
+#if !defined(GNUSTEP)
+    [self setUpDocumentWindow];
+#endif
 
     _zoomScale = 1.0;
     _lastZoomSliderEventTime = 0.0;
@@ -1409,6 +1411,10 @@ static NSMutableArray *OMDSecondaryWindows(void)
 
 - (BOOL)hasRecoverySnapshotAvailable
 {
+#if !defined(GNUSTEP)
+    // macOS autosaves documents and reopens them; nothing to recover.
+    return NO;
+#endif
     NSString *snapshotPath = [self recoverySnapshotPath];
     if ([snapshotPath length] == 0) {
         return NO;
@@ -1845,6 +1851,12 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
 
 - (BOOL)canSaveCurrentDocument
 {
+#if !defined(GNUSTEP)
+    // Saved as it changes; Save names an untitled one or saves at once.
+    if ([self showsArchitectureDocument]) {
+        return ![[self currentDocument] readOnly] || [[self currentDocument] fileURL] == nil;
+    }
+#endif
     return ([self hasLoadedDocument] && _sourceIsDirty);
 }
 
@@ -2182,6 +2194,10 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
 // first Save asks where to put it.
 - (void)newDocument:(id)sender
 {
+#if !defined(GNUSTEP)
+    [[NSDocumentController sharedDocumentController] newDocument:sender];
+    return;
+#endif
     (void)sender;
     static NSUInteger untitledCount = 0;
     untitledCount += 1;
@@ -2215,6 +2231,10 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
 
 - (void)openDocument:(id)sender
 {
+#if !defined(GNUSTEP)
+    [[NSDocumentController sharedDocumentController] openDocument:sender];
+    return;
+#endif
     NSOpenPanel *panel = [NSOpenPanel openPanel];
     [panel setAllowsMultipleSelection:NO];
     [panel setCanChooseFiles:YES];
@@ -2665,6 +2685,17 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
                                     suppressed:suppressedFingerprint];
     [self captureCurrentStateIntoSelectedTab];
 
+#if !defined(GNUSTEP)
+    // macOS: a document without unsaved changes follows its file quietly,
+    // as Mac apps do, and also while the app editing it is in front. One
+    // with unsaved changes is the document's to resolve when it saves.
+    if ([self showsArchitectureDocument] && ![observedFingerprint isEqualToString:loadedFingerprint] &&
+        ![[self currentDocument] isDocumentEdited]) {
+        [self revertArchitectureDocumentQuietly];
+        return;
+    }
+#endif
+
     OMDMarkdownDocument *tab = [_documentTabsController selectedTab];
     NSMutableDictionary *loadedImages = [[[tab imageFingerprints] mutableCopy] autorelease];
     if (loadedImages == nil) {
@@ -2713,6 +2744,12 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
         return;
     }
     BOOL documentChanged = [self currentDocumentHasNewerDiskVersion];
+#if !defined(GNUSTEP)
+    // Handled above (macOS documents).
+    if ([self showsArchitectureDocument]) {
+        documentChanged = NO;
+    }
+#endif
     if (!documentChanged && !imagesChanged) {
         return;
     }
@@ -2927,6 +2964,12 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
 
 - (void)scheduleRecoveryAutosave
 {
+#if !defined(GNUSTEP)
+    // macOS autosaves documents itself.
+    if ([self showsArchitectureDocument]) {
+        return;
+    }
+#endif
     if (!_sourceIsDirty || _currentMarkdown == nil) {
         return;
     }
@@ -3156,6 +3199,13 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
 
 - (BOOL)saveDocumentAsMarkdownWithPanel
 {
+#if !defined(GNUSTEP)
+    if ([self showsArchitectureDocument]) {
+        [self captureCurrentStateIntoSelectedTab];
+        [[self currentDocument] saveDocumentAs:nil];
+        return YES;
+    }
+#endif
     NSSavePanel *panel = [NSSavePanel savePanel];
     BOOL verbatimMode = (_currentDocumentRenderMode == OMDDocumentRenderModeVerbatim);
     if (verbatimMode) {
@@ -3198,6 +3248,13 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
     if (![self ensureDocumentLoadedForActionName:@"Save"]) {
         return NO;
     }
+#if !defined(GNUSTEP)
+    if ([self showsArchitectureDocument]) {
+        [self captureCurrentStateIntoSelectedTab];
+        [[self currentDocument] saveDocument:nil];
+        return YES;
+    }
+#endif
 
     if (_currentPath != nil && [_currentPath length] > 0 &&
         ![self isImportableDocumentPath:_currentPath]) {
@@ -5316,6 +5373,13 @@ constrainSplitPosition:(CGFloat)proposedPosition
         return;
     }
 
+#if !defined(GNUSTEP)
+    // One document per window on macOS: a new tab is a new window.
+    if ([self prepareToShowDocument:tab inNewTab:inNewTab]) {
+        return;
+    }
+    inNewTab = NO;
+#endif
     [self commitPendingDirtyState];
     if (inNewTab || [_documentTabsController selectedIndex] < 0 || [_documentTabsController selectedIndex] >= (NSInteger)[_documentTabsController count]) {
         [self captureCurrentStateIntoSelectedTab];
@@ -5330,6 +5394,9 @@ constrainSplitPosition:(CGFloat)proposedPosition
         [self resetCurrentDocumentViewportToStart];
     }
     [self documentTabsDidChange];
+#if !defined(GNUSTEP)
+    [self adoptShownDocument:tab];
+#endif
 }
 
 - (void)applyDocumentTabRecord:(OMDMarkdownDocument *)tabRecord
@@ -5396,6 +5463,11 @@ constrainSplitPosition:(CGFloat)proposedPosition
     if ([normalizedSourcePath length] > 0) {
         normalizedSourcePath = [normalizedSourcePath stringByStandardizingPath];
         initialDiskFingerprint = [self diskFingerprintForPath:normalizedSourcePath];
+#if !defined(GNUSTEP)
+        if ([self showOpenDocumentAtPath:normalizedSourcePath]) {
+            return YES;
+        }
+#endif
         NSInteger existingIndex = [_documentTabsController documentTabIndexForLocalPath:normalizedSourcePath];
         if (existingIndex >= 0) {
             [self selectDocumentTabAtIndex:existingIndex];
@@ -7565,6 +7637,13 @@ constrainSplitPosition:(CGFloat)proposedPosition
     [_explorerController setDocumentPath:[self resolvedAbsolutePathForLocalPath:_currentPath]];
     [self updateRemoteDocumentBar];
 
+#if !defined(GNUSTEP)
+    // The document's name, proxy icon and edited mark, as macOS shows them.
+    if ([self showsArchitectureDocument]) {
+        [[self documentWindowController] synchronizeWindowTitleWithDocumentName];
+        return;
+    }
+#endif
     // Say what the window shows and let the theme present it: a file's
     // name and folder, and whether it has unsaved changes. The mode is on
     // the switcher and "Updating..." in the status label.
@@ -8905,12 +8984,24 @@ static BOOL OMDIsMarkdownPath(NSString *path)
         _sourceVimForceClose = NO;
         return YES;
     }
+#if !defined(GNUSTEP)
+    // The document decides (saving it in place first); the window closes
+    // when it agrees.
+    if ([self showsArchitectureDocument]) {
+        return [self architectureDocumentWindowShouldClose];
+    }
+#endif
 
     return [self reviewUnsavedDocumentsForAction:@"closing"];
 }
 
 - (BOOL)reviewUnsavedDocumentsForAction:(NSString *)actionName
 {
+#if !defined(GNUSTEP)
+    if ([self showsArchitectureDocument]) {
+        return YES;
+    }
+#endif
     [self captureCurrentStateIntoSelectedTab];
     [self commitPendingDirtyState];
     NSInteger index = 0;

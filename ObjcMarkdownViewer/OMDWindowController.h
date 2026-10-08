@@ -124,6 +124,9 @@ typedef unsigned short mode_t;
     NSString *_sourceVimCommandLine;
     BOOL _externalReloadPromptVisible;
     BOOL _observingSystemAppearance;
+    // macOS: the window's NSWindowController (OMDDocumentWindowController).
+    id _documentWindowController;
+    BOOL _architectureCloseApproved;
 }
 
 // The window this controls.

@@ -184,6 +184,35 @@ static void OMDUseEllipsisCharacters(NSMenu *menu)
     [menubar addItem:fileMenuItem];
 
     NSMenu *fileMenu = [[[NSMenu alloc] initWithTitle:@"File"] autorelease];
+#if !defined(GNUSTEP)
+    // macOS's document commands (New, Open, Save, Duplicate, Rename, Move
+    // To, Revert To) go to the document controller and the document. AppKit
+    // adds Open Recent after Open, and turns Revert To into its submenu.
+    OMDAddMenuItem(fileMenu, @"New", @selector(newDocument:), @"n", nil);
+    OMDAddMenuItem(fileMenu, @"Open...", @selector(openDocument:), @"o", nil);
+    OMDAddMenuItem(fileMenu, @"Open Location...", @selector(openLocation:), @"l", target);
+    OMDAddMenuItem(fileMenu, @"Import...", @selector(importDocument:), @"I", target);
+    OMDAddMenuItem(fileMenu, @"New Window", @selector(newWindow:), @"N", target);
+    [fileMenu addItem:[NSMenuItem separatorItem]];
+    OMDAddMenuItem(fileMenu, @"Close", @selector(performClose:), @"w", nil);
+    OMDAddMenuItem(fileMenu, @"Save...", @selector(saveDocument:), @"s", nil);
+    OMDAddMenuItem(fileMenu, @"Duplicate", @selector(duplicateDocument:), @"S", nil);
+    OMDAddMenuItem(fileMenu, @"Rename...", @selector(renameDocument:), @"", nil);
+    OMDAddMenuItem(fileMenu, @"Move To...", @selector(moveDocument:), @"", nil);
+    OMDAddMenuItem(fileMenu, @"Revert To", @selector(revertDocumentToSaved:), @"", nil);
+    [fileMenu addItem:[NSMenuItem separatorItem]];
+    NSMenu *exportMenu = [[[NSMenu alloc] initWithTitle:@"Export"] autorelease];
+    OMDAddMenuItem(exportMenu, @"Export as PDF...", @selector(exportDocumentAsPDF:), @"", target);
+    OMDAddMenuItem(exportMenu, @"Export as RTF...", @selector(exportDocumentAsRTF:), @"", target);
+    OMDAddMenuItem(exportMenu, @"Export as DOCX...", @selector(exportDocumentAsDOCX:), @"", target);
+    OMDAddMenuItem(exportMenu, @"Export as ODT...", @selector(exportDocumentAsODT:), @"", target);
+    OMDAddMenuItem(exportMenu, @"Export as HTML...", @selector(exportDocumentAsHTML:), @"", target);
+    NSMenuItem *exportMenuItem = OMDAddMenuItem(fileMenu, @"Export", NULL, @"", nil);
+    [fileMenu setSubmenu:exportMenu forItem:exportMenuItem];
+    [fileMenu addItem:[NSMenuItem separatorItem]];
+    OMDAddMenuItem(fileMenu, @"Page Setup...", @selector(runPageLayout:), @"P", nil);
+    OMDAddMenuItem(fileMenu, @"Print...", @selector(printDocument:), @"p", target);
+#else
     NSMenuItem *newItem = (NSMenuItem *)[fileMenu addItemWithTitle:@"New"
                                                             action:@selector(newDocument:)
                                                      keyEquivalent:@"n"];
@@ -260,12 +289,6 @@ static void OMDUseEllipsisCharacters(NSMenu *menu)
 
     [fileMenu addItem:[NSMenuItem separatorItem]];
 
-#if !defined(GNUSTEP)
-    NSMenuItem *pageSetupItem = (NSMenuItem *)[fileMenu addItemWithTitle:@"Page Setup..."
-                                                                   action:@selector(runPageLayout:)
-                                                            keyEquivalent:@"P"];
-    [pageSetupItem setTarget:nil];
-#endif
     NSMenuItem *printItem = (NSMenuItem *)[fileMenu addItemWithTitle:@"Print..."
                                                                action:@selector(printDocument:)
                                                         keyEquivalent:@"p"];
@@ -277,6 +300,7 @@ static void OMDUseEllipsisCharacters(NSMenu *menu)
                                                         keyEquivalent:@"w"];
     [closeItem setTarget:nil];
 
+#endif
     [fileMenuItem setSubmenu:fileMenu];
 
     NSMenuItem *editMenuItem = [[[NSMenuItem alloc] initWithTitle:@"Edit"
