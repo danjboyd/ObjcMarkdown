@@ -178,7 +178,12 @@ static NSButtonCell *OMDExplorerIconDrawingCell(void)
 
 @end
 
+// AppKit on macOS declares these as formal protocols.
+#if defined(GNUSTEP)
 @interface OMDExplorerController ()
+#else
+@interface OMDExplorerController () <NSSearchFieldDelegate, NSOutlineViewDataSource, NSOutlineViewDelegate>
+#endif
 - (void)setupExplorerSidebar;
 - (void)layoutExplorerControls;
 - (void)showRoot:(NSString *)root;

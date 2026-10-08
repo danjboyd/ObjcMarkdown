@@ -62,7 +62,19 @@ GNUstep notes for this:
 - Tests and UI checks must not touch the user's settings or running apps: GNUstep ignores `$HOME` for defaults, so `tools/dev/` points `GNUSTEP_CONFIG_FILE` at a private copy of `/etc/GNUstep/GNUstep.conf` (mode 600) with its own defaults directory, and only ever stops the MarkdownViewer it started. Never stop the app by name (`pkill -x MarkdownViewer`).
 
 ## Build (macOS)
-TBD: add separate build instructions when macOS target is set up.
+The Mac build uses Apple's clang and Cocoa, not GNUstep. `macos/Makefile` reads the source lists from the GNUstep makefiles, so a file added there is built here too.
+
+Prereqs: Xcode (or its command line tools plus XCTest), and `git submodule update --init` for TextViewVimKit.
+
+Steps:
+1) `make -C macos` builds `macos/build/MarkdownViewer.app` (universal; `ARCHS=arm64` for a quicker native build, `OMD_WERROR=1` to treat warnings as errors).
+2) `make -C macos test` builds and runs the XCTest bundle with `xcrun xctest`.
+3) `make -C macos run` opens the app; `make -C macos dmg` makes the disk image (`OMD_VERSION=0.1.2-rc1` for another version than `VERSION`).
+
+Notes:
+- GNUstep-only code is under `#if defined(GNUSTEP)` (gnustep-make defines it); macOS-only code under `#if !defined(GNUSTEP)`. Never write to `NSGlobalDomain` on macOS: it is the system's, shared with every app.
+- On macOS the system draws the app: no GNUstep theme setting, SF Symbols for the symbolic icons (template PNGs as the fallback), the system's light/dark appearance followed live.
+- From macOS 14 views don't clip to their bounds; clip custom drawing to `-bounds` rather than filling the dirty rect.
 
 ## Dependencies
 - `cmark-gfm` (vendored in `third_party/cmark-gfm`, compiled into the library) for CommonMark + GFM parsing. Parse through `OMGFMParseDocument()` (`ObjcMarkdown/OMGFMParser.h`) so the renderer, split sync and source highlighter agree on block structure; never link a system `libcmark` alongside it.

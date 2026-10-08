@@ -12,6 +12,10 @@ MarkdownViewer uses only standard controls and system colours, and lets the GNUs
 |:---:|:---:|
 | ![Read mode under Adwaita in dark mode](docs/screenshots/adwaita-dark-read.png) | ![Read mode under GNUstep's default theme](docs/screenshots/gnustep-read.png) |
 
+On macOS the same code builds natively against Cocoa, so macOS draws it as a Mac app: its own controls and menu bar, SF Symbols in the toolbar, and the system's light or dark appearance, followed as it changes.
+
+![MarkdownViewer on macOS in Read mode: explorer, rendered document and outline](docs/screenshots/macos-read.png)
+
 ## Read, Edit, Split
 
 Read for the rendered document, Edit for the Markdown source, and Split for both side by side, with the preview following the editor as you scroll and type.
@@ -77,6 +81,7 @@ NSAttributedString *rendered = [renderer attributedStringFromMarkdown:
 ## Install
 
 - **Windows**: the MSI or portable ZIP from [Releases](https://github.com/danjboyd/ObjcMarkdown/releases), with WinUITheme bundled as the default theme.
+- **macOS**: the universal disk image (`MarkdownViewer-<version>-macos.dmg`, Apple silicon and Intel, macOS 11 or later) from [Releases](https://github.com/danjboyd/ObjcMarkdown/releases), from the next tagged release on. Drag the app to Applications. It isn't notarized yet, so macOS blocks the first open: open it once, then choose **Open Anyway** in System Settings > Privacy & Security (on macOS 14 and earlier, Control-click the app and choose **Open**).
 - **Linux**: an AppImage and a Flatpak bundle, each with the GNUstep runtime and the Adwaita theme inside, built by [linux-appimage.yml](.github/workflows/linux-appimage.yml) and [linux-flatpak.yml](.github/workflows/linux-flatpak.yml) (see [packaging/flatpak](packaging/flatpak/README.md)); the next tagged release attaches both. Until then, build from source as below.
 
 ## Status
@@ -85,7 +90,7 @@ This repository is currently a `0.1` source-first preview.
 
 - Primary supported environment: GNUstep on Linux with a clang/libobjc2/libdispatch toolchain.
 - Windows support exists through the MSYS2 `clang64` toolchain. PowerShell/Codex sessions should use `scripts/windows/build-from-powershell.ps1`; see [WINDOWS_BUILD.md](WINDOWS_BUILD.md).
-- macOS compatibility is still a project goal, but there is not yet a maintained macOS setup guide in this repo.
+- macOS builds natively with Xcode's clang and Cocoa: `make -C macos` (app) and `make -C macos test`; see the macOS section of [AGENTS.md](AGENTS.md).
 
 ## Toolchain Requirements
 
@@ -159,13 +164,17 @@ Windows packaging and release publishing are handled by:
 
 - [windows-packaging.yml](.github/workflows/windows-packaging.yml)
 
+macOS builds natively with Xcode's clang and Cocoa (no GNUstep):
+
+- [macos.yml](.github/workflows/macos.yml): universal build, tests and a launch smoke test on pushes to `main` and pull requests; for a version tag, the disk image is attached to the release
+
 Release flow:
 
 - Ensure the target commit has already passed the separate Linux CI workflow if you want a GNUstep/Linux gate before release tagging.
 - Set the version in `VERSION` (what About shows), then push an annotated tag like `v0.1.0`.
 - GitHub Actions runs `linux-appimage` as a thin caller to the reusable `gnustep-packager` workflow pinned to `4814554c9e445170217bd6849efea05b98e62856`, on a GitHub-hosted runner inside the same CI image, using this repo's Linux manifest, stage script and preflight. It bundles the Adwaita theme at the commit pinned in [packaging/inputs.json](packaging/inputs.json).
 - GitHub Actions runs `windows-packaging` as a thin caller to the reusable `gnustep-packager` workflow pinned to `bac42892f79ae1c7d56017d7cdb1d1637d729e6b`, using this repo's Windows MSI manifest and normalized Windows stage script. The Windows manifest owns app-specific host dependencies (currently none: `cmark-gfm` is vendored). The staged Windows payload includes the GNUstep runtime, bundled Windows themes, and TinyTeX runtime for external LaTeX rendering. Windows releases are expected to bundle `WinUITheme` and use it as the default packaged theme.
-- Each tagged packaging workflow then downloads its `-packages` artifact and attaches the release files to the matching GitHub Release page. Linux publishes the `.AppImage` and `.zsync`; Windows publishes the `.msi` and portable ZIP, along with generated sidecars such as `.update-feed.json`.
+- Each tagged packaging workflow then downloads its `-packages` artifact and attaches the release files to the matching GitHub Release page. Linux publishes the `.AppImage` and `.zsync`; Windows publishes the `.msi` and portable ZIP, along with generated sidecars such as `.update-feed.json`; macOS publishes the `.dmg` (ad-hoc signed, not notarized).
 - Clean-machine Windows validation is documented in [docs/windows-otvm-msi-validation.md](docs/windows-otvm-msi-validation.md). Going forward, the supported Debian and Windows VM path is libvirt-backed `OracleTestVMs` leases. The older direct-OCI helper has been retired; [docs/windows-oci-msi-validation.md](docs/windows-oci-msi-validation.md) is kept only as a retirement note.
 
 ## Public Docs

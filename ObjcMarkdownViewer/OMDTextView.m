@@ -488,14 +488,9 @@
         return;
     }
     BOOL active = [[self window] isKeyWindow] && [[self window] firstResponder] == self;
+    // An outline in the theme's selection colour, not a tint: a blended fill
+    // is an app-picked colour and fades out under high contrast.
     NSColor *accent = active ? [NSColor selectedControlColor] : [NSColor controlShadowColor];
-    // Named system colours ignore colorWithAlphaComponent: in GNUstep, so
-    // resolve to RGB before deriving the translucent tint.
-    NSColor *rgbAccent = [accent colorUsingColorSpaceName:NSCalibratedRGBColorSpace];
-    if (rgbAccent == nil) {
-        rgbAccent = [NSColor colorWithCalibratedRed:0.21 green:0.52 blue:0.89 alpha:1.0];
-    }
-    accent = rgbAccent;
     NSGraphicsContext *context = [NSGraphicsContext currentContext];
     [context saveGraphicsState];
     NSUInteger index = [indexes firstIndex];
@@ -504,8 +499,6 @@
         if (!NSIsEmptyRect(rect)) {
             NSRect outline = NSInsetRect(NSIntegralRect(rect), -3.0, -3.0);
             NSBezierPath *path = [NSBezierPath bezierPathWithRoundedRect:outline xRadius:4.0 yRadius:4.0];
-            [[accent colorWithAlphaComponent:0.12] set];
-            [path fill];
             [path setLineWidth:2.0];
             [accent set];
             [path stroke];
@@ -521,9 +514,8 @@
             CGFloat dash[2] = {4.0, 3.0};
             [path setLineDash:dash count:2 phase:0.0];
             [path setLineWidth:1.5];
-            // Shown while the editor has focus, so always in the accent colour.
-            NSColor *linkedColor = [[NSColor selectedControlColor] colorUsingColorSpaceName:NSCalibratedRGBColorSpace];
-            [(linkedColor != nil ? linkedColor : rgbAccent) set];
+            // Shown while the editor has focus, so always in the selection colour.
+            [[NSColor selectedControlColor] set];
             [path stroke];
         }
     }

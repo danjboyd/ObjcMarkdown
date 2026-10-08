@@ -3,6 +3,7 @@
 
 #import "OMMarkdownRenderer.h"
 #import "OMMarkdownRendererInternal.h"
+#import "OMFontSupport.h"
 #include "OMEmojiShortcodes.inc"
 
 NSString * const OMMarkdownRendererMathArtifactsDidWarmNotification = @"OMMarkdownRendererMathArtifactsDidWarmNotification";
@@ -358,6 +359,27 @@ static void OMTightenHardLineBreaks(NSMutableAttributedString *output, NSRange r
 // like GitHub: 1em between blocks, 1.5em before a heading, plus the code
 // background's padding next to a code block. Blank lines inside code blocks
 // keep their height.
+// Removes an attribute where it is set. GNUstep's -removeAttribute:range:
+// rewrites every attribute run in the range, set or not, which over a whole
+// long document is quadratic in its runs (#94).
+static void OMRemoveAttributeWhereSet(NSMutableAttributedString *output, NSString *name)
+{
+    NSUInteger length = [output length];
+    NSMutableArray *ranges = [NSMutableArray array];
+    NSUInteger index = 0;
+    while (index < length) {
+        NSRange effective;
+        id value = [output attribute:name atIndex:index effectiveRange:&effective];
+        if (value != nil) {
+            [ranges addObject:[NSValue valueWithRange:effective]];
+        }
+        index = NSMaxRange(effective);
+    }
+    for (NSValue *range in ranges) {
+        [output removeAttribute:name range:[range rangeValue]];
+    }
+}
+
 static void OMSizeBlockGaps(NSMutableAttributedString *output,
                             NSArray *codeRanges,
                             CGFloat baseSize,
@@ -1296,8 +1318,7 @@ void OMPerformOnMainThread(void (^block)(void))
     NSMutableDictionary *attributes = [[[self.theme baseAttributes] mutableCopy] autorelease];
     CGFloat scale = self.zoomScale > 0.01 ? self.zoomScale : 1.0;
     if (self.theme.baseFont != nil) {
-        NSFont *scaledFont = [NSFont fontWithName:[self.theme.baseFont fontName]
-                                             size:[self.theme.baseFont pointSize] * scale];
+        NSFont *scaledFont = OMFontAtSize(self.theme.baseFont, [self.theme.baseFont pointSize] * scale);
         if (scaledFont != nil) {
             [attributes setObject:scaledFont forKey:NSFontAttributeName];
         } else {
@@ -1358,8 +1379,8 @@ void OMPerformOnMainThread(void (^block)(void))
                     codeRanges,
                     (self.theme.baseFont != nil ? [self.theme.baseFont pointSize] : 14.0) * scale,
                     scale);
-    [output removeAttribute:OMHardLineBreakAttributeName range:NSMakeRange(0, [output length])];
-    [output removeAttribute:OMHTMLStyleStackAttributeName range:NSMakeRange(0, [output length])];
+    OMRemoveAttributeWhereSet(output, OMHardLineBreakAttributeName);
+    OMRemoveAttributeWhereSet(output, OMHTMLStyleStackAttributeName);
     OMResolvePendingRenderedObjects(output, blockAnchors, markdown);
     cmark_node_free(document);
     if (perfLogging) {
@@ -2189,7 +2210,7 @@ void OMRenderInlines(cmark_node *node,
                 NSMutableDictionary *refAttrs = [attributes mutableCopy];
                 NSFont *font = [attributes objectForKey:NSFontAttributeName];
                 CGFloat size = font != nil ? [font pointSize] : 14.0 * scale;
-                NSFont *smaller = font != nil ? [NSFont fontWithName:[font fontName] size:size * 0.72] : nil;
+                NSFont *smaller = font != nil ? OMFontAtSize(font, size * 0.72) : nil;
                 if (smaller != nil) {
                     [refAttrs setObject:smaller forKey:NSFontAttributeName];
                 }

@@ -66,11 +66,13 @@
     NSString *stringBefore = [[textView string] copy];
     CGFloat thicknessBefore = [ruler ruleThickness];
 
-    [ruler mouseDown:nil];
-    [ruler mouseDragged:nil];
-    [ruler mouseUp:nil];
-    [ruler rightMouseDown:nil];
-    [ruler otherMouseDown:nil];
+    // No event (AppKit on macOS declares the argument non-null).
+    NSEvent *noEvent = nil;
+    [ruler mouseDown:noEvent];
+    [ruler mouseDragged:noEvent];
+    [ruler mouseUp:noEvent];
+    [ruler rightMouseDown:noEvent];
+    [ruler otherMouseDown:noEvent];
 
     NSRange selectedAfter = [textView selectedRange];
     XCTAssertEqual(selectedAfter.location, selectedBefore.location);

@@ -4,24 +4,7 @@
 #import <AppKit/AppKit.h>
 #import "OMDLayoutMetrics.h"
 
-// Keys of a tab record: the state of one open document while another tab
-// is showing.
-extern NSString * const OMDTabMarkdownKey;
-extern NSString * const OMDTabSourcePathKey;
-extern NSString * const OMDTabDisplayTitleKey;
-extern NSString * const OMDTabDirtyKey;
-extern NSString * const OMDTabReadOnlyKey;
-extern NSString * const OMDTabRenderModeKey;
-extern NSString * const OMDTabSyntaxLanguageKey;
-extern NSString * const OMDTabLoadedDiskFingerprintKey;
-extern NSString * const OMDTabObservedDiskFingerprintKey;
-extern NSString * const OMDTabSuppressedDiskFingerprintKey;
-extern NSString * const OMDTabImageFingerprintsKey;
-extern NSString * const OMDTabSuppressedImageFingerprintsKey;
-extern NSString * const OMDTabImageMarkdownKey;
-extern NSString * const OMDTabImageSourcePathKey;
-// A document opened from the web: its raw address (an OMDRemoteDocument's rawURL).
-extern NSString * const OMDTabRemoteURLKey;
+@class OMDMarkdownDocument;
 
 @protocol OMDDocumentTabsControllerDelegate <NSObject>
 - (OMDLayoutDensityMode)effectiveLayoutDensityMode;
@@ -29,8 +12,7 @@ extern NSString * const OMDTabRemoteURLKey;
 - (void)closeDocumentTabAtIndex:(NSInteger)index;
 @end
 
-// The open documents as tab records (mutable dictionaries keyed by the
-// OMDTab keys), which one is selected, and the strip of tab buttons.
+// The open documents, which one is selected, and the strip of tab buttons.
 @interface OMDDocumentTabsController : NSObject
 {
     id<OMDDocumentTabsControllerDelegate> _delegate;
@@ -43,15 +25,15 @@ extern NSString * const OMDTabRemoteURLKey;
 - (instancetype)initWithDelegate:(id<OMDDocumentTabsControllerDelegate>)delegate;
 
 - (NSUInteger)count;
-- (NSMutableDictionary *)tabAtIndex:(NSInteger)index;
-- (void)addTab:(NSMutableDictionary *)tab;
-- (void)replaceTabAtIndex:(NSInteger)index withTab:(NSMutableDictionary *)tab;
+- (OMDMarkdownDocument *)tabAtIndex:(NSInteger)index;
+- (void)addTab:(OMDMarkdownDocument *)tab;
+- (void)replaceTabAtIndex:(NSInteger)index withTab:(OMDMarkdownDocument *)tab;
 - (void)removeTabAtIndex:(NSInteger)index;
 // -1 when no tab is selected.
 - (NSInteger)selectedIndex;
 - (void)setSelectedIndex:(NSInteger)index;
-// The selected tab's record, or nil.
-- (NSMutableDictionary *)selectedTab;
+// The selected tab's document, or nil.
+- (OMDMarkdownDocument *)selectedTab;
 
 // -1 when no tab shows the document.
 - (NSInteger)documentTabIndexForLocalPath:(NSString *)sourcePath;

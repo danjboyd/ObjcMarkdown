@@ -488,11 +488,21 @@ static CGFloat OMDPreferencesFinishCard(NSView *card, CGFloat height)
     CGFloat rowLabelWidth = MIN(metrics.preferencesLabelWidth + 20.0, floor(layout.width * 0.28));
     CGFloat controlX = pad + rowLabelWidth + 12.0;
     CGFloat controlWidth = layout.width - rowLabelWidth - 12.0;
+#if defined(GNUSTEP)
+    NSString *appearanceSummary = @"Choose the active GNUstep theme and how roomy the interface should feel.";
+    NSString *appearanceNote = @"GNUstep's default scroll speed is at the left. Theme changes apply on next launch; layout mode and scroll speed update immediately.";
+#else
+    // On macOS the system draws the app (light or dark is the system's
+    // setting), so there is no theme to choose.
+    NSString *appearanceSummary = @"Choose how roomy the interface should feel.";
+    NSString *appearanceNote = @"The default scroll speed is at the left. Layout mode and scroll speed update immediately.";
+#endif
     CGFloat rowY = OMDPreferencesAddCardHeader(card,
                                                @"Appearance",
-                                               @"Choose the active GNUstep theme and how roomy the interface should feel.",
+                                               appearanceSummary,
                                                layout, metrics);
 
+#if defined(GNUSTEP)
     OMDPreferencesAddRowLabel(card, @"GNUstep Theme", pad, rowY, rowLabelWidth, layout.titleColor, layout);
     _preferencesThemePopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(controlX, rowY, controlWidth, layout.controlHeight)
                                                          pullsDown:NO];
@@ -501,8 +511,9 @@ static CGFloat OMDPreferencesFinishCard(NSView *card, CGFloat height)
     [_preferencesThemePopup setAction:@selector(preferencesThemeChanged:)];
     [_preferencesThemePopup setToolTip:@"Theme changes apply after relaunch."];
     [card addSubview:_preferencesThemePopup];
-
     rowY += layout.controlHeight + layout.rowGap;
+#endif
+
     OMDPreferencesAddRowLabel(card, @"Layout Mode", pad, rowY, rowLabelWidth, layout.titleColor, layout);
     _preferencesLayoutModePopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(controlX, rowY, controlWidth, layout.controlHeight)
                                                               pullsDown:NO];
@@ -531,7 +542,7 @@ static CGFloat OMDPreferencesFinishCard(NSView *card, CGFloat height)
 
     rowY += layout.controlHeight + layout.rowGap;
     rowY += OMDPreferencesAddNote(card,
-                                  @"GNUstep's default scroll speed is at the left. Theme changes apply on next launch; layout mode and scroll speed update immediately.",
+                                  appearanceNote,
                                   pad, rowY, layout.width, layout);
     return OMDPreferencesFinishCard(card, rowY + pad);
 }
@@ -924,7 +935,16 @@ static CGFloat OMDPreferencesFinishCard(NSView *card, CGFloat height)
                                                         styleMask:(NSTitledWindowMask | NSClosableWindowMask)
                                                           backing:NSBackingStoreBuffered
                                                             defer:NO];
-        [_preferencesPanel setTitle:@"Preferences"];
+        NSString *title = @"Preferences";
+#if !defined(GNUSTEP)
+        // macOS 13 calls them Settings.
+        if (@available(macOS 13.0, *)) {
+            title = @"Settings";
+        }
+        // A Mac settings window stays up when another app is in front.
+        [_preferencesPanel setHidesOnDeactivate:NO];
+#endif
+        [_preferencesPanel setTitle:title];
         [_preferencesPanel setFrameAutosaveName:@"ObjcMarkdownViewerPreferencesPanel"];
         [_preferencesPanel setReleasedWhenClosed:NO];
     }
@@ -954,7 +974,7 @@ static CGFloat OMDPreferencesFinishCard(NSView *card, CGFloat height)
         NSInteger index = 0;
         BOOL matched = NO;
         for (; index < themeCount; index++) {
-            id<NSMenuItem> item = [_preferencesThemePopup itemAtIndex:index];
+            NSMenuItem *item = (NSMenuItem *)[_preferencesThemePopup itemAtIndex:index];
             NSString *value = [item representedObject];
             if (themeName == nil || [themeName length] == 0) {
                 if (value == nil || [value length] == 0) {
@@ -970,7 +990,7 @@ static CGFloat OMDPreferencesFinishCard(NSView *card, CGFloat height)
         }
         if (!matched && themeName != nil && [themeName length] > 0) {
             [_preferencesThemePopup addItemWithTitle:themeName];
-            id<NSMenuItem> newItem = [_preferencesThemePopup itemAtIndex:[_preferencesThemePopup numberOfItems] - 1];
+            NSMenuItem *newItem = (NSMenuItem *)[_preferencesThemePopup itemAtIndex:[_preferencesThemePopup numberOfItems] - 1];
             [newItem setRepresentedObject:themeName];
             themeIndex = [_preferencesThemePopup indexOfItem:newItem];
         }
@@ -983,7 +1003,7 @@ static CGFloat OMDPreferencesFinishCard(NSView *card, CGFloat height)
         NSInteger itemCount = [_preferencesLayoutModePopup numberOfItems];
         NSInteger index = 0;
         for (; index < itemCount; index++) {
-            id<NSMenuItem> item = [_preferencesLayoutModePopup itemAtIndex:index];
+            NSMenuItem *item = (NSMenuItem *)[_preferencesLayoutModePopup itemAtIndex:index];
             if ([item tag] == (NSInteger)mode) {
                 selectedIndex = index;
                 break;
@@ -1001,7 +1021,7 @@ static CGFloat OMDPreferencesFinishCard(NSView *card, CGFloat height)
         NSInteger splitItemCount = [_preferencesSplitSyncModePopup numberOfItems];
         NSInteger splitIndex = 0;
         for (; splitIndex < splitItemCount; splitIndex++) {
-            id<NSMenuItem> splitItem = [_preferencesSplitSyncModePopup itemAtIndex:splitIndex];
+            NSMenuItem *splitItem = (NSMenuItem *)[_preferencesSplitSyncModePopup itemAtIndex:splitIndex];
             if ([splitItem tag] == (NSInteger)splitSyncMode) {
                 splitSelectedIndex = splitIndex;
                 break;
@@ -1016,7 +1036,7 @@ static CGFloat OMDPreferencesFinishCard(NSView *card, CGFloat height)
         NSInteger itemCount = [_preferencesMathPolicyPopup numberOfItems];
         NSInteger index = 0;
         for (; index < itemCount; index++) {
-            id<NSMenuItem> item = [_preferencesMathPolicyPopup itemAtIndex:index];
+            NSMenuItem *item = (NSMenuItem *)[_preferencesMathPolicyPopup itemAtIndex:index];
             if ([item tag] == (NSInteger)policy) {
                 selectedIndex = index;
                 break;
@@ -1030,7 +1050,7 @@ static CGFloat OMDPreferencesFinishCard(NSView *card, CGFloat height)
         NSInteger itemCount = [_preferencesDiagramPolicyPopup numberOfItems];
         NSInteger index = 0;
         for (; index < itemCount; index++) {
-            id<NSMenuItem> item = [_preferencesDiagramPolicyPopup itemAtIndex:index];
+            NSMenuItem *item = (NSMenuItem *)[_preferencesDiagramPolicyPopup itemAtIndex:index];
             if ([item tag] == (NSInteger)diagramPolicy) {
                 selectedIndex = index;
                 break;
@@ -1083,7 +1103,7 @@ static CGFloat OMDPreferencesFinishCard(NSView *card, CGFloat height)
             [_preferencesRendererSyntaxHighlightingNoteLabel setTextColor:[NSColor controlTextColor]];
             [_preferencesRendererSyntaxHighlightingNoteLabel setStringValue:@"Tree-sitter detected. Renderer syntax highlighting can be toggled here."];
         } else {
-            [_preferencesRendererSyntaxHighlightingNoteLabel setTextColor:[NSColor disabledControlTextColor]];
+            [_preferencesRendererSyntaxHighlightingNoteLabel setTextColor:[NSColor secondaryLabelColor]];
             [_preferencesRendererSyntaxHighlightingNoteLabel setStringValue:@"Renderer syntax highlighting requires Tree-sitter (install tree-sitter-cli and libtree-sitter-dev)."];
         }
     }
@@ -1108,7 +1128,7 @@ static CGFloat OMDPreferencesFinishCard(NSView *card, CGFloat height)
 
 - (void)preferencesSplitSyncModeChanged:(id)sender
 {
-    id<NSMenuItem> item = [_preferencesSplitSyncModePopup selectedItem];
+    NSMenuItem *item = (NSMenuItem *)[_preferencesSplitSyncModePopup selectedItem];
     NSInteger tag = item != nil ? [item tag] : (NSInteger)OMDSplitSyncModeLinkedScrolling;
     [_delegate setSplitSyncModePreference:OMDSplitSyncModeFromInteger(tag)];
 }
@@ -1116,7 +1136,7 @@ static CGFloat OMDPreferencesFinishCard(NSView *card, CGFloat height)
 - (void)preferencesLayoutModeChanged:(id)sender
 {
     (void)sender;
-    id<NSMenuItem> item = [_preferencesLayoutModePopup selectedItem];
+    NSMenuItem *item = (NSMenuItem *)[_preferencesLayoutModePopup selectedItem];
     NSInteger tag = item != nil ? [item tag] : (NSInteger)OMDLayoutDensityModeBalanced;
     [_delegate setLayoutDensityPreference:OMDClampedLayoutDensityMode(tag)];
 }
@@ -1147,7 +1167,7 @@ static CGFloat OMDPreferencesFinishCard(NSView *card, CGFloat height)
 
 - (void)preferencesMathPolicyChanged:(id)sender
 {
-    id<NSMenuItem> item = [_preferencesMathPolicyPopup selectedItem];
+    NSMenuItem *item = (NSMenuItem *)[_preferencesMathPolicyPopup selectedItem];
     NSInteger tag = item != nil ? [item tag] : (NSInteger)OMMarkdownMathRenderingPolicyStyledText;
     OMMarkdownMathRenderingPolicy policy = OMDMathRenderingPolicyFromInteger(tag);
     [_delegate setMathRenderingPolicyPreference:policy];
@@ -1155,7 +1175,7 @@ static CGFloat OMDPreferencesFinishCard(NSView *card, CGFloat height)
 
 - (void)preferencesDiagramPolicyChanged:(id)sender
 {
-    id<NSMenuItem> item = [_preferencesDiagramPolicyPopup selectedItem];
+    NSMenuItem *item = (NSMenuItem *)[_preferencesDiagramPolicyPopup selectedItem];
     NSInteger tag = item != nil ? [item tag] : (NSInteger)OMMarkdownDiagramRenderingPolicyNative;
     [_delegate setDiagramRenderingPolicyPreference:OMDDiagramRenderingPolicyFromInteger(tag)];
 }
@@ -1218,7 +1238,7 @@ static CGFloat OMDPreferencesFinishCard(NSView *card, CGFloat height)
 - (void)preferencesThemeChanged:(id)sender
 {
     (void)sender;
-    id<NSMenuItem> item = [_preferencesThemePopup selectedItem];
+    NSMenuItem *item = (NSMenuItem *)[_preferencesThemePopup selectedItem];
     NSString *themeName = [item representedObject];
     if (themeName == nil || [themeName length] == 0) {
         [_delegate setThemePreference:nil];
@@ -1311,7 +1331,7 @@ static CGFloat OMDPreferencesFinishCard(NSView *card, CGFloat height)
     NSArray *themes = [_delegate availableThemeNames];
     for (NSString *name in themes) {
         [_preferencesThemePopup addItemWithTitle:name];
-        id<NSMenuItem> item = [_preferencesThemePopup itemAtIndex:[_preferencesThemePopup numberOfItems] - 1];
+        NSMenuItem *item = (NSMenuItem *)[_preferencesThemePopup itemAtIndex:[_preferencesThemePopup numberOfItems] - 1];
         [item setRepresentedObject:name];
     }
 }

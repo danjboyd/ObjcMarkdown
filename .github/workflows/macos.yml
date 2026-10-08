@@ -1,0 +1,112 @@
+name: macos
+
+# Builds and tests the macOS app on every push and pull request; for a
+# version tag, also attaches its disk image to the release. The app is
+# ad-hoc signed, not notarized (there is no Developer ID yet), so macOS
+# asks before the first open; the release notes say how.
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Optional version to package (for example 0.1.0 or 0.1.1-rc2).
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-test:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Resolve version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version='${{ github.event.inputs.version }}'
+          if [[ -z "$version" && '${{ github.ref_type }}' == 'tag' ]]; then
+            version='${{ github.ref_name }}'
+          fi
+          if [[ -z "$version" ]]; then
+            version="$(cat VERSION)"
+          fi
+          version="${version#v}"
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+
+      - name: Toolchain
+        run: |
+          xcodebuild -version
+          xcrun clang --version
+
+      - name: Build (universal) and run tests
+        run: |
+          make -C macos -j"$(sysctl -n hw.ncpu)" OMD_WERROR=1 \
+            OMD_VERSION='${{ steps.version.outputs.version }}' \
+            BUILD_NUMBER='${{ github.run_number }}' all test
+
+      - name: Smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+          app=macos/build/MarkdownViewer.app
+          lipo -archs "$app/Contents/MacOS/MarkdownViewer"
+          codesign --verify --deep --strict "$app"
+          "$app/Contents/MacOS/MarkdownViewer" "$PWD/Resources/sample-commonmark.md" &
+          pid=$!
+          sleep 10
+          # Still running: it launched, opened the document and rendered.
+          kill -0 "$pid"
+          kill "$pid"
+
+      - name: Disk image
+        run: |
+          make -C macos OMD_VERSION='${{ steps.version.outputs.version }}' \
+            BUILD_NUMBER='${{ github.run_number }}' dmg
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: objcmarkdown-macos
+          path: macos/build/*.dmg
+          if-no-files-found: error
+
+  publish-release-assets:
+    if: github.ref_type == 'tag'
+    needs:
+      - build-and-test
+    runs-on: ubuntu-latest
+    # The other platforms publish to the same release.
+    concurrency:
+      group: objcmarkdown-update-feeds
+      cancel-in-progress: false
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: objcmarkdown-macos
+          path: dist/macos
+
+      - name: macOS release notes
+        shell: bash
+        run: |
+          cat > release-macos-notes.md <<'EOF'
+          macOS: `MarkdownViewer-*-macos.dmg` is a universal app (Apple silicon and Intel, macOS 11 or later). It isn't notarized yet, so macOS blocks the first open: drag the app to Applications, open it, then choose Open Anyway in System Settings > Privacy & Security (on macOS 14 and earlier, Control-click the app and choose Open).
+          EOF
+
+      - name: Publish macOS release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/macos/*.dmg
+          body_path: release-macos-notes.md
+          append_body: true

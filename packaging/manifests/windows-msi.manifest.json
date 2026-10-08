@@ -89,7 +89,10 @@
       "metadata/icons"
     ],
     "runtimeSeedPaths": [
-      "runtime/bin/defaults.exe"
+      "runtime/bin/defaults.exe",
+      "runtime/bin/gpbs.exe",
+      "runtime/bin/gdnc.exe",
+      "runtime/bin/make_services.exe"
     ]
   },
   "launch": {
@@ -143,6 +146,9 @@
         "metadata/docs/BundledThemes.txt",
         "metadata/docs/BundledLaTeXRuntime.txt",
         "runtime/bin/defaults.exe",
+        "runtime/bin/gpbs.exe",
+        "runtime/bin/gdnc.exe",
+        "runtime/bin/make_services.exe",
         "runtime/bin/libcairo-2.dll",
         "runtime/bin/libfontconfig-1.dll",
         "runtime/bin/libfreetype-6.dll",

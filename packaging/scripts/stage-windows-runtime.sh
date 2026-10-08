@@ -52,6 +52,13 @@ copy_required "$ROOT/third_party/TextViewVimKitBuild/obj/TextViewVimKit-0.dll" "
 copy_required "$ROOT/third_party/GPUpdaterCore/obj/GPUpdaterCore-0.dll" "$RUNTIME_BIN_DIR/"
 copy_required "$ROOT/third_party/GPUpdaterUI/obj/GPUpdaterUI-0.dll" "$RUNTIME_BIN_DIR/"
 copy_required /clang64/bin/defaults.exe "$RUNTIME_BIN_DIR/"
+# The tools gnustep-base and gnustep-gui start on demand: gpbs bridges the
+# pasteboard to the Windows clipboard, gdnc carries distributed
+# notifications and make_services builds the services cache (#93). Base
+# looks for tools next to its DLL, as it does for defaults.
+for tool in gpbs gdnc make_services; do
+  copy_required "/clang64/bin/$tool.exe" "$RUNTIME_BIN_DIR/"
+done
 
 copy_optional /clang64/bin/libgcc_s_seh-1.dll "$RUNTIME_BIN_DIR/"
 copy_optional /clang64/bin/libstdc++-6.dll "$RUNTIME_BIN_DIR/"
@@ -222,6 +229,9 @@ collect_deps "$RUNTIME_BIN_DIR/TextViewVimKit-0.dll"
 collect_deps "$RUNTIME_BIN_DIR/GPUpdaterCore-0.dll"
 collect_deps "$RUNTIME_BIN_DIR/GPUpdaterUI-0.dll"
 collect_deps "$RUNTIME_BIN_DIR/defaults.exe"
+for tool in gpbs gdnc make_services; do
+  collect_deps "$RUNTIME_BIN_DIR/$tool.exe"
+done
 while IFS= read -r -d '' backend_dll; do
   collect_deps "$backend_dll"
 done < <(find "$RUNTIME_GNUSTEP_DIR/Bundles" -type f \( -name 'libgnustep-back-*.dll' -o -name 'libgnustep-back.dll' \) -print0 2>/dev/null)

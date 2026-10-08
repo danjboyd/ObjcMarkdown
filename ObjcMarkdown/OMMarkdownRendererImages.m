@@ -204,6 +204,18 @@ static NSImage *OMDownscaledImage(NSImage *image, NSSize size)
         }
     }
 
+#if !defined(GNUSTEP)
+    // The values are in the picture's colour space (sRGB, Display P3, ...),
+    // which macOS keeps with the bitmap; tag the copy with it too.
+    NSColorSpace *sourceSpace = [source colorSpace];
+    if (!grey && sourceSpace != nil && [sourceSpace colorSpaceModel] == NSColorSpaceModelRGB) {
+        NSBitmapImageRep *tagged = [scaled bitmapImageRepByRetaggingWithColorSpace:sourceSpace];
+        if (tagged != nil) {
+            scaled = tagged;
+        }
+    }
+#endif
+
     NSImage *result = [[[NSImage alloc] initWithSize:size] autorelease];
     [result addRepresentation:scaled];
     return result;
@@ -482,12 +494,30 @@ static NSString *OMURLStringWithRootPath(NSString *urlString)
                                                 [urlString substringFromIndex:end.location]];
 }
 
+// Whether NSURL takes urlString as written. From macOS 14 NSURL
+// percent-encodes a string it would have rejected, "%" included ("%20bä"
+// becomes "%2520b%C3%A4"), so ask it not to; GNUstep and older macOS
+// return nil.
+static BOOL OMURLStringIsValidAsWritten(NSString *urlString)
+{
+#if !defined(GNUSTEP)
+    if (@available(macOS 14.0, *)) {
+        return [NSURL URLWithString:urlString encodingInvalidCharacters:NO] != nil;
+    }
+#endif
+    (void)urlString;
+    return YES;
+}
+
 // The destination as an NSURL, escaping it the way cmark-gfm would if NSURL
 // won't take it as written.
 static NSURL *OMURLFromDestination(NSString *urlString, NSURL *baseURL)
 {
-    NSURL *url = baseURL != nil ? [NSURL URLWithString:urlString relativeToURL:baseURL]
-                                : [NSURL URLWithString:urlString];
+    NSURL *url = nil;
+    if (OMURLStringIsValidAsWritten(urlString)) {
+        url = baseURL != nil ? [NSURL URLWithString:urlString relativeToURL:baseURL]
+                             : [NSURL URLWithString:urlString];
+    }
     if (url == nil) {
         NSString *escaped = OMEscapedURLString(urlString);
         url = baseURL != nil ? [NSURL URLWithString:escaped relativeToURL:baseURL]

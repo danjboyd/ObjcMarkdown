@@ -260,6 +260,8 @@
     XCTAssertEqual([rects count], (NSUInteger)0);
 }
 
+// The helper draws only on GNUstep; AppKit on macOS draws strikethrough itself.
+#if defined(GNUSTEP)
 - (void)testStrikethroughHelperDrawsAtMidXHeightInUnflippedContext
 {
     NSFont *font = [NSFont userFontOfSize:20.0];
@@ -299,6 +301,7 @@
     XCTAssertTrue(bottom - top <= 3, @"a thin line, not a block");
     XCTAssertEqualWithAccuracy((top + bottom) * 0.5, expectedMiddle, 4.0);
 }
+#endif
 
 - (void)testLinkTitleIsOfferedAsToolTip
 {

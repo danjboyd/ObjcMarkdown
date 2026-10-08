@@ -950,10 +950,15 @@ static BOOL OMDMathToolchainAvailable(void)
     XCTAssertNotNil(bitmap);
     XCTAssertEqual([bitmap pixelsWide], (NSInteger)100);
     XCTAssertEqual([bitmap pixelsHigh], (NSInteger)50);
+    // The colour as saved: macOS colour-manages -lockFocus drawing, so the
+    // file holds the fill in its own colour space, not the values given.
+    NSBitmapImageRep *original = (NSBitmapImageRep *)[NSBitmapImageRep imageRepWithContentsOfFile:path];
+    NSColor *expected = [[original colorAtX:200 y:100] colorUsingColorSpaceName:NSCalibratedRGBColorSpace];
     NSColor *pixel = [[bitmap colorAtX:50 y:25] colorUsingColorSpaceName:NSCalibratedRGBColorSpace];
-    XCTAssertEqualWithAccuracy([pixel redComponent], 0.15, 0.02);
-    XCTAssertEqualWithAccuracy([pixel greenComponent], 0.45, 0.02);
-    XCTAssertEqualWithAccuracy([pixel blueComponent], 0.85, 0.02);
+    XCTAssertNotNil(expected);
+    XCTAssertEqualWithAccuracy([pixel redComponent], [expected redComponent], 0.02);
+    XCTAssertEqualWithAccuracy([pixel greenComponent], [expected greenComponent], 0.02);
+    XCTAssertEqualWithAccuracy([pixel blueComponent], [expected blueComponent], 0.02);
     XCTAssertEqualWithAccuracy([pixel alphaComponent], 1.0, 0.01);
     [self removeFileIfPresent:path];
 }
@@ -1851,6 +1856,36 @@ static BOOL OMDMathToolchainAvailable(void)
     NSString *expected = [NSString stringWithFormat:@"![a small icon](%@ \"Icon\")", path];
     XCTAssertEqualObjects([image source], expected);
     XCTAssertEqual([image sourceLineRange].location, (NSUInteger)3);
+    [self removeFileIfPresent:path];
+}
+
+- (void)testImagesFindTheirInnermostBlockAmongManyAnchors
+{
+    // Objects resolve against an index of the block anchors (#94): each
+    // takes the lines of the innermost block around it, also inside a
+    // quote's list, and also far down a long document.
+    NSString *path = [self writeTemporaryImage];
+    NSMutableString *markdown = [NSMutableString string];
+    NSUInteger index = 0;
+    for (; index < 60; index++) {
+        [markdown appendFormat:@"## Heading %lu\n\n![i](%@)\n\n", (unsigned long)index, path];
+    }
+    [markdown appendFormat:@"> Quote\n>\n> - one\n> - two ![j](%@)\n>   more\n", path];
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    NSArray *objects = [self renderedObjectsInString:[renderer attributedStringFromMarkdown:markdown]];
+    XCTAssertEqual([objects count], (NSUInteger)61);
+    if ([objects count] != 61) {
+        [self removeFileIfPresent:path];
+        return;
+    }
+    for (index = 0; index < 60; index++) {
+        NSRange lines = [[objects objectAtIndex:index] sourceLineRange];
+        XCTAssertEqual(lines.location, (NSUInteger)(3 + 4 * index));
+        XCTAssertEqual(lines.length, (NSUInteger)1);
+    }
+    NSRange nested = [[objects lastObject] sourceLineRange];
+    XCTAssertEqual(nested.location, (NSUInteger)244);
+    XCTAssertEqual(nested.length, (NSUInteger)2);
     [self removeFileIfPresent:path];
 }
 

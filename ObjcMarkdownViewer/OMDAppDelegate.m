@@ -36,6 +36,7 @@
 #import "OMDViewerDefaults.h"
 #import "OMDViewerImages.h"
 #import "OMDDocumentTabsController.h"
+#import "OMDMarkdownDocument.h"
 #import "OMDExplorerController.h"
 #import "OMDOpenLocationController.h"
 #import "OMDRemoteDocument.h"
@@ -43,10 +44,13 @@
 #import "OMDPreferencesController.h"
 #import "GSVVimBindingController.h"
 #import "GSVVimConfigLoader.h"
-#import <AppKit/NSInterfaceStyle.h>
+#import "OMFontSupport.h"
 #import <AppKit/NSPrinter.h>
+#if defined(GNUSTEP)
+#import <AppKit/NSInterfaceStyle.h>
 #import <GNUstepGUI/GSPrinting.h>
 #import <GNUstepGUI/GSTheme.h>
+#endif
 
 #include <sys/types.h>
 #if defined(_WIN32)
@@ -62,6 +66,10 @@
 - (void)start;
 - (void)checkForUpdates:(id)sender;
 @end
+
+#if !defined(GNUSTEP)
+static void *OMDSystemAppearanceObservationContext = &OMDSystemAppearanceObservationContext;
+#endif
 
 static const CGFloat OMDPrintExportZoomScale = 0.8;
 static const NSTimeInterval OMDInteractiveRenderDebounceInterval = 0.15;
@@ -113,12 +121,15 @@ static NSUInteger OMDCountAttachmentsInAttributedString(NSAttributedString *attr
     return count;
 }
 
+// GNUstep's Windows-style menus (a menu bar in each window). macOS has
+// one menu bar at the top of the screen, so these do nothing there.
 static void OMDApplyWindowsMenuToWindow(NSWindow *window)
 {
     if (window == nil) {
         return;
     }
 
+#if defined(GNUSTEP)
 #if defined(_WIN32)
     if (YES) {
 #else
@@ -138,10 +149,12 @@ static void OMDApplyWindowsMenuToWindow(NSWindow *window)
             OMDStartupTrace(@"windows-style menu applied to window");
         }
     }
+#endif
 }
 
 static void OMDRefreshWindowsMainMenu(void)
 {
+#if defined(GNUSTEP)
 #if defined(_WIN32)
     if (YES) {
 #else
@@ -156,21 +169,23 @@ static void OMDRefreshWindowsMainMenu(void)
             OMDStartupTrace(@"windows-style main menu refreshed");
         }
     }
+#endif
 }
 
 static CGFloat OMDMinimumUsableWindowWidth(void)
 {
-#if defined(__APPLE__)
-    return 900.0;
-#else
     // The status bar is the widest row that can't shrink.
     return OMDStatusBarMinimumWidth + OMDUsableWindowWidthPadding;
-#endif
 }
 
 static CGFloat OMDDefaultWindowWidth(void)
 {
+#if defined(__APPLE__)
+    // Room for the toolbar's items without the overflow menu.
+    return MAX(900.0, OMDMinimumUsableWindowWidth());
+#else
     return OMDMinimumUsableWindowWidth();
+#endif
 }
 
 static CGFloat OMDDefaultWindowHeight(void)
@@ -258,8 +273,8 @@ typedef NS_ENUM(NSInteger, OMDLinkedScrollDriver) {
 #define NSModalResponseCancel (-1000)
 #endif
 
-#if !defined(_WIN32)
-// Only the non-Windows path uses it.
+#if defined(GNUSTEP) && !defined(_WIN32)
+// Only GNUstep on Linux uses it; macOS and Windows keep their own default printer.
 static NSString *OMDCUPSDefaultPrinterName(void)
 {
     NSString *lpstatPath = OMDExecutablePathNamed(@"lpstat");
@@ -466,17 +481,20 @@ static CGFloat OMDClampedScrollSpeed(CGFloat value)
 - (void)closeDocumentTabAtIndex:(NSInteger)index;
 - (void)selectDocumentTabAtIndex:(NSInteger)index;
 - (void)captureCurrentStateIntoSelectedTab;
-- (NSMutableDictionary *)newDocumentTabWithMarkdown:(NSString *)markdown
+- (OMDMarkdownDocument *)currentDocument;
+- (void)commitPendingDirtyState;
+- (void)markdownDocumentEditedStateDidChange:(NSNotification *)notification;
+- (OMDMarkdownDocument *)newDocumentTabWithMarkdown:(NSString *)markdown
                                          sourcePath:(NSString *)sourcePath
                                        displayTitle:(NSString *)displayTitle
                                            readOnly:(BOOL)readOnly
                                          renderMode:(OMDDocumentRenderMode)renderMode
                                      syntaxLanguage:(NSString *)syntaxLanguage
                                     diskFingerprint:(NSString *)diskFingerprint;
-- (void)installDocumentTabRecord:(NSMutableDictionary *)tab
+- (void)installDocumentTabRecord:(OMDMarkdownDocument *)tab
                          inNewTab:(BOOL)inNewTab
                     resetViewport:(BOOL)resetViewport;
-- (void)applyDocumentTabRecord:(NSDictionary *)tabRecord;
+- (void)applyDocumentTabRecord:(OMDMarkdownDocument *)tabRecord;
 - (BOOL)openDocumentWithMarkdown:(NSString *)markdown
                       sourcePath:(NSString *)sourcePath
                     displayTitle:(NSString *)displayTitle
@@ -640,6 +658,7 @@ static CGFloat OMDClampedScrollSpeed(CGFloat value)
 - (void)zoomToActualSize:(id)sender;
 - (void)checkForUpdates:(id)sender;
 - (void)showAboutPanel:(id)sender;
+- (void)showProjectHomePage:(id)sender;
 - (BOOL)isWordSelectionModifierShimEnabled;
 - (void)setWordSelectionModifierShimEnabled:(BOOL)enabled;
 - (void)toggleWordSelectionModifierShim:(id)sender;
@@ -740,6 +759,16 @@ static NSMutableArray *OMDSecondaryWindows(void)
 
 - (void)dealloc
 {
+#if !defined(GNUSTEP)
+    if (_observingSystemAppearance) {
+        [NSApp removeObserver:self
+                   forKeyPath:@"effectiveAppearance"
+                      context:OMDSystemAppearanceObservationContext];
+    }
+    [NSObject cancelPreviousPerformRequestsWithTarget:self
+                                             selector:@selector(systemAppearanceDidChange)
+                                               object:nil];
+#endif
     [self unregisterAsSecondaryWindow];
     [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(refreshOutline) object:nil];
     [[NSNotificationCenter defaultCenter] removeObserver:self
@@ -747,6 +776,9 @@ static NSMutableArray *OMDSecondaryWindows(void)
                                                   object:nil];
     [[NSNotificationCenter defaultCenter] removeObserver:self
                                                     name:OMMarkdownRendererRemoteImagesDidWarmNotification
+                                                  object:nil];
+    [[NSNotificationCenter defaultCenter] removeObserver:self
+                                                    name:OMDMarkdownDocumentEditedStateDidChangeNotification
                                                   object:nil];
     if (_sourceScrollView != nil) {
         [[NSNotificationCenter defaultCenter] removeObserver:self
@@ -863,6 +895,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
     }
 
     [self presentWindowIfNeeded];
+#if defined(GNUSTEP)
     if (_updaterController == nil) {
         NSError *updateError = nil;
         GPStandardUpdaterController *controller = [[GPStandardUpdaterController alloc] initWithPackagedConfiguration:&updateError];
@@ -876,6 +909,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
     } else {
         [(GPStandardUpdaterController *)_updaterController setParentWindow:_window];
     }
+#endif
     if ([startupPath length] > 0 || shouldCheckRecovery) {
         _launchWorkScheduled = YES;
         [self performSelector:@selector(performDeferredInitialLaunchWork)
@@ -907,6 +941,11 @@ static NSMutableArray *OMDSecondaryWindows(void)
 {
     OMDStartupTrace(@"applicationWillFinishLaunching: enter");
     OMDRemoveRetiredDefaults();
+#if !defined(GNUSTEP)
+    // Documents open as the app's own tabs in one window, so macOS's window
+    // tabs (and their menu items) would be a second, conflicting set.
+    [NSWindow setAllowsAutomaticWindowTabbing:NO];
+#endif
     @try {
         [self setupMainMenu];
         OMDStartupTrace(@"applicationWillFinishLaunching: setupMainMenu returned");
@@ -921,6 +960,14 @@ static NSMutableArray *OMDSecondaryWindows(void)
 {
     return YES;
 }
+
+#if !defined(GNUSTEP)
+- (BOOL)applicationSupportsSecureRestorableState:(NSApplication *)app
+{
+    (void)app;
+    return YES;
+}
+#endif
 
 - (BOOL)application:(NSApplication *)theApplication openFile:(NSString *)filename
 {
@@ -967,6 +1014,33 @@ static NSMutableArray *OMDSecondaryWindows(void)
                 requireDirtyConfirm:!openInNewTab];
 }
 
+#if !defined(GNUSTEP)
+- (void)observeValueForKeyPath:(NSString *)keyPath
+                      ofObject:(id)object
+                        change:(NSDictionary *)change
+                       context:(void *)context
+{
+    if (context != OMDSystemAppearanceObservationContext) {
+        [super observeValueForKeyPath:keyPath ofObject:object change:change context:context];
+        return;
+    }
+    [NSObject cancelPreviousPerformRequestsWithTarget:self
+                                             selector:@selector(systemAppearanceDidChange)
+                                               object:nil];
+    [self performSelector:@selector(systemAppearanceDidChange) withObject:nil afterDelay:0.0];
+}
+
+// The preview's theme and the source colours follow the new appearance.
+- (void)systemAppearanceDidChange
+{
+    [[NSApp effectiveAppearance] performAsCurrentDrawingAppearance:^{
+        [_renderer setTheme:[OMTheme defaultThemeForDarkAppearance:OMDSystemAppearanceIsDark()]];
+        [self renderCurrentMarkdown];
+        [self requestSourceSyntaxHighlightingRefresh];
+    }];
+}
+#endif
+
 - (void)setupMainMenu
 {
     OMDStartupTrace(@"setupMainMenu: enter");
@@ -997,11 +1071,19 @@ static NSMutableArray *OMDSecondaryWindows(void)
                     backing:NSBackingStoreBuffered
                       defer:NO];
     [_window setMinSize:NSMakeSize(OMDMinimumUsableWindowWidth(), 600.0)];
+#if !defined(GNUSTEP)
+    [_window setCollectionBehavior:([_window collectionBehavior] | NSWindowCollectionBehaviorFullScreenPrimary)];
+#endif
     [_window setFrameAutosaveName:@"ObjcMarkdownViewerMainWindow"];
     [self normalizeWindowFrameIfNeeded];
     [_window setTitle:@"Markdown Viewer"];
     [_window setDelegate:self];
+#if defined(GNUSTEP)
+    // macOS takes the icon from the bundle (CFBundleIconFile).
     NSImage *appIcon = OMDImageNamed(@"markdown_icon.png");
+#else
+    NSImage *appIcon = nil;
+#endif
     if (appIcon != nil) {
         [NSApp setApplicationIconImage:appIcon];
         if ([_window respondsToSelector:@selector(setMiniwindowImage:)]) {
@@ -1070,7 +1152,13 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [_textView setVerticallyResizable:NO];
     [_textView setEditable:NO];
     [_textView setSelectable:YES];
+#if defined(GNUSTEP)
     [_textView setUsesFindPanel:YES];
+#else
+    // macOS's find bar, at the top of the pane.
+    [_textView setUsesFindBar:YES];
+    [_textView setIncrementalSearchingEnabled:YES];
+#endif
     [_textView setRichText:YES];
     [_textView setDrawsBackground:NO];
     [_textView setTextContainerInset:NSMakeSize(metrics.previewTextInsetX, metrics.previewTextInsetY)];
@@ -1122,7 +1210,12 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [_sourceTextView setSelectable:YES];
     [_sourceTextView setRichText:NO];
     [_sourceTextView setAllowsUndo:YES];
+#if defined(GNUSTEP)
     [_sourceTextView setUsesFindPanel:YES];
+#else
+    [_sourceTextView setUsesFindBar:YES];
+    [_sourceTextView setIncrementalSearchingEnabled:YES];
+#endif
     [_sourceTextView setUsesRuler:NO];
     [_sourceTextView setRulerVisible:NO];
     [_sourceTextView setTextContainerInset:NSMakeSize(metrics.sourceTextInsetX, metrics.sourceTextInsetY)];
@@ -1190,7 +1283,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [_launchOverlayDetailLabel setSelectable:NO];
     [_launchOverlayDetailLabel setDrawsBackground:NO];
     [_launchOverlayDetailLabel setAlignment:NSCenterTextAlignment];
-    [_launchOverlayDetailLabel setTextColor:[NSColor disabledControlTextColor]];
+    [_launchOverlayDetailLabel setTextColor:[NSColor secondaryLabelColor]];
     [_launchOverlayDetailLabel setFont:OMDChromeFont()];
     [_launchOverlayDetailLabel setStringValue:@""];
     [[launchCard contentView] addSubview:_launchOverlayDetailLabel];
@@ -1268,6 +1361,21 @@ static NSMutableArray *OMDSecondaryWindows(void)
                                              selector:@selector(remoteImagesDidWarm:)
                                                  name:OMMarkdownRendererRemoteImagesDidWarmNotification
                                                object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(markdownDocumentEditedStateDidChange:)
+                                                 name:OMDMarkdownDocumentEditedStateDidChangeNotification
+                                               object:nil];
+#if !defined(GNUSTEP)
+    // macOS switches between light and dark while the app runs (by hand, or
+    // at sunset with Auto).
+    if (!_observingSystemAppearance) {
+        [NSApp addObserver:self
+                forKeyPath:@"effectiveAppearance"
+                   options:0
+                   context:OMDSystemAppearanceObservationContext];
+        _observingSystemAppearance = YES;
+    }
+#endif
 
     _viewerMode = OMDViewerModeFromInteger([[NSUserDefaults standardUserDefaults] integerForKey:@"ObjcMarkdownViewerMode"]);
     [self setViewerMode:_viewerMode persistPreference:NO];
@@ -1801,6 +1909,11 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
     if (action == @selector(performFindPanelAction:)) {
         return [self findTargetTextView] != nil;
     }
+#if !defined(GNUSTEP)
+    if (action == @selector(performTextFinderAction:)) {
+        return [self findTargetTextView] != nil;
+    }
+#endif
     if (action == @selector(setReadMode:) ||
         action == @selector(setEditMode:) ||
         action == @selector(setSplitMode:)) {
@@ -2580,14 +2693,14 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
                                     suppressed:suppressedFingerprint];
     [self captureCurrentStateIntoSelectedTab];
 
-    NSMutableDictionary *tab = [_documentTabsController selectedTab];
-    NSMutableDictionary *loadedImages = [[[tab objectForKey:OMDTabImageFingerprintsKey] mutableCopy] autorelease];
+    OMDMarkdownDocument *tab = [_documentTabsController selectedTab];
+    NSMutableDictionary *loadedImages = [[[tab imageFingerprints] mutableCopy] autorelease];
     if (loadedImages == nil) {
         loadedImages = [NSMutableDictionary dictionary];
     }
     NSDictionary *images = nil;
-    if ([_currentMarkdown isEqual:[tab objectForKey:OMDTabImageMarkdownKey]] &&
-        [_currentPath isEqual:[tab objectForKey:OMDTabImageSourcePathKey]]) {
+    if ([_currentMarkdown isEqual:[tab imageMarkdown]] &&
+        [_currentPath isEqual:[tab imageSourcePath]]) {
         // Poll file metadata without reparsing unchanged Markdown on every tick.
         NSMutableDictionary *observedImages = [NSMutableDictionary dictionary];
         for (NSString *path in loadedImages) {
@@ -2598,8 +2711,8 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
         images = (_currentDocumentRenderMode == OMDDocumentRenderModeMarkdown
                   ? [self imageFingerprintsForMarkdown:_currentMarkdown sourcePath:_currentPath]
                   : [NSDictionary dictionary]);
-        [tab setObject:(_currentMarkdown ?: @"") forKey:OMDTabImageMarkdownKey];
-        [tab setObject:(_currentPath ?: @"") forKey:OMDTabImageSourcePathKey];
+        [tab setImageMarkdown:(_currentMarkdown ?: @"")];
+        [tab setImageSourcePath:(_currentPath ?: @"")];
     }
     // Editing references establishes a baseline for new paths; it is not a disk change.
     for (NSString *path in [loadedImages allKeys]) {
@@ -2612,10 +2725,10 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
             [loadedImages setObject:[images objectForKey:path] forKey:path];
         }
     }
-    [tab setObject:loadedImages forKey:OMDTabImageFingerprintsKey];
+    [tab setImageFingerprints:loadedImages];
     BOOL imagesChanged = ![loadedImages isEqual:images];
     if (!imagesChanged) {
-        [tab removeObjectForKey:OMDTabSuppressedImageFingerprintsKey];
+        [tab setSuppressedImageFingerprints:nil];
     }
 
     if (!allowPrompt || _externalReloadPromptVisible) {
@@ -2632,7 +2745,7 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
         return;
     }
     if ((!documentChanged || [_currentObservedDiskFingerprint isEqualToString:_currentSuppressedDiskFingerprint]) &&
-        (!imagesChanged || [images isEqual:[tab objectForKey:OMDTabSuppressedImageFingerprintsKey]])) {
+        (!imagesChanged || [images isEqual:[tab suppressedImageFingerprints]])) {
         return;
     }
 
@@ -2659,14 +2772,14 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
 
     if (buttonIndex == 0) {
         if (![self reloadCurrentDocumentFromDiskPreservingViewport]) {
-            [tab setObject:images forKey:OMDTabSuppressedImageFingerprintsKey];
+            [tab setSuppressedImageFingerprints:images];
             [self setCurrentDiskFingerprintStateLoaded:_currentLoadedDiskFingerprint
                                               observed:_currentObservedDiskFingerprint
                                             suppressed:_currentObservedDiskFingerprint];
             [self captureCurrentStateIntoSelectedTab];
         }
     } else {
-        [tab setObject:images forKey:OMDTabSuppressedImageFingerprintsKey];
+        [tab setSuppressedImageFingerprints:images];
         [self setCurrentDiskFingerprintStateLoaded:_currentLoadedDiskFingerprint
                                           observed:_currentObservedDiskFingerprint
                                         suppressed:_currentObservedDiskFingerprint];
@@ -2696,7 +2809,7 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
         return NO;
     }
 
-    NSMutableDictionary *tab = [self newDocumentTabWithMarkdown:(markdown != nil ? markdown : @"")
+    OMDMarkdownDocument *tab = [self newDocumentTabWithMarkdown:(markdown != nil ? markdown : @"")
                                                      sourcePath:path
                                                    displayTitle:displayTitle
                                                        readOnly:_currentDocumentReadOnly
@@ -3038,6 +3151,7 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
                           inNewTab:NO
                requireDirtyConfirm:NO];
     _sourceIsDirty = YES;
+    [[self currentDocument] markChangedOutsideUndo];
     _sourceRevision = 1;
     [self captureCurrentStateIntoSelectedTab];
     [_documentTabsController updateTabStrip];
@@ -3087,6 +3201,7 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
                                       observed:savedFingerprint
                                     suppressed:nil];
     [self captureCurrentStateIntoSelectedTab];
+    [[self currentDocument] markSaved];
     [_documentTabsController updateTabStrip];
     [self clearRecoverySnapshot];
     return YES;
@@ -3137,7 +3252,8 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
         return NO;
     }
 
-    if (_currentPath != nil && [_currentPath length] > 0) {
+    if (_currentPath != nil && [_currentPath length] > 0 &&
+        ![self isImportableDocumentPath:_currentPath]) {
         return [self saveCurrentMarkdownToPath:_currentPath];
     }
     return [self saveDocumentAsMarkdownWithPanel];
@@ -3273,7 +3389,7 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
 
 - (void)ensurePrintDefaultPrinterConfigured
 {
-#if defined(_WIN32)
+#if defined(_WIN32) || !defined(GNUSTEP)
     return;
 #else
     NSString *defaultPrinterName = OMDCUPSDefaultPrinterName();
@@ -3405,6 +3521,7 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
                                                           [exception reason]]);
     }
 
+#if defined(GNUSTEP)
     @try {
         printingBundle = [GSPrinting printingBundle];
     } @catch (NSException *exception) {
@@ -3412,13 +3529,19 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
                                                           stage,
                                                           [exception reason]]);
     }
+#endif
 
     OMDLogPrintDiagnostics([NSString stringWithFormat:@"%@ operationClass=%@ panelClass=%@ panelVisible=%@ panelFrame=%@ bundlePath=%@ selectedPrinter=%@ defaultPrinter=%@ printerNames=%@ jobDisposition=%@",
                                                       stage,
                                                       (operation != nil ? NSStringFromClass([operation class]) : @"<nil>"),
                                                       (panel != nil ? NSStringFromClass([panel class]) : @"<nil>"),
+#if defined(GNUSTEP)
                                                       (panel != nil && [panel isVisible] ? @"YES" : @"NO"),
                                                       (panel != nil ? NSStringFromRect([panel frame]) : @"<nil>"),
+#else
+                                                      @"<n/a>",
+                                                      @"<n/a>",
+#endif
                                                       (printingBundle != nil ? [printingBundle bundlePath] : @"<nil>"),
                                                       (selectedPrinter != nil ? [selectedPrinter name] : @"<nil>"),
                                                       (defaultPrinter != nil ? [defaultPrinter name] : @"<nil>"),
@@ -4735,7 +4858,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
 {
     NSFont *base = [[_renderer theme] baseFont];
     CGFloat size = (base != nil ? [base pointSize] : 16.0) * (_zoomScale > 0.0 ? _zoomScale : 1.0);
-    NSFont *font = base != nil ? [NSFont fontWithName:[base fontName] size:size] : nil;
+    NSFont *font = base != nil ? OMFontAtSize(base, size) : nil;
     if (font == nil) {
         font = [NSFont userFontOfSize:size];
     }
@@ -5081,9 +5204,9 @@ constrainSplitPosition:(CGFloat)proposedPosition
     }
 
     [self captureCurrentStateIntoSelectedTab];
+    [self commitPendingDirtyState];
 
-    NSDictionary *tabRecord = [_documentTabsController tabAtIndex:index];
-    BOOL tabIsDirty = [[tabRecord objectForKey:OMDTabDirtyKey] boolValue];
+    BOOL tabIsDirty = [[_documentTabsController tabAtIndex:index] isDocumentEdited];
     NSInteger previousSelection = [_documentTabsController selectedIndex];
     BOOL switchedToClosingTab = NO;
 
@@ -5137,62 +5260,81 @@ constrainSplitPosition:(CGFloat)proposedPosition
     }
 
     [_documentTabsController setSelectedIndex:targetSelection];
-    NSDictionary *selectedTab = [_documentTabsController tabAtIndex:targetSelection];
-    [self applyDocumentTabRecord:selectedTab];
+    [self applyDocumentTabRecord:[_documentTabsController tabAtIndex:targetSelection]];
     [self documentTabsDidChange];
+}
+
+- (OMDMarkdownDocument *)currentDocument
+{
+    return [_documentTabsController selectedTab];
 }
 
 - (void)captureCurrentStateIntoSelectedTab
 {
-    NSMutableDictionary *tab = [_documentTabsController selectedTab];
+    OMDMarkdownDocument *tab = [_documentTabsController selectedTab];
     if (tab == nil) {
         return;
     }
-    [tab setObject:(_currentMarkdown != nil ? _currentMarkdown : @"") forKey:OMDTabMarkdownKey];
+    [tab setMarkdown:(_currentMarkdown != nil ? _currentMarkdown : @"")];
+    [tab setSourcePath:_currentPath];
+    [tab setDisplayTitle:([_currentDisplayTitle length] > 0 ? _currentDisplayTitle : nil)];
+    [tab setReadOnly:_currentDocumentReadOnly];
+    [tab setRemoteURL:(_currentRemoteDocument != nil ? [[_currentRemoteDocument rawURL] absoluteString] : nil)];
+    [tab setRenderMode:_currentDocumentRenderMode];
+    [tab setSyntaxLanguage:([_currentDocumentSyntaxLanguage length] > 0 ? _currentDocumentSyntaxLanguage : nil)];
+    [tab setLoadedDiskFingerprint:([_currentLoadedDiskFingerprint length] > 0 ? _currentLoadedDiskFingerprint : nil)];
+    [tab setObservedDiskFingerprint:([_currentObservedDiskFingerprint length] > 0 ? _currentObservedDiskFingerprint : nil)];
+    [tab setSuppressedDiskFingerprint:([_currentSuppressedDiskFingerprint length] > 0 ? _currentSuppressedDiskFingerprint : nil)];
+}
 
-    if (_currentPath != nil && [_currentPath length] > 0) {
-        [tab setObject:_currentPath forKey:OMDTabSourcePathKey];
-    } else {
-        [tab removeObjectForKey:OMDTabSourcePathKey];
-    }
-
-    if (_currentDisplayTitle != nil && [_currentDisplayTitle length] > 0) {
-        [tab setObject:_currentDisplayTitle forKey:OMDTabDisplayTitleKey];
-    } else {
-        [tab removeObjectForKey:OMDTabDisplayTitleKey];
-    }
-
-    [tab setObject:[NSNumber numberWithBool:_sourceIsDirty] forKey:OMDTabDirtyKey];
-    [tab setObject:[NSNumber numberWithBool:_currentDocumentReadOnly] forKey:OMDTabReadOnlyKey];
-    if (_currentRemoteDocument != nil) {
-        [tab setObject:[[_currentRemoteDocument rawURL] absoluteString] forKey:OMDTabRemoteURLKey];
-    } else {
-        [tab removeObjectForKey:OMDTabRemoteURLKey];
-    }
-    [tab setObject:[NSNumber numberWithInteger:_currentDocumentRenderMode] forKey:OMDTabRenderModeKey];
-    if (_currentDocumentSyntaxLanguage != nil && [_currentDocumentSyntaxLanguage length] > 0) {
-        [tab setObject:_currentDocumentSyntaxLanguage forKey:OMDTabSyntaxLanguageKey];
-    } else {
-        [tab removeObjectForKey:OMDTabSyntaxLanguageKey];
-    }
-    if (_currentLoadedDiskFingerprint != nil && [_currentLoadedDiskFingerprint length] > 0) {
-        [tab setObject:_currentLoadedDiskFingerprint forKey:OMDTabLoadedDiskFingerprintKey];
-    } else {
-        [tab removeObjectForKey:OMDTabLoadedDiskFingerprintKey];
-    }
-    if (_currentObservedDiskFingerprint != nil && [_currentObservedDiskFingerprint length] > 0) {
-        [tab setObject:_currentObservedDiskFingerprint forKey:OMDTabObservedDiskFingerprintKey];
-    } else {
-        [tab removeObjectForKey:OMDTabObservedDiskFingerprintKey];
-    }
-    if (_currentSuppressedDiskFingerprint != nil && [_currentSuppressedDiskFingerprint length] > 0) {
-        [tab setObject:_currentSuppressedDiskFingerprint forKey:OMDTabSuppressedDiskFingerprintKey];
-    } else {
-        [tab removeObjectForKey:OMDTabSuppressedDiskFingerprintKey];
+// Before the document on show is left (another tab, closing): an edit the
+// undo history didn't record still counts as unsaved, and typing doesn't
+// coalesce into an undo step of the next document.
+- (void)commitPendingDirtyState
+{
+    [_sourceTextView breakUndoCoalescing];
+    if (_sourceIsDirty) {
+        [[self currentDocument] markChangedOutsideUndo];
     }
 }
 
-- (NSMutableDictionary *)newDocumentTabWithMarkdown:(NSString *)markdown
+// An edit, an undo back to the saved text, or a save changed whether a
+// document has unsaved changes.
+- (void)markdownDocumentEditedStateDidChange:(NSNotification *)notification
+{
+    OMDMarkdownDocument *document = [notification object];
+    if ([_documentTabsController count] == 0 ||
+        ![document isKindOfClass:[OMDMarkdownDocument class]]) {
+        return;
+    }
+    NSUInteger index = 0;
+    BOOL ours = NO;
+    for (; index < [_documentTabsController count]; index++) {
+        if ([_documentTabsController tabAtIndex:(NSInteger)index] == document) {
+            ours = YES;
+            break;
+        }
+    }
+    if (!ours) {
+        return;
+    }
+    if (document == [self currentDocument]) {
+        _sourceIsDirty = [document isDocumentEdited];
+        [self updateWindowTitle];
+    }
+    [_documentTabsController updateTabStrip];
+}
+
+// The editor's undo history is the document's own.
+- (NSUndoManager *)undoManagerForTextView:(NSTextView *)textView
+{
+    if (textView == _sourceTextView) {
+        return [[self currentDocument] undoManager];
+    }
+    return nil;
+}
+
+- (OMDMarkdownDocument *)newDocumentTabWithMarkdown:(NSString *)markdown
                                          sourcePath:(NSString *)sourcePath
                                        displayTitle:(NSString *)displayTitle
                                            readOnly:(BOOL)readOnly
@@ -5200,35 +5342,27 @@ constrainSplitPosition:(CGFloat)proposedPosition
                                      syntaxLanguage:(NSString *)syntaxLanguage
                                     diskFingerprint:(NSString *)diskFingerprint
 {
-    NSMutableDictionary *tab = [NSMutableDictionary dictionary];
-    [tab setObject:(markdown != nil ? markdown : @"") forKey:OMDTabMarkdownKey];
-    [tab setObject:(markdown ?: @"") forKey:OMDTabImageMarkdownKey];
-    [tab setObject:(sourcePath ?: @"") forKey:OMDTabImageSourcePathKey];
+    OMDMarkdownDocument *tab = [[[OMDMarkdownDocument alloc] init] autorelease];
+    [tab setMarkdown:(markdown != nil ? markdown : @"")];
+    [tab setImageMarkdown:(markdown ?: @"")];
+    [tab setImageSourcePath:(sourcePath ?: @"")];
     if (renderMode == OMDDocumentRenderModeMarkdown) {
-        [tab setObject:[self imageFingerprintsForMarkdown:markdown sourcePath:sourcePath]
-                forKey:OMDTabImageFingerprintsKey];
+        [tab setImageFingerprints:[self imageFingerprintsForMarkdown:markdown sourcePath:sourcePath]];
     }
-    if (sourcePath != nil && [sourcePath length] > 0) {
-        [tab setObject:sourcePath forKey:OMDTabSourcePathKey];
-    }
-    if (displayTitle != nil && [displayTitle length] > 0) {
-        [tab setObject:displayTitle forKey:OMDTabDisplayTitleKey];
-    }
-    [tab setObject:[NSNumber numberWithBool:NO] forKey:OMDTabDirtyKey];
-    [tab setObject:[NSNumber numberWithBool:readOnly] forKey:OMDTabReadOnlyKey];
-    [tab setObject:[NSNumber numberWithInteger:renderMode] forKey:OMDTabRenderModeKey];
+    [tab setSourcePath:sourcePath];
+    [tab setDisplayTitle:([displayTitle length] > 0 ? displayTitle : nil)];
+    [tab setReadOnly:readOnly];
+    [tab setRenderMode:renderMode];
     NSString *normalizedSyntax = OMDTrimmedString(syntaxLanguage);
-    if ([normalizedSyntax length] > 0) {
-        [tab setObject:normalizedSyntax forKey:OMDTabSyntaxLanguageKey];
-    }
+    [tab setSyntaxLanguage:([normalizedSyntax length] > 0 ? normalizedSyntax : nil)];
     if ([diskFingerprint length] > 0) {
-        [tab setObject:diskFingerprint forKey:OMDTabLoadedDiskFingerprintKey];
-        [tab setObject:diskFingerprint forKey:OMDTabObservedDiskFingerprintKey];
+        [tab setLoadedDiskFingerprint:diskFingerprint];
+        [tab setObservedDiskFingerprint:diskFingerprint];
     }
     return tab;
 }
 
-- (void)installDocumentTabRecord:(NSMutableDictionary *)tab
+- (void)installDocumentTabRecord:(OMDMarkdownDocument *)tab
                          inNewTab:(BOOL)inNewTab
                     resetViewport:(BOOL)resetViewport
 {
@@ -5236,6 +5370,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
         return;
     }
 
+    [self commitPendingDirtyState];
     if (inNewTab || [_documentTabsController selectedIndex] < 0 || [_documentTabsController selectedIndex] >= (NSInteger)[_documentTabsController count]) {
         [self captureCurrentStateIntoSelectedTab];
         [_documentTabsController addTab:tab];
@@ -5251,36 +5386,31 @@ constrainSplitPosition:(CGFloat)proposedPosition
     [self documentTabsDidChange];
 }
 
-- (void)applyDocumentTabRecord:(NSDictionary *)tabRecord
+- (void)applyDocumentTabRecord:(OMDMarkdownDocument *)tabRecord
 {
     if (tabRecord == nil) {
         return;
     }
 
-    NSString *markdown = [tabRecord objectForKey:OMDTabMarkdownKey];
-    NSString *sourcePath = [tabRecord objectForKey:OMDTabSourcePathKey];
-    NSInteger rawRenderMode = [[tabRecord objectForKey:OMDTabRenderModeKey] integerValue];
-    OMDDocumentRenderMode renderMode = (rawRenderMode == OMDDocumentRenderModeVerbatim
+    NSString *markdown = [tabRecord markdown];
+    OMDDocumentRenderMode renderMode = ([tabRecord renderMode] == OMDDocumentRenderModeVerbatim
                                         ? OMDDocumentRenderModeVerbatim
                                         : OMDDocumentRenderModeMarkdown);
-    NSString *syntaxLanguage = [tabRecord objectForKey:OMDTabSyntaxLanguageKey];
     // Before the text, so the renderer resolves links against it.
     [_currentRemoteDocument release];
-    _currentRemoteDocument = [[OMDRemoteDocument documentWithURLString:[tabRecord objectForKey:OMDTabRemoteURLKey]] retain];
+    _currentRemoteDocument = [[OMDRemoteDocument documentWithURLString:[tabRecord remoteURL]] retain];
     [self setCurrentDocumentText:(markdown != nil ? markdown : @"")
-                      sourcePath:sourcePath
+                      sourcePath:[tabRecord sourcePath]
                       renderMode:renderMode
-                  syntaxLanguage:syntaxLanguage];
+                  syntaxLanguage:[tabRecord syntaxLanguage]];
 
-    _sourceIsDirty = [[tabRecord objectForKey:OMDTabDirtyKey] boolValue];
-    NSString *displayTitle = [tabRecord objectForKey:OMDTabDisplayTitleKey];
+    _sourceIsDirty = [tabRecord isDocumentEdited];
     [_currentDisplayTitle release];
-    _currentDisplayTitle = [displayTitle copy];
-    BOOL readOnly = [[tabRecord objectForKey:OMDTabReadOnlyKey] boolValue];
-    _currentDocumentReadOnly = readOnly;
-    [self setCurrentDiskFingerprintStateLoaded:[tabRecord objectForKey:OMDTabLoadedDiskFingerprintKey]
-                                      observed:[tabRecord objectForKey:OMDTabObservedDiskFingerprintKey]
-                                    suppressed:[tabRecord objectForKey:OMDTabSuppressedDiskFingerprintKey]];
+    _currentDisplayTitle = [[tabRecord displayTitle] copy];
+    _currentDocumentReadOnly = [tabRecord readOnly];
+    [self setCurrentDiskFingerprintStateLoaded:[tabRecord loadedDiskFingerprint]
+                                      observed:[tabRecord observedDiskFingerprint]
+                                    suppressed:[tabRecord suppressedDiskFingerprint]];
     [self applyCurrentDocumentReadOnlyState];
     [self updatePreviewStatusIndicator];
     [self updateWindowTitle];
@@ -5299,9 +5429,9 @@ constrainSplitPosition:(CGFloat)proposedPosition
     }
 
     [self captureCurrentStateIntoSelectedTab];
+    [self commitPendingDirtyState];
     [_documentTabsController setSelectedIndex:index];
-    NSDictionary *tab = [_documentTabsController tabAtIndex:index];
-    [self applyDocumentTabRecord:tab];
+    [self applyDocumentTabRecord:[_documentTabsController tabAtIndex:index]];
     [_documentTabsController updateTabStrip];
     [self refreshCurrentDocumentDiskStateAllowPrompt:YES];
 }
@@ -5334,7 +5464,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
         }
     }
 
-    NSMutableDictionary *tab = [self newDocumentTabWithMarkdown:markdown
+    OMDMarkdownDocument *tab = [self newDocumentTabWithMarkdown:markdown
                                                       sourcePath:sourcePath
                                                     displayTitle:displayTitle
                                                         readOnly:readOnly
@@ -6952,8 +7082,15 @@ constrainSplitPosition:(CGFloat)proposedPosition
     [self updatePreviewStatusIndicator];
 
     if (_currentMarkdown != nil && [self isPreviewVisible]) {
-        _lastRenderedLayoutWidth = -1.0;
-        [self renderCurrentMarkdown];
+        // The density reaches the rendered document only through its layout
+        // width. At launch the width usually hasn't changed, and rendering a
+        // large document a second time costs as much as the first (#94).
+        CGFloat width = [self currentPreviewLayoutWidth];
+        if (_lastRenderedLayoutWidth < 0.0 || fabs(width - _lastRenderedLayoutWidth) >= 0.5) {
+            [self renderCurrentMarkdown];
+        } else {
+            [self updatePreviewDocumentGeometry];
+        }
     }
 
     [_preferencesController layoutDensityDidChange];
@@ -7020,6 +7157,12 @@ constrainSplitPosition:(CGFloat)proposedPosition
     [(GPStandardUpdaterController *)_updaterController checkForUpdates:sender];
 }
 
+- (void)showProjectHomePage:(id)sender
+{
+    (void)sender;
+    [[NSWorkspace sharedWorkspace] openURL:[NSURL URLWithString:@"https://github.com/danjboyd/ObjcMarkdown"]];
+}
+
 - (void)showAboutPanel:(id)sender
 {
     NSMutableDictionary *options = [NSMutableDictionary dictionary];
@@ -7074,6 +7217,40 @@ constrainSplitPosition:(CGFloat)proposedPosition
     [options setObject:@"MarkdownViewer is GPL-2.0-or-later; the ObjcMarkdown library is LGPL-2.1-or-later."
                 forKey:@"CopyrightDescription"];
 
+#if !defined(GNUSTEP)
+    // macOS's About panel takes other keys: the version, and credits below
+    // it for the description, website and licence. Copyright and icon come
+    // from the bundle.
+    NSMutableDictionary *macOptions = [NSMutableDictionary dictionary];
+    if (appName != nil && [appName length] > 0) {
+        [macOptions setObject:appName forKey:NSAboutPanelOptionApplicationName];
+    }
+    if (release != nil && [release length] > 0) {
+        [macOptions setObject:release forKey:NSAboutPanelOptionApplicationVersion];
+        // Not "(1)" after it: the build number means nothing to readers.
+        [macOptions setObject:@"" forKey:NSAboutPanelOptionVersion];
+    }
+    NSMutableParagraphStyle *centered = [[[NSMutableParagraphStyle alloc] init] autorelease];
+    [centered setAlignment:NSTextAlignmentCenter];
+    NSDictionary *creditAttributes = @{
+        NSFontAttributeName: [NSFont systemFontOfSize:[NSFont smallSystemFontSize]],
+        NSForegroundColorAttributeName: [NSColor labelColor],
+        NSParagraphStyleAttributeName: centered
+    };
+    NSString *website = [options objectForKey:@"URL"];
+    NSMutableAttributedString *credits = [[[NSMutableAttributedString alloc]
+        initWithString:[NSString stringWithFormat:@"%@\n\n%@\n\n%@",
+                                                  @"A Markdown reader and editor.",
+                                                  website,
+                                                  [options objectForKey:@"CopyrightDescription"]]
+            attributes:creditAttributes] autorelease];
+    [credits addAttribute:NSLinkAttributeName
+                    value:[NSURL URLWithString:website]
+                    range:[[credits string] rangeOfString:website]];
+    [macOptions setObject:credits forKey:NSAboutPanelOptionCredits];
+    options = macOptions;
+#endif
+
     if ([options count] > 0 && [NSApp respondsToSelector:@selector(orderFrontStandardAboutPanelWithOptions:)]) {
         [NSApp orderFrontStandardAboutPanelWithOptions:options];
     } else {
@@ -7106,6 +7283,10 @@ constrainSplitPosition:(CGFloat)proposedPosition
 
 - (void)setThemePreference:(NSString *)themeName
 {
+#if !defined(GNUSTEP)
+    // On macOS NSGlobalDomain is the system's; there is no theme to set.
+    (void)themeName;
+#else
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
     NSMutableDictionary *globalDomain = nil;
     NSDictionary *existingGlobalDomain = [defaults persistentDomainForName:NSGlobalDomain];
@@ -7128,6 +7309,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
     [globalDomain setObject:themeName forKey:OMDThemeDefaultsKey];
     [defaults setPersistentDomain:globalDomain forName:NSGlobalDomain];
     [defaults synchronize];
+#endif
 }
 
 - (NSArray *)availableThemeNames
@@ -7207,7 +7389,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
         size = OMDSourceEditorMaxFontSize;
     }
     if ([resolved pointSize] != size) {
-        NSFont *sized = [NSFont fontWithName:[resolved fontName] size:size];
+        NSFont *sized = OMFontAtSize(resolved, size);
         if (sized != nil) {
             resolved = sized;
         }
@@ -7338,6 +7520,20 @@ constrainSplitPosition:(CGFloat)proposedPosition
     [_window makeFirstResponder:target];
     [target performFindPanelAction:sender];
 }
+
+#if !defined(GNUSTEP)
+// The same on macOS, whose find bar takes NSTextFinder actions.
+- (void)performTextFinderAction:(id)sender
+{
+    NSTextView *target = [self findTargetTextView];
+    if (target == nil) {
+        NSBeep();
+        return;
+    }
+    [_window makeFirstResponder:target];
+    [target performTextFinderAction:sender];
+}
+#endif
 
 - (void)zoomToActualSize:(id)sender
 {
@@ -8548,14 +8744,14 @@ static BOOL OMDIsMarkdownPath(NSString *path)
             done(nil);
             return;
         }
-        NSMutableDictionary *tab = [self newDocumentTabWithMarkdown:markdown
+        OMDMarkdownDocument *tab = [self newDocumentTabWithMarkdown:markdown
                                                          sourcePath:nil
                                                        displayTitle:[document fileName]
                                                            readOnly:YES
                                                          renderMode:OMDDocumentRenderModeMarkdown
                                                      syntaxLanguage:nil
                                                     diskFingerprint:nil];
-        [tab setObject:[[document rawURL] absoluteString] forKey:OMDTabRemoteURLKey];
+        [tab setRemoteURL:[[document rawURL] absoluteString]];
         [self installDocumentTabRecord:tab inNewTab:inNewTab resetViewport:YES];
         [self presentWindowIfNeeded];
         done(nil);
@@ -8774,11 +8970,11 @@ static BOOL OMDIsMarkdownPath(NSString *path)
     }
 
     [self captureCurrentStateIntoSelectedTab];
+    [self commitPendingDirtyState];
     NSInteger dirtyCount = 0;
     NSInteger index = 0;
     for (; index < (NSInteger)[_documentTabsController count]; index++) {
-        NSDictionary *tab = [_documentTabsController tabAtIndex:index];
-        if ([[tab objectForKey:OMDTabDirtyKey] boolValue]) {
+        if ([[_documentTabsController tabAtIndex:index] isDocumentEdited]) {
             dirtyCount += 1;
         }
     }
