@@ -17,6 +17,7 @@ NSString * const OMDSourceVimKeyBindingsDefaultsKey = @"ObjcMarkdownSourceVimKey
 NSString * const OMDRendererSyntaxHighlightingDefaultsKey = @"ObjcMarkdownRendererSyntaxHighlightingEnabled";
 NSString * const OMDShowFormattingBarDefaultsKey = @"ObjcMarkdownShowFormattingBar";
 NSString * const OMDPreviewFullWidthDefaultsKey = @"ObjcMarkdownPreviewFullWidth";
+NSString * const OMDPreviewColumnCharactersDefaultsKey = @"ObjcMarkdownPreviewColumnCharacters";
 NSString * const OMDLayoutDensityDefaultsKey = @"ObjcMarkdownLayoutDensityMode";
 NSString * const OMDScrollSpeedDefaultsKey = @"ObjcMarkdownScrollSpeed";
 NSString * const OMDExplorerLocalRootPathDefaultsKey = @"ObjcMarkdownExplorerLocalRootPath";

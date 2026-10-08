@@ -20,6 +20,8 @@
 - (OMDLayoutDensityMode)effectiveLayoutDensityMode;
 - (BOOL)isAllowRemoteImagesEnabled;
 - (BOOL)isFormattingBarEnabledPreference;
+- (BOOL)isPreviewFullWidth;
+- (NSInteger)previewColumnCharacters;
 - (BOOL)isRendererSyntaxHighlightingEnabled;
 - (BOOL)isSourceHighlightHighContrastEnabled;
 - (BOOL)isSourceSyntaxHighlightingEnabled;
@@ -32,6 +34,8 @@
 - (void)setFormattingBarEnabledPreference:(BOOL)enabled;
 - (void)setLayoutDensityPreference:(OMDLayoutDensityMode)mode;
 - (void)setMathRenderingPolicyPreference:(OMMarkdownMathRenderingPolicy)policy;
+- (void)setPreviewColumnCharactersPreference:(NSInteger)characters;
+- (void)setPreviewFullWidthPreference:(BOOL)fullWidth;
 - (void)setRendererSyntaxHighlightingPreferenceEnabled:(BOOL)enabled;
 - (void)setScrollSpeedPreference:(CGFloat)scrollSpeed;
 - (void)setSourceHighlightAccentColor:(NSColor *)color;
@@ -57,6 +61,7 @@
     NSPopUpButton *_preferencesMathPolicyPopup;
     NSPopUpButton *_preferencesDiagramPolicyPopup;
     NSPopUpButton *_preferencesSplitSyncModePopup;
+    NSPopUpButton *_preferencesPreviewWidthPopup;
     NSPopUpButton *_preferencesThemePopup;
     NSPopUpButton *_preferencesLayoutModePopup;
     NSSlider *_preferencesScrollSpeedSlider;

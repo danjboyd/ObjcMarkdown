@@ -284,6 +284,7 @@ static CGFloat OMDPreferencesFinishCard(NSView *card, CGFloat height)
 - (void)preferencesSectionChanged:(id)sender;
 - (void)preferencesMathPolicyChanged:(id)sender;
 - (void)preferencesSplitSyncModeChanged:(id)sender;
+- (void)preferencesPreviewWidthChanged:(id)sender;
 - (void)preferencesLayoutModeChanged:(id)sender;
 - (void)preferencesScrollSpeedChanged:(id)sender;
 - (void)preferencesAllowRemoteImagesChanged:(id)sender;
@@ -318,6 +319,7 @@ static CGFloat OMDPreferencesFinishCard(NSView *card, CGFloat height)
     [_preferencesMathPolicyPopup release];
     [_preferencesDiagramPolicyPopup release];
     [_preferencesSplitSyncModePopup release];
+    [_preferencesPreviewWidthPopup release];
     [_preferencesThemePopup release];
     [_preferencesLayoutModePopup release];
     [_preferencesScrollSpeedSlider release];
@@ -369,6 +371,8 @@ static CGFloat OMDPreferencesFinishCard(NSView *card, CGFloat height)
     _preferencesDiagramPolicyPopup = nil;
     [_preferencesSplitSyncModePopup release];
     _preferencesSplitSyncModePopup = nil;
+    [_preferencesPreviewWidthPopup release];
+    _preferencesPreviewWidthPopup = nil;
     [_preferencesThemePopup release];
     _preferencesThemePopup = nil;
     [_preferencesLayoutModePopup release];
@@ -622,9 +626,33 @@ static CGFloat OMDPreferencesFinishCard(NSView *card, CGFloat height)
     CGFloat controlWidth = layout.width - rowLabelWidth - 12.0;
     CGFloat rowY = OMDPreferencesAddCardHeader(card,
                                                @"Preview",
-                                               @"Tune preview sync, math rendering, remote media, and code-block highlighting together.",
+                                               @"Tune preview width, sync, math rendering, remote media, and code-block highlighting together.",
                                                layout, metrics);
 
+    // Full width (tag 0), or a column of about that many characters.
+    OMDPreferencesAddRowLabel(card, @"Width", pad, rowY, rowLabelWidth, layout.titleColor, layout);
+    _preferencesPreviewWidthPopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(controlX, rowY, controlWidth, layout.controlHeight)
+                                                                pullsDown:NO];
+    OMDConfigurePreferencesPopup(_preferencesPreviewWidthPopup, metrics);
+    [_preferencesPreviewWidthPopup addItemWithTitle:@"Full Width"];
+    [[_preferencesPreviewWidthPopup itemAtIndex:0] setTag:0];
+    NSInteger columnChoices[] = { 60, 80, 100, 120, 140 };
+    NSUInteger choice = 0;
+    for (; choice < sizeof(columnChoices) / sizeof(columnChoices[0]); choice++) {
+        [_preferencesPreviewWidthPopup addItemWithTitle:[NSString stringWithFormat:@"Column of %ld Characters",
+                                                                                   (long)columnChoices[choice]]];
+        [[_preferencesPreviewWidthPopup lastItem] setTag:columnChoices[choice]];
+    }
+    [_preferencesPreviewWidthPopup setTarget:self];
+    [_preferencesPreviewWidthPopup setAction:@selector(preferencesPreviewWidthChanged:)];
+    [card addSubview:_preferencesPreviewWidthPopup];
+
+    rowY += layout.controlHeight + 6.0;
+    rowY += OMDPreferencesAddNote(card,
+                                  @"A column keeps lines short on a wide window; View > Full-Width Preview switches between the two.",
+                                  controlX, rowY, controlWidth, layout);
+
+    rowY += layout.rowGap;
     OMDPreferencesAddRowLabel(card, @"Split Sync", pad, rowY, rowLabelWidth, layout.titleColor, layout);
     _preferencesSplitSyncModePopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(controlX, rowY, controlWidth, layout.controlHeight)
                                                                  pullsDown:NO];
@@ -1058,6 +1086,21 @@ static CGFloat OMDPreferencesFinishCard(NSView *card, CGFloat height)
         }
         [_preferencesDiagramPolicyPopup selectItemAtIndex:selectedIndex];
     }
+    if (_preferencesPreviewWidthPopup != nil) {
+        NSInteger tag = [_delegate isPreviewFullWidth] ? 0 : [_delegate previewColumnCharacters];
+        NSInteger index = [_preferencesPreviewWidthPopup indexOfItemWithTag:tag];
+        if (index < 0) {
+            // A column width set outside Preferences: the nearest choice.
+            index = [_preferencesPreviewWidthPopup indexOfItemWithTag:100];
+            NSInteger candidate = 1;
+            for (; candidate < [_preferencesPreviewWidthPopup numberOfItems]; candidate++) {
+                if ([[_preferencesPreviewWidthPopup itemAtIndex:candidate] tag] <= tag) {
+                    index = candidate;
+                }
+            }
+        }
+        [_preferencesPreviewWidthPopup selectItemAtIndex:index];
+    }
     if (_preferencesAllowRemoteImagesButton != nil) {
         [_preferencesAllowRemoteImagesButton setState:([_delegate isAllowRemoteImagesEnabled] ? NSOnState : NSOffState)];
     }
@@ -1178,6 +1221,15 @@ static CGFloat OMDPreferencesFinishCard(NSView *card, CGFloat height)
     NSMenuItem *item = (NSMenuItem *)[_preferencesDiagramPolicyPopup selectedItem];
     NSInteger tag = item != nil ? [item tag] : (NSInteger)OMMarkdownDiagramRenderingPolicyNative;
     [_delegate setDiagramRenderingPolicyPreference:OMDDiagramRenderingPolicyFromInteger(tag)];
+}
+
+- (void)preferencesPreviewWidthChanged:(id)sender
+{
+    NSInteger tag = [[_preferencesPreviewWidthPopup selectedItem] tag];
+    if (tag > 0) {
+        [_delegate setPreviewColumnCharactersPreference:tag];
+    }
+    [_delegate setPreviewFullWidthPreference:(tag == 0)];
 }
 
 - (void)preferencesAllowRemoteImagesChanged:(id)sender

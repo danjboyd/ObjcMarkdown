@@ -85,7 +85,9 @@ static const CGFloat OMDSourceEditorMaxFontSize = 32.0;
 static const CGFloat OMDUsableWindowWidthPadding = 96.0;
 // The preview's text column: this many average characters of body text at
 // the current zoom, unless the preview is set to use the full width.
-static const CGFloat OMDPreviewReadableColumnCharacters = 80.0;
+// The preview's column when it isn't full width: about this many characters
+// of body text, unless Preferences sets another number.
+static const NSInteger OMDPreviewDefaultColumnCharacters = 100;
 static const CGFloat OMDLinkedScrollViewportAnchor = 0.30;
 static const CGFloat OMDLinkedScrollDeadband = 8.0;
 
@@ -564,6 +566,10 @@ static CGFloat OMDClampedScrollSpeed(CGFloat value)
 - (BOOL)isFormattingBarVisibleInCurrentMode;
 - (void)toggleFormattingBar:(id)sender;
 - (BOOL)isPreviewFullWidth;
+- (NSInteger)previewColumnCharacters;
+- (void)setPreviewFullWidthPreference:(BOOL)fullWidth;
+- (void)setPreviewColumnCharactersPreference:(NSInteger)characters;
+- (void)previewWidthPreferenceDidChange;
 - (void)togglePreviewFullWidth:(id)sender;
 - (NSColor *)previewPageBackgroundColor;
 - (CGFloat)previewReadableColumnWidth;
@@ -5012,18 +5018,51 @@ constrainSplitPosition:(CGFloat)proposedPosition
     [self setFormattingBarEnabledPreference:![self isFormattingBarEnabledPreference]];
 }
 
+// The preview fills the pane unless the user chose a column.
 - (BOOL)isPreviewFullWidth
 {
-    return [[NSUserDefaults standardUserDefaults] boolForKey:OMDPreviewFullWidthDefaultsKey];
+    id value = [[NSUserDefaults standardUserDefaults] objectForKey:OMDPreviewFullWidthDefaultsKey];
+    return value != nil ? [value boolValue] : YES;
 }
 
-- (void)togglePreviewFullWidth:(id)sender
+- (NSInteger)previewColumnCharacters
 {
-    (void)sender;
-    [[NSUserDefaults standardUserDefaults] setBool:![self isPreviewFullWidth] forKey:OMDPreviewFullWidthDefaultsKey];
+    NSInteger characters = [[NSUserDefaults standardUserDefaults] integerForKey:OMDPreviewColumnCharactersDefaultsKey];
+    return (characters >= 40 && characters <= 200) ? characters : OMDPreviewDefaultColumnCharacters;
+}
+
+- (void)setPreviewFullWidthPreference:(BOOL)fullWidth
+{
+    [[NSUserDefaults standardUserDefaults] setBool:fullWidth forKey:OMDPreviewFullWidthDefaultsKey];
+    [self previewWidthPreferenceDidChange];
+}
+
+- (void)setPreviewColumnCharactersPreference:(NSInteger)characters
+{
+    [[NSUserDefaults standardUserDefaults] setInteger:characters forKey:OMDPreviewColumnCharactersDefaultsKey];
+    [self previewWidthPreferenceDidChange];
+}
+
+- (void)previewWidthPreferenceDidChange
+{
     if ([self isPreviewVisible]) {
         _lastRenderedLayoutWidth = -1.0;
         [self requestInteractiveRender];
+    }
+}
+
+// The View menu's switch, for every window: through the app's delegate,
+// which hands a setting to each window as Settings does.
+- (void)togglePreviewFullWidth:(id)sender
+{
+    (void)sender;
+    BOOL fullWidth = ![self isPreviewFullWidth];
+    id delegate = [NSApp delegate];
+    if (delegate != nil && delegate != self &&
+        [delegate respondsToSelector:@selector(setPreviewFullWidthPreference:)]) {
+        [delegate setPreviewFullWidthPreference:fullWidth];
+    } else {
+        [self setPreviewFullWidthPreference:fullWidth];
     }
 }
 
@@ -5040,7 +5079,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
         : [NSColor whiteColor];
 }
 
-// About OMDPreviewReadableColumnCharacters of body text at the current zoom.
+// About -previewColumnCharacters of body text at the current zoom.
 - (CGFloat)previewReadableColumnWidth
 {
     NSFont *base = [[_renderer theme] baseFont];
@@ -5053,7 +5092,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
     CGFloat sampleWidth = [sample sizeWithAttributes:[NSDictionary dictionaryWithObject:font
                                                                                  forKey:NSFontAttributeName]].width;
     CGFloat average = sampleWidth > 0.0 ? sampleWidth / [sample length] : size * 0.5;
-    return ceil(average * OMDPreviewReadableColumnCharacters);
+    return ceil(average * (CGFloat)[self previewColumnCharacters]);
 }
 
 - (void)layoutSourceEditorContainer

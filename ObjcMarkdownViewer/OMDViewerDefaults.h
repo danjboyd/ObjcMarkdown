@@ -19,6 +19,7 @@ extern NSString * const OMDSourceVimKeyBindingsDefaultsKey;
 extern NSString * const OMDRendererSyntaxHighlightingDefaultsKey;
 extern NSString * const OMDShowFormattingBarDefaultsKey;
 extern NSString * const OMDPreviewFullWidthDefaultsKey;
+extern NSString * const OMDPreviewColumnCharactersDefaultsKey;
 extern NSString * const OMDLayoutDensityDefaultsKey;
 extern NSString * const OMDScrollSpeedDefaultsKey;
 extern NSString * const OMDExplorerLocalRootPathDefaultsKey;
