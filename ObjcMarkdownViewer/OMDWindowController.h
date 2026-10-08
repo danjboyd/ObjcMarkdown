@@ -76,7 +76,6 @@ typedef unsigned short mode_t;
     OMDStatusBarController *_statusBarController;
     OMDCopyButtonsController *_copyButtonsController;
     OMDRenderScheduler *_renderScheduler;
-    id _updaterController;
     NSMenu *_fileOpenRecentMenu;
     BOOL _explorerSidebarVisible;
     BOOL _outlineVisible;
@@ -126,5 +125,10 @@ typedef unsigned short mode_t;
     BOOL _externalReloadPromptVisible;
     BOOL _observingSystemAppearance;
 }
+
+// The window this controls.
+- (NSWindow *)mainWindow;
+// Fills the main menu's Open Recent when it opens.
+- (void)menuNeedsUpdate:(NSMenu *)menu;
 
 @end
