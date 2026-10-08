@@ -179,11 +179,12 @@ export CC="$PREFIX/bin/clang" CXX="$PREFIX/bin/clang++"
 # MSYS2 CLANG64's libdispatch header redefines mode_t (docs/upstream/
 # windows-msys2-clang64-mode-t-header-bug.md); the rest of the packaging
 # passes the same workaround to its theme and tool builds.
-# As environment variables, which the makefiles' own ADDITIONAL_* add to;
-# on make's command line they would replace them (and the DLL's export
-# defines with them).
-export ADDITIONAL_CPPFLAGS="-DHAVE_MODE_T=1${ADDITIONAL_CPPFLAGS:+ $ADDITIONAL_CPPFLAGS}"
-export ADDITIONAL_OBJCFLAGS="-DHAVE_MODE_T=1${ADDITIONAL_OBJCFLAGS:+ $ADDITIONAL_OBJCFLAGS}"
+# Given to gnustep-base's configure in OBJCFLAGS, which it writes into the
+# build's config.mak for every compile. (gnustep-gui doesn't include
+# libdispatch's headers.) (On make's command line ADDITIONAL_*FLAGS
+# replace the makefiles' own, the DLL's export defines with them; in the
+# environment they don't reach the compiler.)
+MODE_T_FLAG=-DHAVE_MODE_T=1
 # The toolchain's patch, if it has one (on a CI runner PATH can give
 # Strawberry Perl's).
 PATCH=patch
@@ -207,7 +208,7 @@ tar -xzf "$WORK/downloads/gnustep-base-$BASE_VERSION.tar.gz" -C "$WORK"
   if grep -qE '^#define GS_USE_LIBDISPATCH 0' "$PREFIX/include/GNUstepBase/GSConfig.h"; then
     base_options+=(--disable-libdispatch)
   fi
-  OBJCFLAGS="-Wno-incompatible-pointer-types" ./configure --prefix="$PREFIX" "${base_options[@]}" \
+  OBJCFLAGS="-Wno-incompatible-pointer-types $MODE_T_FLAG" ./configure --prefix="$PREFIX" "${base_options[@]}" \
     > "$WORK/base-configure.log" 2>&1 || { tail -40 "$WORK/base-configure.log"; exit 1; }
   # The same features as the DLL it replaces, or stop.
   same_lists "toolchain GSConfig.h" "$(grep -E '^#define' "$PREFIX/include/GNUstepBase/GSConfig.h")" \
