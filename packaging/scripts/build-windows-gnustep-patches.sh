@@ -146,13 +146,17 @@ if [[ -n "$SELF_CONTAINED" ]] \
   unpack "$WORK/downloads/curl.pkg.tar.zst" "$WORK/curl-dev" \
     clang64/include/curl clang64/lib/libcurl.dll.a clang64/lib/pkgconfig/libcurl.pc
   curl_dev="$(winpath "$WORK/curl-dev/clang64")"
-  sed -i "s|^prefix=.*|prefix=$curl_dev|" "$WORK/curl-dev/clang64/lib/pkgconfig/libcurl.pc"
+  # Its private dependencies (openssl, nghttp2, ...) aren't needed to get
+  # through configure, and pkgconf won't find libcurl without their .pc.
+  sed -i -e "s|^prefix=.*|prefix=$curl_dev|" -e '/^Requires.private/d' -e '/^Libs.private/d'     "$WORK/curl-dev/clang64/lib/pkgconfig/libcurl.pc"
   pc_path="$curl_dev/lib/pkgconfig;$pc_path"
   # pkgconf can leave the -I and -L out; give them to configure.
   export CPPFLAGS="-I$curl_dev/include${CPPFLAGS:+ $CPPFLAGS}"
   export LDFLAGS="-L$curl_dev/lib${LDFLAGS:+ $LDFLAGS}"
 fi
-export PKG_CONFIG_PATH="$pc_path"
+# Only these directories: a PKG_CONFIG_PATH from the environment (Git for
+# Windows sets one) could find another toolchain's libraries.
+export PKG_CONFIG_PATH="$pc_path" PKG_CONFIG_LIBDIR="$pc_path"
 "$PKG_CONFIG" --exists libcurl || die "libcurl's development files not found by $PKG_CONFIG"
 echo "pkg-config: $PKG_CONFIG; libcurl $("$PKG_CONFIG" --modversion libcurl)"
 
