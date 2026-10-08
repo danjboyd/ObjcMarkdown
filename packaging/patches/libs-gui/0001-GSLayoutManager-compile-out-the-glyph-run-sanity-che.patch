@@ -1,0 +1,41 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Daniel Boyd <danieljboyd@icloud.com>
+Date: Thu, 8 Oct 2026 10:16:37 -0500
+Subject: [PATCH] GSLayoutManager: compile out the glyph run sanity check
+
+-_sanityChecks walks the whole glyph run list to assert its links, and
+runs after every incremental glyph generation, so laying out a long text
+was quadratic in its runs: a 1.3 MB Markdown document took 125s to lay
+out in MarkdownViewer, 0.5s without the walk (danjboyd/ObjcMarkdown#94).
+It now runs only when built with GSLAYOUTMANAGER_SANITY_CHECKS defined.
+
+Carried in ObjcMarkdown's Linux packages; not sent upstream.
+AI assistance: this change and this description were written with
+Claude (Anthropic's Claude Code).
+---
+ Source/GSLayoutManager.m | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/Source/GSLayoutManager.m b/Source/GSLayoutManager.m
+index f6d652c..a1ba0ed 100644
+--- a/Source/GSLayoutManager.m
++++ b/Source/GSLayoutManager.m
+@@ -318,6 +318,7 @@ Private method used internally by GSLayoutManager for sanity checking.
+ 
+ - (void) _sanityChecks
+ {
++#ifdef GSLAYOUTMANAGER_SANITY_CHECKS
+   glyph_run_t *g;
+ 
+   g = (glyph_run_t *)&glyphs[SKIP_LIST_DEPTH - 1];
+@@ -327,6 +328,7 @@ Private method used internally by GSLayoutManager for sanity checking.
+                @"glyph structure corrupted: g->next->prev!=g");
+       g = (glyph_run_t *)g->head.next;
+     }
++#endif
+ }
+ 
+ 
+-- 
+2.47.3
+

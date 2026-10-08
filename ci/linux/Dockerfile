@@ -44,6 +44,11 @@ COPY fetch-commit.sh /usr/local/bin/fetch-commit
 RUN chmod 755 /usr/local/bin/fetch-commit
 WORKDIR /src
 
+# GNUstep fixes the app's packages carry (packaging/patches, given to the
+# build as the "patches" context by ci-image.yml; with plain docker:
+# --build-context patches=packaging/patches).
+COPY --from=patches . /patches
+
 # gnustep-make first: libobjc2 and libdispatch install where it says.
 RUN fetch-commit https://github.com/gnustep/tools-make "$TOOLS_MAKE_COMMIT" tools-make \
     && cd tools-make \
@@ -72,13 +77,13 @@ RUN . /usr/GNUstep/System/Library/Makefiles/GNUstep.sh \
 
 RUN . /usr/GNUstep/System/Library/Makefiles/GNUstep.sh \
     && fetch-commit https://github.com/gnustep/libs-base "$LIBS_BASE_COMMIT" libs-base \
-    && cd libs-base && ./configure \
+    && cd libs-base && git apply /patches/libs-base/*.patch && ./configure \
     && make -j"$(nproc)" LDFLAGS="$LDFLAGS -ldispatch" GNUSTEP_INSTALLATION_DOMAIN=SYSTEM \
     && make GNUSTEP_INSTALLATION_DOMAIN=SYSTEM install && ldconfig
 
 RUN . /usr/GNUstep/System/Library/Makefiles/GNUstep.sh \
     && fetch-commit https://github.com/gnustep/libs-gui "$LIBS_GUI_COMMIT" libs-gui \
-    && cd libs-gui && ./configure \
+    && cd libs-gui && git apply /patches/libs-gui/*.patch && ./configure \
     && make -j"$(nproc)" GNUSTEP_INSTALLATION_DOMAIN=SYSTEM \
     && make GNUSTEP_INSTALLATION_DOMAIN=SYSTEM install && ldconfig
 
