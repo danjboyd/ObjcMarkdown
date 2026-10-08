@@ -86,7 +86,6 @@ static const CGFloat OMDUsableWindowWidthPadding = 96.0;
 static const CGFloat OMDPreviewReadableColumnCharacters = 80.0;
 static const CGFloat OMDLinkedScrollViewportAnchor = 0.30;
 static const CGFloat OMDLinkedScrollDeadband = 8.0;
-static NSString * const OMDTextFileErrorDomain = @"OMDTextFileErrorDomain";
 
 static NSUInteger OMDCountAttachmentsInAttributedString(NSAttributedString *attributedString)
 {
@@ -243,10 +242,6 @@ static void OMDLogMenuSnapshot(NSString *label, NSMenu *menu, NSWindow *window)
 }
 
 
-typedef NS_ENUM(NSInteger, OMDDocumentRenderMode) {
-    OMDDocumentRenderModeMarkdown = 0,
-    OMDDocumentRenderModeVerbatim = 1
-};
 
 typedef NS_ENUM(NSInteger, OMDLinkedScrollDriver) {
     OMDLinkedScrollDriverNone = 0,
@@ -2536,8 +2531,11 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
         }
     } else {
         NSError *readError = nil;
-        markdown = [self decodedTextForFileAtPath:resolvedPath error:&readError];
-        if (markdown == nil) {
+        if (![OMDMarkdownDocument readTextFileAtPath:resolvedPath
+                                                text:&markdown
+                                          renderMode:&renderMode
+                                      syntaxLanguage:&syntaxLanguage
+                                               error:&readError]) {
             NSAlert *alert = [[[NSAlert alloc] init] autorelease];
             NSString *messageText = [actionName isEqualToString:@"Open"]
                                     ? @"Unsupported file type"
@@ -2547,13 +2545,6 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
                                                         : @"This file cannot be opened as text.")];
             [alert runModal];
             return NO;
-        }
-
-        renderMode = [self isMarkdownTextPath:resolvedPath]
-                     ? OMDDocumentRenderModeMarkdown
-                     : OMDDocumentRenderModeVerbatim;
-        if (renderMode == OMDDocumentRenderModeVerbatim) {
-            syntaxLanguage = OMDVerbatimSyntaxTokenForExtension(extension);
         }
     }
 
@@ -2831,45 +2822,11 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
 
 - (NSString *)decodedTextForFileAtPath:(NSString *)path error:(NSError **)error
 {
-    if (path == nil || [path length] == 0) {
-        if (error != NULL) {
-            *error = [NSError errorWithDomain:OMDTextFileErrorDomain
-                                         code:1
-                                     userInfo:@{ NSLocalizedDescriptionKey: @"Missing file path." }];
-        }
+    NSString *text = nil;
+    if (![OMDMarkdownDocument readTextFileAtPath:path text:&text renderMode:NULL syntaxLanguage:NULL error:error]) {
         return nil;
     }
-
-    NSData *data = [NSData dataWithContentsOfFile:path];
-    if (data == nil) {
-        if (error != NULL) {
-            *error = [NSError errorWithDomain:OMDTextFileErrorDomain
-                                         code:4
-                                     userInfo:@{ NSLocalizedDescriptionKey: @"Unable to read file data." }];
-        }
-        return nil;
-    }
-    if (OMDDataAppearsBinary(data)) {
-        if (error != NULL) {
-            *error = [NSError errorWithDomain:OMDTextFileErrorDomain
-                                         code:2
-                                     userInfo:@{ NSLocalizedDescriptionKey: @"This file appears to be binary and cannot be previewed as text." }];
-        }
-        return nil;
-    }
-
-    NSStringEncoding usedEncoding = NSUTF8StringEncoding;
-    NSString *decoded = OMDDecodeTextFromData(data, &usedEncoding);
-    if (decoded == nil) {
-        if (error != NULL) {
-            *error = [NSError errorWithDomain:OMDTextFileErrorDomain
-                                         code:3
-                                     userInfo:@{ NSLocalizedDescriptionKey: @"Unable to decode this file as text." }];
-        }
-        return nil;
-    }
-    (void)usedEncoding;
-    return decoded;
+    return text;
 }
 
 - (BOOL)importDocumentAtPath:(NSString *)path
