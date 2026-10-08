@@ -34,6 +34,9 @@ typedef unsigned short mode_t;
 #define OMDMenuItemValidation NSMenuItemValidation
 #endif
 
+// One window: its views and controllers and the documents open in it as
+// tabs. The app delegate (OMDAppDelegate) passes the application's events
+// to the first window's controller.
 @interface OMDWindowController : NSObject <NSApplicationDelegate, NSWindowDelegate, NSTextViewDelegate, OMDMenuItemValidation, NSSplitViewDelegate, NSControlTextEditingDelegate, OMDSourceTextViewVimEventHandling>
 {
     NSWindow *_window;

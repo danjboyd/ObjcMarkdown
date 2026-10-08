@@ -961,13 +961,6 @@ static NSMutableArray *OMDSecondaryWindows(void)
     return YES;
 }
 
-#if !defined(GNUSTEP)
-- (BOOL)applicationSupportsSecureRestorableState:(NSApplication *)app
-{
-    (void)app;
-    return YES;
-}
-#endif
 
 - (BOOL)application:(NSApplication *)theApplication openFile:(NSString *)filename
 {

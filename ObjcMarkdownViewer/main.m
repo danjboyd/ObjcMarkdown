@@ -1,7 +1,7 @@
 // ObjcMarkdownViewer
 // SPDX-License-Identifier: GPL-2.0-or-later
 
-#import "OMDWindowController.h"
+#import "OMDAppDelegate.h"
 
 #if defined(_WIN32)
 static NSString * const OMDMathRenderingPolicyDefaultsKey = @"ObjcMarkdownMathRenderingPolicy";
@@ -371,7 +371,7 @@ int main(int argc, char *argv[])
         [pool drain];
         return 1;
     }
-    OMDWindowController *delegate = [[OMDWindowController alloc] init];
+    OMDAppDelegate *delegate = [[OMDAppDelegate alloc] init];
     OMDStartupTrace(@"main: delegate created");
     [app setDelegate:delegate];
     OMDStartupTrace(@"main: delegate set");
