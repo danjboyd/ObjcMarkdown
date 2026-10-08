@@ -81,7 +81,7 @@ NSAttributedString *rendered = [renderer attributedStringFromMarkdown:
 ## Install
 
 - **Windows**: the MSI or portable ZIP from [Releases](https://github.com/danjboyd/ObjcMarkdown/releases), with WinUITheme bundled as the default theme.
-- **macOS**: the universal disk image (`MarkdownViewer-<version>-macos.dmg`, Apple silicon and Intel, macOS 11 or later) from [Releases](https://github.com/danjboyd/ObjcMarkdown/releases), from the next tagged release on. Drag the app to Applications. It isn't notarized yet, so macOS blocks the first open: open it once, then choose **Open Anyway** in System Settings > Privacy & Security (on macOS 14 and earlier, Control-click the app and choose **Open**).
+- **macOS**: the universal disk image (`MarkdownViewer-<version>-macos.dmg`, Apple silicon and Intel, macOS 11 or later) from [Releases](https://github.com/danjboyd/ObjcMarkdown/releases), from the next tagged release on. Drag the app to Applications. It isn't notarized yet, so macOS blocks the first open: open it once, then choose **Open Anyway** in System Settings > Privacy & Security (on macOS 14 and earlier, Control-click the app and choose **Open**). It brings a Quick Look preview: press Space on a Markdown file in the Finder to see it rendered.
 - **Linux**: an AppImage and a Flatpak bundle, each with the GNUstep runtime and the Adwaita theme inside, built by [linux-appimage.yml](.github/workflows/linux-appimage.yml) and [linux-flatpak.yml](.github/workflows/linux-flatpak.yml) (see [packaging/flatpak](packaging/flatpak/README.md)); the next tagged release attaches both. Until then, build from source as below.
 
 ## Status

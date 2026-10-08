@@ -12,7 +12,6 @@
 
 ROOT := $(abspath ..)
 BUILD := $(abspath build)
-OBJDIR := $(BUILD)/obj
 
 # The version, as the GNUstep build takes it: VERSION at the top, or
 # OMD_VERSION=0.1.2-rc1. Info.plist's CFBundleShortVersionString takes only
@@ -21,6 +20,11 @@ OMD_VERSION ?= $(strip $(shell cat $(ROOT)/VERSION 2>/dev/null))
 SHORT_VERSION := $(shell echo '$(OMD_VERSION)' | sed -E 's/^([0-9]+(\.[0-9]+)*).*/\1/')
 BUILD_NUMBER ?= 1
 ARCHS ?= arm64 x86_64
+# Objects per set of architectures, so ARCHS=arm64 and a universal build
+# don't mix.
+empty :=
+space := $(empty) $(empty)
+OBJDIR := $(BUILD)/obj-$(subst $(space),-,$(strip $(ARCHS)))
 MACOSX_DEPLOYMENT_TARGET ?= 11.0
 
 CC := xcrun clang
@@ -54,16 +58,21 @@ LIB_OBJS := $(call obj,lib,$(LIB_OBJC) $(LIB_C))
 VIM_OBJS := $(call obj,vim,$(VIM_OBJC))
 APP_OBJS := $(call obj,app,$(APP_OBJC))
 TEST_OBJS := $(call obj,test,$(TEST_OBJC))
+# The Quick Look preview extension: its controller and the app's preview view.
+QL_OBJC := macos/QuickLook/OMDQuickLookPreviewController.m ObjcMarkdownViewer/OMDTextView.m ObjcMarkdownViewer/OMDTextFileSupport.m
+QL_OBJS := $(call obj,ql,$(QL_OBJC))
 
 LIB_FLAGS := $(COMMON_FLAGS) -I$(ROOT)/ObjcMarkdown $(CMARK_CPPFLAGS) -I$(ROOT)/third_party/tomlc99 -DOBJCMARKDOWN_ENABLE_TOML_THEME=1
 VIM_FLAGS := $(COMMON_FLAGS) -fobjc-arc -I$(VIM_DIR)
 APP_FLAGS := $(COMMON_FLAGS) $(WERROR) -DOMD_APP_VERSION=\"$(OMD_VERSION)\" -I$(ROOT)/ObjcMarkdown -I$(ROOT)/ObjcMarkdownViewer $(CMARK_CPPFLAGS) -I$(VIM_DIR)
+QL_FLAGS := $(APP_FLAGS) -fapplication-extension
 TEST_FLAGS := $(APP_FLAGS) -F$(PLATFORM_DIR)/Developer/Library/Frameworks -DOM_SPEC_DIR=\"$(ROOT)/ObjcMarkdownTests/Spec\"
 
 LIB := $(BUILD)/libObjcMarkdown.a
 VIM_LIB := $(BUILD)/libTextViewVimKit.a
 APP := $(BUILD)/MarkdownViewer.app
 TESTS := $(BUILD)/ObjcMarkdownTests.xctest
+APPEX := $(BUILD)/MarkdownPreview.appex
 DMG := $(BUILD)/MarkdownViewer-$(OMD_VERSION)-macos.dmg
 
 APP_RESOURCES := $(ROOT)/Resources/theme-github.toml $(ROOT)/Resources/theme-github-dark.toml \
@@ -89,6 +98,10 @@ $(OBJDIR)/app/%.m.o: $(ROOT)/%.m
 	@mkdir -p $(dir $@)
 	@echo "  CC $(patsubst $(ROOT)/%,%,$<)"
 	$(Q)$(CC) $(APP_FLAGS) -MMD -MP -c $< -o $@
+$(OBJDIR)/ql/%.m.o: $(ROOT)/%.m
+	@mkdir -p $(dir $@)
+	@echo "  CC $(patsubst $(ROOT)/%,%,$<)"
+	$(Q)$(CC) $(QL_FLAGS) -MMD -MP -c $< -o $@
 $(OBJDIR)/test/%.m.o: $(ROOT)/%.m
 	@mkdir -p $(dir $@)
 	@echo "  CC $(patsubst $(ROOT)/%,%,$<)"
@@ -105,7 +118,19 @@ $(VIM_LIB): $(VIM_OBJS)
 
 FRAMEWORKS := -framework Cocoa
 
-$(APP): $(APP_OBJS) $(LIB) $(VIM_LIB) Info.plist $(APP_RESOURCES) $(BUILD)/MarkdownViewer.icns
+# Sandboxed, as app extensions must be; the system finds it in the app's
+# PlugIns folder.
+$(APPEX): $(QL_OBJS) $(LIB) QuickLook/Info.plist QuickLook/QuickLook.entitlements
+	@rm -rf $@
+	@mkdir -p $@/Contents/MacOS
+	@echo "  LD $(notdir $@)"
+	$(Q)$(CC) $(ARCH_FLAGS) -fapplication-extension -e _NSExtensionMain -o $@/Contents/MacOS/MarkdownPreview \
+		$(QL_OBJS) $(LIB) $(FRAMEWORKS) -framework Quartz
+	$(Q)sed -e 's/@VERSION@/$(SHORT_VERSION)/g' -e 's/@BUILD_NUMBER@/$(BUILD_NUMBER)/g' QuickLook/Info.plist > $@/Contents/Info.plist
+	$(Q)plutil -lint -s $@/Contents/Info.plist
+	$(Q)codesign --force --sign - --entitlements QuickLook/QuickLook.entitlements $@
+
+$(APP): $(APP_OBJS) $(LIB) $(VIM_LIB) Info.plist $(APP_RESOURCES) $(BUILD)/MarkdownViewer.icns $(APPEX)
 	@rm -rf $@
 	@mkdir -p $@/Contents/MacOS $@/Contents/Resources
 	@echo "  LD $(notdir $@)"
@@ -114,6 +139,8 @@ $(APP): $(APP_OBJS) $(LIB) $(VIM_LIB) Info.plist $(APP_RESOURCES) $(BUILD)/Markd
 	$(Q)plutil -lint -s $@/Contents/Info.plist
 	$(Q)printf 'APPL????' > $@/Contents/PkgInfo
 	$(Q)cp $(APP_RESOURCES) $(BUILD)/MarkdownViewer.icns $@/Contents/Resources/
+	@mkdir -p $@/Contents/PlugIns
+	$(Q)cp -R $(APPEX) $@/Contents/PlugIns/
 	$(Q)codesign --force --sign - $@
 
 # The app icon from Resources/markdown_icon.png.
