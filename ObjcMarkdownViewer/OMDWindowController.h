@@ -130,5 +130,11 @@ typedef unsigned short mode_t;
 - (NSWindow *)mainWindow;
 // Fills the main menu's Open Recent when it opens.
 - (void)menuNeedsUpdate:(NSMenu *)menu;
+// Asks about each document with unsaved changes in turn, showing it:
+// Save, Don't Save or Cancel. NO when the reader cancels or a save fails.
+// actionName ends the question ("... before closing?").
+- (BOOL)reviewUnsavedDocumentsForAction:(NSString *)actionName;
+// Forgets the recovery snapshot: the reader has decided about every change.
+- (void)discardRecoverySnapshot;
 
 @end

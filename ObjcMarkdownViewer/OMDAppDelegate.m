@@ -85,6 +85,23 @@ static BOOL OMDIsPreferencesSetterSelector(SEL selector)
     return [_mainWindowController application:application openFile:filename];
 }
 
+// Quitting asks about every unsaved document in every window first.
+- (NSApplicationTerminateReply)applicationShouldTerminate:(NSApplication *)application
+{
+    (void)application;
+    NSArray *controllers = [self openWindowControllers];
+    for (OMDWindowController *controller in controllers) {
+        if (![controller reviewUnsavedDocumentsForAction:@"quitting"]) {
+            return NSTerminateCancel;
+        }
+    }
+    // Nothing is left to recover: each change was saved or let go.
+    for (OMDWindowController *controller in controllers) {
+        [controller discardRecoverySnapshot];
+    }
+    return NSTerminateNow;
+}
+
 - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)application
 {
     return [_mainWindowController applicationShouldTerminateAfterLastWindowClosed:application];
@@ -106,6 +123,20 @@ static BOOL OMDIsPreferencesSetterSelector(SEL selector)
     for (NSWindow *window in [NSApp orderedWindows]) {
         id delegate = [window delegate];
         if ([window isVisible] && [delegate isKindOfClass:[OMDWindowController class]] &&
+            ![controllers containsObject:delegate]) {
+            [controllers addObject:delegate];
+        }
+    }
+    return controllers;
+}
+
+// The controllers of the windows on screen or in the Dock, front first.
+- (NSArray *)openWindowControllers
+{
+    NSMutableArray *controllers = [NSMutableArray arrayWithArray:[self visibleWindowControllers]];
+    for (NSWindow *window in [NSApp windows]) {
+        id delegate = [window delegate];
+        if ([window isMiniaturized] && [delegate isKindOfClass:[OMDWindowController class]] &&
             ![controllers containsObject:delegate]) {
             [controllers addObject:delegate];
         }
@@ -225,7 +256,7 @@ static BOOL OMDIsPreferencesSetterSelector(SEL selector)
 {
     SEL selector = [invocation selector];
     if (OMDIsPreferencesSetterSelector(selector)) {
-        for (OMDWindowController *controller in [self visibleWindowControllers]) {
+        for (OMDWindowController *controller in [self openWindowControllers]) {
             if ([controller respondsToSelector:selector]) {
                 [invocation invokeWithTarget:controller];
             }

@@ -2951,6 +2951,15 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
 
 - (NSString *)recoverySnapshotPath
 {
+#if !defined(GNUSTEP)
+    // macOS keeps an app's files in ~/Library/Application Support.
+    NSArray *supportDirectories = NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory, NSUserDomainMask, YES);
+    if ([supportDirectories count] > 0) {
+        NSString *directory = [[[supportDirectories objectAtIndex:0] stringByAppendingPathComponent:@"MarkdownViewer"]
+            stringByAppendingPathComponent:@"Recovery"];
+        return [directory stringByAppendingPathComponent:@"autosave-recovery.plist"];
+    }
+#endif
     NSString *home = NSHomeDirectory();
     if (home == nil || [home length] == 0) {
         home = NSTemporaryDirectory();
@@ -3274,7 +3283,8 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
         return YES;
     }
 
-    NSString *documentName = _currentPath != nil ? [_currentPath lastPathComponent] : @"Untitled";
+    NSString *documentName = [self currentDocument] != nil ? [[self currentDocument] tabTitle]
+                                                            : (_currentPath != nil ? [_currentPath lastPathComponent] : @"Untitled");
     NSString *action = ([actionName length] > 0) ? actionName : @"continuing";
     NSAlert *alert = [[[NSAlert alloc] init] autorelease];
     [alert setMessageText:[NSString stringWithFormat:@"Do you want to save changes to \"%@\" before %@?",
@@ -3301,10 +3311,8 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
 
     NSInteger buttonIndex = OMDAlertButtonIndexForResponse([alert runModal]);
     if (buttonIndex == 0) {
-        if (_currentPath != nil && [_currentPath length] > 0) {
-            return [self saveCurrentMarkdownToPath:_currentPath];
-        }
-        return [self saveDocumentAsMarkdownWithPanel];
+        // As File > Save: an imported document asks where to save the Markdown.
+        return [self saveDocumentFromVimCommand];
     }
     if (buttonIndex == 1) {
         return YES;
@@ -8941,31 +8949,38 @@ static BOOL OMDIsMarkdownPath(NSString *path)
         return YES;
     }
 
+    return [self reviewUnsavedDocumentsForAction:@"closing"];
+}
+
+- (BOOL)reviewUnsavedDocumentsForAction:(NSString *)actionName
+{
     [self captureCurrentStateIntoSelectedTab];
     [self commitPendingDirtyState];
-    NSInteger dirtyCount = 0;
     NSInteger index = 0;
     for (; index < (NSInteger)[_documentTabsController count]; index++) {
-        if ([[_documentTabsController tabAtIndex:index] isDocumentEdited]) {
-            dirtyCount += 1;
+        if (![[_documentTabsController tabAtIndex:index] isDocumentEdited]) {
+            continue;
+        }
+        // Show it (without the disk-change check a tab switch makes), then ask.
+        if (index != [_documentTabsController selectedIndex]) {
+            [self captureCurrentStateIntoSelectedTab];
+            [self commitPendingDirtyState];
+            [_documentTabsController setSelectedIndex:index];
+            [self applyDocumentTabRecord:[_documentTabsController tabAtIndex:index]];
+            [_documentTabsController updateTabStrip];
+        }
+        [_window makeKeyAndOrderFront:nil];
+        if (![self confirmDiscardingUnsavedChangesForAction:actionName]) {
+            return NO;
         }
     }
+    return YES;
+}
 
-    if (dirtyCount == 0) {
-        return YES;
-    }
-    if (dirtyCount == 1 && _sourceIsDirty) {
-        return [self confirmDiscardingUnsavedChangesForAction:@"closing"];
-    }
-
-    NSAlert *alert = [[[NSAlert alloc] init] autorelease];
-    [alert setMessageText:@"Close with unsaved tabs?"];
-    [alert setInformativeText:[NSString stringWithFormat:@"There are %ld tabs with unsaved changes. Save the tabs you want to keep before closing.",
-                                                         (long)dirtyCount]];
-    [alert addButtonWithTitle:@"Discard and Close"];
-    [alert addButtonWithTitle:@"Cancel"];
-    NSInteger buttonIndex = OMDAlertButtonIndexForResponse([alert runModal]);
-    return (buttonIndex == 0);
+- (void)discardRecoverySnapshot
+{
+    [self cancelPendingRecoveryAutosave];
+    [self clearRecoverySnapshot];
 }
 
 - (void)windowWillClose:(NSNotification *)notification
