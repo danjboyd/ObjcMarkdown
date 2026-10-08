@@ -49,6 +49,74 @@
     [self settle];
 }
 
+// A file in a fresh temporary folder, with data.
+- (NSString *)temporaryFileNamed:(NSString *)name data:(NSData *)data
+{
+    NSString *folder = [NSTemporaryDirectory() stringByAppendingPathComponent:
+        [NSString stringWithFormat:@"omd-document-%@", [[NSProcessInfo processInfo] globallyUniqueString]]];
+    [[NSFileManager defaultManager] createDirectoryAtPath:folder withIntermediateDirectories:YES attributes:nil error:NULL];
+    NSString *path = [folder stringByAppendingPathComponent:name];
+    [data writeToFile:path atomically:YES];
+    return path;
+}
+
+- (void)testReadsMarkdownAsMarkdownAndCodeVerbatim
+{
+    NSString *markdown = [self temporaryFileNamed:@"notes.md"
+                                             data:[@"# Notes\n" dataUsingEncoding:NSUTF8StringEncoding]];
+    NSString *text = nil;
+    OMDDocumentRenderMode mode = OMDDocumentRenderModeVerbatim;
+    NSString *syntax = @"unset";
+    XCTAssertTrue([OMDMarkdownDocument readTextFileAtPath:markdown text:&text renderMode:&mode syntaxLanguage:&syntax error:NULL]);
+    XCTAssertEqualObjects(text, @"# Notes\n");
+    XCTAssertEqual(mode, OMDDocumentRenderModeMarkdown);
+    XCTAssertNil(syntax);
+
+    NSString *python = [self temporaryFileNamed:@"tool.py"
+                                           data:[@"print('hi')\n" dataUsingEncoding:NSUTF8StringEncoding]];
+    XCTAssertTrue([OMDMarkdownDocument readTextFileAtPath:python text:&text renderMode:&mode syntaxLanguage:&syntax error:NULL]);
+    XCTAssertEqualObjects(text, @"print('hi')\n");
+    XCTAssertEqual(mode, OMDDocumentRenderModeVerbatim);
+    XCTAssertEqualObjects(syntax, @"python");
+}
+
+- (void)testReadsOtherEncodingsAndRefusesBinaryFiles
+{
+    const char latin1[] = { 'c', 'a', 'f', (char)0xE9, '\n' };
+    NSString *path = [self temporaryFileNamed:@"cafe.md" data:[NSData dataWithBytes:latin1 length:sizeof(latin1)]];
+    NSString *text = nil;
+    XCTAssertTrue([OMDMarkdownDocument readTextFileAtPath:path text:&text renderMode:NULL syntaxLanguage:NULL error:NULL]);
+    XCTAssertEqualObjects(text, @"caf\u00E9\n");
+
+    const char binary[] = { 'P', 'K', 3, 4, 0, 0, 0, 0, 1, 2 };
+    NSString *binaryPath = [self temporaryFileNamed:@"archive.md" data:[NSData dataWithBytes:binary length:sizeof(binary)]];
+    NSError *error = nil;
+    XCTAssertFalse([OMDMarkdownDocument readTextFileAtPath:binaryPath text:&text renderMode:NULL syntaxLanguage:NULL error:&error]);
+    XCTAssertEqualObjects([error domain], OMDTextFileErrorDomain);
+    XCTAssertEqual([error code], (NSInteger)2);
+
+    XCTAssertFalse([OMDMarkdownDocument readTextFileAtPath:[path stringByAppendingString:@".missing"]
+                                                      text:&text renderMode:NULL syntaxLanguage:NULL error:&error]);
+    XCTAssertEqual([error code], (NSInteger)4);
+}
+
+- (void)testReadsAndWritesThroughNSDocument
+{
+    NSString *path = [self temporaryFileNamed:@"readme.md"
+                                         data:[@"Hello\n" dataUsingEncoding:NSUTF8StringEncoding]];
+    OMDMarkdownDocument *document = [[[OMDMarkdownDocument alloc] init] autorelease];
+    NSError *error = nil;
+    XCTAssertTrue([document readFromURL:[NSURL fileURLWithPath:path] ofType:@"net.daringfireball.markdown" error:&error]);
+    XCTAssertEqualObjects([document markdown], @"Hello\n");
+    XCTAssertEqual([document renderMode], OMDDocumentRenderModeMarkdown);
+    XCTAssertTrue([[document loadedDiskFingerprint] length] > 0);
+    XCTAssertEqualObjects([document observedDiskFingerprint], [document loadedDiskFingerprint]);
+
+    [document setMarkdown:@"caf\u00E9"];
+    NSData *data = [document dataOfType:@"net.daringfireball.markdown" error:&error];
+    XCTAssertEqualObjects([[[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] autorelease], @"caf\u00E9");
+}
+
 - (void)testSourcePathIsTheFileURL
 {
     OMDMarkdownDocument *document = [[[OMDMarkdownDocument alloc] init] autorelease];

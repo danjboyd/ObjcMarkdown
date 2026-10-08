@@ -8,6 +8,16 @@
 // the document.
 extern NSString * const OMDMarkdownDocumentEditedStateDidChangeNotification;
 
+// The domain of the errors reading a text file gives.
+extern NSString * const OMDTextFileErrorDomain;
+
+// How a document shows: rendered Markdown, or text as it is (code, plain
+// text) in a code block.
+typedef NS_ENUM(NSInteger, OMDDocumentRenderMode) {
+    OMDDocumentRenderModeMarkdown = 0,
+    OMDDocumentRenderModeVerbatim = 1
+};
+
 // One open document: its text and what was known about it on disk. Each
 // has its own undo history, and its unsaved changes follow that history,
 // so undoing back to the saved text leaves it unchanged.
@@ -16,7 +26,7 @@ extern NSString * const OMDMarkdownDocumentEditedStateDidChangeNotification;
     NSString *_markdown;
     NSString *_displayTitle;
     BOOL _readOnly;
-    NSInteger _renderMode;
+    OMDDocumentRenderMode _renderMode;
     NSString *_syntaxLanguage;
     NSString *_remoteURL;
     NSString *_loadedDiskFingerprint;
@@ -36,8 +46,7 @@ extern NSString * const OMDMarkdownDocumentEditedStateDidChangeNotification;
 // What the tab and window show, when not the file's name.
 @property (nonatomic, copy) NSString *displayTitle;
 @property (nonatomic, assign) BOOL readOnly;
-// An OMDDocumentRenderMode.
-@property (nonatomic, assign) NSInteger renderMode;
+@property (nonatomic, assign) OMDDocumentRenderMode renderMode;
 @property (nonatomic, copy) NSString *syntaxLanguage;
 // A document opened from the web: its raw address.
 @property (nonatomic, copy) NSString *remoteURL;
@@ -53,6 +62,16 @@ extern NSString * const OMDMarkdownDocumentEditedStateDidChangeNotification;
 @property (nonatomic, copy) NSDictionary *suppressedImageFingerprints;
 @property (nonatomic, copy) NSString *imageMarkdown;
 @property (nonatomic, copy) NSString *imageSourcePath;
+
+// The text of the file at path, and how it shows: Markdown for Markdown
+// files, else verbatim with the syntax language its extension names.
+// Detects the encoding; refuses binary files. renderMode and
+// syntaxLanguage may be NULL.
++ (BOOL)readTextFileAtPath:(NSString *)path
+                      text:(NSString **)text
+                renderMode:(OMDDocumentRenderMode *)renderMode
+            syntaxLanguage:(NSString **)syntaxLanguage
+                     error:(NSError **)error;
 
 // The name the tab strip shows: the title, else the file's name, else
 // "Untitled".
