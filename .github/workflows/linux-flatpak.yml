@@ -35,4 +35,8 @@ jobs:
         if: github.ref_type == 'tag'
         uses: softprops/action-gh-release@v2
         with:
+          # A release candidate is a pre-release, so GitHub's latest release
+          # (which the AppImage's zsync update information follows) stays
+          # the last real one.
+          prerelease: ${{ contains(github.ref_name, '-') }}
           files: MarkdownViewer.flatpak
