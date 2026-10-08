@@ -17,7 +17,7 @@ a pin. The Windows and macOS builds don't carry them.
 | Patch | Fixes | Upstream |
 |---|---|---|
 | `libs-base/0001-GSAttributedString-hash-...` | Attribute dictionaries cached by count: building text with many distinct attributes is quadratic (#94) | not sent |
-| `libs-gui/0001-GSLayoutManager-compile-out-...` | `-_sanityChecks` walks every glyph run on each glyph generation: layout is quadratic (#94) | not sent |
+| `libs-gui/0001-GSLayoutManager-compile-out-...` | `-_sanityChecks` walks every glyph run on each glyph generation: layout is quadratic (#94) | reported as gnustep/libs-gui#992 (issue); patch not sent |
 
 These are our own fixes, carried here. Sending them to GNUstep is separate
 and follows [docs/UPSTREAM_POLICY.md](../../docs/UPSTREAM_POLICY.md): they
