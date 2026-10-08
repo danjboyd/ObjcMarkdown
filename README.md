@@ -12,6 +12,10 @@ MarkdownViewer uses only standard controls and system colours, and lets the GNUs
 |:---:|:---:|
 | ![Read mode under Adwaita in dark mode](docs/screenshots/adwaita-dark-read.png) | ![Read mode under GNUstep's default theme](docs/screenshots/gnustep-read.png) |
 
+On macOS the same code builds natively against Cocoa, so macOS draws it as a Mac app: its own controls and menu bar, SF Symbols in the toolbar, and the system's light or dark appearance, followed as it changes.
+
+![MarkdownViewer on macOS in Read mode: explorer, rendered document and outline](docs/screenshots/macos-read.png)
+
 ## Read, Edit, Split
 
 Read for the rendered document, Edit for the Markdown source, and Split for both side by side, with the preview following the editor as you scroll and type.
