@@ -44,7 +44,7 @@ jobs:
       packager-ref: 4814554c9e445170217bd6849efea05b98e62856
       # GitHub-hosted, in the CI image (ci/linux/Dockerfile), pinned by the
       # digest linux-gnustep-clang.yml uses.
-      container-appimage: ghcr.io/danjboyd/objcmarkdown-ci@sha256:cc15f3cd5f902884a32413a6f4349ad8075deb8def997ac686611b21d1f7308b
+      container-appimage: ghcr.io/danjboyd/objcmarkdown-ci@sha256:aaa9fa72af8045bc6d343027ab38b9420513f712512e20c44752fff82a65e0a0
       skip-default-host-setup: true
       # The CI image already has the AppImage tools; the packager rejects
       # extra apt packages when it does not set up the host.
