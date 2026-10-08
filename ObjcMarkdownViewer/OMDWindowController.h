@@ -37,7 +37,7 @@ typedef unsigned short mode_t;
 // One window: its views and controllers and the documents open in it as
 // tabs. The app delegate (OMDAppDelegate) passes the application's events
 // to the first window's controller.
-@interface OMDWindowController : NSObject <NSApplicationDelegate, NSWindowDelegate, NSTextViewDelegate, OMDMenuItemValidation, NSSplitViewDelegate, NSControlTextEditingDelegate, OMDSourceTextViewVimEventHandling>
+@interface OMDWindowController : NSObject <NSApplicationDelegate, NSMenuDelegate, NSWindowDelegate, NSTextViewDelegate, OMDMenuItemValidation, NSSplitViewDelegate, NSControlTextEditingDelegate, OMDSourceTextViewVimEventHandling>
 {
     NSWindow *_window;
     NSSplitView *_workspaceSplitView;
@@ -76,7 +76,6 @@ typedef unsigned short mode_t;
     OMDStatusBarController *_statusBarController;
     OMDCopyButtonsController *_copyButtonsController;
     OMDRenderScheduler *_renderScheduler;
-    id _updaterController;
     NSMenu *_fileOpenRecentMenu;
     BOOL _explorerSidebarVisible;
     BOOL _outlineVisible;

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #import "OMDWindowController.h"
+#import "OMDAppDelegate.h"
 #import "OMMarkdownRenderer.h"
 #import "OMRenderedObject.h"
 #import "OMTheme.h"
@@ -59,13 +60,6 @@
 #include <stdio.h>
 #endif
 #include <math.h>
-
-@interface GPStandardUpdaterController : NSObject
-- (instancetype)initWithPackagedConfiguration:(NSError **)error;
-- (void)setParentWindow:(NSWindow *)parentWindow;
-- (void)start;
-- (void)checkForUpdates:(id)sender;
-@end
 
 #if !defined(GNUSTEP)
 static void *OMDSystemAppearanceObservationContext = &OMDSystemAppearanceObservationContext;
@@ -656,7 +650,6 @@ static CGFloat OMDClampedScrollSpeed(CGFloat value)
 - (void)zoomIn:(id)sender;
 - (void)zoomOut:(id)sender;
 - (void)zoomToActualSize:(id)sender;
-- (void)checkForUpdates:(id)sender;
 - (void)showAboutPanel:(id)sender;
 - (void)showProjectHomePage:(id)sender;
 - (BOOL)isWordSelectionModifierShimEnabled;
@@ -822,7 +815,6 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [_preferencesController release];
     [_toolbarController release];
     [_statusBarController release];
-    [_updaterController release];
     if (_fileOpenRecentMenu != nil) {
         [_fileOpenRecentMenu setDelegate:nil];
         [_fileOpenRecentMenu release];
@@ -895,21 +887,6 @@ static NSMutableArray *OMDSecondaryWindows(void)
     }
 
     [self presentWindowIfNeeded];
-#if defined(GNUSTEP)
-    if (_updaterController == nil) {
-        NSError *updateError = nil;
-        GPStandardUpdaterController *controller = [[GPStandardUpdaterController alloc] initWithPackagedConfiguration:&updateError];
-        if (controller == nil) {
-            NSLog(@"Updater disabled: %@", [updateError localizedDescription]);
-        } else {
-            [controller setParentWindow:_window];
-            [controller start];
-            _updaterController = controller;
-        }
-    } else {
-        [(GPStandardUpdaterController *)_updaterController setParentWindow:_window];
-    }
-#endif
     if ([startupPath length] > 0 || shouldCheckRecovery) {
         _launchWorkScheduled = YES;
         [self performSelector:@selector(performDeferredInitialLaunchWork)
@@ -1037,8 +1014,14 @@ static NSMutableArray *OMDSecondaryWindows(void)
 - (void)setupMainMenu
 {
     OMDStartupTrace(@"setupMainMenu: enter");
-    OMDMainMenu *mainMenu = [[[OMDMainMenu alloc] initWithTarget:self] autorelease];
+    // Its commands go to the app delegate, which passes them on to the
+    // window in front.
+    id appDelegate = [NSApp delegate];
+    OMDMainMenu *mainMenu = [[[OMDMainMenu alloc] initWithTarget:appDelegate] autorelease];
     NSMenu *menubar = [mainMenu menubar];
+    if ([appDelegate respondsToSelector:@selector(routeWindowActionsOfMenu:)]) {
+        [(OMDAppDelegate *)appDelegate routeWindowActionsOfMenu:menubar];
+    }
     [_fileOpenRecentMenu release];
     _fileOpenRecentMenu = [[mainMenu openRecentMenu] retain];
 #if !defined(_WIN32)
@@ -1588,7 +1571,13 @@ static NSMutableArray *OMDSecondaryWindows(void)
 
     _currentDocumentRenderMode = OMDDocumentRenderModeMarkdown;
     _explorerController = [[OMDExplorerController alloc] initWithDelegate:self];
-    _preferencesController = [[OMDPreferencesController alloc] initWithDelegate:self];
+    // Settings is one window for the app (OMDAppDelegate).
+    id appDelegate = [NSApp delegate];
+    if ([appDelegate respondsToSelector:@selector(preferencesController)]) {
+        _preferencesController = [[(OMDAppDelegate *)appDelegate preferencesController] retain];
+    } else {
+        _preferencesController = [[OMDPreferencesController alloc] initWithDelegate:self];
+    }
     _formattingBarController = [[OMDFormattingBarController alloc] initWithDelegate:self];
     _explorerSidebarVisible = [self isExplorerSidebarVisiblePreference];
     _explorerSidebarLastVisibleWidth = metrics.sidebarDefaultWidth;
@@ -1944,10 +1933,6 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
         return [self hasLoadedDocument];
     }
 
-    if (action == @selector(checkForUpdates:)) {
-        return _updaterController != nil;
-    }
-
     if (action == @selector(undo:)) {
         NSTextView *textView = [self activeEditingTextView];
         NSUndoManager *undoManager = (textView != nil ? [textView undoManager] : nil);
@@ -2090,6 +2075,9 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
         [menu removeItemAtIndex:0];
     }
 
+    // The main menu's open into the window in front; the toolbar's into
+    // its own window.
+    id target = (menu == _fileOpenRecentMenu ? [NSApp delegate] : self);
     NSArray *recentURLs = [[NSDocumentController sharedDocumentController] recentDocumentURLs];
     NSUInteger addedCount = 0;
     NSUInteger index = 0;
@@ -2112,7 +2100,7 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
         NSMenuItem *item = [[[NSMenuItem alloc] initWithTitle:title
                                                         action:@selector(openRecentDocumentFromMenuItem:)
                                                  keyEquivalent:@""] autorelease];
-        [item setTarget:self];
+        [item setTarget:target];
         [item setRepresentedObject:path];
         if ([item respondsToSelector:@selector(setToolTip:)]) {
             [item setToolTip:path];
@@ -2134,7 +2122,7 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
     NSMenuItem *clearItem = [[[NSMenuItem alloc] initWithTitle:@"Clear Menu"
                                                          action:@selector(clearRecentDocumentsMenu:)
                                                   keyEquivalent:@""] autorelease];
-    [clearItem setTarget:self];
+    [clearItem setTarget:target];
     [menu addItem:clearItem];
 }
 
@@ -7139,15 +7127,6 @@ constrainSplitPosition:(CGFloat)proposedPosition
 {
     (void)sender;
     [_preferencesController showPreferences];
-}
-
-- (void)checkForUpdates:(id)sender
-{
-    if (_updaterController == nil) {
-        NSBeep();
-        return;
-    }
-    [(GPStandardUpdaterController *)_updaterController checkForUpdates:sender];
 }
 
 - (void)showProjectHomePage:(id)sender
