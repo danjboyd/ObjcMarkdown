@@ -1,0 +1,54 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Daniel Boyd <danieljboyd@icloud.com>
+Date: Thu, 8 Oct 2026 10:16:36 -0500
+Subject: [PATCH] GSAttributedString: hash cached attribute dictionaries by
+ content
+
+The cache of attribute dictionaries used NSDictionary's -hash, which is
+the dictionary's count, so every dictionary with the same number of keys
+fell into one bucket and each lookup compared against all of them. Text
+with many distinct attribute dictionaries (a heading anchor, link or
+attachment each makes one) became quadratic to build: a 1.3 MB Markdown
+document took 4.0s to render in MarkdownViewer, 1.2s with this change
+(danjboyd/ObjcMarkdown#94).
+
+The hash now adds each key's hash combined with its value's. Equal
+dictionaries hash alike, as -isEqual: requires. A value whose hash
+changes while it is cached (a mutated paragraph style) leaves its entry
+unfound on removal: a leak, not a crash.
+
+Carried in ObjcMarkdown's Linux packages; not sent upstream.
+AI assistance: this change and this description were written with
+Claude (Anthropic's Claude Code).
+---
+ Source/GSAttributedString.m | 14 ++++++++++++++
+ 1 file changed, 14 insertions(+)
+
+diff --git a/Source/GSAttributedString.m b/Source/GSAttributedString.m
+index 8fc9e60..a64d11c 100644
+--- a/Source/GSAttributedString.m
++++ b/Source/GSAttributedString.m
+@@ -117,6 +117,20 @@ cacheEqual(id A, id B)
+ #define	GSI_MAP_RELEASE_KEY(M, X)	
+ #define	GSI_MAP_RETAIN_VAL(M, X)	
+ #define	GSI_MAP_RELEASE_VAL(M, X)	
++static inline NSUInteger
++cacheHash(NSDictionary *A)
++{
++  NSUInteger	h = [A count];
++  NSEnumerator	*e = [A keyEnumerator];
++  id		k;
++
++  while ((k = [e nextObject]) != nil)
++    {
++      h += [k hash] ^ [[A objectForKey: k] hash];
++    }
++  return h;
++}
++#define	GSI_MAP_HASH(M, X)	cacheHash((X).obj)
+ #define	GSI_MAP_EQUAL(M, X,Y)	cacheEqual((X).obj, (Y).obj)
+ #define GSI_MAP_KTYPES	GSUNION_OBJ
+ #define GSI_MAP_VTYPES	GSUNION_NSINT
+-- 
+2.47.3
+

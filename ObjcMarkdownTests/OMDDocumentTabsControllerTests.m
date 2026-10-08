@@ -71,13 +71,13 @@
     XCTAssertEqual([tabs selectedIndex], (NSInteger)-1);
     XCTAssertNil([tabs selectedTab]);
 
-    [tabs addTab:[self tabWithPath:@"/tmp/a.md"]];
-    [tabs addTab:[self tabWithPath:@"/tmp/b.md"]];
+    [tabs addTab:[self tabWithPath:OMTestAbsolutePath(@"/tmp/a.md")]];
+    [tabs addTab:[self tabWithPath:OMTestAbsolutePath(@"/tmp/b.md")]];
     [tabs setSelectedIndex:1];
-    XCTAssertEqualObjects([[tabs selectedTab] sourcePath], @"/tmp/b.md");
+    XCTAssertEqualObjects([[tabs selectedTab] sourcePath], OMTestAbsolutePath(@"/tmp/b.md"));
 
-    [tabs replaceTabAtIndex:1 withTab:[self tabWithPath:@"/tmp/c.md"]];
-    XCTAssertEqualObjects([[tabs selectedTab] sourcePath], @"/tmp/c.md");
+    [tabs replaceTabAtIndex:1 withTab:[self tabWithPath:OMTestAbsolutePath(@"/tmp/c.md")]];
+    XCTAssertEqualObjects([[tabs selectedTab] sourcePath], OMTestAbsolutePath(@"/tmp/c.md"));
 
     [tabs removeTabAtIndex:1];
     XCTAssertEqual([tabs count], (NSUInteger)1);
