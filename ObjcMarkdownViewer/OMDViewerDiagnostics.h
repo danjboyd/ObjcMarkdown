@@ -16,6 +16,10 @@ double OMDKeyLatencyMS(NSTimeInterval start, NSTimeInterval end);
 BOOL OMDPreviewStyleDiagnosticsEnabled(void);
 id OMDInfoValueForKey(NSString *key);
 NSString *OMDInfoStringForKey(NSString *key);
+// The name shown to people: CFBundleDisplayName, else ApplicationName, else
+// the process name. (ApplicationName stays the program's name, which the
+// defaults domain is named after.)
+NSString *OMDApplicationDisplayName(void);
 NSTimeInterval OMDNow(void);
 BOOL OMDPerformanceLoggingEnabled(void);
 BOOL OMDPrintDiagnosticsEnabled(void);

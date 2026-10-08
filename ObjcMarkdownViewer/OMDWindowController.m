@@ -7337,10 +7337,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
 - (void)showAboutPanel:(id)sender
 {
     NSMutableDictionary *options = [NSMutableDictionary dictionary];
-    NSString *appName = OMDInfoStringForKey(@"ApplicationName");
-    if (appName == nil || [appName length] == 0) {
-        appName = [[NSProcessInfo processInfo] processName];
-    }
+    NSString *appName = OMDApplicationDisplayName();
     if (appName != nil && [appName length] > 0) {
         [options setObject:appName forKey:@"ApplicationName"];
     }

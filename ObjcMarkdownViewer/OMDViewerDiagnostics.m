@@ -103,6 +103,18 @@ NSString *OMDInfoStringForKey(NSString *key)
     return [value isKindOfClass:[NSString class]] ? (NSString *)value : nil;
 }
 
+NSString *OMDApplicationDisplayName(void)
+{
+    NSString *name = OMDInfoStringForKey(@"CFBundleDisplayName");
+    if ([name length] == 0) {
+        name = OMDInfoStringForKey(@"ApplicationName");
+    }
+    if ([name length] == 0) {
+        name = [[NSProcessInfo processInfo] processName];
+    }
+    return name;
+}
+
 NSTimeInterval OMDNow(void)
 {
     return [NSDate timeIntervalSinceReferenceDate];
