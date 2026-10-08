@@ -13,11 +13,11 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>MarkdownViewer</string>
+	<string>Markdown Viewer</string>
 	<key>CFBundleDisplayName</key>
-	<string>MarkdownViewer</string>
+	<string>Markdown Viewer</string>
 	<key>ApplicationName</key>
-	<string>MarkdownViewer</string>
+	<string>Markdown Viewer</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
