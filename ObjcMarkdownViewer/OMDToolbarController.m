@@ -71,7 +71,7 @@
         [item setToolTip:@"Show or hide the file explorer"];
         [item setTarget:_delegate];
         [item setAction:@selector(toggleExplorerSidebar:)];
-        [item setImage:OMDSymbolicImageNamed(@"omd-sidebar-show-symbolic")];
+        [item setImage:OMDSymbolicImageNamedForCommand(@"omd-sidebar-show-symbolic", @"Explorer")];
         return item;
     }
 
@@ -90,7 +90,7 @@
         NSButton *openButton = [[[NSButton alloc] initWithFrame:NSMakeRect(0.0, 0.0, openWidth, OMDToolbarItemHeight)] autorelease];
         [openButton setBordered:NO];
         [openButton setImagePosition:NSImageOnly];
-        [openButton setImage:OMDSymbolicImageNamed(@"omd-document-open-symbolic")];
+        [openButton setImage:OMDSymbolicImageNamedForCommand(@"omd-document-open-symbolic", @"Open")];
         [openButton setToolTip:@"Open a Markdown file"];
         [openButton setTarget:_delegate];
         [openButton setAction:@selector(openDocument:)];
@@ -98,7 +98,7 @@
         NSButton *arrowButton = [[[NSButton alloc] initWithFrame:NSMakeRect(openWidth, 0.0, arrowWidth, OMDToolbarItemHeight)] autorelease];
         [arrowButton setBordered:NO];
         [arrowButton setImagePosition:NSImageOnly];
-        [arrowButton setImage:OMDSymbolicImageNamed(@"omd-pan-down-symbolic")];
+        [arrowButton setImage:OMDSymbolicImageNamedForCommand(@"omd-pan-down-symbolic", @"Open Recent")];
         [arrowButton setToolTip:@"Open a recent file"];
         [arrowButton setTarget:self];
         [arrowButton setAction:@selector(showRecentDocumentsMenu:)];
@@ -116,7 +116,7 @@
         [item setToolTip:@"Save current markdown changes"];
         [item setTarget:_delegate];
         [item setAction:@selector(saveDocument:)];
-        [item setImage:OMDSymbolicImageNamed(@"omd-document-save-symbolic")];
+        [item setImage:OMDSymbolicImageNamedForCommand(@"omd-document-save-symbolic", @"Save")];
         return item;
     }
 
@@ -132,15 +132,18 @@
             [_modeControl setLabel:@"Split" forSegment:2];
             [_modeControl setTarget:_delegate];
             [_modeControl setAction:@selector(modeControlChanged:)];
+#if !defined(GNUSTEP)
+            [_modeControl setAccessibilityLabel:@"View Mode"];
+#endif
             [_modeContainer addSubview:_modeControl];
             // GNUstep doesn't show a segment's own tooltip; the container's
             // rects do.
             CGFloat segment = floor(switcherWidth / 3.0);
-            [(OMDToolbarToolTipView *)_modeContainer setToolTip:@"Read (Ctrl+1)"
+            [(OMDToolbarToolTipView *)_modeContainer setToolTip:OMDShortcutText(@"Read (Ctrl+1)")
                                                         forRect:NSMakeRect(0.0, controlY, segment, OMDToolbarControlHeight)];
-            [(OMDToolbarToolTipView *)_modeContainer setToolTip:@"Edit (Ctrl+2)"
+            [(OMDToolbarToolTipView *)_modeContainer setToolTip:OMDShortcutText(@"Edit (Ctrl+2)")
                                                         forRect:NSMakeRect(segment, controlY, segment, OMDToolbarControlHeight)];
-            [(OMDToolbarToolTipView *)_modeContainer setToolTip:@"Split (Ctrl+3)"
+            [(OMDToolbarToolTipView *)_modeContainer setToolTip:OMDShortcutText(@"Split (Ctrl+3)")
                                                         forRect:NSMakeRect(2.0 * segment, controlY, switcherWidth - 2.0 * segment, OMDToolbarControlHeight)];
             [_delegate updateModeControlSelection];
         }

@@ -71,6 +71,30 @@ static NSString *OMDSystemSymbolNameForIcon(NSString *name)
 }
 #endif
 
+NSImage *OMDSymbolicImageNamedForCommand(NSString *name, NSString *commandName)
+{
+    NSImage *image = OMDSymbolicImageNamed(name);
+#if !defined(GNUSTEP)
+    // A copy: the shared image stands for other commands elsewhere.
+    if (image != nil && [commandName length] > 0) {
+        image = [[image copy] autorelease];
+        [image setAccessibilityDescription:commandName];
+    }
+#else
+    (void)commandName;
+#endif
+    return image;
+}
+
+NSString *OMDShortcutText(NSString *text)
+{
+#if !defined(GNUSTEP)
+    return [text stringByReplacingOccurrencesOfString:@"Ctrl+" withString:@"\u2318"];
+#else
+    return text;
+#endif
+}
+
 NSImage *OMDSymbolicImageNamed(NSString *name)
 {
 #if !defined(GNUSTEP)
