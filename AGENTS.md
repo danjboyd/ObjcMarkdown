@@ -76,6 +76,7 @@ Notes:
 - GNUstep-only code is under `#if defined(GNUSTEP)` (gnustep-make defines it); macOS-only code under `#if !defined(GNUSTEP)`. Never write to `NSGlobalDomain` on macOS: it is the system's, shared with every app.
 - On macOS the system draws the app: no GNUstep theme setting, SF Symbols for the symbolic icons (template PNGs as the fallback), the system's light/dark appearance followed live.
 - From macOS 14 views don't clip to their bounds; clip custom drawing to `-bounds` rather than filling the dirty rect.
+- The Quick Look preview (`macos/QuickLook`, built into `Contents/PlugIns/MarkdownPreview.appex`, sandboxed) renders a Markdown file in the Finder with the library and `OMDTextView`. To try a build without installing it: `pluginkit -a macos/build/MarkdownViewer.app/Contents/PlugIns/MarkdownPreview.appex`, then `qlmanage -p file.md`; undo with `pluginkit -r` on the same path.
 
 ## Dependencies
 - `cmark-gfm` (vendored in `third_party/cmark-gfm`, compiled into the library) for CommonMark + GFM parsing. Parse through `OMGFMParseDocument()` (`ObjcMarkdown/OMGFMParser.h`) so the renderer, split sync and source highlighter agree on block structure; never link a system `libcmark` alongside it.
