@@ -800,6 +800,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [_copyButtonsController hideCopyFeedback];
     [_sourceVimCommandLine release];
     [_pendingLaunchOpenPath release];
+    [_pendingLaunchExtraPaths release];
     [_currentDocumentSyntaxLanguage release];
     [_currentDisplayTitle release];
     [_currentMarkdown release];
@@ -967,8 +968,17 @@ static NSMutableArray *OMDSecondaryWindows(void)
                                   _currentPath == nil &&
                                   _currentMarkdown == nil));
     if (shouldDeferForLaunch) {
-        [_pendingLaunchOpenPath release];
-        _pendingLaunchOpenPath = [(resolvedPath != nil ? resolvedPath : filename) copy];
+        NSString *launchPath = (resolvedPath != nil ? resolvedPath : filename);
+        // GNUstep calls this once for each document named at launch: the
+        // first shows in this window, the others follow it as tabs.
+        if (_pendingLaunchOpenPath != nil) {
+            if (_pendingLaunchExtraPaths == nil) {
+                _pendingLaunchExtraPaths = [[NSMutableArray alloc] init];
+            }
+            [_pendingLaunchExtraPaths addObject:launchPath];
+            return YES;
+        }
+        _pendingLaunchOpenPath = [launchPath copy];
         if (_window != nil) {
             [self showLaunchOverlayWithTitle:@"Loading document..."
                                       detail:[_pendingLaunchOpenPath lastPathComponent]];
@@ -1456,6 +1466,26 @@ static NSMutableArray *OMDSecondaryWindows(void)
                               requireDirtyConfirm:NO];
         OMDStartupTrace([NSString stringWithFormat:@"performDeferredInitialLaunchWork: pending open=%@",
                                                    openedFromArgs ? @"YES" : @"NO"]);
+        NSArray *extraPaths = [[_pendingLaunchExtraPaths copy] autorelease];
+        [_pendingLaunchExtraPaths release];
+        _pendingLaunchExtraPaths = nil;
+        // Each opens from the window of the one before, so that with
+        // window tabs (a new tab goes right after its opener's) they keep
+        // the command line's order.
+        OMDWindowController *opener = self;
+        for (NSString *extraPath in extraPaths) {
+            BOOL inNewTab = !([opener->_documentTabsController count] == 0 &&
+                              opener->_currentPath == nil && opener->_currentMarkdown == nil);
+            if ([opener openDocumentAtPath:extraPath inNewTab:inNewTab requireDirtyConfirm:NO]) {
+                openedFromArgs = YES;
+#if defined(GNUSTEP)
+                OMDWindowController *shown = [OMDWindowController windowControllerWithDocumentAtPath:extraPath];
+                if (shown != nil) {
+                    opener = shown;
+                }
+#endif
+            }
+        }
     } else {
         openedFromArgs = [self openDocumentFromArguments];
         OMDStartupTrace([NSString stringWithFormat:@"performDeferredInitialLaunchWork: openDocumentFromArguments=%@",
@@ -2246,6 +2276,19 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
         [controller applyExplorerSidebarVisibility];
     }
     return controller;
+}
+
+// The controller of the window with the file at path among its documents.
++ (OMDWindowController *)windowControllerWithDocumentAtPath:(NSString *)path
+{
+    for (NSWindow *window in [NSApp windows]) {
+        id delegate = [window delegate];
+        if ([delegate isKindOfClass:[OMDWindowController class]] &&
+            [((OMDWindowController *)delegate)->_documentTabsController documentTabIndexForLocalPath:path] >= 0) {
+            return delegate;
+        }
+    }
+    return nil;
 }
 
 // Brings the window (its tab) showing the file at path, or the document

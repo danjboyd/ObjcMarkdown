@@ -94,6 +94,8 @@ typedef unsigned short mode_t;
     NSTextField *_launchOverlayTitleLabel;
     NSTextField *_launchOverlayDetailLabel;
     NSString *_pendingLaunchOpenPath;
+    // The documents after the first one named at launch, opened as tabs.
+    NSMutableArray *_pendingLaunchExtraPaths;
     BOOL _launchWorkScheduled;
     BOOL _postPresentationSetupScheduled;
     BOOL _postPresentationSetupComplete;
