@@ -125,7 +125,7 @@ modules:
     sources:
       - type: git
         url: https://github.com/danjboyd/plugins-themes-Adwaita.git
-        commit: 2d7862aa2a6b451dfd4f6b763e90512f606bcdaa
+        commit: dd1181af91b557d7a1f4c11488a6809f7f02c9cd
 
   - name: markdownviewer
     buildsystem: simple
