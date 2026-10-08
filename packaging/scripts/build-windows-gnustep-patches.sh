@@ -76,10 +76,15 @@ have_gui=$(version_from "$PREFIX/include/GNUstepGUI/GSVersion.h" GNUSTEP_GUI)
 
 # Windows' own curl uses the system's certificate store; the packaging
 # toolchain's MSYS curl has no CA bundle. Downloads are checksummed anyway.
+# (Found through SYSTEMROOT: toolchains mount drives under different prefixes.)
 CURL=curl
-if [[ -x /c/Windows/System32/curl.exe ]]; then
-  CURL=/c/Windows/System32/curl.exe
+if [[ -n "${SYSTEMROOT:-}" ]] && command -v cygpath >/dev/null 2>&1; then
+  windows_curl="$(cygpath -u "$SYSTEMROOT")/System32/curl.exe"
+  if [[ -x "$windows_curl" ]]; then
+    CURL="$windows_curl"
+  fi
 fi
+echo "downloading with $CURL"
 
 fetch() { # <url> <sha256> <dest>
   local url="$1" sum="$2" dest="$3"
