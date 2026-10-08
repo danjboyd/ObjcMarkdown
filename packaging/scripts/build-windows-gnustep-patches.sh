@@ -58,6 +58,17 @@ PKGCONF_PKG_SHA256=6b25519602ce5e799805b3a3c1ade81184b5a7ee2e4b815cd47ce6a2da7b3
 
 die() { echo "build-windows-gnustep-patches: $*" >&2; exit 1; }
 
+# same_lists <name> <text> <name> <text>: compared in bash, and both printed
+# if they differ. Not diff: on a CI runner the diff on PATH can belong to
+# another MSYS (Git for Windows'), which can't open this toolchain's paths.
+same_lists() {
+  if [[ "$2" == "$4" ]]; then
+    return 0
+  fi
+  printf '%s:\n%s\n%s:\n%s\n' "$1" "$2" "$3" "$4" >&2
+  return 1
+}
+
 if [[ "$INSTALL" == 1 && -z "${CI:-}" && "${OMD_ALLOW_TOOLCHAIN_PATCH:-}" != 1 ]]; then
   die "--install replaces $PREFIX/bin/$BASE_DLL and $GUI_DLL; it only runs in CI or with OMD_ALLOW_TOOLCHAIN_PATCH=1"
 fi
@@ -87,6 +98,10 @@ if [[ -n "${SYSTEMROOT:-}" ]] && command -v cygpath >/dev/null 2>&1; then
   fi
 fi
 echo "downloading with $CURL"
+# Which tools PATH gives (a CI runner mixes MSYS installations).
+for tool in diff grep cp tar find sed patch sha256sum; do
+  echo "  $tool: $(command -v "$tool" 2>/dev/null || echo missing)"
+done
 
 fetch() { # <url> <sha256> <dest>
   local url="$1" sum="$2" dest="$3"
@@ -180,13 +195,10 @@ tar -xzf "$WORK/downloads/gnustep-base-$BASE_VERSION.tar.gz" -C "$WORK"
   fi
   OBJCFLAGS="-Wno-incompatible-pointer-types" ./configure --prefix="$PREFIX" "${base_options[@]}" \
     > "$WORK/base-configure.log" 2>&1 || { tail -40 "$WORK/base-configure.log"; exit 1; }
-  # The same features as the DLL it replaces, or stop. (Files, not <(...):
-  # the packaging toolchain's bash has no /dev/fd.)
-  grep -E '^#define' "$PREFIX/include/GNUstepBase/GSConfig.h" > "$WORK/gsconfig-toolchain.txt"
-  grep -E '^#define' Headers/GNUstepBase/GSConfig.h > "$WORK/gsconfig-patched.txt"
-  if ! diff "$WORK/gsconfig-toolchain.txt" "$WORK/gsconfig-patched.txt"; then
-    die "gnustep-base configured differently from the toolchain's (GSConfig.h above)"
-  fi
+  # The same features as the DLL it replaces, or stop.
+  same_lists "toolchain GSConfig.h" "$(grep -E '^#define' "$PREFIX/include/GNUstepBase/GSConfig.h")" \
+             "patched GSConfig.h" "$(grep -E '^#define' Headers/GNUstepBase/GSConfig.h)" \
+    || die "gnustep-base configured differently from the toolchain's (GSConfig.h above)"
   make -j"$JOBS" messages=no > "$WORK/base-make.log" 2>&1 || { grep -iE "error" "$WORK/base-make.log" | head -40; exit 1; }
   dll="$(find . -name "$BASE_DLL" -path '*obj*' | head -1)"
   [[ -n "$dll" ]] || die "the gnustep-base build made no $BASE_DLL"
@@ -213,11 +225,9 @@ tar -xzf "$WORK/downloads/gnustep-gui-$GUI_VERSION.tar.gz" -C "$WORK"
 # Each DLL must need what the one it replaces needs, no more, no less.
 imports() { "$PREFIX/bin/llvm-objdump" -p "$1" | awk '/DLL Name:/ {print $3}' | sort; }
 for dll in "$BASE_DLL" "$GUI_DLL"; do
-  imports "$PREFIX/bin/$dll" > "$WORK/imports-toolchain.txt"
-  imports "$OUT/$dll" > "$WORK/imports-patched.txt"
-  if ! diff "$WORK/imports-toolchain.txt" "$WORK/imports-patched.txt"; then
-    die "the patched $dll imports different DLLs from the toolchain's (above)"
-  fi
+  same_lists "toolchain $dll imports" "$(imports "$PREFIX/bin/$dll")" \
+             "patched $dll imports" "$(imports "$OUT/$dll")" \
+    || die "the patched $dll imports different DLLs from the toolchain's (above)"
 done
 
 echo "patched DLLs in $OUT:"
