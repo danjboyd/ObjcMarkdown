@@ -1,7 +1,7 @@
 // ObjcMarkdownViewer
 // SPDX-License-Identifier: GPL-2.0-or-later
 
-#import "OMDAppDelegate.h"
+#import "OMDWindowController.h"
 #import "OMMarkdownRenderer.h"
 #import "OMRenderedObject.h"
 #import "OMTheme.h"
@@ -405,7 +405,7 @@ static CGFloat OMDClampedScrollSpeed(CGFloat value)
 }
 
 
-@interface OMDAppDelegate () <OMDCopyButtonsControllerDelegate, OMDRenderSchedulerDelegate, OMDDocumentTabsControllerDelegate, OMDToolbarControllerDelegate, OMDStatusBarControllerDelegate, OMDExplorerControllerDelegate, OMDOpenLocationDelegate, OMDFormattingBarControllerDelegate, OMDPreferencesControllerDelegate, GSVVimBindingControllerDelegate, OMDTextViewRenderedObjectDelegate, OMDOutlineControllerDelegate>
+@interface OMDWindowController () <OMDCopyButtonsControllerDelegate, OMDRenderSchedulerDelegate, OMDDocumentTabsControllerDelegate, OMDToolbarControllerDelegate, OMDStatusBarControllerDelegate, OMDExplorerControllerDelegate, OMDOpenLocationDelegate, OMDFormattingBarControllerDelegate, OMDPreferencesControllerDelegate, GSVVimBindingControllerDelegate, OMDTextViewRenderedObjectDelegate, OMDOutlineControllerDelegate>
 - (void)importDocument:(id)sender;
 - (void)newWindow:(id)sender;
 - (void)newDocument:(id)sender;
@@ -727,7 +727,7 @@ static CGFloat OMDClampedScrollSpeed(CGFloat value)
 - (NSInteger)headingLevelForLine:(NSString *)line;
 @end
 
-@implementation OMDAppDelegate
+@implementation OMDWindowController
 
 
 static NSMutableArray *OMDSecondaryWindows(void)
@@ -2229,7 +2229,7 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
 {
     (void)sender;
 
-    OMDAppDelegate *controller = [[OMDAppDelegate alloc] init];
+    OMDWindowController *controller = [[OMDWindowController alloc] init];
     [controller setupWindow];
     [controller presentWindowIfNeeded];
     [controller schedulePostPresentationSetupIfNeeded];
@@ -2317,7 +2317,7 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
     if ([_documentTabsController count] == 0 && _currentPath == nil && _currentMarkdown == nil) {
         [self importDocumentAtPath:path];
     } else if (supportsFormatNow) {
-        OMDAppDelegate *controller = [[OMDAppDelegate alloc] init];
+        OMDWindowController *controller = [[OMDWindowController alloc] init];
         [controller setupWindow];
         BOOL imported = [controller importDocumentAtPath:path];
         if (imported) {
@@ -8949,7 +8949,7 @@ static BOOL OMDIsMarkdownPath(NSString *path)
         return NO;
     }
 
-    OMDAppDelegate *controller = [[OMDAppDelegate alloc] init];
+    OMDWindowController *controller = [[OMDWindowController alloc] init];
     [controller setupWindow];
     BOOL opened = [controller openDocumentAtPath:path];
     if (opened) {

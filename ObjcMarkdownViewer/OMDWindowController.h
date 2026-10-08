@@ -34,7 +34,7 @@ typedef unsigned short mode_t;
 #define OMDMenuItemValidation NSMenuItemValidation
 #endif
 
-@interface OMDAppDelegate : NSObject <NSApplicationDelegate, NSWindowDelegate, NSTextViewDelegate, OMDMenuItemValidation, NSSplitViewDelegate, NSControlTextEditingDelegate, OMDSourceTextViewVimEventHandling>
+@interface OMDWindowController : NSObject <NSApplicationDelegate, NSWindowDelegate, NSTextViewDelegate, OMDMenuItemValidation, NSSplitViewDelegate, NSControlTextEditingDelegate, OMDSourceTextViewVimEventHandling>
 {
     NSWindow *_window;
     NSSplitView *_workspaceSplitView;
