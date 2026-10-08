@@ -1,7 +1,7 @@
-# GNUstep patches the Linux packages carry
+# GNUstep patches the Linux and Windows packages carry
 
-Fixes to GNUstep that the app's Linux builds apply to the pinned upstream
-commits until they are fixed upstream:
+Fixes to GNUstep that the app's Linux and Windows builds apply until they
+are fixed upstream:
 
 - the Flatpak (`packaging/flatpak/io.github.danjboyd.MarkdownViewer.yml`,
   as `patch` sources of the gnustep-base and gnustep-gui modules);
@@ -10,9 +10,18 @@ commits until they are fixed upstream:
   After a change here the image is rebuilt, and both workflows that pin
   its digest (`linux-gnustep-clang.yml`, `linux-appimage.yml`) need the
   new one.
+- the Windows MSI: `packaging/scripts/build-windows-gnustep-patches.sh`
+  (run by `build-windows.ps1`) rebuilds gnustep-base 1.31.1 and
+  gnustep-gui 0.32.0 from their release tarballs the way MSYS2's CLANG64
+  packages are built, with these patches, and replaces the toolchain's
+  two DLLs before the app is built and staged. It checks that the
+  toolchain has those versions, and replaces the DLLs only in CI.
+  `packaging/windows/patches/` holds the upstream commit MSYS2's
+  gnustep-base package applies, which the Linux pins already include.
 
-Each patch applies to the commit the builds pin; check that before moving
-a pin. The Windows and macOS builds don't carry them.
+Each patch applies to the commit the Linux builds pin and to the release
+the Windows build uses; check both before moving either. The macOS build
+uses Cocoa and doesn't need them.
 
 | Patch | Fixes | Upstream |
 |---|---|---|
