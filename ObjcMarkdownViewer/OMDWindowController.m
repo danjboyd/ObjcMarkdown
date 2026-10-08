@@ -2294,10 +2294,12 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
     // With window tabs the new document has a window of its own, which
     // then takes Edit mode.
     OMDWindowController *target = self;
+#if defined(GNUSTEP)
     if (inNewTab && OMDWindowTabbingAvailable()) {
         target = [self newTabbedWindowController];
         inNewTab = NO;
     }
+#endif
     if (![target openDocumentWithMarkdown:@""
                                sourcePath:nil
                              displayTitle:title
