@@ -127,6 +127,7 @@
     "channel": "stable",
     "minimumCheckIntervalHours": 24,
     "startupDelaySeconds": 15,
+    "publicEDKey": "zhJy7ojERZsU55cvzuifdKiIIR2u3KeSp5M8GRFJrhM=",
     "github": {
       "owner": "danjboyd",
       "repo": "ObjcMarkdown",

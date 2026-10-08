@@ -4,9 +4,8 @@
 `updater/objc/` in [danjboyd/gnustep-packager](https://github.com/danjboyd/gnustep-packager),
 the Linux and Windows updater (macOS uses Sparkle).
 
-- Source: gnustep-packager `updater/objc` at `1b2e684` (branch
-  `updater-helper-temp-copy`; update this line to the commit on its main once
-  that is merged).
+- Source: gnustep-packager `updater/objc` at `1b2e684`, merged to its main as
+  `b358b2a`.
 - Copied: `Headers/` and `Source/` of each, unchanged. The helper's
   `Source/monocypher/` is Monocypher 4.0.2 (CC0), which checks the update
   payloads' Ed25519 signatures; its README there gives the tarball's hash.

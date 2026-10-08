@@ -35,13 +35,13 @@ jobs:
 
   build-appimage:
     needs: resolve-version
-    uses: danjboyd/gnustep-packager/.github/workflows/package-gnustep-app.yml@4814554c9e445170217bd6849efea05b98e62856
+    uses: danjboyd/gnustep-packager/.github/workflows/package-gnustep-app.yml@b358b2a7416942df10099dd3856f9b46dabef5a9
     with:
       manifest-path: packaging/manifests/linux-appimage.manifest.json
       backend: appimage
       package-version: ${{ needs.resolve-version.outputs.package_version }}
       packager-repository: danjboyd/gnustep-packager
-      packager-ref: 4814554c9e445170217bd6849efea05b98e62856
+      packager-ref: b358b2a7416942df10099dd3856f9b46dabef5a9
       # GitHub-hosted, in the CI image (ci/linux/Dockerfile), pinned by the
       # digest linux-gnustep-clang.yml uses.
       container-appimage: ghcr.io/danjboyd/objcmarkdown-ci@sha256:aaa9fa72af8045bc6d343027ab38b9420513f712512e20c44752fff82a65e0a0
