@@ -74,10 +74,17 @@ have_gui=$(version_from "$PREFIX/include/GNUstepGUI/GSVersion.h" GNUSTEP_GUI)
 [[ "$have_gui" == "$GUI_VERSION" ]] || die "toolchain has gnustep-gui $have_gui, these patches are for $GUI_VERSION"
 [[ -f "$PREFIX/bin/$BASE_DLL" && -f "$PREFIX/bin/$GUI_DLL" ]] || die "no $BASE_DLL or $GUI_DLL in $PREFIX/bin"
 
+# Windows' own curl uses the system's certificate store; the packaging
+# toolchain's MSYS curl has no CA bundle. Downloads are checksummed anyway.
+CURL=curl
+if [[ -x /c/Windows/System32/curl.exe ]]; then
+  CURL=/c/Windows/System32/curl.exe
+fi
+
 fetch() { # <url> <sha256> <dest>
   local url="$1" sum="$2" dest="$3"
   if [[ ! -f "$dest" ]] || ! echo "$sum  $dest" | sha256sum -c --status; then
-    curl --fail --location --silent --show-error --retry 3 --output "$dest.part" "$url"
+    "$CURL" --fail --location --silent --show-error --retry 3 --output "$dest.part" "$url"
     mv "$dest.part" "$dest"
   fi
   echo "$sum  $dest" | sha256sum -c --status || die "checksum mismatch for $url"
