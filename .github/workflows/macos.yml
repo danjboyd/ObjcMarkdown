@@ -141,7 +141,7 @@ jobs:
         shell: bash
         run: |
           cat > release-macos-notes.md <<'EOF'
-          macOS: `MarkdownViewer-*-macos.dmg` is a universal app (Apple silicon and Intel, macOS 11 or later). It isn't notarized yet, so macOS blocks the first open: drag the app to Applications, open it, then choose Open Anyway in System Settings > Privacy & Security (on macOS 14 and earlier, Control-click the app and choose Open).
+          macOS: `MarkdownViewer-*-macos.dmg` is a universal app (Apple silicon and Intel, macOS 11 or later). It isn't notarized yet, so macOS blocks the first open: drag the app to Applications, open it, then choose Open Anyway in System Settings > Privacy & Security (on macOS 14 and earlier, Control-click the app and choose Open). Drag it in the Finder and open it from Applications, not from the disk image: a copy opened from the disk image runs from a read-only location and can't update itself.
           EOF
 
       - name: Publish macOS release assets
