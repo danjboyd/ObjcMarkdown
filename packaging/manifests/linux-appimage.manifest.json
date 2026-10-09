@@ -73,6 +73,7 @@
       "OMD_PANDOC_PATH": "{@runtimeRoot}/bin/pandoc",
       "OMD_PANDOC_DATA_DIR": "{@runtimeRoot}/share/pandoc",
       "PANDOC_DATA_DIR": "{@runtimeRoot}/share/pandoc",
+      "pandoc_datadir": "{@runtimeRoot}/share/pandoc",
       "GSTheme": {
         "value": "Adwaita",
         "policy": "ifUnset"
