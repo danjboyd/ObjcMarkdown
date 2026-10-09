@@ -1068,6 +1068,9 @@ static NSMutableArray *OMDSecondaryWindows(void)
                     backing:NSBackingStoreBuffered
                       defer:NO];
     [_window setMinSize:NSMakeSize(OMDMinimumUsableWindowWidth(), 600.0)];
+    // The controller owns the window (released in -dealloc); a window that
+    // released itself when closed (a closed tab) was released twice.
+    [_window setReleasedWhenClosed:NO];
 #if !defined(GNUSTEP)
     [_window setCollectionBehavior:([_window collectionBehavior] | NSWindowCollectionBehaviorFullScreenPrimary)];
 #endif
