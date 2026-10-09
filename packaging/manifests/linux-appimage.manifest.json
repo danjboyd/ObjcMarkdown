@@ -80,6 +80,19 @@
       }
     }
   },
+  "packagedDefaults": {
+    "appDomain": {
+      "domain": "MarkdownViewer",
+      "values": {
+        "GSFirstCommandKey": "Control_L",
+        "GSSecondCommandKey": "Control_R",
+        "GSFirstControlKey": "Alt_L",
+        "GSSecondControlKey": "Alt_R",
+        "GSFirstAlternateKey": "Super_L",
+        "GSSecondAlternateKey": "Super_R"
+      }
+    }
+  },
   "outputs": {
     "root": "../../dist/packaging/linux",
     "packageRoot": "../../dist/packaging/linux/packages",

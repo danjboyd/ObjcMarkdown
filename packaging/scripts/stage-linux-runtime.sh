@@ -362,9 +362,11 @@ if [[ -d "$GNUSTEP_BUNDLE_DIR/libgnustep-back-032.bundle" && ! -e "$GNUSTEP_BUND
   ln -s libgnustep-back-032.bundle "$GNUSTEP_BUNDLE_DIR/libgnustep-back.bundle"
 fi
 
-if [[ -x /usr/GNUstep/System/Tools/defaults ]]; then
-  cp -a /usr/GNUstep/System/Tools/defaults "$GNUSTEP_TOOLS_DIR/"
-fi
+# AppRun seeds the packaged defaults (packagedDefaults.appDomain) with
+# runtime/bin/defaults.
+require_path /usr/GNUstep/System/Tools/defaults
+cp -a /usr/GNUstep/System/Tools/defaults "$GNUSTEP_TOOLS_DIR/"
+ln -sf ../System/Tools/defaults "$RUNTIME_BIN_DIR/defaults"
 
 # The tools GNUstep starts on demand: without gdnc the app can't start
 # where no GNUstep is installed (or running), gpbs serves the pasteboard
