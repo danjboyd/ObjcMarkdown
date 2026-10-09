@@ -6,7 +6,9 @@
 #import "OMDViewerImages.h"
 
 @interface OMDToolbarController ()
-- (void)showRecentDocumentsMenu:(id)sender;
+#if defined(GNUSTEP)
+- (void)openSegmentClicked:(id)sender;
+#endif
 @end
 
 @implementation OMDToolbarController
@@ -28,17 +30,43 @@
     [super dealloc];
 }
 
-- (void)showRecentDocumentsMenu:(id)sender
+#if defined(GNUSTEP)
+- (void)openSegmentClicked:(id)sender
 {
-    (void)sender;
+    NSSegmentedControl *control = (NSSegmentedControl *)sender;
+    NSInteger segment = [control selectedSegment];
+    // GNUstep's segmented cell has no momentary tracking: the clicked
+    // segment stays selected, and drawn so, until it is deselected.
+    if (segment >= 0) {
+        [control setSelected:NO forSegment:segment];
+    }
+    if (segment != 1) {
+        [_delegate openDocument:sender];
+        return;
+    }
     NSMenu *menu = [_delegate recentDocumentsMenu];
     NSEvent *event = [NSApp currentEvent];
     NSView *view = [[event window] contentView];
     if (menu == nil || event == nil || view == nil) {
         return;
     }
+    [control setMenu:menu forSegment:1];
     [NSMenu popUpContextMenu:menu withEvent:event forView:view];
 }
+#else
+// The Open item's menu is filled each time it opens, so it lists the
+// recent documents of the moment.
+- (void)menuNeedsUpdate:(NSMenu *)menu
+{
+    [menu removeAllItems];
+    NSMenu *recent = [_delegate recentDocumentsMenu];
+    NSArray *items = [[[recent itemArray] copy] autorelease];
+    for (NSMenuItem *menuItem in items) {
+        [recent removeItem:menuItem];
+        [menu addItem:menuItem];
+    }
+}
+#endif
 
 - (NSSegmentedControl *)modeControl
 {
@@ -52,7 +80,11 @@
     [_toolbar setDelegate:self];
     [_toolbar setAllowsUserCustomization:NO];
     [_toolbar setAutosavesConfiguration:NO];
+#if !defined(GNUSTEP)
+    // On macOS the system's default shows labels; Mac unified toolbars are
+    // icon-only. On GNUstep the theme picks the display mode.
     [_toolbar setDisplayMode:NSToolbarDisplayModeIconOnly];
+#endif
     [_toolbar setSizeMode:NSToolbarSizeModeRegular];
     [window setToolbar:_toolbar];
 }
@@ -76,36 +108,49 @@
     }
 
     if ([identifier isEqualToString:@"OpenDocument"]) {
+#if !defined(GNUSTEP)
+        // The system's split button: the item opens the open panel, its
+        // arrow lists the recent documents.
+        NSMenuToolbarItem *item = [[[NSMenuToolbarItem alloc] initWithItemIdentifier:@"OpenDocument"] autorelease];
+        NSMenu *menu = [[[NSMenu alloc] initWithTitle:@"Open Recent"] autorelease];
+        [menu setDelegate:self];
+        [item setMenu:menu];
+        [item setImage:OMDSymbolicImageNamedForCommand(@"omd-document-open-symbolic", @"Open")];
+#else
+        // One control for Open and its recent documents, so the theme can
+        // present it as a split button: a momentary segmented control whose
+        // second segment carries the menu. GNUstep doesn't pop up a
+        // segment's menu itself, so openSegmentClicked: does.
         NSToolbarItem *item = [[[NSToolbarItem alloc] initWithItemIdentifier:@"OpenDocument"] autorelease];
+        CGFloat openWidth = 34.0;
+        CGFloat arrowWidth = 18.0;
+        NSSegmentedControl *control = [[[NSSegmentedControl alloc] initWithFrame:NSMakeRect(0.0, 0.0, openWidth + arrowWidth, OMDToolbarControlHeight)] autorelease];
+        [control setSegmentCount:2];
+        [[control cell] setTrackingMode:NSSegmentSwitchTrackingMomentary];
+        [control setWidth:openWidth forSegment:0];
+        [control setWidth:arrowWidth forSegment:1];
+        [control setImage:OMDSymbolicImageNamedForCommand(@"omd-document-open-symbolic", @"Open") forSegment:0];
+        [control setImage:OMDSymbolicImageNamedForCommand(@"omd-pan-down-symbolic", @"Open Recent") forSegment:1];
+        [control setMenu:[[[NSMenu alloc] initWithTitle:@"Open Recent"] autorelease] forSegment:1];
+        [control setTarget:self];
+        [control setAction:@selector(openSegmentClicked:)];
+        // GNUstep doesn't show a segment's own tooltip; the container's
+        // rects do.
+        OMDToolbarToolTipView *container = [[[OMDToolbarToolTipView alloc] initWithFrame:NSMakeRect(0.0, 0.0, openWidth + arrowWidth, OMDToolbarControlHeight)] autorelease];
+        [container addSubview:control];
+        [container setToolTip:@"Open a Markdown file"
+                      forRect:NSMakeRect(0.0, 0.0, openWidth, OMDToolbarControlHeight)];
+        [container setToolTip:@"Open a recent file"
+                      forRect:NSMakeRect(openWidth, 0.0, arrowWidth, OMDToolbarControlHeight)];
+        [item setView:container];
+        [item setMinSize:[container frame].size];
+        [item setMaxSize:[container frame].size];
+#endif
         [item setLabel:@"Open"];
         [item setPaletteLabel:@"Open"];
         [item setToolTip:@"Open a Markdown file"];
         [item setTarget:_delegate];
         [item setAction:@selector(openDocument:)];
-        // A split button: the icon opens the open panel, the arrow beside it
-        // lists the recent documents.
-        CGFloat openWidth = 34.0;
-        CGFloat arrowWidth = 16.0;
-        NSView *container = [[[NSView alloc] initWithFrame:NSMakeRect(0.0, 0.0, openWidth + arrowWidth, OMDToolbarItemHeight)] autorelease];
-        NSButton *openButton = [[[NSButton alloc] initWithFrame:NSMakeRect(0.0, 0.0, openWidth, OMDToolbarItemHeight)] autorelease];
-        [openButton setBordered:NO];
-        [openButton setImagePosition:NSImageOnly];
-        [openButton setImage:OMDSymbolicImageNamedForCommand(@"omd-document-open-symbolic", @"Open")];
-        [openButton setToolTip:@"Open a Markdown file"];
-        [openButton setTarget:_delegate];
-        [openButton setAction:@selector(openDocument:)];
-        [container addSubview:openButton];
-        NSButton *arrowButton = [[[NSButton alloc] initWithFrame:NSMakeRect(openWidth, 0.0, arrowWidth, OMDToolbarItemHeight)] autorelease];
-        [arrowButton setBordered:NO];
-        [arrowButton setImagePosition:NSImageOnly];
-        [arrowButton setImage:OMDSymbolicImageNamedForCommand(@"omd-pan-down-symbolic", @"Open Recent")];
-        [arrowButton setToolTip:@"Open a recent file"];
-        [arrowButton setTarget:self];
-        [arrowButton setAction:@selector(showRecentDocumentsMenu:)];
-        [container addSubview:arrowButton];
-        [item setView:container];
-        [item setMinSize:[container frame].size];
-        [item setMaxSize:[container frame].size];
         return item;
     }
 

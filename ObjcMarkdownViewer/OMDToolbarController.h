@@ -23,7 +23,12 @@
 // Print and Preferences are in the menus; zoom and status are in the
 // status bar. The controls' actions go to the delegate, which also
 // validates the toolbar items.
+#if defined(GNUSTEP)
 @interface OMDToolbarController : NSObject <NSToolbarDelegate>
+#else
+// (The menu delegate fills the Open item's recent documents.)
+@interface OMDToolbarController : NSObject <NSToolbarDelegate, NSMenuDelegate>
+#endif
 {
     id<OMDToolbarControllerDelegate> _delegate;
     NSToolbar *_toolbar;
