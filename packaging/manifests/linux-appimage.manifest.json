@@ -68,7 +68,11 @@
       "GNUSTEP_NETWORK_LIBRARIES": "{@runtimeRoot}/Network/Library/Libraries",
       "GNUSTEP_NETWORK_TOOLS": "{@runtimeRoot}/Network/Tools",
       "LD_LIBRARY_PATH": "{@appRoot}/lib:{@runtimeRoot}/System/Library/Libraries:{@runtimeRoot}/lib",
-      "XDG_DATA_DIRS": "{@runtimeRoot}/share",
+      "XDG_DATA_DIRS": {
+        "value": "{@runtimeRoot}/share",
+        "policy": "prepend",
+        "hostDefault": "/usr/local/share:/usr/share"
+      },
       "GSETTINGS_SCHEMA_DIR": "{@runtimeRoot}/share/glib-2.0/schemas",
       "OMD_PANDOC_PATH": "{@runtimeRoot}/bin/pandoc",
       "OMD_PANDOC_DATA_DIR": "{@runtimeRoot}/share/pandoc",

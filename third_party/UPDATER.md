@@ -5,8 +5,8 @@
 the Linux and Windows updater (macOS uses Sparkle).
 
 - Source: gnustep-packager `updater/objc` at `142d46a` (danjboyd/gnustep-packager#9,
-  downloads that follow redirects, through WinHTTP on Windows; not merged yet),
-  on top of `b5c1687` (#5).
+  downloads that follow redirects, through WinHTTP on Windows), merged to its
+  main as `a251f2e`; the same on `84694a3`, which the packaging pins.
 - Copied: `Headers/` and `Source/` of each, unchanged. The helper's
   `Source/monocypher/` is Monocypher 4.0.2 (CC0), which checks the update
   payloads' Ed25519 signatures; its README there gives the tarball's hash.
