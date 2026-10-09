@@ -6,8 +6,8 @@
       "id": "linux-adwaita-theme",
       "kind": "git",
       "repo": "https://github.com/danjboyd/plugins-themes-Adwaita.git",
-      "ref": "589cea6671f25eccff13c920eadf79e8acdcfa48",
-      "refName": "0.1.0-alpha6-40-g589cea6",
+      "ref": "83efd7183199b9c6cc00a5fb79e5cb9ed3f64343",
+      "refName": "markdownviewer-0.2.2-hotfix",
       "workspacePath": "../gnustep/plugins-themes-adwaita",
       "platforms": [
         "linux"
@@ -21,6 +21,7 @@
         "2d7862a defines the dimmed label colours (plugins-themes-Adwaita#51); without it secondary text (Preferences notes, the status bar) was black in dark mode.",
         "dd1181a draws controls with libadwaita 1.7's colours (unchecked check boxes and the slider's knob show in dark mode, plugins-themes-Adwaita#55-#61), follows GNOME's Large Text (#53), and prints through GNOME's print dialog via the portal (#52).",
         "589cea6 gives windows tabs: it carries danjboyd/gnustep-window-tabbing (Apple's NSWindow tabbing API) and draws the tab bar as libadwaita's (plugins-themes-Adwaita#63), so documents open as window tabs (#101).",
+        "83efd71 (branch markdownviewer-0.2.2-hotfix) is 589cea6 plus only the overlay-scroller fix from e84ab12 (plugins-themes-Adwaita#75): -tile no longer re-enters itself, which overflowed the stack when launching in Split or opening a window tab (#120).",
         "packaging/scripts/stage-linux-runtime.sh fetches and builds this ref; the Linux release workflow adds it to the release notes, and the package records it in metadata/docs/BundledThemes.txt."
       ]
     },
