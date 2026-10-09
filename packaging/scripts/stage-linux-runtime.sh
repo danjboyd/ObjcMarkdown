@@ -343,6 +343,10 @@ copy_dir_contents "/usr/GNUstep/System/Library/ColorPickers" "$GNUSTEP_COLORPICK
 copy_dir_contents "/usr/GNUstep/System/Library/Frameworks/PreferencePanes.framework" "$GNUSTEP_FRAMEWORKS_DIR/PreferencePanes.framework"
 copy_dir_contents "/usr/GNUstep/System/Library/Images" "$GNUSTEP_IMAGES_DIR"
 copy_dir_contents "/usr/GNUstep/System/Library/Makefiles" "$GNUSTEP_MAKEFILES_DIR"
+# The fallback printer's PPD (PostScript/PPD): without it Export as PDF
+# and Print fail on an assertion in GSLPRPrinter and do nothing.
+require_path "/usr/GNUstep/System/Library/PostScript/PPD"
+copy_dir_contents "/usr/GNUstep/System/Library/PostScript" "$GNUSTEP_SYSTEM_ROOT/Library/PostScript"
 
 if [[ -d /usr/GNUstep/System/Library/Libraries/gnustep-base ]]; then
   mkdir -p "$GNUSTEP_LIB_DIR/gnustep-base"
