@@ -3,12 +3,12 @@
   /* The name shown to people (window titles, the taskbar); ApplicationName
      stays the program's name, which settings are kept under. */
   CFBundleDisplayName = "Markdown Viewer";
-  ApplicationVersion = "0.2.0";
-  ApplicationRelease = "0.2.0";
+  ApplicationVersion = "0.2.2";
+  ApplicationRelease = "0.2.2";
   Authors = ("Daniel Boyd");
   Copyright = "Copyright (C) 2026 Daniel Boyd";
-  CFBundleShortVersionString = "0.2.0";
-  CFBundleVersion = "0.2.0";
+  CFBundleShortVersionString = "0.2.2";
+  CFBundleVersion = "0.2.2";
   NSExecutable = MarkdownViewer;
   NSHumanReadableCopyright = "Copyright (C) 2026 Daniel Boyd";
   NSPrincipalClass = NSApplication;
