@@ -18,6 +18,8 @@ finish-args:
   # The explorer browses folders and repositories; open and save go
   # through the theme's portal file chooser.
   - --filesystem=home
+  # Print goes to the host's CUPS through GNUstep's GSCUPS backend.
+  - --socket=cups
 build-options:
   append-path: /usr/lib/sdk/llvm20/bin
   prepend-ld-library-path: /usr/lib/sdk/llvm20/lib
@@ -97,12 +99,16 @@ modules:
       - type: patch
         path: ../patches/libs-base/0001-GSAttributedString-hash-cached-attribute-dictionarie.patch
 
+  # GSCUPS_LDFLAGS is `cups-config --ldflags`, which in the SDK is
+  # -L/usr/lib/x86_64-linux-gnu, where GCC's libobjc.so lives: the GSCUPS
+  # bundle then linked GCC's runtime beside libobjc2 and crashed when Export
+  # as PDF or Print loaded it. That directory is searched by default anyway.
   - name: gnustep-gui
     buildsystem: simple
     build-commands:
       - . /app/share/GNUstep/Makefiles/GNUstep.sh && ./configure --prefix=/app
-      - . /app/share/GNUstep/Makefiles/GNUstep.sh && make -j${FLATPAK_BUILDER_N_JOBS}
-      - . /app/share/GNUstep/Makefiles/GNUstep.sh && make install
+      - . /app/share/GNUstep/Makefiles/GNUstep.sh && make -j${FLATPAK_BUILDER_N_JOBS} GSCUPS_LDFLAGS=
+      - . /app/share/GNUstep/Makefiles/GNUstep.sh && make install GSCUPS_LDFLAGS=
     sources:
       - type: git
         url: https://github.com/gnustep/libs-gui
