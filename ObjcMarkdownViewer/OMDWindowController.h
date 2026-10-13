@@ -128,7 +128,6 @@ typedef unsigned short mode_t;
     BOOL _observingSystemAppearance;
     // macOS: the window's NSWindowController (OMDDocumentWindowController).
     id _documentWindowController;
-    BOOL _architectureCloseApproved;
 }
 
 // The window this controls.

@@ -273,34 +273,15 @@ completionHandler:(void (^)(NSError *errorOrNil))completionHandler
     [self presentWindowIfNeeded];
 }
 
+// AppKit has already asked the document (saving it in place first) by
+// the time it asks the window's delegate, and the window controller closes
+// the document with its last window. Asking the document again from here
+// waits for the save AppKit is still inside, and hangs when the document
+// had changes.
 - (BOOL)architectureDocumentWindowShouldClose
 {
-    if (_architectureCloseApproved) {
-        return YES;
-    }
-    NSDocument *document = [[self documentWindowController] document];
     [self captureCurrentStateIntoSelectedTab];
-    [document shouldCloseWindowController:[self documentWindowController]
-                                 delegate:self
-                      shouldCloseSelector:@selector(architectureDocument:shouldClose:contextInfo:)
-                              contextInfo:NULL];
-    return NO;
-}
-
-- (void)architectureDocument:(NSDocument *)document shouldClose:(BOOL)shouldClose contextInfo:(void *)contextInfo
-{
-    (void)contextInfo;
-    if (!shouldClose) {
-        return;
-    }
-    [document retain];
-    _architectureCloseApproved = YES;
-    [_window performClose:nil];
-    _architectureCloseApproved = NO;
-    if ([[[NSDocumentController sharedDocumentController] documents] containsObject:document]) {
-        [document close];
-    }
-    [document release];
+    return YES;
 }
 
 - (void)revertArchitectureDocumentQuietly
