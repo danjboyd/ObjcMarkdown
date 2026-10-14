@@ -69,9 +69,6 @@ copy_optional /clang64/bin/libunwind.dll "$RUNTIME_BIN_DIR/"
 copy_optional /clang64/bin/libcairo-2.dll "$RUNTIME_BIN_DIR/"
 copy_optional /clang64/bin/libfontconfig-1.dll "$RUNTIME_BIN_DIR/"
 copy_optional /clang64/bin/libfreetype-6.dll "$RUNTIME_BIN_DIR/"
-if compgen -G "/clang64/bin/*.dll" > /dev/null; then
-  cp -n /clang64/bin/*.dll "$RUNTIME_BIN_DIR/"
-fi
 
 cp -R /clang64/lib/GNUstep/* "$RUNTIME_GNUSTEP_DIR/"
 cp -R /clang64/etc/fonts "$RUNTIME_ETC_DIR/"
@@ -232,12 +229,13 @@ collect_deps "$RUNTIME_BIN_DIR/defaults.exe"
 for tool in gpbs gdnc make_services; do
   collect_deps "$RUNTIME_BIN_DIR/$tool.exe"
 done
-while IFS= read -r -d '' backend_dll; do
-  collect_deps "$backend_dll"
-done < <(find "$RUNTIME_GNUSTEP_DIR/Bundles" -type f \( -name 'libgnustep-back-*.dll' -o -name 'libgnustep-back.dll' \) -print0 2>/dev/null)
-while IFS= read -r -d '' theme_dll; do
-  collect_deps "$theme_dll"
-done < <(find "$RUNTIME_GNUSTEP_DIR/Themes" -type f -name '*.dll' -print0 2>/dev/null)
+# Only the DLLs something staged imports are copied, not all of
+# /clang64/bin (which carries LLVM, Python and Tcl/Tk: ~285 MB unused).
+# Walk every staged executable and DLL: the app bundle (with
+# gp-update-helper), the tools, and every GNUstep bundle and theme.
+while IFS= read -r -d '' staged_binary; do
+  collect_deps "$staged_binary"
+done < <(find "$APP_ROOT" "$RUNTIME_BIN_DIR" "$RUNTIME_GNUSTEP_DIR" -type f \( -iname '*.exe' -o -iname '*.dll' \) -print0 2>/dev/null)
 
 check_debug_crt() {
   local bad=()
