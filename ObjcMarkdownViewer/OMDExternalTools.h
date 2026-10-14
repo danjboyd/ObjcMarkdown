@@ -9,6 +9,8 @@ NSString *OMDExecutablePathNamed(NSString *name);
 BOOL OMDLooksLikeWindowsAbsolutePath(NSString *path);
 NSString *OMDNormalizedExternalLocalPath(NSString *path);
 BOOL OMDOpenURLUsingXDGOpen(NSURL *url);
+// Opens a URL with the desktop's handler (the browser for web links).
+BOOL OMDOpenURL(NSURL *url);
 BOOL OMDShouldOpenURLForUserNavigation(NSURL *url);
 // Opens a folder in the desktop's file manager.
 BOOL OMDOpenFolderInFileManager(NSString *folder);
