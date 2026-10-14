@@ -106,6 +106,14 @@ jobs:
           if compgen -G 'dist/linux/*.diagnostics.txt' > /dev/null; then
             cp dist/linux/*.diagnostics.txt release-assets/
           fi
+          # The debug info stage-linux-runtime.sh strips, named after the
+          # AppImage, so a crash trace from this release can be resolved.
+          if [[ -f dist/linux/ObjcMarkdown-linux-x86_64.debug.tar.xz ]]; then
+            for appimage in dist/linux/*.AppImage; do
+              cp dist/linux/ObjcMarkdown-linux-x86_64.debug.tar.xz \
+                "release-assets/$(basename "${appimage%.AppImage}").debug.tar.xz"
+            done
+          fi
 
       - name: Note Bundled Theme
         shell: bash
