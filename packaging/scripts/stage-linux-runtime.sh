@@ -421,8 +421,10 @@ copy_tree_elf_dependencies "$GNUSTEP_BUNDLE_DIR" "$RUNTIME_LIB_DIR"
 copy_tree_elf_dependencies "$GNUSTEP_COLORPICKER_DIR" "$RUNTIME_LIB_DIR"
 copy_tree_elf_dependencies "$GNUSTEP_THEME_DIR" "$RUNTIME_LIB_DIR"
 
-# GNUstep, the app and its libraries are built with debug info; strip
-# every staged ELF file (~7.5 MB off the AppImage).
+# GNUstep, the app and its libraries are built with debug info; strip the
+# debug info from every staged ELF file (~6.5 MB off the AppImage).
+# --strip-debug, not --strip-unneeded: Objective-C methods are local
+# symbols, and gdb needs them to name frames.
 if ! command -v strip >/dev/null 2>&1; then
   echo "ERROR: strip not found; install binutils." >&2
   exit 1
@@ -430,7 +432,7 @@ fi
 while IFS= read -r -d '' file; do
   if is_elf_binary "$file"; then
     chmod u+w "$file"
-    strip --strip-unneeded "$file"
+    strip --strip-debug "$file"
   fi
 done < <(find "$STAGE_ROOT" -type f -print0)
 
