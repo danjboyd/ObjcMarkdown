@@ -31,7 +31,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates git curl make cmake ninja-build pkg-config \
         clang lld \
         libffi-dev libxml2-dev libxslt1-dev libgnutls28-dev libicu-dev \
-        libcurl4-gnutls-dev zlib1g-dev \
+        zlib1g-dev \
         libjpeg-dev libtiff-dev libpng-dev libgif-dev \
         libcairo2-dev libfreetype-dev libfontconfig-dev libxft-dev \
         libx11-dev libxext-dev libxt-dev libxrandr-dev libxcursor-dev libxi-dev libxfixes-dev \
@@ -77,7 +77,12 @@ RUN . /usr/GNUstep/System/Library/Makefiles/GNUstep.sh \
 
 RUN . /usr/GNUstep/System/Library/Makefiles/GNUstep.sh \
     && fetch-commit https://github.com/gnustep/libs-base "$LIBS_BASE_COMMIT" libs-base \
-    && cd libs-base && git apply /patches/libs-base/*.patch && ./configure \
+    && cd libs-base && git apply /patches/libs-base/*.patch \
+    # No NSURLSession, the only part of base that uses libcurl: nothing here
+    # uses it (the updater goes through NSURLHandle, remote documents through
+    # the curl tool or NSURLConnection), and configure links libcurl whenever
+    # it finds it, so the image also leaves out libcurl4-gnutls-dev (#132).
+    && ./configure --disable-nsurlsession \
     && make -j"$(nproc)" LDFLAGS="$LDFLAGS -ldispatch" GNUSTEP_INSTALLATION_DOMAIN=SYSTEM \
     && make GNUSTEP_INSTALLATION_DOMAIN=SYSTEM install && ldconfig
 
