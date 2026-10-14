@@ -23,6 +23,11 @@ jobs:
         with:
           submodules: recursive
 
+      # A release's version from its tag, so About matches the package (#119).
+      - name: Version from the tag
+        shell: bash
+        run: ./packaging/ci/set-version.sh '${{ github.ref_type == 'tag' && github.ref_name || '' }}'
+
       - name: Build the Flatpak
         uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:
