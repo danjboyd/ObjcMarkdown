@@ -21,8 +21,11 @@ if (-not $objdump) { throw 'llvm-objdump not found.' }
 $objdumpPath = if ($objdump.Source) { $objdump.Source } else { $objdump.FullName }
 
 $system32 = Join-Path $env:SystemRoot 'System32'
+# TinyTeX (runtime\texlive) is its own distribution, loading its DLLs its
+# own way (tlperl's modules import perl542.dll through perl.exe); the
+# packager's smoke runs latex, dvisvgm and dvipng from it.
 $binaries = @(Get-ChildItem -Path $PayloadRoot -Recurse -File |
-  Where-Object { $_.Extension -in @('.exe', '.dll') })
+  Where-Object { $_.Extension -in @('.exe', '.dll') -and $_.FullName -notmatch '[\\/]runtime[\\/]texlive[\\/]' })
 if ($binaries.Count -eq 0) { throw "No executables or DLLs under $PayloadRoot." }
 
 # Every DLL in the payload, by lower-case name. GNUstep's launcher puts
@@ -49,7 +52,7 @@ foreach ($binary in $binaries) {
   }
 }
 
-Write-Host "Checked the imports of $($binaries.Count) executables and DLLs under $PayloadRoot."
+Write-Host "Checked the imports of $($binaries.Count) executables and DLLs under $PayloadRoot (TinyTeX excluded)."
 if ($missing.Count -gt 0) {
   Write-Host "ERROR: imports found neither in the payload nor in System32:"
   $missing | Sort-Object -Unique | ForEach-Object { Write-Host "  $_" }
