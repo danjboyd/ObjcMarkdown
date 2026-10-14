@@ -433,7 +433,7 @@ if ! command -v strip >/dev/null 2>&1 || ! command -v objcopy >/dev/null 2>&1; t
   exit 1
 fi
 DEBUG_ROOT="$ROOT/dist/packaging/linux/debug"
-DEBUG_ARCHIVE="$ROOT/dist/packaging/linux/packages/ObjcMarkdown-linux-x86_64.debug.tar.xz"
+DEBUG_ARCHIVE="$ROOT/dist/packaging/linux/packages/ObjcMarkdown-linux-x86_64.debug.tar.gz"
 rm -rf "$DEBUG_ROOT"
 mkdir -p "$DEBUG_ROOT" "$(dirname "$DEBUG_ARCHIVE")"
 while IFS= read -r -d '' file; do
@@ -464,7 +464,7 @@ GNUstep libraries, the app and its libraries. Unpack, then in gdb:
 
 gdb finds each file by build ID. Files without one are under by-path/.
 EOF
-tar -C "$DEBUG_ROOT" -cJf "$DEBUG_ARCHIVE" .
+tar -C "$DEBUG_ROOT" -czf "$DEBUG_ARCHIVE" .
 echo "Debug info: $DEBUG_ARCHIVE ($(du -h "$DEBUG_ARCHIVE" | cut -f1))"
 
 mv "$APP_BINARY" "$APP_BINARY_REAL"
