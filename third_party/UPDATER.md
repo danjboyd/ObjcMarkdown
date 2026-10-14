@@ -4,8 +4,15 @@
 `updater/objc/` in [danjboyd/gnustep-packager](https://github.com/danjboyd/gnustep-packager),
 the Linux and Windows updater (macOS uses Sparkle).
 
-- Source: gnustep-packager `updater/objc` at `7aaf72d` (its main). On Windows
-  that brings #20 (the helper takes certutil and msiexec from the system
+- Source: gnustep-packager `updater/objc` at its main `7f28785` merged with
+  PR #37 (`bb86b43`, not merged upstream yet). #37 reports a failed install
+  at the next launch: `apply-msi.cmd` records msiexec's exit code, and the
+  app shows "Update Not Installed" with the reason, the log's path and a
+  Download Installer button (ObjcMarkdown #134; new
+  `GPUpdaterApplyOutcome.h/.m` in GPUpdaterCore). Main since `7aaf72d` adds
+  #35 (`GP_UPDATER_FEED_URL` must be https, http to localhost, or file://)
+  and #36 (UTC `updatedAt`, a plain progress label). Earlier, `7aaf72d`
+  brought, on Windows, #20 (the helper takes certutil and msiexec from the system
   directory and finds `Path` regardless of case; every updater alert runs
   from a fresh run-loop pass, since `runModal` entered from a
   `performSelectorOnMainThread:` callback never paints on the win32 backend)
