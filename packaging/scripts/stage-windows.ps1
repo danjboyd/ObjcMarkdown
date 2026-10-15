@@ -36,6 +36,7 @@ if (Test-Path $tinyTeXStageRoot) {
 }
 New-Item -ItemType Directory -Force -Path ([System.IO.Path]::GetDirectoryName($tinyTeXStageRoot)) | Out-Null
 Copy-Item -LiteralPath ([string]$tinyTeXInputs.root) -Destination ([System.IO.Path]::GetDirectoryName($tinyTeXStageRoot)) -Recurse -Force
+& .\packaging\scripts\trim-tinytex-runtime.ps1 -TinyTeXRoot $tinyTeXStageRoot
 
 $requiredTinyTeXPaths = @(
   (Join-Path $tinyTeXStageRoot "bin\windows\latex.exe"),
