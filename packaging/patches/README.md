@@ -4,7 +4,8 @@ Fixes to GNUstep that the app's Linux and Windows builds apply until they
 are fixed upstream:
 
 - the Flatpak (`packaging/flatpak/io.github.danjboyd.MarkdownViewer.yml`,
-  as `patch` sources of the gnustep-base and gnustep-gui modules);
+  as `patch` sources of the gnustep-base, gnustep-gui and gnustep-back
+  modules);
 - the CI image (`ci/linux/Dockerfile`), which also builds the AppImage;
   `ci-image.yml` passes this directory as the `patches` build context.
   After a change here the image is rebuilt, and both workflows that pin
@@ -31,6 +32,7 @@ uses Cocoa and doesn't need them.
 |---|---|---|
 | `libs-base/0001-GSAttributedString-hash-...` | Attribute dictionaries cached by count: building text with many distinct attributes is quadratic (#94) | not sent |
 | `libs-gui/0001-GSLayoutManager-compile-out-...` | `-_sanityChecks` walks every glyph run on each glyph generation: layout is quadratic (#94) | reported as gnustep/libs-gui#992 (issue); patch not sent |
+| `libs-back/0001-x11-list-WM_DELETE_WINDOW-...` | Windows the theme decorates don't list `WM_DELETE_WINDOW`, so Alt+F4 or a close from the Overview or dock makes Mutter kill the app, unsaved edits and all. Linux only (the MSI uses the win32 backend). Backport to 0.32 of danjboyd/libs-back `x11-wm-delete-window` (1ecd259), as LinDirStat carries it | not sent |
 
 These are our own fixes, carried here. Sending them to GNUstep is separate
 and follows [docs/UPSTREAM_POLICY.md](../../docs/UPSTREAM_POLICY.md): they
