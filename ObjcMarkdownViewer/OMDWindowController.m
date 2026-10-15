@@ -7211,6 +7211,10 @@ constrainSplitPosition:(CGFloat)proposedPosition
             [storage beginEditing];
             [storage removeAttribute:NSForegroundColorAttributeName
                                range:NSMakeRange(0, [storage length])];
+            // No ligatures in source text, highlighted or not (#125).
+            [storage addAttribute:NSLigatureAttributeName
+                            value:[NSNumber numberWithInt:0]
+                            range:NSMakeRange(0, [storage length])];
             [storage endEditing];
         } @finally {
             _isProgrammaticSourceHighlightUpdate = NO;
@@ -7229,6 +7233,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
         [typing setObject:font forKey:NSFontAttributeName];
     }
     [typing setObject:baseColor forKey:NSForegroundColorAttributeName];
+    [typing setObject:[NSNumber numberWithInt:0] forKey:NSLigatureAttributeName];
     [_sourceTextView setTypingAttributes:typing];
     [typing release];
 }
@@ -7296,6 +7301,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
         [typing setObject:font forKey:NSFontAttributeName];
     }
     [typing setObject:baseColor forKey:NSForegroundColorAttributeName];
+    [typing setObject:[NSNumber numberWithInt:0] forKey:NSLigatureAttributeName];
     [_sourceTextView setTypingAttributes:typing];
     [typing release];
 
@@ -7683,6 +7689,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
         typing = [[NSMutableDictionary alloc] init];
     }
     [typing setObject:resolved forKey:NSFontAttributeName];
+    [typing setObject:[NSNumber numberWithInt:0] forKey:NSLigatureAttributeName];
     [_sourceTextView setTypingAttributes:typing];
     [typing release];
 
