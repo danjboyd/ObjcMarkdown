@@ -50,7 +50,9 @@ jobs:
       # extra apt packages when it does not set up the host.
       appimage-apt-packages: ""
       preflight-shell: bash
-      preflight-command: ./packaging/ci/preflight-appimage.sh
+      # VERSION from the tag first, so the app's About and Info-gnustep.plist
+      # match the package (#119).
+      preflight-command: ./packaging/ci/set-version.sh '${{ needs.resolve-version.outputs.package_version }}' && ./packaging/ci/preflight-appimage.sh
       run-validation: true
       run-smoke: true
       upload-artifacts: true
