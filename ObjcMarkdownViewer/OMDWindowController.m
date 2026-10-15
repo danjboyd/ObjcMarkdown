@@ -946,8 +946,12 @@ static NSMutableArray *OMDSecondaryWindows(void)
             return NO;
         }
     }
-#endif
     return YES;
+#else
+    // A Mac document app stays open with no windows (Cmd+Q quits), as
+    // TextEdit and Preview do (#123).
+    return NO;
+#endif
 }
 
 
