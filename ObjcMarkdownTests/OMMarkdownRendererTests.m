@@ -2684,6 +2684,9 @@ static NSRange OMFootnoteAnchorRange(NSAttributedString *rendered, NSString *anc
     NSString *text = [rendered string];
     unichar markers[4] = { 0x25E6, 0x25AA, 0x2611, 0x2610 };
     NSFont *boxFonts[2] = { nil, nil };
+    // Coverage is checked where a fallback font is installed (Linux, Windows).
+    BOOL fallbackInstalled = [NSFont fontWithName:@"DejaVuSans" size:12.0] != nil ||
+                             [NSFont fontWithName:@"SegoeUISymbol" size:12.0] != nil;
     NSUInteger i = 0;
     for (i = 0; i < 4; i++) {
         NSRange found = [text rangeOfString:[NSString stringWithCharacters:&markers[i] length:1]];
@@ -2693,7 +2696,7 @@ static NSRange OMFootnoteAnchorRange(NSAttributedString *rendered, NSString *anc
         }
         NSFont *font = [rendered attribute:NSFontAttributeName atIndex:found.location effectiveRange:NULL];
         NSCharacterSet *covered = [font coveredCharacterSet];
-        if (covered != nil && [NSFont fontWithName:@"DejaVuSans" size:12.0] != nil) {
+        if (covered != nil && fallbackInstalled) {
             XCTAssertTrue([covered characterIsMember:markers[i]], @"marker %04X in %@", markers[i], [font fontName]);
         }
         if (i >= 2) {
