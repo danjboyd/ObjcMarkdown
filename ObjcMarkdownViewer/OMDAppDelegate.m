@@ -18,6 +18,22 @@
 - (void)start;
 - (void)checkForUpdates:(id)sender;
 @end
+
+// Removes every item with this action from the menu and its submenus. A
+// theme may have moved an item to another menu (WinUITheme puts Check for
+// Updates in File), so the whole tree is searched.
+static void OMDRemoveMenuItemsWithAction(NSMenu *menu, SEL action)
+{
+    NSInteger index = [menu numberOfItems];
+    while (index-- > 0) {
+        NSMenuItem *item = [menu itemAtIndex:index];
+        if ([item action] == action) {
+            [menu removeItemAtIndex:index];
+        } else if ([item hasSubmenu]) {
+            OMDRemoveMenuItemsWithAction([item submenu], action);
+        }
+    }
+}
 #endif
 
 // A method Settings calls on its delegate.
@@ -91,6 +107,10 @@ static BOOL OMDIsPreferencesSetterSelector(SEL selector)
         GPStandardUpdaterController *controller = [[GPStandardUpdaterController alloc] initWithPackagedConfiguration:&updateError];
         if (controller == nil) {
             NSLog(@"Updater disabled: %@", [updateError localizedDescription]);
+            // No updater in this package (the Flatpak updates through its
+            // store, a dev build has no feed): no Check for Updates either,
+            // rather than an item that is always greyed out (#122).
+            OMDRemoveMenuItemsWithAction([NSApp mainMenu], @selector(checkForUpdates:));
         } else {
             [controller setParentWindow:[_mainWindowController mainWindow]];
             [controller start];
