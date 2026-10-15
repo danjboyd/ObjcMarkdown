@@ -7431,7 +7431,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
 - (void)showProjectHomePage:(id)sender
 {
     (void)sender;
-    [[NSWorkspace sharedWorkspace] openURL:[NSURL URLWithString:@"https://github.com/danjboyd/ObjcMarkdown"]];
+    OMDOpenURL([NSURL URLWithString:@"https://github.com/danjboyd/ObjcMarkdown"]);
 }
 
 - (void)showAboutPanel:(id)sender
@@ -9094,7 +9094,7 @@ static BOOL OMDIsMarkdownPath(NSString *path)
     if (url == nil) {
         return;
     }
-    if (![[NSWorkspace sharedWorkspace] openURL:url] && !OMDOpenURLUsingXDGOpen(url)) {
+    if (!OMDOpenURL(url)) {
         NSBeep();
     }
 }
@@ -9139,10 +9139,7 @@ static BOOL OMDIsMarkdownPath(NSString *path)
             NSBeep();
             return NO;
         }
-        BOOL opened = [[NSWorkspace sharedWorkspace] openURL:url];
-        if (!opened) {
-            opened = OMDOpenURLUsingXDGOpen(url);
-        }
+        BOOL opened = OMDOpenURL(url);
         if (!opened) {
             NSBeep();
         }
