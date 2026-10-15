@@ -16,8 +16,12 @@ are fixed upstream:
   packages are built, with these patches, and replaces the toolchain's
   two DLLs before the app is built and staged. It checks that the
   toolchain has those versions, and replaces the DLLs only in CI.
-  `packaging/windows/patches/` holds the upstream commit MSYS2's
-  gnustep-base package applies, which the Linux pins already include.
+  `packaging/windows/patches/` holds upstream commits the 0.31.1 and
+  0.32.0 releases lack and the Linux pins already include: the one
+  MSYS2's gnustep-base package applies (bace6f54), and libs-gui
+  3f5efad1b, which stops `NSScrollView` re-tiling without end when
+  `autohidesScrollers` shows one scroller and hides the other (a large
+  document in Split, #121). Drop each when the toolchain's release has it.
 
 Each patch applies to the commit the Linux builds pin and to the release
 the Windows build uses; check both before moving either. The macOS build
