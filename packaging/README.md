@@ -116,6 +116,10 @@ Windows packaging input expectations:
   `hostDependencies.windows.msys2Packages`
 - the staged/installable runtime must include `WinUITheme`
 - the packaged Windows default theme must be `WinUITheme`
+- the GNUstep backend is `danjboyd/libs-back`'s carry release
+  (`carry-0.32.0.4`), installed over MSYS2's stock one through
+  `msys2-package-urls` in `.github/workflows/windows-packaging.yml`;
+  WinUITheme's title-bar tabs, shadows and per-monitor DPI need it
 
 - `plugins-themes-winuitheme`
 
