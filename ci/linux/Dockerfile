@@ -101,7 +101,7 @@ RUN . /usr/GNUstep/System/Library/Makefiles/GNUstep.sh \
 
 RUN . /usr/GNUstep/System/Library/Makefiles/GNUstep.sh \
     && fetch-commit https://github.com/gnustep/libs-back "$LIBS_BACK_COMMIT" libs-back \
-    && cd libs-back \
+    && cd libs-back && git apply /patches/libs-back/*.patch \
     && ./configure --enable-server=x11 --enable-graphics=cairo --disable-glx \
     && make -j"$(nproc)" GNUSTEP_INSTALLATION_DOMAIN=SYSTEM \
     && make GNUSTEP_INSTALLATION_DOMAIN=SYSTEM install && ldconfig

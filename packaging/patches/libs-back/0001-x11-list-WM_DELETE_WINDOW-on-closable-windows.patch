@@ -1,0 +1,57 @@
+From cd818dcb0963b7e562405c0803f5c48a0de57679 Mon Sep 17 00:00:00 2001
+From: Daniel Boyd <danieljboyd@icloud.com>
+Date: Thu, 15 Oct 2026 15:53:10 -0500
+Subject: [PATCH] x11: list WM_DELETE_WINDOW on closable windows the gui
+ decorates
+
+Backport to back-0_32_0 of the source change in danjboyd/libs-back
+x11-wm-delete-window (1ecd259), without its ChangeLog entry and test
+(Tests/x11/wmdeletewindow.m needs a libs-gui newer than 0.32.0 to run).
+
+With GSBackHandlesWindowDecorations (or GSX11HandlesWindowDecorations) NO,
+-window:::: creates the X window without the window's style, and
+-_setSupportedWMProtocols: took the closable bit from that stripped style,
+so no window the gui decorates listed WM_DELETE_WINDOW.  A window manager
+asked to close one (Alt+F4) then has no way to ask, and Mutter kills the
+client.  The closable bit now comes from the NSWindow's style mask when the
+gui draws the decorations.
+
+AI assistance: this change, its test and this description were written
+with Claude (Anthropic's Claude Code).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ Source/x11/XGServerWindow.m | 11 ++++++++++-
+ 1 file changed, 10 insertions(+), 1 deletion(-)
+
+diff --git a/Source/x11/XGServerWindow.m b/Source/x11/XGServerWindow.m
+index 1add432..37cc0bb 100644
+--- a/Source/x11/XGServerWindow.m
++++ b/Source/x11/XGServerWindow.m
+@@ -1385,13 +1385,22 @@ _get_next_prop_new_event(Display *display, XEvent *event, char *arg)
+ - (void) _setSupportedWMProtocols: (gswindow_device_t *) window
+ {
+   NSWindow *nswin = GSWindowWithNumber(window->number);
++  unsigned int closeStyle = window->win_attrs.window_style;
+ 
+   window->numProtocols = 0;
+   if (!nswin || [nswin canBecomeKeyWindow])
+     {
+       window->protocols[window->numProtocols++] = generic.WM_TAKE_FOCUS_ATOM;
+     }
+-  if ((window->win_attrs.window_style & NSClosableWindowMask) != 0)
++  /* When the gui draws the decorations, the X window is created without
++     the style (see -window::::), but the window may still be closable.
++     Without WM_DELETE_WINDOW a window manager asked to close it (Alt+F4,
++     its window menu) kills the whole client instead.  */
++  if (!handlesWindowDecorations && nswin != nil)
++    {
++      closeStyle = [nswin styleMask];
++    }
++  if ((closeStyle & NSClosableWindowMask) != 0)
+     window->protocols[window->numProtocols++] = generic.WM_DELETE_WINDOW_ATOM;
+   // Add ping protocol for EWMH
+   if ((generic.wm & XGWM_EWMH) != 0)
+-- 
+2.47.3
+
