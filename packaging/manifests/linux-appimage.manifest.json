@@ -137,6 +137,50 @@
     },
     "logs": {
       "retainOnSuccess": true
+    },
+    "packageContract": {
+      "forbiddenFiles": [
+        "libLLVM*",
+        "libclang*",
+        "libLTO*",
+        "libpython*",
+        "tcl8*",
+        "tk8*",
+        "libtcl*",
+        "libtk*",
+        "*avcodec*",
+        "*avformat*",
+        "*x264*",
+        "*x265*",
+        "libMagick*",
+        "*aspell*",
+        "libsndfile*",
+        "libao.*",
+        "libao-*"
+      ],
+      "maxPayloadBytes": 470000000
+    },
+    "installedResult": {
+      "forbiddenFiles": [
+        "libLLVM*",
+        "libclang*",
+        "libLTO*",
+        "libpython*",
+        "tcl8*",
+        "tk8*",
+        "libtcl*",
+        "libtk*",
+        "*avcodec*",
+        "*avformat*",
+        "*x264*",
+        "*x265*",
+        "libMagick*",
+        "*aspell*",
+        "libsndfile*",
+        "libao.*",
+        "libao-*"
+      ],
+      "maxPayloadBytes": 470000000
     }
   },
   "integrations": {
@@ -197,7 +241,8 @@
       "artifactNamePattern": "{name}-{version}-linux-x86_64.AppImage",
       "toolRoot": "../../dist/packaging/linux/tools/appimage",
       "validation": {
-        "runtimeClosure": "strict"
+        "runtimeClosure": "strict",
+        "maxArtifactBytes": 80000000
       },
       "smoke": {
         "mode": "open-file",
