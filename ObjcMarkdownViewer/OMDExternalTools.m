@@ -6,6 +6,11 @@
 #import "OMDTextFileSupport.h"
 
 #if defined(_WIN32)
+#include <windows.h>
+#include <shellapi.h>
+#endif
+
+#if defined(_WIN32)
 static NSString *OMDWindowsInstallRoot(void)
 {
     NSString *executablePath = [[NSBundle mainBundle] executablePath];
@@ -215,6 +220,32 @@ BOOL OMDOpenURLUsingXDGOpen(NSURL *url)
     }
 
     return launched && [task terminationStatus] == 0;
+#endif
+}
+
+BOOL OMDOpenURL(NSURL *url)
+{
+    NSString *urlString = [url absoluteString];
+    if ([urlString length] == 0) {
+        return NO;
+    }
+#if defined(_WIN32)
+    // GNUstep's NSWorkspace has no handler for web URLs on Windows: it
+    // falls back to an "OpenURL" service that doesn't exist (#144).
+    NSUInteger length = [urlString length];
+    wchar_t *wideURL = (wchar_t *)calloc(length + 1, sizeof(wchar_t));
+    if (wideURL == NULL) {
+        return NO;
+    }
+    [urlString getCharacters:(unichar *)wideURL range:NSMakeRange(0, length)];
+    HINSTANCE result = ShellExecuteW(NULL, L"open", wideURL, NULL, NULL, SW_SHOWNORMAL);
+    free(wideURL);
+    return (INT_PTR)result > 32;
+#else
+    if ([[NSWorkspace sharedWorkspace] openURL:url]) {
+        return YES;
+    }
+    return OMDOpenURLUsingXDGOpen(url);
 #endif
 }
 

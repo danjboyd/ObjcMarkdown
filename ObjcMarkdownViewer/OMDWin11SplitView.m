@@ -206,6 +206,17 @@
     if ([delegate respondsToSelector:@selector(splitView:constrainSplitPosition:ofSubviewAt:)]) {
         position = [delegate splitView:self constrainSplitPosition:position ofSubviewAt:dividerIndex];
     }
+    // Already there: libs-gui would move the divider half its thickness
+    // and the override below back again, resizing both panes twice, which
+    // costs a layout of the whole document in the editor (#121).
+    NSRect leadingFrame = [[subviews objectAtIndex:(NSUInteger)dividerIndex] frame];
+    NSRect trailingFrame = [[subviews objectAtIndex:(NSUInteger)dividerIndex + 1] frame];
+    CGFloat leadingEnd = [self isVertical] ? NSMaxX(leadingFrame) : NSMaxY(leadingFrame);
+    CGFloat trailingStart = [self isVertical] ? NSMinX(trailingFrame) : NSMinY(trailingFrame);
+    if (fabs(leadingEnd - round(position)) < 0.5 &&
+        fabs(trailingStart - (leadingEnd + [self dividerThickness])) < 0.5) {
+        return;
+    }
     // libs-gui also lays the subviews out first if it never has.
     [super setPosition:position ofDividerAtIndex:dividerIndex];
 

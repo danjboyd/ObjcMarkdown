@@ -31,11 +31,19 @@ button-layout='appmenu:minimize,maximize,close'
 action-double-click-titlebar='toggle-maximize'
 K
 
+# No input method in the private session (#143). gnome-shell starts
+# ibus-daemon --xim itself, found on PATH, and with every app launch talking
+# to it over XIM it grew to gigabytes. The session's PATH starts with a
+# directory whose ibus-daemon exits at once; the desktop's ibus is untouched.
+mkdir -p $G/bin
+printf '#!/bin/sh\n# tools/dev: no input method in the private session (#143).\nexit 0\n' > $G/bin/ibus-daemon
+chmod 755 $G/bin/ibus-daemon
+
 for n in $(seq 120 150); do [ ! -e /tmp/.X11-unix/X$n ] && [ ! -e /tmp/.X$n-lock ] && break; done
 export DISPLAY=:$n
 setsid Xvfb $DISPLAY -screen 0 1600x1000x24 -nolisten tcp +extension GLX +extension RANDR >/dev/null 2>&1 < /dev/null &
 sleep 1
-setsid env -i HOME="$HOME" PATH="$PATH" DISPLAY="$DISPLAY" XDG_CONFIG_HOME="$G/config" \
+setsid env -i HOME="$HOME" PATH="$G/bin:$PATH" DISPLAY="$DISPLAY" XDG_CONFIG_HOME="$G/config" \
   XDG_DATA_HOME="$G/data" XDG_CACHE_HOME="$G/cache" XDG_STATE_HOME="$G/state" \
   XDG_RUNTIME_DIR="$G/run" GSETTINGS_BACKEND=memory LIBGL_ALWAYS_SOFTWARE=1 \
   GIO_USE_VFS=local GVFS_DISABLE_FUSE=1 GIO_USE_VOLUME_MONITOR=unix \

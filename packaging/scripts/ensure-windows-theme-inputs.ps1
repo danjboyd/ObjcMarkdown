@@ -375,11 +375,6 @@ $themeWorkspaceCandidates.Add([System.IO.Path]::GetFullPath((Join-Path $repoRoot
 
 $themeSpecs = @(
   @{
-    Name = "Win11Theme"
-    RepoName = "plugins-themes-win11theme"
-    RepoOverride = $env:OMD_WIN11_THEME_REPO
-  },
-  @{
     Name = "WinUITheme"
     RepoName = "plugins-themes-winuitheme"
     RepoOverride = $env:OMD_WINUI_THEME_REPO

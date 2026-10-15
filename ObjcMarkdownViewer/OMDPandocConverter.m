@@ -95,8 +95,16 @@ static NSString *OMDResolvePandocPath(void)
 #endif
 
 #if !defined(_WIN32)
-    if ([[NSFileManager defaultManager] isExecutableFileAtPath:@"/usr/bin/pandoc"]) {
-        return @"/usr/bin/pandoc";
+    // An app started from the Finder or a desktop launcher may not have the
+    // shell's PATH: look where the pandoc installer and Homebrew put it too.
+    NSArray *unixCandidates = [NSArray arrayWithObjects:@"/usr/bin/pandoc",
+                                                       @"/usr/local/bin/pandoc",
+                                                       @"/opt/homebrew/bin/pandoc",
+                                                       nil];
+    for (NSString *candidate in unixCandidates) {
+        if ([[NSFileManager defaultManager] isExecutableFileAtPath:candidate]) {
+            return candidate;
+        }
     }
 #endif
 

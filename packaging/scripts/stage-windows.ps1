@@ -36,6 +36,7 @@ if (Test-Path $tinyTeXStageRoot) {
 }
 New-Item -ItemType Directory -Force -Path ([System.IO.Path]::GetDirectoryName($tinyTeXStageRoot)) | Out-Null
 Copy-Item -LiteralPath ([string]$tinyTeXInputs.root) -Destination ([System.IO.Path]::GetDirectoryName($tinyTeXStageRoot)) -Recurse -Force
+& .\packaging\scripts\trim-tinytex-runtime.ps1 -TinyTeXRoot $tinyTeXStageRoot
 
 $requiredTinyTeXPaths = @(
   (Join-Path $tinyTeXStageRoot "bin\windows\latex.exe"),
@@ -47,11 +48,27 @@ if ($missingTinyTeXPaths.Count -gt 0) {
   throw "Required TinyTeX runtime files were not staged: $($missingTinyTeXPaths -join ', ')"
 }
 
-Set-Content -Path (Join-Path $metadataDocs "BundledThemes.txt") -Value @(
+# List the themes actually staged, with the commit each was built from
+# (the manifest's themeInputs), so the file can't drift from the payload.
+$manifest = Get-Content -Raw "packaging\manifests\windows-msi.manifest.json" | ConvertFrom-Json
+$stagedThemes = @(Get-ChildItem -Path (Join-Path $runtimeRoot "lib\GNUstep\Themes") -Directory -Filter "*.theme" -ErrorAction SilentlyContinue | Sort-Object Name)
+if ($stagedThemes.Count -eq 0) {
+  throw "No GNUstep theme was staged under runtime\lib\GNUstep\Themes."
+}
+$themeLines = foreach ($theme in $stagedThemes) {
+  $name = [System.IO.Path]::GetFileNameWithoutExtension($theme.Name)
+  $themeInput = @($manifest.themeInputs | Where-Object { $_.name -eq $name })[0]
+  if ($themeInput) {
+    "{0} {1} ({2})" -f $name, $themeInput.ref, $themeInput.repo
+  } else {
+    "{0} (not in themeInputs)" -f $name
+  }
+}
+Set-Content -Path (Join-Path $metadataDocs "BundledThemes.txt") -Value (@(
   "Bundled GNUstep themes for ObjcMarkdown MSI:"
-  "Bundled themes include WinUXTheme, Win11Theme, and WinUITheme."
-  "Packaged Windows launches default to GSTheme=WinUITheme when the user has not already chosen a theme."
-)
+) + $themeLines + @(
+  ("Packaged Windows launches default to GSTheme={0} when the user has not already chosen a theme." -f $manifest.packagedDefaults.defaultTheme)
+))
 Set-Content -Path (Join-Path $metadataDocs "BundledLaTeXRuntime.txt") -Value @(
   "Bundled TinyTeX runtime for ObjcMarkdown MSI:"
   ("ReleaseTag={0}" -f [string]$tinyTeXInputs.releaseTag)
