@@ -55,25 +55,6 @@
           "ADDITIONAL_OBJCFLAGS": "-DHAVE_MODE_T=1"
         }
       }
-    },
-    {
-      "name": "Win11Theme",
-      "repo": "https://github.com/danjboyd/plugins-themes-win11theme.git",
-      "ref": "390db8f",
-      "platforms": [
-        "windows",
-        "msi"
-      ],
-      "required": false,
-      "default": false,
-      "workspacePath": "../../.omd-theme-inputs/plugins-themes-win11theme",
-      "build": {
-        "installCommand": "make install GNUSTEP_INSTALLATION_DOMAIN=USER; for theme_resources in Win11Theme.theme/Resources \"$GNUSTEP_HOME/GNUstep/Library/Themes/Win11Theme.theme/Resources\"; do if [ -d Resources/ThemeImages ] && [ -d \"$theme_resources\" ]; then cp Resources/ThemeImages/*.png \"$theme_resources\"/; fi; done",
-        "environment": {
-          "ADDITIONAL_CPPFLAGS": "-DHAVE_MODE_T=1",
-          "ADDITIONAL_OBJCFLAGS": "-DHAVE_MODE_T=1"
-        }
-      }
     }
   ],
   "packagedDefaults": {
@@ -163,6 +144,50 @@
     },
     "logs": {
       "retainOnSuccess": true
+    },
+    "packageContract": {
+      "forbiddenFiles": [
+        "libLLVM*",
+        "libclang*",
+        "libLTO*",
+        "libpython*",
+        "tcl8*",
+        "tk8*",
+        "libtcl*",
+        "libtk*",
+        "*avcodec*",
+        "*avformat*",
+        "*x264*",
+        "*x265*",
+        "libMagick*",
+        "*aspell*",
+        "libsndfile*",
+        "libao.*",
+        "libao-*"
+      ],
+      "maxPayloadBytes": 420000000
+    },
+    "installedResult": {
+      "forbiddenFiles": [
+        "libLLVM*",
+        "libclang*",
+        "libLTO*",
+        "libpython*",
+        "tcl8*",
+        "tk8*",
+        "libtcl*",
+        "libtk*",
+        "*avcodec*",
+        "*avformat*",
+        "*x264*",
+        "*x265*",
+        "libMagick*",
+        "*aspell*",
+        "libsndfile*",
+        "libao.*",
+        "libao-*"
+      ],
+      "maxPayloadBytes": 420000000
     }
   },
   "integrations": {
@@ -236,6 +261,9 @@
       },
       "wix": {
         "toolRoot": "../../dist/packaging/windows/tools/wix"
+      },
+      "validation": {
+        "maxArtifactBytes": 170000000
       }
     },
     "appimage": {

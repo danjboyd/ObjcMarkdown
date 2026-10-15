@@ -398,7 +398,7 @@ static CGFloat OMDClampedScrollSpeed(CGFloat value)
 }
 
 
-@interface OMDWindowController () <OMDCopyButtonsControllerDelegate, OMDRenderSchedulerDelegate, OMDDocumentTabsControllerDelegate, OMDToolbarControllerDelegate, OMDStatusBarControllerDelegate, OMDExplorerControllerDelegate, OMDOpenLocationDelegate, OMDFormattingBarControllerDelegate, OMDPreferencesControllerDelegate, GSVVimBindingControllerDelegate, OMDTextViewRenderedObjectDelegate, OMDOutlineControllerDelegate>
+@interface OMDWindowController () <OMDCopyButtonsControllerDelegate, OMDRenderSchedulerDelegate, OMDDocumentTabsControllerDelegate, OMDToolbarControllerDelegate, OMDStatusBarControllerDelegate, OMDExplorerControllerDelegate, OMDOpenLocationDelegate, OMDFormattingBarControllerDelegate, OMDPreferencesControllerDelegate, GSVVimBindingControllerDelegate, OMDTextViewRenderedObjectDelegate, OMDOutlineControllerDelegate, OMDMainWindowTabClosing>
 - (void)importDocument:(id)sender;
 - (void)newWindow:(id)sender;
 - (void)newDocument:(id)sender;
@@ -946,8 +946,12 @@ static NSMutableArray *OMDSecondaryWindows(void)
             return NO;
         }
     }
-#endif
     return YES;
+#else
+    // A Mac document app stays open with no windows (Cmd+Q quits), as
+    // TextEdit and Preview do (#123).
+    return NO;
+#endif
 }
 
 
@@ -1137,7 +1141,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [_splitView setVertical:YES];
     [_splitView setDelegate:self];
 
-    _previewScrollView = [[NSScrollView alloc] initWithFrame:[_documentContainer bounds]];
+    _previewScrollView = [[OMDScrollView alloc] initWithFrame:[_documentContainer bounds]];
     [_previewScrollView setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable)];
     [_previewScrollView setHasVerticalScroller:YES];
     [_previewScrollView setHasHorizontalScroller:YES];
@@ -1204,7 +1208,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
     _sourceEditorContainer = [[NSView alloc] initWithFrame:[_documentContainer bounds]];
     [_sourceEditorContainer setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable)];
 
-    _sourceScrollView = [[NSScrollView alloc] initWithFrame:[_sourceEditorContainer bounds]];
+    _sourceScrollView = [[OMDScrollView alloc] initWithFrame:[_sourceEditorContainer bounds]];
     [_sourceScrollView setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable)];
     [_sourceScrollView setHasVerticalScroller:YES];
     [_sourceScrollView setAutohidesScrollers:YES];
@@ -4733,6 +4737,23 @@ constrainSplitPosition:(CGFloat)proposedPosition
     } else {
         bounds = [_textView bounds];
     }
+#if defined(GNUSTEP)
+    // The preview's scrollers hide themselves, and the vertical one comes
+    // when a long document is shown and takes width. Lay out for the width
+    // beside it either way: otherwise a long document is rendered for the
+    // empty view's width, and then rendered and laid out again for the
+    // narrower one (about 15 s for a 1.4 MB file, #121).
+    if (_previewScrollView != nil && [_previewScrollView autohidesScrollers]) {
+        NSSize frameContentSize = [NSScrollView contentSizeForFrameSize:[_previewScrollView frame].size
+                                                  hasHorizontalScroller:NO
+                                                    hasVerticalScroller:NO
+                                                             borderType:[_previewScrollView borderType]];
+        CGFloat besideScroller = frameContentSize.width - [NSScroller scrollerWidth] - 1.0;
+        if (besideScroller > 0.0) {
+            bounds.size.width = besideScroller;
+        }
+    }
+#endif
     NSSize inset = [_textView textContainerInset];
     NSTextContainer *container = [_textView textContainer];
     CGFloat padding = container != nil ? [container lineFragmentPadding] : 0.0;
@@ -5234,6 +5255,9 @@ constrainSplitPosition:(CGFloat)proposedPosition
     if (_viewerMode == OMDViewerModeEdit) {
         [self refreshOutline];
     }
+    if (OMDViewerPaneLayoutForMode(mode).sourceVisible && _sourceHighlightNeedsFullPass) {
+        [self requestSourceSyntaxHighlightingRefresh];
+    }
 
     if (_viewerMode == OMDViewerModeEdit) {
         [_renderScheduler cancelPendingInteractiveRender];
@@ -5491,6 +5515,17 @@ constrainSplitPosition:(CGFloat)proposedPosition
     [_documentTabsController setSelectedIndex:targetSelection];
     [self applyDocumentTabRecord:[_documentTabsController tabAtIndex:targetSelection]];
     [self documentTabsDidChange];
+}
+
+- (BOOL)closeSelectedDocumentTabIfOthersRemain
+{
+    if ([_documentTabsController count] < 2) {
+        return NO;
+    }
+    // Handled either way: Cancel in the unsaved-changes alert keeps the tab
+    // and the window.
+    [self closeDocumentTabAtIndex:[_documentTabsController selectedIndex]];
+    return YES;
 }
 
 - (OMDMarkdownDocument *)currentDocument
@@ -7196,6 +7231,10 @@ constrainSplitPosition:(CGFloat)proposedPosition
             [storage beginEditing];
             [storage removeAttribute:NSForegroundColorAttributeName
                                range:NSMakeRange(0, [storage length])];
+            // No ligatures in source text, highlighted or not (#125).
+            [storage addAttribute:NSLigatureAttributeName
+                            value:[NSNumber numberWithInt:0]
+                            range:NSMakeRange(0, [storage length])];
             [storage endEditing];
         } @finally {
             _isProgrammaticSourceHighlightUpdate = NO;
@@ -7214,6 +7253,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
         [typing setObject:font forKey:NSFontAttributeName];
     }
     [typing setObject:baseColor forKey:NSForegroundColorAttributeName];
+    [typing setObject:[NSNumber numberWithInt:0] forKey:NSLigatureAttributeName];
     [_sourceTextView setTypingAttributes:typing];
     [typing release];
 }
@@ -7227,6 +7267,13 @@ constrainSplitPosition:(CGFloat)proposedPosition
     }
     if (![self isSourceSyntaxHighlightingEnabled]) {
         [self clearSourceSyntaxHighlighting];
+        return;
+    }
+    if (!OMDViewerPaneLayoutForMode((OMDViewerMode)_viewerMode).sourceVisible) {
+        // The editor isn't shown: colour it when it is. In GNUstep colouring
+        // makes the whole document be laid out again, about a second for a
+        // 1.4 MB file (#121).
+        _sourceHighlightNeedsFullPass = YES;
         return;
     }
 
@@ -7281,6 +7328,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
         [typing setObject:font forKey:NSFontAttributeName];
     }
     [typing setObject:baseColor forKey:NSForegroundColorAttributeName];
+    [typing setObject:[NSNumber numberWithInt:0] forKey:NSLigatureAttributeName];
     [_sourceTextView setTypingAttributes:typing];
     [typing release];
 
@@ -7416,7 +7464,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
 - (void)showProjectHomePage:(id)sender
 {
     (void)sender;
-    [[NSWorkspace sharedWorkspace] openURL:[NSURL URLWithString:@"https://github.com/danjboyd/ObjcMarkdown"]];
+    OMDOpenURL([NSURL URLWithString:@"https://github.com/danjboyd/ObjcMarkdown"]);
 }
 
 - (void)showAboutPanel:(id)sender
@@ -7668,6 +7716,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
         typing = [[NSMutableDictionary alloc] init];
     }
     [typing setObject:resolved forKey:NSFontAttributeName];
+    [typing setObject:[NSNumber numberWithInt:0] forKey:NSLigatureAttributeName];
     [_sourceTextView setTypingAttributes:typing];
     [typing release];
 
@@ -9079,7 +9128,7 @@ static BOOL OMDIsMarkdownPath(NSString *path)
     if (url == nil) {
         return;
     }
-    if (![[NSWorkspace sharedWorkspace] openURL:url] && !OMDOpenURLUsingXDGOpen(url)) {
+    if (!OMDOpenURL(url)) {
         NSBeep();
     }
 }
@@ -9124,10 +9173,7 @@ static BOOL OMDIsMarkdownPath(NSString *path)
             NSBeep();
             return NO;
         }
-        BOOL opened = [[NSWorkspace sharedWorkspace] openURL:url];
-        if (!opened) {
-            opened = OMDOpenURLUsingXDGOpen(url);
-        }
+        BOOL opened = OMDOpenURL(url);
         if (!opened) {
             NSBeep();
         }

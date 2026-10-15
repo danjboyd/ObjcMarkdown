@@ -99,8 +99,6 @@ copy_user_theme_if_present() {
   fi
 }
 
-copy_user_theme_if_present "WinUXTheme"
-copy_user_theme_if_present "Win11Theme"
 copy_user_theme_if_present "WinUITheme"
 
 normalize_theme_repo_path() {
@@ -155,7 +153,6 @@ merge_theme_resources_from_repo() {
 }
 
 merge_theme_resources_from_repo "WinUITheme" "plugins-themes-winuitheme" "OMD_WINUI_THEME_REPO"
-merge_theme_resources_from_repo "Win11Theme" "plugins-themes-win11theme" "OMD_WIN11_THEME_REPO"
 
 cp -f "$ROOT/Resources/markdown_icon.ico" "$METADATA_ICONS_DIR/"
 cp -f "$ROOT/Resources/markdown_icon.png" "$METADATA_ICONS_DIR/"

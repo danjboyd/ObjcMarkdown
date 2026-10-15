@@ -33,14 +33,22 @@ MarkdownViewer_OBJCFLAGS += -Werror
 endif
 include $(GNUSTEP_MAKEFILES)/application.make
 
+# The bundle's Info-gnustep.plist is MarkdownViewerInfo.plist plus the
+# version keys, from OMD_VERSION, so the version is kept in one place (#119).
 after-all:: MarkdownViewerInfo.plist
 	@if [ -d MarkdownViewer.app/Resources ]; then \
-		cp MarkdownViewerInfo.plist MarkdownViewer.app/Resources/Info-gnustep.plist; \
+		info=MarkdownViewer.app/Resources/Info-gnustep.plist; \
 	elif [ -d MarkdownViewer.app/Contents/Resources ]; then \
-		cp MarkdownViewerInfo.plist MarkdownViewer.app/Contents/Resources/Info-gnustep.plist; \
+		info=MarkdownViewer.app/Contents/Resources/Info-gnustep.plist; \
 	else \
-		echo "Warning: could not locate bundle Resources directory to copy MarkdownViewerInfo.plist"; \
-	fi
+		echo "error: could not locate the bundle's Resources directory for Info-gnustep.plist" >&2; exit 1; \
+	fi; \
+	if [ -z "$(OMD_VERSION)" ]; then echo "error: no version: VERSION is missing and OMD_VERSION is unset" >&2; exit 1; fi; \
+	cp MarkdownViewerInfo.plist "$$info"; \
+	printf '{ ApplicationVersion = "%s"; ApplicationRelease = "%s"; CFBundleShortVersionString = "%s"; CFBundleVersion = "%s"; }\n' \
+		"$(OMD_VERSION)" "$(OMD_VERSION)" "$(OMD_VERSION)" "$(OMD_VERSION)" > $(GNUSTEP_OBJ_DIR)/version-info.plist; \
+	plmerge "$$info" $(GNUSTEP_OBJ_DIR)/version-info.plist >/dev/null 2>&1 || { echo "error: plmerge failed on $$info" >&2; exit 1; }; \
+	grep -q "ApplicationRelease = \"$(OMD_VERSION)\"" "$$info" || { echo "error: $$info lacks ApplicationRelease $(OMD_VERSION)" >&2; exit 1; }
 	@helper_path="../third_party/gp-update-helper/$(GNUSTEP_OBJ_DIR)/gp-update-helper$(EXEEXT)"; \
 	if [ -f "$$helper_path" ]; then \
 		if [ -f MarkdownViewer.app/MarkdownViewer$(EXEEXT) ]; then \

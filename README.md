@@ -80,13 +80,15 @@ NSAttributedString *rendered = [renderer attributedStringFromMarkdown:
 
 ## Install
 
-- **Windows**: the MSI or portable ZIP from [Releases](https://github.com/danjboyd/ObjcMarkdown/releases), with WinUITheme bundled as the default theme.
-- **macOS**: the universal disk image (`MarkdownViewer-<version>-macos.dmg`, Apple silicon and Intel, macOS 11 or later) from [Releases](https://github.com/danjboyd/ObjcMarkdown/releases), from the next tagged release on. Drag the app to Applications. It isn't notarized yet, so macOS blocks the first open: open it once, then choose **Open Anyway** in System Settings > Privacy & Security (on macOS 14 and earlier, Control-click the app and choose **Open**). It brings a Quick Look preview: press Space on a Markdown file in the Finder to see it rendered.
-- **Linux**: an AppImage and a Flatpak bundle, each with the GNUstep runtime and the Adwaita theme inside, built by [linux-appimage.yml](.github/workflows/linux-appimage.yml) and [linux-flatpak.yml](.github/workflows/linux-flatpak.yml) (see [packaging/flatpak](packaging/flatpak/README.md)); the next tagged release attaches both. Until then, build from source as below.
+Download the latest release, **[0.2.2](https://github.com/danjboyd/ObjcMarkdown/releases/latest)**:
+
+- **Windows**: `ObjcMarkdown-<version>-win64.msi`, or the portable ZIP. WinUITheme is bundled as the default theme. Installed copies update themselves.
+- **macOS**: `MarkdownViewer-<version>-macos.dmg`, a universal app (Apple silicon and Intel, macOS 11 or later). Drag the app to Applications and open it from there. It isn't notarized yet, so macOS blocks the first open: open it once, then choose **Open Anyway** in System Settings > Privacy & Security (on macOS 14 and earlier, Control-click the app and choose **Open**). It includes a Quick Look preview: press Space on a Markdown file in the Finder to see it rendered.
+- **Linux**: `ObjcMarkdown-<version>-linux-x86_64.AppImage` (make it executable and run it; it updates itself) or `MarkdownViewer.flatpak` (`flatpak install --user MarkdownViewer.flatpak`). Both carry the GNUstep runtime and the Adwaita theme, so nothing else needs installing. To build from source instead, see below.
 
 ## Status
 
-This repository is currently a `0.1` source-first preview.
+MarkdownViewer 0.2.2 is the current release, with packages for Linux, Windows and macOS.
 
 - Primary supported environment: GNUstep on Linux with a clang/libobjc2/libdispatch toolchain.
 - Windows support exists through the MSYS2 `clang64` toolchain. PowerShell/Codex sessions should use `scripts/windows/build-from-powershell.ps1`; see [WINDOWS_BUILD.md](WINDOWS_BUILD.md).

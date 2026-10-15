@@ -39,21 +39,6 @@
         "Current Windows msys2/clang64 build VM is blocked by a libdispatch/CRT mode_t header conflict before this theme can be bundled.",
         "Keep this pinned as an external input rather than a git submodule."
       ]
-    },
-    {
-      "id": "windows-win11-theme",
-      "kind": "git",
-      "repo": "https://github.com/danjboyd/plugins-themes-win11theme.git",
-      "workspacePath": "../gnustep/plugins-themes-win11theme",
-      "platforms": [
-        "windows"
-      ],
-      "purpose": "Secondary Windows GNUstep theme bundled alongside WinUITheme in MSI packaging.",
-      "required": false,
-      "notes": [
-        "This private input is optional for ObjcMarkdown MSI release candidates; WinUITheme is the required bundled default.",
-        "Track the exact working commit outside the app repo."
-      ]
     }
   ]
 }

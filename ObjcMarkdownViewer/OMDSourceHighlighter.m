@@ -554,6 +554,9 @@ static BOOL OMDRangesIntersect(NSRange left, NSRange right)
 
     [attributedString beginEditing];
     [attributedString addAttribute:NSForegroundColorAttributeName value:baseColor range:effectiveRange];
+    // Source text has no ligatures (#125): GNUstep forms "fi" from U+FB01,
+    // which a monospaced font draws in one cell, so columns would shift.
+    [attributedString addAttribute:NSLigatureAttributeName value:[NSNumber numberWithInt:0] range:effectiveRange];
 
     BOOL insideFence = NO;
     unichar activeFenceMarker = 0;

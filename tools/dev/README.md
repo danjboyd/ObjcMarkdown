@@ -58,6 +58,13 @@ Drive it with `xdotool` (`export DISPLAY=$(cat $OMD_UI_WORK/display)`).
   once the app has copied something.
 - Never stop things with `pkill -f <pattern>`: the pattern can match your own
   shell's command line.
+- The private session has no input method. GNOME Shell starts `ibus-daemon
+  --xim` itself, and with each app launch talking to it over XIM it grew to
+  gigabytes (#143), so `ui-session.sh` puts a do-nothing `ibus-daemon` first
+  on the session's PATH. The app logs "Unable to initialize XIM, using
+  standard keyboard events" and typing works as usual. `ui-stop.sh` also
+  stops any `ibus-*` with the session's runtime directory; your desktop's
+  ibus is never touched.
 
 ## Mixed line endings
 

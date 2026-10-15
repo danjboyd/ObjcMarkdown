@@ -446,6 +446,56 @@ static NSArray *OMDLineInfosForText(NSString *text, BOOL markdownSource)
     return OMDCachedLineInfos[slot] != nil ? OMDCachedLineInfos[slot] : infos;
 }
 
+// Each line's start and length, without the rest of what
+// OMDLineInfosForText gives: the block-anchor mappings need no more, and
+// normalizing and tokenizing every line took about a second for a 1.4 MB
+// document, on the first sync after opening it in Split (#121).
+static NSString *OMDCachedLineSpanText = nil;
+static NSArray *OMDCachedLineSpans = nil;
+
+static NSArray *OMDLineSpansForText(NSString *text)
+{
+    if (text != nil && OMDCachedLineSpans != nil &&
+        (OMDCachedLineSpanText == text || [OMDCachedLineSpanText isEqualToString:text])) {
+        return OMDCachedLineSpans;
+    }
+
+    NSMutableArray *spans = [NSMutableArray array];
+    NSUInteger totalLength = [text length];
+    NSUInteger cursor = 0;
+    while (cursor < totalLength) {
+        NSRange lineRange = [text lineRangeForRange:NSMakeRange(cursor, 0)];
+        NSUInteger contentLength = lineRange.length;
+        while (contentLength > 0) {
+            unichar ch = [text characterAtIndex:lineRange.location + contentLength - 1];
+            if (ch != '\n' && ch != '\r') {
+                break;
+            }
+            contentLength -= 1;
+        }
+        [spans addObject:[NSDictionary dictionaryWithObjectsAndKeys:
+                          [NSNumber numberWithUnsignedInteger:lineRange.location], OMDLineStartKey,
+                          [NSNumber numberWithUnsignedInteger:contentLength], OMDLineLengthKey,
+                          nil]];
+        cursor = NSMaxRange(lineRange);
+    }
+    if ([spans count] == 0) {
+        [spans addObject:[NSDictionary dictionaryWithObjectsAndKeys:
+                          [NSNumber numberWithUnsignedInteger:0], OMDLineStartKey,
+                          [NSNumber numberWithUnsignedInteger:0], OMDLineLengthKey,
+                          nil]];
+    }
+    if (text == nil) {
+        return spans;
+    }
+
+    [OMDCachedLineSpanText release];
+    OMDCachedLineSpanText = [text copy];
+    [OMDCachedLineSpans release];
+    OMDCachedLineSpans = [spans copy];
+    return OMDCachedLineSpans;
+}
+
 static NSUInteger OMDLineInfoStart(NSDictionary *lineInfo)
 {
     NSNumber *number = [lineInfo objectForKey:OMDLineStartKey];
@@ -1452,7 +1502,7 @@ NSUInteger OMDMapSourceLocationWithBlockAnchors(NSString *sourceText,
         return OMDMapLocationBetweenTexts(sourceText, sourceLocation, targetText);
     }
 
-    NSArray *sourceInfos = OMDLineInfosForText(sourceText, NO);
+    NSArray *sourceInfos = OMDLineSpansForText(sourceText);
     if ([sourceInfos count] == 0) {
         return expected;
     }
@@ -1622,7 +1672,7 @@ NSUInteger OMDMapTargetLocationWithBlockAnchors(NSString *sourceText,
         }
     }
 
-    NSArray *sourceInfos = OMDLineInfosForText(sourceText, NO);
+    NSArray *sourceInfos = OMDLineSpansForText(sourceText);
     if ([sourceInfos count] == 0) {
         return expected;
     }

@@ -118,7 +118,6 @@ Windows packaging input expectations:
 - the packaged Windows default theme must be `WinUITheme`
 
 - `plugins-themes-winuitheme`
-- `plugins-themes-win11theme`
 
 Those should be fetched into the packaging workspace at pinned commits rather
 than added as submodules of this repo. If a Windows build VM cannot compile

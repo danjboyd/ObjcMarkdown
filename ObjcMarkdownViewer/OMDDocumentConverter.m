@@ -32,8 +32,19 @@ static NSSet *OMDSupportedExtensions(void)
 
 + (NSString *)missingBackendInstallMessage
 {
+#if defined(_WIN32)
     return @"Pandoc is required for DOCX/ODT/RTF/HTML import and export.\n"
-           @"Install with: sudo apt-get install pandoc";
+           @"Install it from https://pandoc.org/installing.html, or with: "
+           @"winget install JohnMacFarlane.Pandoc";
+#elif defined(__APPLE__)
+    return @"Pandoc is required for DOCX/ODT/RTF/HTML import and export.\n"
+           @"Install it from https://pandoc.org/installing.html, or with: "
+           @"brew install pandoc";
+#else
+    return @"Pandoc is required for DOCX/ODT/RTF/HTML import and export.\n"
+           @"Install it with your package manager, for example: "
+           @"sudo apt-get install pandoc";
+#endif
 }
 
 - (NSString *)backendName
