@@ -163,6 +163,50 @@
     },
     "logs": {
       "retainOnSuccess": true
+    },
+    "packageContract": {
+      "forbiddenFiles": [
+        "libLLVM*",
+        "libclang*",
+        "libLTO*",
+        "libpython*",
+        "tcl8*",
+        "tk8*",
+        "libtcl*",
+        "libtk*",
+        "*avcodec*",
+        "*avformat*",
+        "*x264*",
+        "*x265*",
+        "libMagick*",
+        "*aspell*",
+        "libsndfile*",
+        "libao.*",
+        "libao-*"
+      ],
+      "maxPayloadBytes": 420000000
+    },
+    "installedResult": {
+      "forbiddenFiles": [
+        "libLLVM*",
+        "libclang*",
+        "libLTO*",
+        "libpython*",
+        "tcl8*",
+        "tk8*",
+        "libtcl*",
+        "libtk*",
+        "*avcodec*",
+        "*avformat*",
+        "*x264*",
+        "*x265*",
+        "libMagick*",
+        "*aspell*",
+        "libsndfile*",
+        "libao.*",
+        "libao-*"
+      ],
+      "maxPayloadBytes": 420000000
     }
   },
   "integrations": {
@@ -236,6 +280,9 @@
       },
       "wix": {
         "toolRoot": "../../dist/packaging/windows/tools/wix"
+      },
+      "validation": {
+        "maxArtifactBytes": 170000000
       }
     },
     "appimage": {

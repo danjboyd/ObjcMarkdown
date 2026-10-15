@@ -398,7 +398,7 @@ static CGFloat OMDClampedScrollSpeed(CGFloat value)
 }
 
 
-@interface OMDWindowController () <OMDCopyButtonsControllerDelegate, OMDRenderSchedulerDelegate, OMDDocumentTabsControllerDelegate, OMDToolbarControllerDelegate, OMDStatusBarControllerDelegate, OMDExplorerControllerDelegate, OMDOpenLocationDelegate, OMDFormattingBarControllerDelegate, OMDPreferencesControllerDelegate, GSVVimBindingControllerDelegate, OMDTextViewRenderedObjectDelegate, OMDOutlineControllerDelegate>
+@interface OMDWindowController () <OMDCopyButtonsControllerDelegate, OMDRenderSchedulerDelegate, OMDDocumentTabsControllerDelegate, OMDToolbarControllerDelegate, OMDStatusBarControllerDelegate, OMDExplorerControllerDelegate, OMDOpenLocationDelegate, OMDFormattingBarControllerDelegate, OMDPreferencesControllerDelegate, GSVVimBindingControllerDelegate, OMDTextViewRenderedObjectDelegate, OMDOutlineControllerDelegate, OMDMainWindowTabClosing>
 - (void)importDocument:(id)sender;
 - (void)newWindow:(id)sender;
 - (void)newDocument:(id)sender;
@@ -946,8 +946,12 @@ static NSMutableArray *OMDSecondaryWindows(void)
             return NO;
         }
     }
-#endif
     return YES;
+#else
+    // A Mac document app stays open with no windows (Cmd+Q quits), as
+    // TextEdit and Preview do (#123).
+    return NO;
+#endif
 }
 
 
@@ -5491,6 +5495,17 @@ constrainSplitPosition:(CGFloat)proposedPosition
     [_documentTabsController setSelectedIndex:targetSelection];
     [self applyDocumentTabRecord:[_documentTabsController tabAtIndex:targetSelection]];
     [self documentTabsDidChange];
+}
+
+- (BOOL)closeSelectedDocumentTabIfOthersRemain
+{
+    if ([_documentTabsController count] < 2) {
+        return NO;
+    }
+    // Handled either way: Cancel in the unsaved-changes alert keeps the tab
+    // and the window.
+    [self closeDocumentTabAtIndex:[_documentTabsController selectedIndex]];
+    return YES;
 }
 
 - (OMDMarkdownDocument *)currentDocument

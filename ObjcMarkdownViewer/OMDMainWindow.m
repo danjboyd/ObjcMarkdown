@@ -7,9 +7,17 @@
 
 - (void)performClose:(id)sender
 {
-    (void)sender;
-
     id delegate = [self delegate];
+#if defined(GNUSTEP)
+    // File > Close (and its key equivalent) closes the selected tab, as on
+    // macOS; the window's own close button, which isn't a menu item, still
+    // closes the window and all its tabs (#130).
+    if ([sender isKindOfClass:[NSMenuItem class]] &&
+        [delegate respondsToSelector:@selector(closeSelectedDocumentTabIfOthersRemain)] &&
+        [delegate closeSelectedDocumentTabIfOthersRemain]) {
+        return;
+    }
+#endif
     BOOL shouldClose = YES;
     if (delegate != nil && [delegate respondsToSelector:@selector(windowShouldClose:)]) {
         shouldClose = [delegate windowShouldClose:self];
