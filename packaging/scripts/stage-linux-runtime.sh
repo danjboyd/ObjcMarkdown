@@ -425,16 +425,47 @@ copy_tree_elf_dependencies "$GNUSTEP_THEME_DIR" "$RUNTIME_LIB_DIR"
 # debug info from every staged ELF file (~6.5 MB off the AppImage).
 # --strip-debug, not --strip-unneeded: Objective-C methods are local
 # symbols, and gdb needs them to name frames.
-if ! command -v strip >/dev/null 2>&1; then
-  echo "ERROR: strip not found; install binutils." >&2
+# The debug info is kept apart first (#132), one file per build ID in the
+# layout gdb reads (.build-id/xx/rest.debug), and packed into the package
+# root, so CI uploads it with the AppImage and a release attaches it.
+if ! command -v strip >/dev/null 2>&1 || ! command -v objcopy >/dev/null 2>&1; then
+  echo "ERROR: strip or objcopy not found; install binutils." >&2
   exit 1
 fi
+DEBUG_ROOT="$ROOT/dist/packaging/linux/debug"
+DEBUG_ARCHIVE="$ROOT/dist/packaging/linux/packages/ObjcMarkdown-linux-x86_64.debug.tar.gz"
+rm -rf "$DEBUG_ROOT"
+mkdir -p "$DEBUG_ROOT" "$(dirname "$DEBUG_ARCHIVE")"
 while IFS= read -r -d '' file; do
   if is_elf_binary "$file"; then
     chmod u+w "$file"
+    if readelf -S "$file" 2>/dev/null | grep -q '\.debug_info'; then
+      build_id="$(readelf -n "$file" 2>/dev/null | sed -n 's/.*Build ID: \([0-9a-f]*\).*/\1/p' | head -n 1)"
+      if [[ -n "$build_id" ]]; then
+        debug_file="$DEBUG_ROOT/.build-id/${build_id:0:2}/${build_id:2}.debug"
+      else
+        debug_file="$DEBUG_ROOT/by-path/${file#"$STAGE_ROOT"/}.debug"
+      fi
+      if [[ ! -e "$debug_file" ]]; then
+        mkdir -p "$(dirname "$debug_file")"
+        objcopy --only-keep-debug "$file" "$debug_file"
+      fi
+    fi
     strip --strip-debug "$file"
   fi
 done < <(find "$STAGE_ROOT" -type f -print0)
+cat > "$DEBUG_ROOT/README.txt" <<'EOF'
+Debug info for the MarkdownViewer AppImage these files came with: the
+GNUstep libraries, the app and its libraries. Unpack, then in gdb:
+
+  set debug-file-directory /path/to/this/directory
+  file /path/to/squashfs-root/usr/app/MarkdownViewer.app/MarkdownViewer.bin
+  core /path/to/core   (or: attach PID)
+
+gdb finds each file by build ID. Files without one are under by-path/.
+EOF
+tar -C "$DEBUG_ROOT" -czf "$DEBUG_ARCHIVE" .
+echo "Debug info: $DEBUG_ARCHIVE ($(du -h "$DEBUG_ARCHIVE" | cut -f1))"
 
 mv "$APP_BINARY" "$APP_BINARY_REAL"
 cat > "$APP_BINARY" <<'EOF'

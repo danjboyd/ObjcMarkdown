@@ -35,16 +35,16 @@ jobs:
 
   build-appimage:
     needs: resolve-version
-    uses: danjboyd/gnustep-packager/.github/workflows/package-gnustep-app.yml@84694a34abd1d10957e58692172fa191fb63eeac
+    uses: danjboyd/gnustep-packager/.github/workflows/package-gnustep-app.yml@82090aa23be03bf2181948d4a5a64b6b96c41298
     with:
       manifest-path: packaging/manifests/linux-appimage.manifest.json
       backend: appimage
       package-version: ${{ needs.resolve-version.outputs.package_version }}
       packager-repository: danjboyd/gnustep-packager
-      packager-ref: 84694a34abd1d10957e58692172fa191fb63eeac
+      packager-ref: 82090aa23be03bf2181948d4a5a64b6b96c41298
       # GitHub-hosted, in the CI image (ci/linux/Dockerfile), pinned by the
       # digest linux-gnustep-clang.yml uses.
-      container-appimage: ghcr.io/danjboyd/objcmarkdown-ci@sha256:aaa9fa72af8045bc6d343027ab38b9420513f712512e20c44752fff82a65e0a0
+      container-appimage: ghcr.io/danjboyd/objcmarkdown-ci@sha256:db86d88f4eb57a4b83d04bbd883cfb924ac69240f689137a31ef606edf36130f
       skip-default-host-setup: true
       # The CI image already has the AppImage tools; the packager rejects
       # extra apt packages when it does not set up the host.
@@ -107,6 +107,14 @@ jobs:
           fi
           if compgen -G 'dist/linux/*.diagnostics.txt' > /dev/null; then
             cp dist/linux/*.diagnostics.txt release-assets/
+          fi
+          # The debug info stage-linux-runtime.sh strips, named after the
+          # AppImage, so a crash trace from this release can be resolved.
+          if [[ -f dist/linux/ObjcMarkdown-linux-x86_64.debug.tar.gz ]]; then
+            for appimage in dist/linux/*.AppImage; do
+              cp dist/linux/ObjcMarkdown-linux-x86_64.debug.tar.gz \
+                "release-assets/$(basename "${appimage%.AppImage}").debug.tar.gz"
+            done
           fi
 
       - name: Note Bundled Theme

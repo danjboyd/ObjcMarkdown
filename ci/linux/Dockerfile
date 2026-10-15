@@ -31,7 +31,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates git curl make cmake ninja-build pkg-config \
         clang lld \
         libffi-dev libxml2-dev libxslt1-dev libgnutls28-dev libicu-dev \
-        libcurl4-gnutls-dev zlib1g-dev \
+        zlib1g-dev \
         libjpeg-dev libtiff-dev libpng-dev libgif-dev \
         libcairo2-dev libfreetype-dev libfontconfig-dev libxft-dev \
         libx11-dev libxext-dev libxt-dev libxrandr-dev libxcursor-dev libxi-dev libxfixes-dev \
@@ -77,19 +77,32 @@ RUN . /usr/GNUstep/System/Library/Makefiles/GNUstep.sh \
 
 RUN . /usr/GNUstep/System/Library/Makefiles/GNUstep.sh \
     && fetch-commit https://github.com/gnustep/libs-base "$LIBS_BASE_COMMIT" libs-base \
-    && cd libs-base && git apply /patches/libs-base/*.patch && ./configure \
+    && cd libs-base && git apply /patches/libs-base/*.patch \
+    # No NSURLSession, the only part of base that uses libcurl: nothing here
+    # uses it (the updater goes through NSURLHandle, remote documents through
+    # the curl tool or NSURLConnection), and configure links libcurl whenever
+    # it finds it, so the image also leaves out libcurl4-gnutls-dev (#132).
+    && ./configure --disable-nsurlsession \
     && make -j"$(nproc)" LDFLAGS="$LDFLAGS -ldispatch" GNUSTEP_INSTALLATION_DOMAIN=SYSTEM \
     && make GNUSTEP_INSTALLATION_DOMAIN=SYSTEM install && ldconfig
 
 RUN . /usr/GNUstep/System/Library/Makefiles/GNUstep.sh \
     && fetch-commit https://github.com/gnustep/libs-gui "$LIBS_GUI_COMMIT" libs-gui \
-    && cd libs-gui && git apply /patches/libs-gui/*.patch && ./configure \
+    && cd libs-gui && git apply /patches/libs-gui/*.patch \
+    # Features named, not left to whichever -dev packages the image has (#133):
+    # images (png, jpeg, giflib; tiff is required) and ICU on; sound, movie,
+    # ImageMagick, aspell and speech off. CUPS is off too: the image has no
+    # libcups2-dev, so it never was built, and Print uses GNUstep's own path.
+    && ./configure --enable-png --enable-jpeg --enable-libgif --enable-icu \
+         --disable-cups --disable-sound --disable-movie --disable-imagemagick \
+         --disable-aspell --disable-speech --disable-speech-recognizer \
     && make -j"$(nproc)" GNUSTEP_INSTALLATION_DOMAIN=SYSTEM \
     && make GNUSTEP_INSTALLATION_DOMAIN=SYSTEM install && ldconfig
 
 RUN . /usr/GNUstep/System/Library/Makefiles/GNUstep.sh \
     && fetch-commit https://github.com/gnustep/libs-back "$LIBS_BACK_COMMIT" libs-back \
-    && cd libs-back && ./configure \
+    && cd libs-back \
+    && ./configure --enable-server=x11 --enable-graphics=cairo --disable-glx \
     && make -j"$(nproc)" GNUSTEP_INSTALLATION_DOMAIN=SYSTEM \
     && make GNUSTEP_INSTALLATION_DOMAIN=SYSTEM install && ldconfig
 
