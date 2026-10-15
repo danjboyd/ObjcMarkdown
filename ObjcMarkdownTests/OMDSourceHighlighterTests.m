@@ -53,6 +53,31 @@ static NSColor *OMDColorAt(NSMutableAttributedString *string, NSString *needle)
     XCTAssertFalse([mathColor isEqual:base]);
 }
 
+// Source text gets no ligatures (#125): GNUstep would draw "fi" as U+FB01,
+// one cell in a monospaced font, and shift the columns after it.
+- (void)testHighlightTurnsOffLigatures
+{
+    NSString *markdown = @"# first\n\n    fifty | fish\n`final` and plain fi text\n";
+    NSMutableAttributedString *styled = [[[NSMutableAttributedString alloc] initWithString:markdown] autorelease];
+    NSColor *base = [NSColor colorWithCalibratedRed:0.1 green:0.1 blue:0.1 alpha:1.0];
+    NSColor *background = [NSColor colorWithCalibratedRed:1.0 green:1.0 blue:1.0 alpha:1.0];
+
+    [OMDSourceHighlighter highlightAttributedString:styled
+                                      baseTextColor:base
+                                    backgroundColor:background];
+
+    NSUInteger index = 0;
+    while (index < [styled length]) {
+        NSRange effective = NSMakeRange(0, 0);
+        NSNumber *ligature = [styled attribute:NSLigatureAttributeName
+                                       atIndex:index
+                                effectiveRange:&effective];
+        XCTAssertNotNil(ligature, @"no ligature attribute at %lu", (unsigned long)index);
+        XCTAssertEqual([ligature intValue], 0, @"ligatures on at %lu", (unsigned long)index);
+        index = NSMaxRange(effective);
+    }
+}
+
 - (void)testFencedCodeWinsOverLinkHighlighting
 {
     NSString *markdown = @"```md\n[not-a-link](x)\n```\n\n[real-link](y)\n";
