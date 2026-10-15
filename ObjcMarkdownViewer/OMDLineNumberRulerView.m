@@ -39,14 +39,20 @@ static double OMDKeyLatencyMS(NSTimeInterval start, NSTimeInterval end)
 @interface OMDLineNumberRulerView ()
 - (void)textDidChange:(NSNotification *)notification;
 - (void)clipViewBoundsDidChange:(NSNotification *)notification;
+- (void)textStorageDidProcessEditing:(NSNotification *)notification;
 - (void)updateRuleThickness;
 - (NSArray *)lineStartIndexesForString:(NSString *)text;
+- (NSArray *)currentLineStarts;
 - (NSUInteger)lineNumberForCharacterIndex:(NSUInteger)characterIndex inString:(NSString *)text;
 @end
 
 @implementation OMDLineNumberRulerView
 {
     NSTextView *_textView;
+    // The text's line starts, kept until its characters change: drawing
+    // found them again for the whole document on each draw, which for a
+    // 1.4 MB file took longer than the drawing (#121).
+    NSArray *_lineStarts;
 }
 
 - (instancetype)initWithScrollView:(NSScrollView *)scrollView textView:(NSTextView *)textView
@@ -72,6 +78,10 @@ static double OMDKeyLatencyMS(NSTimeInterval start, NSTimeInterval end)
                    selector:@selector(clipViewBoundsDidChange:)
                        name:NSViewFrameDidChangeNotification
                      object:clipView];
+        [center addObserver:self
+                   selector:@selector(textStorageDidProcessEditing:)
+                       name:NSTextStorageDidProcessEditingNotification
+                     object:[textView textStorage]];
 
         [self updateRuleThickness];
 #if !defined(GNUSTEP)
@@ -92,6 +102,7 @@ static double OMDKeyLatencyMS(NSTimeInterval start, NSTimeInterval end)
 {
     [[NSNotificationCenter defaultCenter] removeObserver:self];
     [_textView release];
+    [_lineStarts release];
     [super dealloc];
 }
 
@@ -122,11 +133,28 @@ static double OMDKeyLatencyMS(NSTimeInterval start, NSTimeInterval end)
     [self setNeedsDisplay:YES];
 }
 
+- (void)textStorageDidProcessEditing:(NSNotification *)notification
+{
+    NSTextStorage *storage = [notification object];
+    if (([storage editedMask] & NSTextStorageEditedCharacters) != 0) {
+        [_lineStarts release];
+        _lineStarts = nil;
+    }
+}
+
+- (NSArray *)currentLineStarts
+{
+    if (_lineStarts == nil) {
+        _lineStarts = [[self lineStartIndexesForString:[_textView string]] retain];
+    }
+    return _lineStarts;
+}
+
 - (void)updateRuleThickness
 {
     BOOL profiling = OMDKeyLatencyProfilingEnabled();
     NSTimeInterval start = profiling ? OMDKeyLatencyNow() : 0.0;
-    NSUInteger lineCount = [[self lineStartIndexesForString:[_textView string]] count];
+    NSUInteger lineCount = [[self currentLineStarts] count];
 
     NSUInteger digits = 1;
     NSUInteger value = lineCount;
@@ -223,7 +251,7 @@ static double OMDKeyLatencyMS(NSTimeInterval start, NSTimeInterval end)
 
     NSString *text = [_textView string];
     NSUInteger textLength = [text length];
-    NSArray *lineStarts = [self lineStartIndexesForString:text];
+    NSArray *lineStarts = [self currentLineStarts];
 
     NSRect visibleRect = [[scrollView contentView] bounds];
     NSPoint textOrigin = [_textView textContainerOrigin];
@@ -278,16 +306,25 @@ static double OMDKeyLatencyMS(NSTimeInterval start, NSTimeInterval end)
 
     NSRange firstLineRange = [text lineRangeForRange:NSMakeRange(firstVisibleCharacter, 0)];
     NSUInteger firstLineStart = firstLineRange.location;
-    NSUInteger lineNumber = [self lineNumberForCharacterIndex:firstLineStart inString:text];
     NSUInteger firstLineIndex = 0;
     NSUInteger lineStartCount = [lineStarts count];
-    for (NSUInteger i = 0; i < lineStartCount; i++) {
-        NSUInteger candidate = [[lineStarts objectAtIndex:i] unsignedIntegerValue];
-        if (candidate >= firstLineStart) {
-            firstLineIndex = i;
-            lineNumber = i + 1;
-            break;
+    // The first line starting at or after firstLineStart.
+    NSUInteger low = 0;
+    NSUInteger high = lineStartCount;
+    while (low < high) {
+        NSUInteger mid = low + ((high - low) / 2);
+        if ([[lineStarts objectAtIndex:mid] unsignedIntegerValue] < firstLineStart) {
+            low = mid + 1;
+        } else {
+            high = mid;
         }
+    }
+    NSUInteger lineNumber = 0;
+    if (low < lineStartCount) {
+        firstLineIndex = low;
+        lineNumber = low + 1;
+    } else {
+        lineNumber = [self lineNumberForCharacterIndex:firstLineStart inString:text];
     }
 
     for (NSUInteger i = firstLineIndex; i < lineStartCount; i++) {

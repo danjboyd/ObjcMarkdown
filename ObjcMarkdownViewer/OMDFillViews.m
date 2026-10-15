@@ -70,3 +70,28 @@
 }
 
 @end
+
+@implementation OMDScrollView
+
+#if defined(GNUSTEP)
+- (void)setFrame:(NSRect)frame
+{
+    if (NSEqualSizes(frame.size, [self frame].size)) {
+        if (!NSEqualPoints(frame.origin, [self frame].origin)) {
+            [self setFrameOrigin:frame.origin];
+        }
+        return;
+    }
+    [super setFrame:frame];
+}
+
+- (void)setFrameSize:(NSSize)size
+{
+    if (NSEqualSizes(size, [self frame].size)) {
+        return;
+    }
+    [super setFrameSize:size];
+}
+#endif
+
+@end
