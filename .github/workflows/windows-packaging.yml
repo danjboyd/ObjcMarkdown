@@ -46,10 +46,34 @@ jobs:
       artifact-name: objcmarkdown-windows
     secrets: inherit
 
+  # Every DLL the packaged exes and DLLs import (the provisioned theme's
+  # too) must be in the payload or System32 (packaging/ci/check-windows-imports.ps1).
+  check-imports:
+    needs: build-msi
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download Windows Package Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: objcmarkdown-windows-packages
+          path: dist/windows
+
+      - name: Check Imports in the Portable Payload
+        shell: pwsh
+        run: |
+          $zip = @(Get-ChildItem dist/windows -Filter '*-portable.zip')
+          if ($zip.Count -ne 1) { throw "Expected one portable zip, found $($zip.Count)." }
+          $root = Join-Path $env:RUNNER_TEMP 'portable'
+          Expand-Archive -Path $zip[0].FullName -DestinationPath $root
+          ./packaging/ci/check-windows-imports.ps1 -PayloadRoot $root
+
   publish-release-assets:
     if: github.ref_type == 'tag'
     needs:
       - build-msi
+      - check-imports
     runs-on: ubuntu-latest
     concurrency:
       group: objcmarkdown-update-feeds
