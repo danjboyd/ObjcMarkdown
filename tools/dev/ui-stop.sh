@@ -7,6 +7,12 @@ $(dirname "$0")/ui-stop-app.sh
 for p in $(pgrep -u $USER -x gpbs; pgrep -u $USER -x gdnc; pgrep -u $USER -x gnome-shell; pgrep -u $USER -x dbus-daemon); do
   grep -qz "^DISPLAY=$D\$" /proc/$p/environ 2>/dev/null && kill $p
 done
+# ibus-* too, in case one started anyway (ui-session.sh keeps ibus-daemon
+# out, #143). Matched by the session's own runtime directory, not DISPLAY: a
+# display number is reused, and the desktop's ibus must never be touched.
+for p in $(pgrep -u $USER '^ibus-'); do
+  grep -qz "^XDG_RUNTIME_DIR=$WORK/gsession/run\$" /proc/$p/environ 2>/dev/null && kill $p
+done
 for p in $(pgrep -u $USER -x Xvfb); do
   tr '\0' ' ' </proc/$p/cmdline 2>/dev/null | grep -q -- "^Xvfb $D " && kill $p
 done
