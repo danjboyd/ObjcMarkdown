@@ -49,6 +49,10 @@ GUI_DLL=gnustep-gui-0.dll
 BASE_URL="https://github.com/gnustep/libs-base/releases/download/base-1_31_1/gnustep-base-$BASE_VERSION.tar.gz"
 BASE_SHA256=e7546f1c978a7c75b676953a360194a61e921cb45a4804497b4f346a460545cd
 BASE_MSYS2_PATCH="$ROOT/packaging/windows/patches/libs-base-bace6f54.patch"
+# Upstream libs-gui commit 3f5efad1b, after 0.32.0 and in the Linux pins:
+# with autohidesScrollers, showing one scroller could hide the other and
+# re-tile without end (the repeated layouts of ObjcMarkdown #121).
+GUI_UPSTREAM_PATCH="$ROOT/packaging/windows/patches/libs-gui-3f5efad1.patch"
 GUI_URL="https://github.com/gnustep/libs-gui/releases/download/gui-0_32_0/gnustep-gui-$GUI_VERSION.tar.gz"
 GUI_SHA256=0c03a1b6313babd592ec58fcb825091f77eb27429a4ce4306ec3a7cfa7f9a1f6
 CURL_PKG_URL="https://mirror.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-curl-8.22.0-1-any.pkg.tar.zst"
@@ -226,6 +230,7 @@ rm -rf "$WORK/gnustep-gui-$GUI_VERSION"
 tar -xzf "$WORK/downloads/gnustep-gui-$GUI_VERSION.tar.gz" -C "$WORK"
 (
   cd "$WORK/gnustep-gui-$GUI_VERSION"
+  "$PATCH" -p1 -i "$GUI_UPSTREAM_PATCH"
   for p in "$ROOT"/packaging/patches/libs-gui/*.patch; do
     "$PATCH" -p1 -i "$p"
   done
