@@ -3,16 +3,8 @@
 
 #import "OMDSharePresenter.h"
 #import "OMDShareNotice.h"
-
-// The query value of a mailto: link: everything but letters and digits
-// percent-encoded, as RFC 6068 asks.
-static NSString *OMDMailtoEncoded(NSString *value)
-{
-    NSMutableCharacterSet *allowed = [[[NSCharacterSet alphanumericCharacterSet] mutableCopy] autorelease];
-    [allowed addCharactersInString:@"-._~"];
-    NSString *encoded = [value stringByAddingPercentEncodingWithAllowedCharacters:allowed];
-    return encoded != nil ? encoded : @"";
-}
+#import "OMDExternalTools.h"
+#import "OMDShareMail.h"
 
 @implementation OMDShareBasicPresenter
 
@@ -32,9 +24,8 @@ static NSString *OMDMailtoEncoded(NSString *value)
 
 - (void)emailShareItemWithMailtoDraft:(OMDShareItem *)item forWindow:(NSWindow *)window
 {
-    NSString *link = [NSString stringWithFormat:@"mailto:?subject=%@", OMDMailtoEncoded([item title])];
-    NSURL *url = [NSURL URLWithString:link];
-    BOOL opened = (url != nil && [[NSWorkspace sharedWorkspace] openURL:url]);
+    NSURL *url = OMDMailtoURLWithSubject([item title]);
+    BOOL opened = (url != nil && OMDOpenURL(url));
     NSString *message = opened
         ? [NSString stringWithFormat:@"Attach \u201C%@\u201D to the email.", [item fileName]]
         : [NSString stringWithFormat:@"No email app opened. \u201C%@\u201D is ready to attach.", [item fileName]];
@@ -46,11 +37,7 @@ static NSString *OMDMailtoEncoded(NSString *value)
 
 - (void)showShareItemInFolder:(OMDShareItem *)item
 {
-    NSString *path = [[item fileURL] path];
-    NSWorkspace *workspace = [NSWorkspace sharedWorkspace];
-    if (![workspace selectFile:path inFileViewerRootedAtPath:@""]) {
-        [workspace openFile:[path stringByDeletingLastPathComponent]];
-    }
+    OMDRevealPathInFileManager([[item fileURL] path]);
 }
 
 - (void)copyFileOfShareItem:(OMDShareItem *)item
@@ -60,7 +47,14 @@ static NSString *OMDMailtoEncoded(NSString *value)
     [pasteboard declareTypes:[NSArray arrayWithObjects:NSFilenamesPboardType, NSURLPboardType, NSStringPboardType, nil]
                        owner:nil];
     [pasteboard setPropertyList:[NSArray arrayWithObject:path] forType:NSFilenamesPboardType];
+#if defined(GNUSTEP)
+    // As text/uri-list bytes: GNUstep keeps a string set for this type
+    // serialized, and its X11 server hands that over header and all.
+    NSString *uriList = [NSString stringWithFormat:@"%@\r\n", [[item fileURL] absoluteString]];
+    [pasteboard setData:[uriList dataUsingEncoding:NSUTF8StringEncoding] forType:NSURLPboardType];
+#else
     [[item fileURL] writeToPasteboard:pasteboard];
+#endif
     [pasteboard setString:path forType:NSStringPboardType];
 }
 

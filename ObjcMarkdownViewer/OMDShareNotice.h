@@ -17,6 +17,12 @@
                     presenter:(id<OMDSharePresenter>)presenter
                     forWindow:(NSWindow *)window;
 
+// The share picker where the platform has no share sheet (Linux): the
+// same panel with Email... and Save a Copy... as well.
++ (void)showPickerForShareItem:(OMDShareItem *)item
+                     presenter:(id<OMDSharePresenter>)presenter
+                     forWindow:(NSWindow *)window;
+
 // Closes the window's notice, if it has one.
 + (void)dismissNoticeForWindow:(NSWindow *)window;
 
