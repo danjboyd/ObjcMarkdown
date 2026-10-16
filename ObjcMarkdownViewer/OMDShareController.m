@@ -23,9 +23,18 @@ void OMDAddShareMenuItems(NSMenu *menu, id target)
         [item setTarget:target];
     }
     [menu addItem:[NSMenuItem separatorItem]];
-    [[menu addItemWithTitle:[OMDShareController emailMenuTitle]
-                     action:@selector(emailDocument:)
-              keyEquivalent:@""] setTarget:target];
+    // Email as > PDF, Word Document, ...: each item has its format as its
+    // tag; the last format used is ticked.
+    NSMenu *emailMenu = [[[NSMenu alloc] initWithTitle:@"Email as"] autorelease];
+    for (index = 0; index < sizeof(formats) / sizeof(formats[0]); index++) {
+        NSMenuItem *item = (NSMenuItem *)[emailMenu addItemWithTitle:[OMDShareExporter displayNameForFormat:formats[index]]
+                                                              action:@selector(emailDocument:)
+                                                       keyEquivalent:@""];
+        [item setTag:formats[index]];
+        [item setTarget:target];
+    }
+    NSMenuItem *emailItem = (NSMenuItem *)[menu addItemWithTitle:@"Email as" action:NULL keyEquivalent:@""];
+    [menu setSubmenu:emailMenu forItem:emailItem];
     [menu addItem:[NSMenuItem separatorItem]];
     [[menu addItemWithTitle:@"Copy Rendered"
                      action:@selector(copyRenderedDocument:)
@@ -49,12 +58,6 @@ void OMDAddShareMenuItems(NSMenu *menu, id target)
 + (void)setLastFormat:(OMDShareFormat)format
 {
     [[NSUserDefaults standardUserDefaults] setInteger:format forKey:OMDShareLastFormatKey];
-}
-
-+ (NSString *)emailMenuTitle
-{
-    return [NSString stringWithFormat:@"Email as %@...",
-                                      [OMDShareExporter displayNameForFormat:[self lastFormat]]];
 }
 
 - (instancetype)initWithSource:(id<OMDShareSource>)source window:(NSWindow *)window
@@ -118,9 +121,9 @@ void OMDAddShareMenuItems(NSMenu *menu, id target)
     [_presenter presentShareItem:item fromView:(view != nil ? view : [_window contentView])];
 }
 
-- (void)emailDocument
+- (void)emailDocumentInFormat:(OMDShareFormat)format
 {
-    OMDShareItem *item = [self exportInFormat:[[self class] lastFormat]];
+    OMDShareItem *item = [self exportInFormat:format];
     if (item != nil) {
         [_presenter emailShareItem:item forWindow:_window];
     }
