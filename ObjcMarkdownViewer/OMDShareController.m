@@ -3,61 +3,14 @@
 
 #import "OMDShareController.h"
 #import "OMDShareNotice.h"
+#import "OMDRichPasteboard.h"
 #import "OMDViewerImages.h"
-
-static NSString * const OMDShareLastFormatKey = @"OMDShareLastFormat";
-
-void OMDAddShareMenuItems(NSMenu *menu, id target)
-{
-    OMDShareFormat formats[] = {
-        OMDShareFormatPDF, OMDShareFormatWord, OMDShareFormatMarkdown, OMDShareFormatHTML
-    };
-    NSUInteger index = 0;
-    for (index = 0; index < sizeof(formats) / sizeof(formats[0]); index++) {
-        NSString *title = [NSString stringWithFormat:@"Share as %@...",
-                                                     [OMDShareExporter displayNameForFormat:formats[index]]];
-        NSMenuItem *item = (NSMenuItem *)[menu addItemWithTitle:title
-                                                         action:@selector(shareDocument:)
-                                                  keyEquivalent:@""];
-        [item setTag:formats[index]];
-        [item setTarget:target];
-    }
-    [menu addItem:[NSMenuItem separatorItem]];
-    // Email as > PDF, Word Document, ...: each item has its format as its
-    // tag; the last format used is ticked.
-    NSMenu *emailMenu = [[[NSMenu alloc] initWithTitle:@"Email as"] autorelease];
-    for (index = 0; index < sizeof(formats) / sizeof(formats[0]); index++) {
-        NSMenuItem *item = (NSMenuItem *)[emailMenu addItemWithTitle:[OMDShareExporter displayNameForFormat:formats[index]]
-                                                              action:@selector(emailDocument:)
-                                                       keyEquivalent:@""];
-        [item setTag:formats[index]];
-        [item setTarget:target];
-    }
-    NSMenuItem *emailItem = (NSMenuItem *)[menu addItemWithTitle:@"Email as" action:NULL keyEquivalent:@""];
-    [menu setSubmenu:emailMenu forItem:emailItem];
-    [menu addItem:[NSMenuItem separatorItem]];
-    [[menu addItemWithTitle:@"Copy Rendered"
-                     action:@selector(copyRenderedDocument:)
-              keyEquivalent:@""] setTarget:target];
-    [[menu addItemWithTitle:@"Show File in Folder"
-                     action:@selector(showDocumentInFolder:)
-              keyEquivalent:@""] setTarget:target];
-}
 
 @implementation OMDShareController
 
 + (OMDShareFormat)lastFormat
 {
-    NSInteger value = [[NSUserDefaults standardUserDefaults] integerForKey:OMDShareLastFormatKey];
-    if (value < OMDShareFormatPDF || value > OMDShareFormatHTML) {
-        return OMDShareFormatPDF;
-    }
-    return (OMDShareFormat)value;
-}
-
-+ (void)setLastFormat:(OMDShareFormat)format
-{
-    [[NSUserDefaults standardUserDefaults] setInteger:format forKey:OMDShareLastFormatKey];
+    return OMDShareLastFormat();
 }
 
 - (instancetype)initWithSource:(id<OMDShareSource>)source window:(NSWindow *)window
@@ -108,7 +61,7 @@ void OMDAddShareMenuItems(NSMenu *menu, id target)
         [self presentError:error format:format];
         return nil;
     }
-    [[self class] setLastFormat:format];
+    OMDShareSetLastFormat(format);
     return item;
 }
 
@@ -125,8 +78,40 @@ void OMDAddShareMenuItems(NSMenu *menu, id target)
 {
     OMDShareItem *item = [self exportInFormat:format];
     if (item != nil) {
+        OMDShareSetLastEmailChoice(format);
         [_presenter emailShareItem:item forWindow:_window];
     }
+}
+
+- (void)emailDocumentInMessage
+{
+    NSString *markdown = [_source shareMarkdownText];
+    if (markdown == nil) {
+        return;
+    }
+    NSString *title = [OMDShareExporter safeFileBaseName:[_source shareBaseName]];
+    NSAttributedString *rendered = [_source shareRenderedText];
+    OMDShareItem *item = [[[OMDShareItem alloc] initWithTitle:title
+                                                       format:OMDShareFormatHTML
+                                                      fileURL:nil
+                                                 renderedText:rendered] autorelease];
+    OMDShareSetLastEmailChoice(OMDShareEmailInMessageTag);
+    // A mail app that takes the body itself (Mail on macOS).
+    if ([_presenter respondsToSelector:@selector(emailRenderedDocument:forWindow:)] &&
+        [_presenter emailRenderedDocument:item forWindow:_window]) {
+        return;
+    }
+    // Everywhere else a draft link carries only plain text, so the rendered
+    // document goes on the clipboard (as Copy Rendered puts it) and is
+    // pasted into the draft.
+    OMDWriteRenderedDocumentToPasteboard([NSPasteboard generalPasteboard], markdown, rendered);
+    BOOL opened = [_presenter openEmailDraftWithSubject:title];
+    NSString *message = opened
+        ? @"The document is on the clipboard: paste it into the message."
+        : @"No email app opened. The document is on the clipboard, ready to paste into a message.";
+    [OMDShareNotice showMessage:message
+                         detail:OMDShortcutText(@"Paste with Ctrl+V; its formatting comes with it.")
+                      forWindow:_window];
 }
 
 - (void)showDocumentFileInFolder:(NSString *)path

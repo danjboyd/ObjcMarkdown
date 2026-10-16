@@ -2092,7 +2092,7 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
         return [self hasLoadedDocument];
     }
     if (action == @selector(emailDocument:)) {
-        [menuItem setState:([menuItem tag] == [OMDShareController lastFormat] ? NSOnState : NSOffState)];
+        [menuItem setState:([menuItem tag] == OMDShareLastEmailChoice() ? NSOnState : NSOffState)];
         return [self hasLoadedDocument];
     }
     if (action == @selector(copyRenderedDocument:)) {
@@ -4285,11 +4285,15 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
     if (![self ensureDocumentLoadedForActionName:@"Email"]) {
         return;
     }
-    OMDShareFormat format = [OMDShareController lastFormat];
+    NSInteger choice = OMDShareLastEmailChoice();
     if ([sender respondsToSelector:@selector(tag)]) {
-        format = (OMDShareFormat)[sender tag];
+        choice = [sender tag];
     }
-    [[self shareController] emailDocumentInFormat:format];
+    if (choice == OMDShareEmailInMessageTag) {
+        [[self shareController] emailDocumentInMessage];
+        return;
+    }
+    [[self shareController] emailDocumentInFormat:(OMDShareFormat)choice];
 }
 
 - (void)copyRenderedDocument:(id)sender

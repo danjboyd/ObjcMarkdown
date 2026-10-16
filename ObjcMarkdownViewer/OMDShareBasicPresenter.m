@@ -24,8 +24,7 @@
 
 - (void)emailShareItemWithMailtoDraft:(OMDShareItem *)item forWindow:(NSWindow *)window
 {
-    NSURL *url = OMDMailtoURLWithSubject([item title]);
-    BOOL opened = (url != nil && OMDOpenURL(url));
+    BOOL opened = [self openEmailDraftWithSubject:[item title]];
     NSString *message = opened
         ? [NSString stringWithFormat:@"Attach \u201C%@\u201D to the email.", [item fileName]]
         : [NSString stringWithFormat:@"No email app opened. \u201C%@\u201D is ready to attach.", [item fileName]];
@@ -33,6 +32,12 @@
                                 shareItem:item
                                 presenter:self
                                 forWindow:window];
+}
+
+- (BOOL)openEmailDraftWithSubject:(NSString *)subject
+{
+    NSURL *url = OMDMailtoURLWithSubject(subject);
+    return url != nil && OMDOpenURL(url);
 }
 
 - (void)showShareItemInFolder:(OMDShareItem *)item

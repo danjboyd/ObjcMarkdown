@@ -19,7 +19,14 @@
 - (void)showShareItemInFolder:(OMDShareItem *)item;
 // Puts the file on the clipboard, so pasting attaches it.
 - (void)copyFileOfShareItem:(OMDShareItem *)item;
+// Opens a draft in the default email client with this subject and nothing
+// else; NO if none opened.
+- (BOOL)openEmailDraftWithSubject:(NSString *)subject;
 @optional
+// A draft whose body is the rendered document (item's renderedText; it has
+// no file), where the mail app takes a body (macOS: Mail). NO to have the
+// share controller put the document on the clipboard to paste instead.
+- (BOOL)emailRenderedDocument:(OMDShareItem *)item forWindow:(NSWindow *)window;
 // The platform's own toolbar item (macOS: NSSharingServicePickerToolbarItem).
 // The provider exports in the last-used format when the item needs it.
 // Without this method the share controller makes its own item, which pops
