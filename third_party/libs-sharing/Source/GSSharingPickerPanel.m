@@ -203,7 +203,16 @@ GSSharingDetailOfItems(NSArray *items)
     }
   else if (kind == GSSharingItemFile)
     {
-      image = GSSharingImageNamed(@"GSSharing-file");
+      /* An image file shows itself (a screenshot, a photo); others the
+         file icon. */
+      if (GSSharingIsImageFile(first))
+        {
+          image = AUTORELEASE([[NSImage alloc] initWithContentsOfFile: [first path]]);
+        }
+      if (image == nil)
+        {
+          image = GSSharingImageNamed(@"GSSharing-file");
+        }
     }
   else
     {

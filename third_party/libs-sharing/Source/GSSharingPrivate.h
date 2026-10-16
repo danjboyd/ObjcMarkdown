@@ -82,5 +82,9 @@ NSArray *GSSharingProviders(void);
    it. */
 NSImage *GSSharingImageNamed(NSString *name);
 
+/* YES for a file URL of a picture (PNG, JPEG, GIF, BMP, TIFF, WebP): a
+   screenshot or a photo, not a PDF. */
+BOOL GSSharingIsImageFile(id item);
+
 /* The file name of an item, for titles and previews. */
 NSString *GSSharingDisplayNameOfItem(id item);

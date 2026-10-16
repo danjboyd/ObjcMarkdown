@@ -31,8 +31,13 @@ NSSharingServicePicker *picker = [[NSSharingServicePicker alloc]
   document portal for a Flatpak mail app, else a `mailto:` draft and a
   notice offering the file; text goes on the clipboard to paste as the
   body), Copy (files as `text/uri-list`, text as RTF and plain text, images
-  as TIFF), Save a Copy, Show in Folder (FileManager1, or the OpenURI portal
-  in a Flatpak).
+  as PNG and TIFF; one picture file goes as its image too, PNG first, so it
+  pastes into a chat as the picture and into a file manager as the file),
+  Save a Copy, Show in Folder (FileManager1, or the OpenURI portal in a
+  Flatpak), Open With… (files: the desktop's own app chooser through the
+  OpenURI portal; where the portal can't, a menu of the apps for the file's
+  type, the default first; `SHOpenWithDialog` on Windows). The sheet
+  previews a picture file as itself.
 - **The app's own services:** `-initWithTitle:image:alternateImage:handler:`
   (blocks) or `-initWithTitle:image:alternateImage:target:action:` (GCC),
   added through the delegate's

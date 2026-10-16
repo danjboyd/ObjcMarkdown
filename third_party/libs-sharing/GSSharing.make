@@ -33,6 +33,10 @@ GSSHARING_INCLUDE_DIRS = -I$(GSSHARING_DIR)/Headers -I$(GSSHARING_DIR)/Source
 
 GSSHARING_OBJCFLAGS =
 GSSHARING_LDFLAGS =
+ifneq (,$(findstring mingw,$(GNUSTEP_HOST_OS)))
+# Open With… (SHOpenWithDialog) and ShellExecuteW.
+GSSHARING_LDFLAGS += -lshell32
+endif
 ifeq (,$(findstring mingw,$(GNUSTEP_HOST_OS)))
 ifneq (,$(shell pkg-config --exists gio-unix-2.0 && echo yes))
 GSSHARING_OBJCFLAGS += -DGSSHARING_HAVE_GIO $(shell pkg-config --cflags gio-unix-2.0)
