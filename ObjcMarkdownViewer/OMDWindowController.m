@@ -35,6 +35,7 @@
 #import "OMDShareController.h"
 #import "OMDRichPasteboard.h"
 #import "OMSlackMrkdwn.h"
+#import "OMDShareSelection.h"
 #import "OMDStatusBarController.h"
 #import "OMDCopyButtonsController.h"
 #import "OMDRenderScheduler.h"
@@ -3757,7 +3758,8 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
     if (_currentMarkdown == nil) {
         return nil;
     }
-    NSString *previewMarkdown = [self markdownForCurrentPreview];
+    NSString *previewMarkdown = (_printMarkdownOverride != nil ? _printMarkdownOverride
+                                                               : [self markdownForCurrentPreview]);
     if (previewMarkdown == nil) {
         return nil;
     }
@@ -4304,9 +4306,12 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
     if (![self hasLoadedDocument]) {
         return;
     }
-    if (!OMDWriteRenderedDocumentToPasteboard([NSPasteboard generalPasteboard],
-                                              [self shareMarkdownText],
-                                              [self shareRenderedText])) {
+    // The selection when there is one, as Copy does.
+    NSString *selection = [self shareSelectedMarkdownText];
+    NSString *markdown = (selection != nil ? selection : [self shareMarkdownText]);
+    NSAttributedString *rendered = (selection != nil ? [self shareRenderedTextForMarkdown:selection]
+                                                     : [self shareRenderedText]);
+    if (!OMDWriteRenderedDocumentToPasteboard([NSPasteboard generalPasteboard], markdown, rendered)) {
         NSBeep();
     }
 }
@@ -4319,7 +4324,9 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
     if (![self hasLoadedDocument]) {
         return;
     }
-    NSString *mrkdwn = OMSlackMrkdwnFromMarkdown([self shareMarkdownText], OMSlackMrkdwnOptionsNone);
+    NSString *selection = [self shareSelectedMarkdownText];
+    NSString *mrkdwn = OMSlackMrkdwnFromMarkdown((selection != nil ? selection : [self shareMarkdownText]),
+                                                 OMSlackMrkdwnOptionsNone);
     if ([mrkdwn length] == 0) {
         NSBeep();
         return;
@@ -4369,7 +4376,11 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
 // at 100%, as the PDF is, whatever the viewer's theme and zoom.
 - (NSAttributedString *)shareRenderedText
 {
-    NSString *markdown = [self markdownForCurrentPreview];
+    return [self shareRenderedTextForMarkdown:[self markdownForCurrentPreview]];
+}
+
+- (NSAttributedString *)shareRenderedTextForMarkdown:(NSString *)markdown
+{
     if (markdown == nil) {
         return nil;
     }
@@ -4389,6 +4400,68 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
 - (BOOL)shareWritePDFToPath:(NSString *)path
 {
     return [self exportDocumentAsPDFToPath:path];
+}
+
+- (BOOL)shareWritePDFForMarkdown:(NSString *)markdown toPath:(NSString *)path
+{
+    _printMarkdownOverride = [markdown copy];
+    BOOL written = [self exportDocumentAsPDFToPath:path];
+    [_printMarkdownOverride release];
+    _printMarkdownOverride = nil;
+    return written;
+}
+
+// The selected text and whether it is in the source editor; the view with
+// the keyboard focus wins, else the one the mode shows.
+- (NSString *)shareSelectedText:(BOOL *)inSource
+{
+    if (_currentMarkdown == nil) {
+        return nil;
+    }
+    NSResponder *focus = [_window firstResponder];
+    BOOL sourceShown = (_viewerMode != OMDViewerModeRead);
+    BOOL previewShown = (_viewerMode != OMDViewerModeEdit);
+    NSRange sourceRange = (_sourceTextView != nil ? [_sourceTextView selectedRange] : NSMakeRange(NSNotFound, 0));
+    NSRange previewRange = (_textView != nil ? [_textView selectedRange] : NSMakeRange(NSNotFound, 0));
+    BOOL useSource = NO;
+    if (focus == _sourceTextView && sourceRange.length > 0) {
+        useSource = YES;
+    } else if (focus == _textView && previewRange.length > 0) {
+        useSource = NO;
+    } else if (previewShown && previewRange.length > 0) {
+        useSource = NO;
+    } else if (sourceShown && sourceRange.length > 0) {
+        useSource = YES;
+    } else {
+        return nil;
+    }
+    if (inSource != NULL) {
+        *inSource = useSource;
+    }
+    if (useSource) {
+        NSString *text = [_sourceTextView string];
+        return NSMaxRange(sourceRange) <= [text length] ? [text substringWithRange:sourceRange] : nil;
+    }
+    if (_currentDocumentRenderMode == OMDDocumentRenderModeVerbatim) {
+        // A code file's preview is its text.
+        NSString *text = [_textView string];
+        return NSMaxRange(previewRange) <= [text length] ? [text substringWithRange:previewRange] : nil;
+    }
+    return OMDShareMarkdownForPreviewRange(_currentMarkdown, previewRange, [_renderer blockAnchors]);
+}
+
+- (NSString *)shareSelectedSourceText
+{
+    return [self shareSelectedText:NULL];
+}
+
+- (NSString *)shareSelectedMarkdownText
+{
+    NSString *text = [self shareSelectedText:NULL];
+    if (text == nil || _currentDocumentRenderMode != OMDDocumentRenderModeVerbatim) {
+        return text;
+    }
+    return OMDMarkdownCodeFenceWrappedText(text, _currentDocumentSyntaxLanguage);
 }
 
 - (void)exportDocumentWithTitle:(NSString *)panelTitle

@@ -188,12 +188,72 @@ static BOOL OMDShareLaunchIsRunning(NSString *directoryName)
     return nil;
 }
 
+- (BOOL)hasSelection
+{
+    return [_source respondsToSelector:@selector(shareSelectedSourceText)] &&
+           [_source shareSelectedSourceText] != nil;
+}
+
+// The text a share takes: the document's or the selection's, as source or
+// as Markdown. Nil with selectionOnly and nothing selected.
+- (NSString *)sourceTextForSelection:(BOOL)selectionOnly
+{
+    if (!selectionOnly) {
+        return [_source shareSourceText];
+    }
+    return [self hasSelection] ? [_source shareSelectedSourceText] : nil;
+}
+
+- (NSString *)markdownTextForSelection:(BOOL)selectionOnly
+{
+    if (!selectionOnly) {
+        return [_source shareMarkdownText];
+    }
+    return [_source respondsToSelector:@selector(shareSelectedMarkdownText)] ? [_source shareSelectedMarkdownText] : nil;
+}
+
+- (NSAttributedString *)renderedTextForSelection:(BOOL)selectionOnly
+{
+    if (!selectionOnly) {
+        return [_source shareRenderedText];
+    }
+    NSString *markdown = [self markdownTextForSelection:YES];
+    if (markdown == nil || ![_source respondsToSelector:@selector(shareRenderedTextForMarkdown:)]) {
+        return nil;
+    }
+    return [_source shareRenderedTextForMarkdown:markdown];
+}
+
+- (BOOL)writePDFToPath:(NSString *)path selectionOnly:(BOOL)selectionOnly
+{
+    if (!selectionOnly) {
+        return [_source shareWritePDFToPath:path];
+    }
+    NSString *markdown = [self markdownTextForSelection:YES];
+    return markdown != nil &&
+           [_source respondsToSelector:@selector(shareWritePDFForMarkdown:toPath:)] &&
+           [_source shareWritePDFForMarkdown:markdown toPath:path];
+}
+
+static NSError *OMDShareMissingTextError(BOOL selectionOnly)
+{
+    return selectionOnly ? OMDShareError(OMDShareErrorNoDocument, @"Select some of the document first.")
+                         : OMDShareError(OMDShareErrorNoDocument, @"Open or import a document first.");
+}
+
 - (OMDShareItem *)shareItemForFormat:(OMDShareFormat)format error:(NSError **)error
 {
-    NSString *sourceText = [_source shareSourceText];
+    return [self shareItemForFormat:format selectionOnly:NO error:error];
+}
+
+- (OMDShareItem *)shareItemForFormat:(OMDShareFormat)format
+                       selectionOnly:(BOOL)selectionOnly
+                               error:(NSError **)error
+{
+    NSString *sourceText = [self sourceTextForSelection:selectionOnly];
     if (sourceText == nil) {
         if (error != NULL) {
-            *error = OMDShareError(OMDShareErrorNoDocument, @"Open or import a document first.");
+            *error = OMDShareMissingTextError(selectionOnly);
         }
         return nil;
     }
@@ -239,11 +299,11 @@ static BOOL OMDShareLaunchIsRunning(NSString *directoryName)
                                     error:&writeError];
         break;
     case OMDShareFormatPDF:
-        written = [_source shareWritePDFToPath:path];
+        written = [self writePDFToPath:path selectionOnly:selectionOnly];
         break;
     case OMDShareFormatWord:
     case OMDShareFormatHTML:
-        written = [converter exportMarkdown:[_source shareMarkdownText]
+        written = [converter exportMarkdown:[self markdownTextForSelection:selectionOnly]
                                      toPath:path
                           resourceDirectory:[_source shareResourceDirectory]
                                       error:&writeError];
@@ -264,23 +324,30 @@ static BOOL OMDShareLaunchIsRunning(NSString *directoryName)
     return [[[OMDShareItem alloc] initWithTitle:title
                                          format:format
                                         fileURL:[NSURL fileURLWithPath:path]
-                                   renderedText:[_source shareRenderedText]] autorelease];
+                                   renderedText:[self renderedTextForSelection:selectionOnly]] autorelease];
 }
 
 - (void)shareItemForFormat:(OMDShareFormat)format
                 completion:(void (^)(OMDShareItem *item, NSError *error))completion
 {
+    [self shareItemForFormat:format selectionOnly:NO completion:completion];
+}
+
+- (void)shareItemForFormat:(OMDShareFormat)format
+             selectionOnly:(BOOL)selectionOnly
+                completion:(void (^)(OMDShareItem *item, NSError *error))completion
+{
     if (![[self class] formatNeedsConverter:format]) {
         NSError *error = nil;
-        OMDShareItem *item = [self shareItemForFormat:format error:&error];
+        OMDShareItem *item = [self shareItemForFormat:format selectionOnly:selectionOnly error:&error];
         completion(item, error);
         return;
     }
     // Everything from the document and the window, read here on the main
     // thread; only Pandoc runs on the queue.
-    NSString *markdown = [_source shareMarkdownText];
+    NSString *markdown = [self markdownTextForSelection:selectionOnly];
     if (markdown == nil) {
-        completion(nil, OMDShareError(OMDShareErrorNoDocument, @"Open or import a document first."));
+        completion(nil, OMDShareMissingTextError(selectionOnly));
         return;
     }
     OMDDocumentConverter *converter = [_source documentConverter];
@@ -299,7 +366,7 @@ static BOOL OMDShareLaunchIsRunning(NSString *directoryName)
     NSString *path = [directory stringByAppendingPathComponent:
         [title stringByAppendingPathExtension:[[self class] fileExtensionForFormat:format]]];
     NSString *resourceDirectory = [_source shareResourceDirectory];
-    NSAttributedString *rendered = [_source shareRenderedText];
+    NSAttributedString *rendered = [self renderedTextForSelection:selectionOnly];
     NSString *failure = [NSString stringWithFormat:@"The %@ could not be created.",
                                                    [[self class] displayNameForFormat:format]];
     void (^done)(OMDShareItem *, NSError *) = [completion copy];
