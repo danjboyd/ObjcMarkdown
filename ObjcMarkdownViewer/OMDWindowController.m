@@ -34,6 +34,7 @@
 #import "OMDToolbarController.h"
 #import "OMDShareController.h"
 #import "OMDRichPasteboard.h"
+#import "OMSlackMrkdwn.h"
 #import "OMDStatusBarController.h"
 #import "OMDCopyButtonsController.h"
 #import "OMDRenderScheduler.h"
@@ -2095,7 +2096,8 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
         [menuItem setState:([menuItem tag] == OMDShareLastEmailChoice() ? NSOnState : NSOffState)];
         return [self hasLoadedDocument];
     }
-    if (action == @selector(copyRenderedDocument:)) {
+    if (action == @selector(copyRenderedDocument:) ||
+        action == @selector(copyDocumentForSlack:)) {
         return [self hasLoadedDocument];
     }
     if (action == @selector(showDocumentInFolder:)) {
@@ -4307,6 +4309,24 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
                                               [self shareRenderedText])) {
         NSBeep();
     }
+}
+
+// Copy for Slack: the document as Slack mrkdwn, plain text to paste into
+// a message.
+- (void)copyDocumentForSlack:(id)sender
+{
+    (void)sender;
+    if (![self hasLoadedDocument]) {
+        return;
+    }
+    NSString *mrkdwn = OMSlackMrkdwnFromMarkdown([self shareMarkdownText], OMSlackMrkdwnOptionsNone);
+    if ([mrkdwn length] == 0) {
+        NSBeep();
+        return;
+    }
+    NSPasteboard *pasteboard = [NSPasteboard generalPasteboard];
+    [pasteboard declareTypes:[NSArray arrayWithObject:NSStringPboardType] owner:nil];
+    [pasteboard setString:mrkdwn forType:NSStringPboardType];
 }
 
 - (void)showDocumentInFolder:(id)sender
