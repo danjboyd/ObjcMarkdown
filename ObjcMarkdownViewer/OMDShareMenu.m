@@ -54,6 +54,9 @@ void OMDAddShareMenuItems(NSMenu *menu, id target)
     [[menu addItemWithTitle:@"Copy Rendered"
                      action:@selector(copyRenderedDocument:)
               keyEquivalent:@""] setTarget:target];
+    [[menu addItemWithTitle:@"Copy for Slack"
+                     action:@selector(copyDocumentForSlack:)
+              keyEquivalent:@""] setTarget:target];
     [[menu addItemWithTitle:@"Show File in Folder"
                      action:@selector(showDocumentInFolder:)
               keyEquivalent:@""] setTarget:target];

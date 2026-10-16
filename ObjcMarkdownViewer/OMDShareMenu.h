@@ -14,7 +14,8 @@ enum {
 // The Share items, the same in File > Share and the toolbar's menu: each
 // "Share as" item has its format as its tag and the action shareDocument:;
 // then the Email as submenu (emailDocument:, tagged by format, and In the
-// Message), copyRenderedDocument: and showDocumentInFolder:.
+// Message), copyRenderedDocument:, copyDocumentForSlack: and
+// showDocumentInFolder:.
 // The target is not retained (nil sends them along the responder chain).
 void OMDAddShareMenuItems(NSMenu *menu, id target);
 

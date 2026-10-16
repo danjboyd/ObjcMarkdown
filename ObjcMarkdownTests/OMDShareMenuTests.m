@@ -53,6 +53,16 @@
     XCTAssertNil([email itemWithTitle:@"HTML"]);
 }
 
+- (void)testCopyForSlackFollowsCopyRendered
+{
+    NSMenu *menu = [self shareMenu];
+    NSInteger rendered = [menu indexOfItemWithTitle:@"Copy Rendered"];
+    XCTAssertTrue(rendered >= 0);
+    NSMenuItem *slack = (NSMenuItem *)[menu itemAtIndex:rendered + 1];
+    XCTAssertEqualObjects([slack title], @"Copy for Slack");
+    XCTAssertEqual([slack action], @selector(copyDocumentForSlack:));
+}
+
 - (void)testTheMessageTagIsNoFormat
 {
     XCTAssertTrue(OMDShareEmailInMessageTag > OMDShareFormatHTML);
