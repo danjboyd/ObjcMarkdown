@@ -22,7 +22,7 @@
     XCTAssertTrue([html hasPrefix:@"<meta charset=\"utf-8\">"]);
     [self assertHTML:html contains:@"<h1>Plan</h1>"];
     [self assertHTML:html contains:@"<li><strong>two</strong></li>"];
-    [self assertHTML:html contains:@"<pre style=\"background:#f6f8fa;padding:8px 12px;border-radius:6px\"><code>a &lt; b\n</code></pre>"];
+    [self assertHTML:html contains:@"<pre style=\"background:#f6f8fa;color:#1f2328;padding:8px 12px;border-radius:6px\"><code>a &lt; b\n</code></pre>"];
 }
 
 - (void)testGitHubExtensionsRender
@@ -38,7 +38,7 @@
 {
     NSString *html = OMDClipboardHTMLFromMarkdown(@"> said `x`\n\n| a |\n|:-:|\n| 1 |\n");
     [self assertHTML:html contains:@"<blockquote style=\"margin:0;padding:0 12px;border-left:3px solid #d0d7de;color:#59636e\">"];
-    [self assertHTML:html contains:@"<code style=\"background:#eff1f3;padding:1px 4px;border-radius:4px\">x</code>"];
+    [self assertHTML:html contains:@"<code style=\"background:#eff1f3;color:#1f2328;padding:1px 4px;border-radius:4px\">x</code>"];
     [self assertHTML:html contains:@"<th style=\"border:1px solid #d0d7de;padding:4px 8px\" align=\"center\">a</th>"];
 }
 

@@ -26,6 +26,8 @@ static void OMDReplaceAll(NSMutableString *string, NSString *target, NSString *r
 
 // Mail clients ignore <style> blocks, so tables, code and quotes carry
 // their look inline (GitHub's light colours); chats restyle what they keep.
+// Anything with a background sets its text colour too, or a dark-mode
+// reader draws light text on it.
 static void OMDAddInlineStyles(NSMutableString *html)
 {
     NSString *cell = @"border:1px solid #d0d7de;padding:4px 8px";
@@ -36,9 +38,9 @@ static void OMDAddInlineStyles(NSMutableString *html)
     OMDReplaceAll(html, @"<td ", [NSString stringWithFormat:@"<td style=\"%@\" ", cell]);
     OMDReplaceAll(html, @"<td>", [NSString stringWithFormat:@"<td style=\"%@\">", cell]);
     // Inline code first, then code blocks (whose <code> follows <pre>).
-    OMDReplaceAll(html, @"<code>", @"<code style=\"background:#eff1f3;padding:1px 4px;border-radius:4px\">");
-    OMDReplaceAll(html, @"<pre><code style=\"background:#eff1f3;padding:1px 4px;border-radius:4px\">", @"<pre><code>");
-    OMDReplaceAll(html, @"<pre>", @"<pre style=\"background:#f6f8fa;padding:8px 12px;border-radius:6px\">");
+    OMDReplaceAll(html, @"<code>", @"<code style=\"background:#eff1f3;color:#1f2328;padding:1px 4px;border-radius:4px\">");
+    OMDReplaceAll(html, @"<pre><code style=\"background:#eff1f3;color:#1f2328;padding:1px 4px;border-radius:4px\">", @"<pre><code>");
+    OMDReplaceAll(html, @"<pre>", @"<pre style=\"background:#f6f8fa;color:#1f2328;padding:8px 12px;border-radius:6px\">");
     OMDReplaceAll(html, @"<blockquote>", @"<blockquote style=\"margin:0;padding:0 12px;border-left:3px solid #d0d7de;color:#59636e\">");
 }
 
