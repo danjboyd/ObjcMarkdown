@@ -269,6 +269,7 @@ GSSharingDetailOfItems(NSArray *items)
       [button setTarget: self];
       [button setAction: @selector(serviceClicked:)];
       [button setToolTip: [service title]];
+      [button setEnabled: [_picker servicesEnabled]];
       [_servicesView addSubview: button];
       if (i == 0)
         {

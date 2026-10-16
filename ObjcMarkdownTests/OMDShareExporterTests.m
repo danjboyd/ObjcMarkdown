@@ -145,6 +145,35 @@
     XCTAssertEqual([error code], (NSInteger)OMDShareErrorNoDocument);
 }
 
+- (void)testMarkdownShareWithCompletionFinishesBeforeReturning
+{
+    OMDShareTestSource *source = [self sourceWithName:@"Quick" text:@"# Q\n" extension:@"md"];
+    OMDShareExporter *exporter = [[[OMDShareExporter alloc] initWithSource:source] autorelease];
+    __block OMDShareItem *shared = nil;
+    __block BOOL called = NO;
+    [exporter shareItemForFormat:OMDShareFormatMarkdown completion:^(OMDShareItem *item, NSError *error) {
+        called = YES;
+        shared = [item retain];
+    }];
+    XCTAssertTrue(called);
+    XCTAssertEqualObjects([shared fileName], @"Quick.md");
+    [shared release];
+}
+
+- (void)testWordShareWithCompletionWithoutPandocReportsTheError
+{
+    OMDShareTestSource *source = [self sourceWithName:@"Report" text:@"# R\n" extension:@"md"];
+    OMDShareExporter *exporter = [[[OMDShareExporter alloc] initWithSource:source] autorelease];
+    __block NSInteger code = 0;
+    __block BOOL gotItem = NO;
+    [exporter shareItemForFormat:OMDShareFormatWord completion:^(OMDShareItem *item, NSError *error) {
+        gotItem = (item != nil);
+        code = [error code];
+    }];
+    XCTAssertFalse(gotItem);
+    XCTAssertEqual(code, (NSInteger)OMDShareErrorConverterUnavailable);
+}
+
 - (void)testLaunchDirectoryIsPrivate
 {
     NSString *directory = [OMDShareExporter launchTemporaryDirectory];

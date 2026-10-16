@@ -412,6 +412,19 @@ GSSharingDisplayNameOfItem(id item)
   ASSIGN(GSSharingStateForPicker(self, YES)->accessoryView, view);
 }
 
+- (BOOL) servicesEnabled
+{
+  return GSSharingStateForPicker(self, YES)->servicesDisabled == NO;
+}
+
+- (void) setServicesEnabled: (BOOL)flag
+{
+  GSSharingPickerState *state = GSSharingStateForPicker(self, YES);
+
+  state->servicesDisabled = (flag == NO);
+  [(GSSharingPickerPanel *)state->panel pickerItemsDidChange];
+}
+
 - (void) showRelativeToRect: (NSRect)rect
                      ofView: (NSView *)view
               preferredEdge: (NSRectEdge)preferredEdge

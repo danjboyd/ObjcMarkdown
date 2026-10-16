@@ -21,7 +21,12 @@
     // OMDShareEmailInMessageTag for the document as a message).
     id _picker;
     id _formatControl;
+    id _accessoryView;      // the format switcher and a spinner
+    id _spinner;
     NSInteger _sheetChoice;
+    // Each background export's number: a result for an earlier one (the
+    // format was switched again, or the sheet closed) is dropped.
+    NSUInteger _exportGeneration;
 }
 
 // The source and window are not retained.
