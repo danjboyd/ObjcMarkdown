@@ -14,10 +14,12 @@
 // A new menu of the recent documents, each item opening its file.
 - (NSMenu *)recentDocumentsMenu;
 - (void)saveDocument:(id)sender;
+// The Share item (OMDShareController makes it).
+- (NSToolbarItem *)shareToolbarItemWithIdentifier:(NSString *)identifier;
 @end
 
 // The window's toolbar, the same on every platform: the explorer, open and
-// save buttons, a flexible space and the Read/Edit/Split switcher. The
+// save buttons, a flexible space, the Read/Edit/Split switcher and Share. The
 // theme presents it (the Adwaita theme puts it in the header bar,
 // GnomeThemeHeaderBarToolbar; WinUITheme draws a CommandBar). Export,
 // Print and Preferences are in the menus; zoom and status are in the

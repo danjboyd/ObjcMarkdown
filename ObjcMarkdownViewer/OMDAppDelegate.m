@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #import "OMDAppDelegate.h"
+#import "OMDShareExporter.h"
 #import "OMDWindowController.h"
 #import "OMDPreferencesController.h"
 #import <objc/runtime.h>
@@ -91,6 +92,8 @@ static BOOL OMDIsPreferencesSetterSelector(SEL selector)
 
 - (void)applicationDidFinishLaunching:(NSNotification *)notification
 {
+    // Exports of earlier launches' shares (#170).
+    [OMDShareExporter sweepStaleTemporaryDirectories];
 #if !defined(GNUSTEP)
     // Documents opened from the Finder or reopened from last time have
     // their windows; the empty window is for when there are none.

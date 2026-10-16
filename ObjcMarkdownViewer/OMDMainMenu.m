@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #import "OMDMainMenu.h"
+#import "OMDShareController.h"
 #import "OMDViewerDiagnostics.h"
 
 @interface OMDMainMenu ()
@@ -213,6 +214,10 @@ static void OMDUseEllipsisCharacters(NSMenu *menu)
     OMDAddMenuItem(exportMenu, @"Export as HTML...", @selector(exportDocumentAsHTML:), @"", target);
     NSMenuItem *exportMenuItem = OMDAddMenuItem(fileMenu, @"Export", NULL, @"", nil);
     [fileMenu setSubmenu:exportMenu forItem:exportMenuItem];
+    NSMenu *shareMenu = [[[NSMenu alloc] initWithTitle:@"Share"] autorelease];
+    OMDAddShareMenuItems(shareMenu, target);
+    NSMenuItem *shareMenuItem = OMDAddMenuItem(fileMenu, @"Share", NULL, @"", nil);
+    [fileMenu setSubmenu:shareMenu forItem:shareMenuItem];
     [fileMenu addItem:[NSMenuItem separatorItem]];
     OMDAddMenuItem(fileMenu, @"Page Setup...", @selector(runPageLayout:), @"P", nil);
     OMDAddMenuItem(fileMenu, @"Print...", @selector(printDocument:), @"p", target);
@@ -290,6 +295,13 @@ static void OMDUseEllipsisCharacters(NSMenu *menu)
                                                                keyEquivalent:@""];
     [exportHTMLItem setTarget:target];
     [exportMenuItem setSubmenu:exportMenu];
+
+    NSMenuItem *shareMenuItem = (NSMenuItem *)[fileMenu addItemWithTitle:@"Share"
+                                                                   action:NULL
+                                                            keyEquivalent:@""];
+    NSMenu *shareMenu = [[[NSMenu alloc] initWithTitle:@"Share"] autorelease];
+    OMDAddShareMenuItems(shareMenu, target);
+    [shareMenuItem setSubmenu:shareMenu];
 
     [fileMenu addItem:[NSMenuItem separatorItem]];
 

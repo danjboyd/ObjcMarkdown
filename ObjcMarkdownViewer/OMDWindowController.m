@@ -32,6 +32,7 @@
 #import "OMDLayoutMetrics.h"
 #import "OMDMainMenu.h"
 #import "OMDToolbarController.h"
+#import "OMDShareController.h"
 #import "OMDStatusBarController.h"
 #import "OMDCopyButtonsController.h"
 #import "OMDRenderScheduler.h"
@@ -398,7 +399,7 @@ static CGFloat OMDClampedScrollSpeed(CGFloat value)
 }
 
 
-@interface OMDWindowController () <OMDCopyButtonsControllerDelegate, OMDRenderSchedulerDelegate, OMDDocumentTabsControllerDelegate, OMDToolbarControllerDelegate, OMDStatusBarControllerDelegate, OMDExplorerControllerDelegate, OMDOpenLocationDelegate, OMDFormattingBarControllerDelegate, OMDPreferencesControllerDelegate, GSVVimBindingControllerDelegate, OMDTextViewRenderedObjectDelegate, OMDOutlineControllerDelegate, OMDMainWindowTabClosing>
+@interface OMDWindowController () <OMDCopyButtonsControllerDelegate, OMDRenderSchedulerDelegate, OMDDocumentTabsControllerDelegate, OMDToolbarControllerDelegate, OMDStatusBarControllerDelegate, OMDExplorerControllerDelegate, OMDOpenLocationDelegate, OMDFormattingBarControllerDelegate, OMDPreferencesControllerDelegate, GSVVimBindingControllerDelegate, OMDTextViewRenderedObjectDelegate, OMDOutlineControllerDelegate, OMDMainWindowTabClosing, OMDShareSource>
 - (void)importDocument:(id)sender;
 - (void)newWindow:(id)sender;
 - (void)newDocument:(id)sender;
@@ -822,6 +823,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [_remoteDocumentBar release];
     [_preferencesController release];
     [_toolbarController release];
+    [_shareController release];
     [_statusBarController release];
     if (_fileOpenRecentMenu != nil) {
         [_fileOpenRecentMenu setDelegate:nil];
@@ -2083,6 +2085,17 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
     if (action == @selector(toggleRendererSyntaxHighlighting:)) {
         [menuItem setState:([self isRendererSyntaxHighlightingEnabled] ? NSOnState : NSOffState)];
         return _renderer != nil && [self isTreeSitterAvailable];
+    }
+
+    if (action == @selector(shareDocument:)) {
+        return [self hasLoadedDocument];
+    }
+    if (action == @selector(emailDocument:)) {
+        [menuItem setTitle:[OMDShareController emailMenuTitle]];
+        return [self hasLoadedDocument];
+    }
+    if (action == @selector(showDocumentInFolder:)) {
+        return [self isCurrentDocumentReloadableFromDisk];
     }
 
     if (action == @selector(saveDocument:) ||
@@ -4234,6 +4247,92 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
     [self exportDocumentWithTitle:@"Export as HTML"
                         extension:@"html"
                        actionName:@"Export as HTML"];
+}
+
+#pragma mark Share (#170)
+
+- (OMDShareController *)shareController
+{
+    if (_shareController == nil) {
+        _shareController = [[OMDShareController alloc] initWithSource:self window:_window];
+    }
+    return _shareController;
+}
+
+- (NSToolbarItem *)shareToolbarItemWithIdentifier:(NSString *)identifier
+{
+    return [[self shareController] toolbarItemWithIdentifier:identifier target:self];
+}
+
+- (void)shareDocument:(id)sender
+{
+    if (![self ensureDocumentLoadedForActionName:@"Share"]) {
+        return;
+    }
+    OMDShareFormat format = OMDShareFormatPDF;
+    if ([sender respondsToSelector:@selector(tag)]) {
+        format = (OMDShareFormat)[sender tag];
+    }
+    [[self shareController] shareInFormat:format fromView:nil];
+}
+
+- (void)emailDocument:(id)sender
+{
+    (void)sender;
+    if (![self ensureDocumentLoadedForActionName:@"Email"]) {
+        return;
+    }
+    [[self shareController] emailDocument];
+}
+
+- (void)showDocumentInFolder:(id)sender
+{
+    (void)sender;
+    if (![self isCurrentDocumentReloadableFromDisk]) {
+        return;
+    }
+    [[self shareController] showDocumentFileInFolder:_currentPath];
+}
+
+- (NSString *)shareBaseName
+{
+    NSString *fileName = [self defaultExportFileNameWithExtension:@"md"];
+    return [fileName stringByDeletingPathExtension];
+}
+
+- (NSString *)shareSourceText
+{
+    return _currentMarkdown;
+}
+
+- (NSString *)shareSourceExtension
+{
+    return [[self defaultSaveMarkdownFileName] pathExtension];
+}
+
+- (NSString *)shareMarkdownText
+{
+    NSString *markdown = [self markdownForCurrentPreview];
+    return markdown != nil ? markdown : _currentMarkdown;
+}
+
+- (NSString *)shareResourceDirectory
+{
+    return [_currentPath stringByDeletingLastPathComponent];
+}
+
+- (NSAttributedString *)shareRenderedText
+{
+    NSTextStorage *storage = [_textView textStorage];
+    if (storage == nil || [storage length] == 0) {
+        return nil;
+    }
+    return [[[NSAttributedString alloc] initWithAttributedString:storage] autorelease];
+}
+
+- (BOOL)shareWritePDFToPath:(NSString *)path
+{
+    return [self exportDocumentAsPDFToPath:path];
 }
 
 - (void)exportDocumentWithTitle:(NSString *)panelTitle

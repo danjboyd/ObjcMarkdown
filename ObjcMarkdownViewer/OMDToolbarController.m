@@ -201,6 +201,10 @@
         return item;
     }
 
+    if ([identifier isEqualToString:@"ShareDocument"]) {
+        return [_delegate shareToolbarItemWithIdentifier:identifier];
+    }
+
     return nil;
 }
 
@@ -212,6 +216,7 @@
                                      @"SaveDocument",
                                      NSToolbarFlexibleSpaceItemIdentifier,
                                      @"ModeControls",
+                                     @"ShareDocument",
                                      nil];
 }
 

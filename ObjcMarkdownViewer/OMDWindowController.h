@@ -25,6 +25,7 @@ typedef unsigned short mode_t;
 @class OMDCopyButtonsController;
 @class OMDRenderScheduler;
 @class OMDOutlineController;
+@class OMDShareController;
 
 // GNUstep names the menu validation protocol NSMenuValidation; macOS 10.14
 // renamed it NSMenuItemValidation.
@@ -73,6 +74,8 @@ typedef unsigned short mode_t;
     OMDRemoteDocumentBar *_remoteDocumentBar;
     OMDPreferencesController *_preferencesController;
     OMDToolbarController *_toolbarController;
+    // File > Share and the toolbar's Share item (#170), made on first use.
+    OMDShareController *_shareController;
     OMDStatusBarController *_statusBarController;
     OMDCopyButtonsController *_copyButtonsController;
     OMDRenderScheduler *_renderScheduler;
