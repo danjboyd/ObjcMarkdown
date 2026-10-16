@@ -64,6 +64,7 @@
     NSPopUpButton *_preferencesPreviewWidthPopup;
     NSPopUpButton *_preferencesThemePopup;
     NSPopUpButton *_preferencesLayoutModePopup;
+    NSPopUpButton *_preferencesMenuStylePopup;
     NSSlider *_preferencesScrollSpeedSlider;
     NSButton *_preferencesAllowRemoteImagesButton;
     NSButton *_preferencesFormattingBarButton;

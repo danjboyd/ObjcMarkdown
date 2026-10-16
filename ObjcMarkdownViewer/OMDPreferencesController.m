@@ -129,6 +129,36 @@ static NSTextField *OMDStaticTextField(NSRect frame,
     return field;
 }
 
+#if defined(GNUSTEP)
+// Where the menus go is the user's choice per app (#185). The themes that
+// offer a menu button read it from the app's own defaults: WinUITheme as
+// WinUIThemeMenuStyle (menubar or more, its "..." button), Adwaita as
+// GnomeThemeMenuStyle (menubar or primary, its main menu button). Both are
+// written, whatever theme is active; other themes ignore them.
+static NSString * const OMDWinUIThemeMenuStyleKey = @"WinUIThemeMenuStyle";
+static NSString * const OMDGnomeThemeMenuStyleKey = @"GnomeThemeMenuStyle";
+
+// The style in effect: this app's choice, else the user's for every app.
+static BOOL OMDMenuStyleUsesButton(void)
+{
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    NSString *winUI = [defaults stringForKey:OMDWinUIThemeMenuStyleKey];
+    if (winUI != nil) {
+        return [winUI caseInsensitiveCompare:@"more"] == NSOrderedSame;
+    }
+    NSString *gnome = [defaults stringForKey:OMDGnomeThemeMenuStyleKey];
+    return gnome != nil && [gnome caseInsensitiveCompare:@"primary"] == NSOrderedSame;
+}
+
+static void OMDSetMenuStyleUsesButton(BOOL usesButton)
+{
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    [defaults setObject:(usesButton ? @"more" : @"menubar") forKey:OMDWinUIThemeMenuStyleKey];
+    [defaults setObject:(usesButton ? @"primary" : @"menubar") forKey:OMDGnomeThemeMenuStyleKey];
+    [defaults synchronize];
+}
+#endif
+
 static void OMDConfigurePreferencesPopup(NSPopUpButton *popup, OMDLayoutMetrics metrics)
 {
     if (popup == nil) {
@@ -286,6 +316,7 @@ static CGFloat OMDPreferencesFinishCard(NSView *card, CGFloat height)
 - (void)preferencesSplitSyncModeChanged:(id)sender;
 - (void)preferencesPreviewWidthChanged:(id)sender;
 - (void)preferencesLayoutModeChanged:(id)sender;
+- (void)preferencesMenuStyleChanged:(id)sender;
 - (void)preferencesScrollSpeedChanged:(id)sender;
 - (void)preferencesAllowRemoteImagesChanged:(id)sender;
 - (void)preferencesFormattingBarChanged:(id)sender;
@@ -322,6 +353,7 @@ static CGFloat OMDPreferencesFinishCard(NSView *card, CGFloat height)
     [_preferencesPreviewWidthPopup release];
     [_preferencesThemePopup release];
     [_preferencesLayoutModePopup release];
+    [_preferencesMenuStylePopup release];
     [_preferencesScrollSpeedSlider release];
     [_preferencesAllowRemoteImagesButton release];
     [_preferencesFormattingBarButton release];
@@ -377,6 +409,8 @@ static CGFloat OMDPreferencesFinishCard(NSView *card, CGFloat height)
     _preferencesThemePopup = nil;
     [_preferencesLayoutModePopup release];
     _preferencesLayoutModePopup = nil;
+    [_preferencesMenuStylePopup release];
+    _preferencesMenuStylePopup = nil;
     [_preferencesScrollSpeedSlider release];
     _preferencesScrollSpeedSlider = nil;
     [_preferencesAllowRemoteImagesButton release];
@@ -493,8 +527,8 @@ static CGFloat OMDPreferencesFinishCard(NSView *card, CGFloat height)
     CGFloat controlX = pad + rowLabelWidth + 12.0;
     CGFloat controlWidth = layout.width - rowLabelWidth - 12.0;
 #if defined(GNUSTEP)
-    NSString *appearanceSummary = @"Choose the active GNUstep theme and how roomy the interface should feel.";
-    NSString *appearanceNote = @"GNUstep's default scroll speed is at the left. Theme changes apply on next launch; layout mode and scroll speed update immediately.";
+    NSString *appearanceSummary = @"Choose the active GNUstep theme, how roomy the interface should feel and where the menus go.";
+    NSString *appearanceNote = @"GNUstep's default scroll speed is at the left. Theme changes apply on next launch; layout mode and scroll speed update immediately. A theme without a menu button keeps the menu bar.";
 #else
     // On macOS the system draws the app (light or dark is the system's
     // setting), so there is no theme to choose.
@@ -532,6 +566,22 @@ static CGFloat OMDPreferencesFinishCard(NSView *card, CGFloat height)
     [_preferencesLayoutModePopup setAction:@selector(preferencesLayoutModeChanged:)];
     [_preferencesLayoutModePopup setToolTip:@"Switch between compact, balanced, and roomier Adwaita-style spacing."];
     [card addSubview:_preferencesLayoutModePopup];
+
+#if defined(GNUSTEP)
+    rowY += layout.controlHeight + layout.rowGap;
+    OMDPreferencesAddRowLabel(card, @"Menus", pad, rowY, rowLabelWidth, layout.titleColor, layout);
+    _preferencesMenuStylePopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(controlX, rowY, controlWidth, layout.controlHeight)
+                                                             pullsDown:NO];
+    OMDConfigurePreferencesPopup(_preferencesMenuStylePopup, metrics);
+    [_preferencesMenuStylePopup addItemWithTitle:@"Menu Bar"];
+    [[_preferencesMenuStylePopup itemAtIndex:0] setTag:0];
+    [_preferencesMenuStylePopup addItemWithTitle:@"Menu Button"];
+    [[_preferencesMenuStylePopup itemAtIndex:1] setTag:1];
+    [_preferencesMenuStylePopup setTarget:self];
+    [_preferencesMenuStylePopup setAction:@selector(preferencesMenuStyleChanged:)];
+    [_preferencesMenuStylePopup setToolTip:@"Show the menus in a menu bar, or behind one button at the end of the toolbar, for this app."];
+    [card addSubview:_preferencesMenuStylePopup];
+#endif
 
     rowY += layout.controlHeight + layout.rowGap;
     OMDPreferencesAddRowLabel(card, @"Scroll Speed", pad, rowY, rowLabelWidth, layout.titleColor, layout);
@@ -1039,6 +1089,11 @@ static CGFloat OMDPreferencesFinishCard(NSView *card, CGFloat height)
         }
         [_preferencesLayoutModePopup selectItemAtIndex:selectedIndex];
     }
+#if defined(GNUSTEP)
+    if (_preferencesMenuStylePopup != nil) {
+        [_preferencesMenuStylePopup selectItemAtIndex:(OMDMenuStyleUsesButton() ? 1 : 0)];
+    }
+#endif
     if (_preferencesScrollSpeedSlider != nil) {
         [_preferencesScrollSpeedSlider setDoubleValue:[_delegate scrollSpeedPreference]];
     }
@@ -1182,6 +1237,15 @@ static CGFloat OMDPreferencesFinishCard(NSView *card, CGFloat height)
     NSMenuItem *item = (NSMenuItem *)[_preferencesLayoutModePopup selectedItem];
     NSInteger tag = item != nil ? [item tag] : (NSInteger)OMDLayoutDensityModeBalanced;
     [_delegate setLayoutDensityPreference:OMDClampedLayoutDensityMode(tag)];
+}
+
+- (void)preferencesMenuStyleChanged:(id)sender
+{
+    (void)sender;
+#if defined(GNUSTEP)
+    NSMenuItem *item = (NSMenuItem *)[_preferencesMenuStylePopup selectedItem];
+    OMDSetMenuStyleUsesButton(item != nil && [item tag] == 1);
+#endif
 }
 
 - (void)preferencesScrollSpeedChanged:(id)sender
