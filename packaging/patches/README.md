@@ -33,6 +33,8 @@ uses Cocoa and doesn't need them.
 | `libs-base/0001-GSAttributedString-hash-...` | Attribute dictionaries cached by count: building text with many distinct attributes is quadratic (#94) | not sent |
 | `libs-gui/0001-GSLayoutManager-compile-out-...` | `-_sanityChecks` walks every glyph run on each glyph generation: layout is quadratic (#94) | reported as gnustep/libs-gui#992 (issue); patch not sent |
 | `libs-back/0001-x11-list-WM_DELETE_WINDOW-...` | Windows the theme decorates don't list `WM_DELETE_WINDOW`, so Alt+F4 or a close from the Overview or dock makes Mutter kill the app, unsaved edits and all. Linux only (the MSI uses the win32 backend). Backport to 0.32 of danjboyd/libs-back `x11-wm-delete-window` (1ecd259), as LinDirStat carries it | not sent |
+| `libs-back/0002-x11-answer-TARGETS-and-text-uri-list-...` | A file dragged out of the app (the Share dialog, #175) was refused by every drop target: the backend answered neither `TARGETS` nor `text/uri-list`, nor refused other types. Linux only | prepared for upstream (`docs/upstream-patches/libs-back/0001-...`, danjboyd/libs-back-xdnd `5bcfb0b`); carried first, to live with it, before sending |
+| `libs-back/0003-x11-speak-XDND-version-3-and-send-...` | Drags announced XDND version 2, which GTK ignores, and the version check was inverted, so no time stamp (and at version 3 no action) was sent. With 0002, files drop on Nautilus. Linux only | prepared for upstream (`docs/upstream-patches/libs-back/0002-...`, `7be8987`); carried first |
 
 These are our own fixes, carried here. Sending them to GNUstep is separate
 and follows [docs/UPSTREAM_POLICY.md](../../docs/UPSTREAM_POLICY.md): they

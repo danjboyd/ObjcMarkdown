@@ -128,6 +128,10 @@ modules:
         commit: 23fbe390dfa80c9eadf7174700de8553a985bc8f
       - type: patch
         path: ../patches/libs-back/0001-x11-list-WM_DELETE_WINDOW-on-closable-windows.patch
+      - type: patch
+        path: ../patches/libs-back/0002-x11-answer-TARGETS-and-text-uri-list-for-drags-refus.patch
+      - type: patch
+        path: ../patches/libs-back/0003-x11-speak-XDND-version-3-and-send-what-each-version-.patch
 
   - name: adwaita-theme
     buildsystem: simple
