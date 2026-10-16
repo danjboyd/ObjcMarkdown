@@ -1,0 +1,118 @@
+From 24787006862c80fd8046e1ee3b32999fa46d2f56 Mon Sep 17 00:00:00 2001
+From: Daniel Boyd <danieljboyd@icloud.com>
+Date: Fri, 16 Oct 2026 16:25:46 -0500
+Subject: [PATCH 3/3] x11: speak XDND version 3, and send what each version
+ needs
+
+Drags announced XDND version 2.  The specification's change log
+(1998-09-07) says compliance requires version 3 and up, and GTK ignores an
+XdndEnter that says less ("Ignored old XdndEnter message" with
+GDK_DEBUG=dnd), so nothing dragged out of a GNUstep application could be
+dropped on a GTK application.  Version 3 only changed where XdndAware is
+placed (on the top-level window, not subwindows), which is where this
+backend already puts it.
+
+Raising the version showed that dnd_version_at_least() compared the wrong
+way round: ((a) <= (b)), called as (dragging_version, 1) for the time
+stamps and (dragging_version, 2) for the action.  At version 2 a drag sent
+the action but never a time stamp; at version 3 it would send neither, and
+GTK sees no action and refuses the drop.  It now compares (a) >= (b), so
+XdndPosition and XdndDrop carry the time stamp from version 1 and
+XdndPosition the action from version 2, as the specification says.
+
+XdndStatus is sent when a GNUstep window is the drop target, and the
+target side never records the source's version (dragging_version is
+whatever the application's last drag left, 0 at first).  With the corrected
+comparison it would stop sending the accepted action to every source.  It
+now sends the action whenever it accepts, as it did before for every
+version up to 2; versions before 2 treat that field as reserved.
+
+Testing: Tests/x11/xdndversion.m includes xdnd.c, as the other x11 tests
+include the sources they test, and sends the messages with its functions
+to a window the test created, then reads the ClientMessage back from its
+own connection.  It checks that the version is 3 or more; that at
+version 3 XdndPosition has the time and the action and XdndDrop the time;
+that at version 1 XdndPosition has the time and no action, and at
+version 0 neither; and that XdndStatus has the action when it accepts
+(with dragging_version 0) and none when it refuses.  That covers the new
+version, each version-dependent field on both sides of the comparison,
+and guards the target side against the change.  Without this change 5 of
+the 7 checks fail (the two XdndStatus checks pass); with it all 7 pass.
+The whole suite, each backend loaded alone from a private GNUstep.conf on
+Xvfb: 300 passed, none failed, against 295 passed and these 5 failed
+before it; pdfps.m aborts the same way on both, in the installed libs-gui
+snapshot's font roles.
+
+Under GNOME Shell (X11, Xvfb) with Nautilus as the drop target, a file
+dragged out of a GNUstep application with this change and the previous
+one is copied into the folder, byte for byte.  GTK's log shows version 3
+in XdndEnter, the drag's types (text/uri-list), XdndPosition with the
+copy action and a time, two refused portal types, then text/uri-list read.
+Without this change GTK ignores the drag; with it but without the
+previous change GTK asks for TARGETS and gets no answer.
+
+Not covered: a GNUstep window as the drop target of a GTK drag; the
+editable text view tried in the run above takes no file drops with or
+without these changes, so it showed nothing either way.  XdndEnter still
+announces the backend's version rather than min(source, target); every
+compliant target supports version 3, so the two agree.  The time stamps
+in XdndPosition come from the drag loop's NSEvents; XdndDrop's is the
+release event's.
+
+AI assistance: this change, its test and this description were written
+with Claude (Anthropic's Claude Code).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ Headers/x11/xdnd.h |  6 +++++-
+ Source/x11/xdnd.c  | 10 ++++++----
+ 2 files changed, 11 insertions(+), 5 deletions(-)
+
+diff --git a/Headers/x11/xdnd.h b/Headers/x11/xdnd.h
+index 20d94e4..0a8c508 100644
+--- a/Headers/x11/xdnd.h
++++ b/Headers/x11/xdnd.h
+@@ -24,7 +24,11 @@
+ #ifndef _X_DND_H
+ #define _X_DND_H
+ 
+-#define XDND_VERSION 2
++/* XDND compliance starts at version 3; GTK ignores a drag that says
++ * less.  Version 3 only moved XdndAware to the top-level window, where
++ * this backend already puts it.
++ */
++#define XDND_VERSION 3
+ 
+ /* XdndEnter */
+ #define XDND_THREE 3
+diff --git a/Source/x11/xdnd.c b/Source/x11/xdnd.c
+index 94abd51..fa6bd6b 100644
+--- a/Source/x11/xdnd.c
++++ b/Source/x11/xdnd.c
+@@ -35,7 +35,7 @@
+ 
+ 
+ // #define DND_DEBUG 
+-#define dnd_version_at_least(a,b) ((a) <= (b))
++#define dnd_version_at_least(a,b) ((a) >= (b))
+ 
+ #ifdef DND_DEBUG
+ #define dnd_debug(a,b...) printf("%s: %d: " a "\n", __FILE__, __LINE__ , ## b)
+@@ -240,9 +240,11 @@ xdnd_send_status(DndClass *dnd, Window window, Window from, int will_accept,
+     XDND_STATUS_WANT_POSITION_SET (&xevent, want_position);
+   if (want_position)
+     XDND_STATUS_RECT_SET (&xevent, x, y, w, h);
+-  if (dnd_version_at_least (dnd->dragging_version, 2))
+-    if (will_accept)
+-      XDND_STATUS_ACTION (&xevent) = action;
++  /* Sent as a drop target, which doesn't know the source's version;
++   * versions before 2 treat this field as reserved.
++   */
++  if (will_accept)
++    XDND_STATUS_ACTION (&xevent) = action;
+ 
+   XSendEvent (dnd->display, window, 0, 0, &xevent);
+ }
+-- 
+2.47.3
+

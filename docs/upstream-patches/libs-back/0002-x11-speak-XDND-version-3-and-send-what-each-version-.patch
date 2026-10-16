@@ -1,0 +1,271 @@
+From 7be8987273ea3922da71278f041532193a93a2db Mon Sep 17 00:00:00 2001
+From: Daniel Boyd <danieljboyd@icloud.com>
+Date: Fri, 16 Oct 2026 16:25:46 -0500
+Subject: [PATCH 2/2] x11: speak XDND version 3, and send what each version
+ needs
+
+Drags announced XDND version 2.  The specification's change log
+(1998-09-07) says compliance requires version 3 and up, and GTK ignores an
+XdndEnter that says less ("Ignored old XdndEnter message" with
+GDK_DEBUG=dnd), so nothing dragged out of a GNUstep application could be
+dropped on a GTK application.  Version 3 only changed where XdndAware is
+placed (on the top-level window, not subwindows), which is where this
+backend already puts it.
+
+Raising the version showed that dnd_version_at_least() compared the wrong
+way round: ((a) <= (b)), called as (dragging_version, 1) for the time
+stamps and (dragging_version, 2) for the action.  At version 2 a drag sent
+the action but never a time stamp; at version 3 it would send neither, and
+GTK sees no action and refuses the drop.  It now compares (a) >= (b), so
+XdndPosition and XdndDrop carry the time stamp from version 1 and
+XdndPosition the action from version 2, as the specification says.
+
+XdndStatus is sent when a GNUstep window is the drop target, and the
+target side never records the source's version (dragging_version is
+whatever the application's last drag left, 0 at first).  With the corrected
+comparison it would stop sending the accepted action to every source.  It
+now sends the action whenever it accepts, as it did before for every
+version up to 2; versions before 2 treat that field as reserved.
+
+Testing: Tests/x11/xdndversion.m includes xdnd.c, as the other x11 tests
+include the sources they test, and sends the messages with its functions
+to a window the test created, then reads the ClientMessage back from its
+own connection.  It checks that the version is 3 or more; that at
+version 3 XdndPosition has the time and the action and XdndDrop the time;
+that at version 1 XdndPosition has the time and no action, and at
+version 0 neither; and that XdndStatus has the action when it accepts
+(with dragging_version 0) and none when it refuses.  That covers the new
+version, each version-dependent field on both sides of the comparison,
+and guards the target side against the change.  Without this change 5 of
+the 7 checks fail (the two XdndStatus checks pass); with it all 7 pass.
+The whole suite, each backend loaded alone from a private GNUstep.conf on
+Xvfb: 300 passed, none failed, against 295 passed and these 5 failed
+before it; pdfps.m aborts the same way on both, in the installed libs-gui
+snapshot's font roles.
+
+Under GNOME Shell (X11, Xvfb) with Nautilus as the drop target, a file
+dragged out of a GNUstep application with this change and the previous
+one is copied into the folder, byte for byte.  GTK's log shows version 3
+in XdndEnter, the drag's types (text/uri-list), XdndPosition with the
+copy action and a time, two refused portal types, then text/uri-list read.
+Without this change GTK ignores the drag; with it but without the
+previous change GTK asks for TARGETS and gets no answer.
+
+Not covered: a GNUstep window as the drop target of a GTK drag; the
+editable text view tried in the run above takes no file drops with or
+without these changes, so it showed nothing either way.  XdndEnter still
+announces the backend's version rather than min(source, target); every
+compliant target supports version 3, so the two agree.  The time stamps
+in XdndPosition come from the drag loop's NSEvents; XdndDrop's is the
+release event's.
+
+AI assistance: this change, its test and this description were written
+with Claude (Anthropic's Claude Code).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ ChangeLog               |  11 ++++
+ Headers/x11/xdnd.h      |   6 +-
+ Source/x11/xdnd.c       |  10 ++--
+ Tests/x11/xdndversion.m | 125 ++++++++++++++++++++++++++++++++++++++++
+ 4 files changed, 147 insertions(+), 5 deletions(-)
+ create mode 100644 Tests/x11/xdndversion.m
+
+diff --git a/ChangeLog b/ChangeLog
+index 62d695d..9a4f6c3 100644
+--- a/ChangeLog
++++ b/ChangeLog
+@@ -1,3 +1,14 @@
++2026-10-16 Daniel Boyd <danieljboyd@icloud.com>
++
++	* Headers/x11/xdnd.h (XDND_VERSION): 3, the first version XDND
++	compliance requires; GTK ignores a drag that announces less.
++	* Source/x11/xdnd.c (dnd_version_at_least): Compare the right way
++	round, so a drag sends the time stamp from version 1 and the action
++	from version 2, instead of only below them.
++	(xdnd_send_status): Send the accepted action whatever the dragging
++	version; a drop target doesn't know the source's.
++	* Tests/x11/xdndversion.m: New test.
++
+ 2026-10-16 Daniel Boyd <danieljboyd@icloud.com>
+ 
+ 	* Source/x11/XGServerEvent.m (-processEvent:): Answer a drop target's
+diff --git a/Headers/x11/xdnd.h b/Headers/x11/xdnd.h
+index 20d94e4..0a8c508 100644
+--- a/Headers/x11/xdnd.h
++++ b/Headers/x11/xdnd.h
+@@ -24,7 +24,11 @@
+ #ifndef _X_DND_H
+ #define _X_DND_H
+ 
+-#define XDND_VERSION 2
++/* XDND compliance starts at version 3; GTK ignores a drag that says
++ * less.  Version 3 only moved XdndAware to the top-level window, where
++ * this backend already puts it.
++ */
++#define XDND_VERSION 3
+ 
+ /* XdndEnter */
+ #define XDND_THREE 3
+diff --git a/Source/x11/xdnd.c b/Source/x11/xdnd.c
+index 94abd51..fa6bd6b 100644
+--- a/Source/x11/xdnd.c
++++ b/Source/x11/xdnd.c
+@@ -35,7 +35,7 @@
+ 
+ 
+ // #define DND_DEBUG 
+-#define dnd_version_at_least(a,b) ((a) <= (b))
++#define dnd_version_at_least(a,b) ((a) >= (b))
+ 
+ #ifdef DND_DEBUG
+ #define dnd_debug(a,b...) printf("%s: %d: " a "\n", __FILE__, __LINE__ , ## b)
+@@ -240,9 +240,11 @@ xdnd_send_status(DndClass *dnd, Window window, Window from, int will_accept,
+     XDND_STATUS_WANT_POSITION_SET (&xevent, want_position);
+   if (want_position)
+     XDND_STATUS_RECT_SET (&xevent, x, y, w, h);
+-  if (dnd_version_at_least (dnd->dragging_version, 2))
+-    if (will_accept)
+-      XDND_STATUS_ACTION (&xevent) = action;
++  /* Sent as a drop target, which doesn't know the source's version;
++   * versions before 2 treat this field as reserved.
++   */
++  if (will_accept)
++    XDND_STATUS_ACTION (&xevent) = action;
+ 
+   XSendEvent (dnd->display, window, 0, 0, &xevent);
+ }
+diff --git a/Tests/x11/xdndversion.m b/Tests/x11/xdndversion.m
+new file mode 100644
+index 0000000..d175998
+--- /dev/null
++++ b/Tests/x11/xdndversion.m
+@@ -0,0 +1,125 @@
++/* The XDND version a drag speaks, and the fields each version carries.
++ * XDND compliance starts at version 3 (the specification's change log,
++ * 1998-09-07); GTK, for one, ignores an XdndEnter that says less.  From
++ * version 1 XdndPosition and XdndDrop carry a time stamp, from version 2
++ * XdndPosition carries the action.  XdndStatus carries the accepted action
++ * whatever version the source speaks: the target side doesn't track it,
++ * and versions before 2 treat that field as reserved.
++ *
++ * The messages are sent with xdnd.c's own functions to a window this test
++ * created, so they arrive on the test's connection and can be read back.
++ */
++#import <Foundation/Foundation.h>
++#import "Testing.h"
++#include "config.h"
++
++#if defined(BUILD_SERVER) && defined(SERVER_x11) && BUILD_SERVER == SERVER_x11
++
++#include <X11/Xlib.h>
++#include "x11/xdnd.h"
++#include "x11/xdnd.c"
++
++/* The next ClientMessage sent to window, or NO if none came. */
++static BOOL
++nextMessage(Display *dpy, Window window, XEvent *event)
++{
++  XSync(dpy, False);
++  return XCheckTypedWindowEvent(dpy, window, ClientMessage, event)
++    ? YES : NO;
++}
++
++int
++main(int argc, const char **argv)
++{
++  START_SET("XDND version")
++
++  NSAutoreleasePool	*pool = [NSAutoreleasePool new];
++  Display		*dpy;
++  DndClass		dnd;
++  Window		source;
++  Window		target;
++  Atom			copy;
++  XEvent		event;
++  BOOL			got;
++
++  if (getenv("DISPLAY") == NULL || *getenv("DISPLAY") == '\0')
++    {
++      SKIP("no window server available")
++    }
++  dpy = XOpenDisplay(NULL);
++  if (dpy == NULL)
++    {
++      SKIP("no window server available")
++    }
++
++  xdnd_init(&dnd, dpy);
++  copy = dnd.XdndActionCopy;
++  source = XCreateSimpleWindow(dpy, DefaultRootWindow(dpy),
++    0, 0, 1, 1, 0, 0, 0);
++  target = XCreateSimpleWindow(dpy, DefaultRootWindow(dpy),
++    0, 0, 1, 1, 0, 0, 0);
++
++  PASS(dnd.version >= 3, "the backend speaks XDND version 3 or later");
++
++  dnd.dragging_version = 3;
++  xdnd_send_position(&dnd, target, source, copy, 10, 20, 1234);
++  got = nextMessage(dpy, target, &event);
++  PASS(got && XDND_POSITION_TIME(&event) == 1234
++    && XDND_POSITION_ACTION(&event) == (long)copy,
++    "at version 3 XdndPosition has the time and the action");
++
++  xdnd_send_drop(&dnd, target, source, 5678);
++  got = nextMessage(dpy, target, &event);
++  PASS(got && XDND_DROP_TIME(&event) == 5678,
++    "at version 3 XdndDrop has the time");
++
++  dnd.dragging_version = 1;
++  xdnd_send_position(&dnd, target, source, copy, 10, 20, 1234);
++  got = nextMessage(dpy, target, &event);
++  PASS(got && XDND_POSITION_TIME(&event) == 1234
++    && XDND_POSITION_ACTION(&event) == 0,
++    "at version 1 XdndPosition has the time and no action");
++
++  dnd.dragging_version = 0;
++  xdnd_send_position(&dnd, target, source, copy, 10, 20, 1234);
++  got = nextMessage(dpy, target, &event);
++  PASS(got && XDND_POSITION_TIME(&event) == 0
++    && XDND_POSITION_ACTION(&event) == 0,
++    "at version 0 XdndPosition has neither");
++
++  /* The target side: dragging_version is whatever the last drag left. */
++  dnd.dragging_version = 0;
++  xdnd_send_status(&dnd, target, source, 1, 0, 0, 0, 0, 0, copy);
++  got = nextMessage(dpy, target, &event);
++  PASS(got && XDND_STATUS_WILL_ACCEPT(&event)
++    && XDND_STATUS_ACTION(&event) == (long)copy,
++    "an accepting XdndStatus has the action");
++
++  xdnd_send_status(&dnd, target, source, 0, 0, 0, 0, 0, 0, copy);
++  got = nextMessage(dpy, target, &event);
++  PASS(got && XDND_STATUS_WILL_ACCEPT(&event) == 0
++    && XDND_STATUS_ACTION(&event) == 0,
++    "a refusing XdndStatus has no action");
++
++  XDestroyWindow(dpy, source);
++  XDestroyWindow(dpy, target);
++  XCloseDisplay(dpy);
++  [pool release];
++
++  END_SET("XDND version")
++
++  return 0;
++}
++
++#else
++
++int
++main(int argc, const char **argv)
++{
++  START_SET("XDND version")
++    SKIP("back is not built with the x11 server")
++  END_SET("XDND version")
++  return 0;
++}
++
++#endif
+-- 
+2.47.3
+

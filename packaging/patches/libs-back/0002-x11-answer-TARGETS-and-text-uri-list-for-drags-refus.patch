@@ -1,0 +1,193 @@
+From d718f402094a0f16eb86c9980c73d965b8226c6b Mon Sep 17 00:00:00 2001
+From: Daniel Boyd <danieljboyd@icloud.com>
+Date: Fri, 16 Oct 2026 16:19:21 -0500
+Subject: [PATCH 2/3] x11: answer TARGETS and text/uri-list for drags, refuse
+ the rest
+
+A drag of file names (NSFilenamesPboardType) offers the drop target
+text/uri-list in its type list, but the SelectionRequest handler only
+answered the string targets.  A target that asked for TARGETS, as ICCCM
+requires and as GTK does before anything else, or for text/uri-list got
+no reply at all, not even a refusal, so it waited and then gave up:
+files dragged out of a GNUstep application could not be dropped on a
+file manager, a browser or a mail composer.
+
+The handler now answers three ways:
+- TARGETS: the atoms of the types the drag offers (TARGETS itself,
+  UTF8_STRING, STRING and TEXT for a string, text/uri-list for files);
+- text/uri-list: the files as file URIs, one per line, each line ending
+  in CRLF (RFC 2483);
+- anything it can't give: SelectionNotify with property None, at once.
+The string targets are answered as before.
+
+Testing: Tests/x11/xdndfilenames.m plays the drop target from a second
+X connection.  It makes a GNUstep window the owner of XdndSelection on
+the backend's own connection, as starting a drag does (the X server
+sends a SelectionRequest to the client that set the owner), asks for a
+target with XConvertSelection while the application waits for events,
+and reads back the property and the SelectionNotify.  With two files on
+the drag pasteboard, one with a space in its path, it checks that
+TARGETS lists text/uri-list and TARGETS and not UTF8_STRING, that
+text/uri-list gives exactly
+"file:///tmp/xdnd%20test/a%20b.txt\r\nfile:///tmp/c.pdf\r\n", and that
+UTF8_STRING is refused at once; with a string, that UTF8_STRING still
+gives the string, that TARGETS lists UTF8_STRING and not text/uri-list,
+and that text/uri-list is refused at once.  That covers each new answer,
+the format of the list, and guards the existing string path and against
+offering types the drag doesn't have.  It needs a display but no window
+manager and no drag.
+
+On a private Xvfb, each backend loaded from a GNUstep.conf whose user
+Library held only that build: without this change 7 of the 9 checks
+fail (2 pass: the string answer, and one check that holds when nothing
+is answered); with it all 9 pass.  The whole suite: 293 passed, none
+failed, against 286 passed and 7 failed on master; pdfps.m aborts the
+same way on both, in the installed libs-gui snapshot's font roles.
+
+Not covered by the test: a real drop.  Under GNOME Shell (X11, Xvfb),
+dragging a file from a GNUstep application onto Nautilus still fails
+with this change alone: GTK ignores the drag because the XdndEnter
+message says version 2 ("Ignored old XdndEnter message").  The next
+change speaks version 3; with both, the file is copied into the folder.
+
+AI assistance: this change, its test and this description were written
+with Claude (Anthropic's Claude Code).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ Source/x11/XGServerEvent.m | 91 ++++++++++++++++++++++++++++++++++++--
+ 1 file changed, 88 insertions(+), 3 deletions(-)
+
+diff --git a/Source/x11/XGServerEvent.m b/Source/x11/XGServerEvent.m
+index c98ecb3..c08aef0 100644
+--- a/Source/x11/XGServerEvent.m
++++ b/Source/x11/XGServerEvent.m
+@@ -44,6 +44,7 @@
+ #include <Foundation/NSRunLoop.h>
+ #include <Foundation/NSDebug.h>
+ #include <Foundation/NSDistributedNotificationCenter.h>
++#include <Foundation/NSURL.h>
+ 
+ #include "x11/XGServerWindow.h"
+ #include "x11/XGInputServer.h"
+@@ -98,6 +99,26 @@ static KeySym _help_keysyms[2];
+ static BOOL _is_keyboard_initialized = NO;
+ static BOOL _mod_ignore_shift = NO;
+ 
++/* Tells the requestor of a selection that its request is done: property
++ * holds the data, or is None when the request is refused (ICCCM 2.2).
++ */
++static void
++sendSelectionNotify(Display *display, XSelectionRequestEvent *request,
++  Atom property)
++{
++  XEvent	reply;
++
++  memset(&reply, 0, sizeof(reply));
++  reply.xselection.type = SelectionNotify;
++  reply.xselection.display = request->display;
++  reply.xselection.requestor = request->requestor;
++  reply.xselection.selection = request->selection;
++  reply.xselection.target = request->target;
++  reply.xselection.property = property;
++  reply.xselection.time = request->time;
++  XSendEvent(display, request->requestor, False, 0, &reply);
++}
++
+ /*
+   Mouse properties. In comments below specified defaults key and default value.
+ */
+@@ -1890,7 +1911,37 @@ posixFileDescriptor: (NSPosixFileDescriptor*)fileDescriptor
+           NSPasteboard *pb = [NSPasteboard pasteboardWithName: NSDragPboard];
+           NSArray *types = [pb types];
+           NSData *data = nil;
+-          Atom xType = xEvent.xselectionrequest.target;
++          XSelectionRequestEvent *request = &xEvent.xselectionrequest;
++          Atom xType = request->target;
++          Atom targetsAtom = XInternAtom(dpy, "TARGETS", False);
++          Atom uriListAtom = XInternAtom(dpy, "text/uri-list", False);
++
++          if (xType == targetsAtom)
++            {
++              /* A drop target first asks which types it can have, as
++               * ICCCM requires; GTK, for one, asks for nothing else until
++               * it knows.
++               */
++              Atom	targets[5];
++              int	count = 0;
++
++              targets[count++] = targetsAtom;
++              if ([types containsObject: NSStringPboardType])
++                {
++                  targets[count++] = generic.UTF8_STRING_ATOM;
++                  targets[count++] = XA_STRING;
++                  targets[count++] = generic.TEXT_ATOM;
++                }
++              if ([types containsObject: NSFilenamesPboardType])
++                {
++                  targets[count++] = uriListAtom;
++                }
++              XChangeProperty(dpy, request->requestor, request->property,
++                              XA_ATOM, 32, PropModeReplace,
++                              (unsigned char *)targets, count);
++              sendSelectionNotify(dpy, request, request->property);
++              break;
++            }
+ 
+           if (((xType == generic.UTF8_STRING_ATOM) || 
+                (xType == XA_STRING) || 
+@@ -1908,6 +1959,33 @@ posixFileDescriptor: (NSPosixFileDescriptor*)fileDescriptor
+                   data = [s dataUsingEncoding: NSISOLatin1StringEncoding];
+                 }
+             }
++          else if ((xType == uriListAtom)
++            && [types containsObject: NSFilenamesPboardType])
++            {
++              /* Dragged files, as file managers and browsers take them:
++               * one file URI per line, each line ending in CRLF
++               * (RFC 2483).
++               */
++              NSArray		*names;
++              NSMutableString	*list;
++              NSEnumerator	*e;
++              NSString		*name;
++
++              names = [pb propertyListForType: NSFilenamesPboardType];
++              list = [NSMutableString string];
++              e = [names objectEnumerator];
++              while ((name = [e nextObject]) != nil)
++                {
++                  NSURL	*url = [NSURL fileURLWithPath: name];
++
++                  [list appendString: [url absoluteString]];
++                  [list appendString: @"\r\n"];
++                }
++              if ([list length] > 0)
++                {
++                  data = [list dataUsingEncoding: NSUTF8StringEncoding];
++                }
++            }
+           // FIXME: Add support for more types. See: xpbs.m
+ 
+           if (data != nil)
+@@ -1915,8 +1993,15 @@ posixFileDescriptor: (NSPosixFileDescriptor*)fileDescriptor
+               DndClass dnd = xdnd();
+ 
+               // Send the data to the other process
+-              xdnd_selection_send(&dnd, &xEvent.xselectionrequest, 
+-                                  (unsigned char *)[data bytes], [data length]);        
++              xdnd_selection_send(&dnd, request,
++                                  (unsigned char *)[data bytes], [data length]);
++            }
++          else
++            {
++              /* Refuse what we can't give at once, rather than leave the
++               * requestor waiting for a reply that never comes.
++               */
++              sendSelectionNotify(dpy, request, None);
+             }
+         }
+         break;
+-- 
+2.47.3
+
