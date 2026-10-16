@@ -162,7 +162,10 @@ void OMDAddShareMenuItems(NSMenu *menu, id target)
 {
     NSToolbarItem *item = nil;
     if ([_presenter respondsToSelector:@selector(shareToolbarItemWithIdentifier:itemProvider:)]) {
-        OMDShareController *controller = self;
+        // __block: under manual retain counting a copied block doesn't
+        // retain it, so the presenter keeping the block doesn't keep this
+        // controller alive (it outlives every click on the item).
+        __block OMDShareController *controller = self;
         item = [_presenter shareToolbarItemWithIdentifier:identifier
                                              itemProvider:^OMDShareItem *(void) {
             return [controller exportInFormat:[OMDShareController lastFormat]];

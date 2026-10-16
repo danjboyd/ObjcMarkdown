@@ -4321,13 +4321,25 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
     return [_currentPath stringByDeletingLastPathComponent];
 }
 
+// Rendered for a reader, not for this window: the default (light) theme
+// at 100%, as the PDF is, whatever the viewer's theme and zoom.
 - (NSAttributedString *)shareRenderedText
 {
-    NSTextStorage *storage = [_textView textStorage];
-    if (storage == nil || [storage length] == 0) {
+    NSString *markdown = [self markdownForCurrentPreview];
+    if (markdown == nil) {
         return nil;
     }
-    return [[[NSAttributedString alloc] initWithAttributedString:storage] autorelease];
+    OMMarkdownParsingOptions *options = nil;
+    if (_renderer != nil && [_renderer parsingOptions] != nil) {
+        options = [[[_renderer parsingOptions] copy] autorelease];
+    } else {
+        options = [OMMarkdownParsingOptions defaultOptions];
+    }
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] initWithTheme:nil
+                                                               parsingOptions:options] autorelease];
+    [renderer setZoomScale:1.0];
+    [renderer setLayoutWidth:680.0];
+    return [renderer attributedStringFromMarkdown:markdown];
 }
 
 - (BOOL)shareWritePDFToPath:(NSString *)path

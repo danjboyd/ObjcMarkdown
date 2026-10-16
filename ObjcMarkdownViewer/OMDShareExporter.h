@@ -28,7 +28,7 @@ typedef NS_ENUM(NSInteger, OMDShareErrorCode) {
 - (NSString *)shareMarkdownText;
 // Where relative images resolve, or nil.
 - (NSString *)shareResourceDirectory;
-// The rendered document (the preview's text), or nil.
+// The rendered document for a reader (default theme, 100%), or nil.
 - (NSAttributedString *)shareRenderedText;
 // Writes the PDF the app prints (Export as PDF) to path.
 - (BOOL)shareWritePDFToPath:(NSString *)path;
