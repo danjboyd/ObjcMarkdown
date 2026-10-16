@@ -33,6 +33,7 @@
 #import "OMDMainMenu.h"
 #import "OMDToolbarController.h"
 #import "OMDShareController.h"
+#import "OMDRichPasteboard.h"
 #import "OMDStatusBarController.h"
 #import "OMDCopyButtonsController.h"
 #import "OMDRenderScheduler.h"
@@ -2092,6 +2093,9 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
     }
     if (action == @selector(emailDocument:)) {
         [menuItem setTitle:[OMDShareController emailMenuTitle]];
+        return [self hasLoadedDocument];
+    }
+    if (action == @selector(copyRenderedDocument:)) {
         return [self hasLoadedDocument];
     }
     if (action == @selector(showDocumentInFolder:)) {
@@ -4283,6 +4287,19 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
         return;
     }
     [[self shareController] emailDocument];
+}
+
+- (void)copyRenderedDocument:(id)sender
+{
+    (void)sender;
+    if (![self hasLoadedDocument]) {
+        return;
+    }
+    if (!OMDWriteRenderedDocumentToPasteboard([NSPasteboard generalPasteboard],
+                                              [self shareMarkdownText],
+                                              [self shareRenderedText])) {
+        NSBeep();
+    }
 }
 
 - (void)showDocumentInFolder:(id)sender
