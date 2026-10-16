@@ -51,8 +51,10 @@ Share >
 - What is shared is what is on screen, including unsaved edits. No "save
   first?" prompt.
 - File names come from the document: `Q3 Plan.pdf`, never `export-7f3a.pdf`.
-  Temporary files go in a per-share directory under the app's temp
-  directory and are removed at quit and at next launch.
+  Temporary files go in a per-launch directory under the app's temp
+  directory (0700). Nothing is deleted when the picker returns: AirDrop,
+  Messages and Mail read the file seconds later. Directories of earlier
+  launches are swept at the next launch.
 - ODT and RTF stay under File > Export; the Share menu lists the formats
   people send.
 
@@ -119,6 +121,67 @@ other's files:
 
 The Linux agent lands this skeleton first (with stub presenters), so the
 macOS and Windows agents build their presenters against it.
+
+### Skeleton API
+
+```objc
+typedef NS_ENUM(NSInteger, OMDShareFormat) {
+    OMDShareFormatPDF = 0,
+    OMDShareFormatWord,      /* .docx via Pandoc */
+    OMDShareFormatMarkdown,
+    OMDShareFormatHTML
+};
+
+/* OMDShareItem.h */
+@interface OMDShareItem : NSObject
+@property (nonatomic, readonly, copy) NSString *title;        /* "Q3 Plan" */
+@property (nonatomic, readonly) OMDShareFormat format;
+@property (nonatomic, readonly, copy) NSURL *fileURL;         /* exported file */
+@property (nonatomic, readonly, copy) NSAttributedString *renderedText; /* may be nil */
+@end
+
+/* OMDShareExporter.h */
+@interface OMDShareExporter : NSObject
++ (NSString *)fileExtensionForFormat:(OMDShareFormat)format;
++ (NSString *)displayNameForFormat:(OMDShareFormat)format;   /* "PDF", "Word Document" */
++ (NSString *)launchTemporaryDirectory;                       /* created 0700 on first use */
++ (void)sweepStaleTemporaryDirectories;                       /* called at launch */
+- (instancetype)initWithWindowController:(OMDWindowController *)controller;
+/* Exports the current buffer (unsaved edits included). Never deletes the file. */
+- (OMDShareItem *)shareItemForFormat:(OMDShareFormat)format error:(NSError **)error;
+@end
+
+/* OMDSharePresenter.h */
+@protocol OMDSharePresenter <NSObject>
+- (void)presentShareItem:(OMDShareItem *)item fromView:(NSView *)view;
+- (void)emailShareItem:(OMDShareItem *)item;
+- (void)showShareItemInFolder:(OMDShareItem *)item;
+- (void)copyFileOfShareItem:(OMDShareItem *)item;
+@optional
+/* A platform's own toolbar item (macOS: NSSharingServicePickerToolbarItem).
+   The provider exports lazily, when the picker opens, in the last-used
+   format. Without this, the controller makes an NSMenuToolbarItem with
+   share-symbolic and the Share menu. */
+- (NSToolbarItem *)shareToolbarItemWithIdentifier:(NSString *)identifier
+                                     itemProvider:(OMDShareItem *(^)(void))provider;
+@end
+id<OMDSharePresenter> OMDCreatePlatformSharePresenter(void);  /* one per platform file */
+
+/* OMDShareNotice.h: the fallback notice, standard controls, tooltip colours */
+@interface OMDShareNotice : NSObject
+/* message: "Your email app can't receive attachments directly."
+   Shows the file (drag source where supported), Copy File and Show in Folder,
+   which call back into the presenter. Non-modal; closes on Escape or when
+   the window it is attached to closes. */
++ (void)showNoticeWithMessage:(NSString *)message
+                    shareItem:(OMDShareItem *)item
+                    presenter:(id<OMDSharePresenter>)presenter
+                    forWindow:(NSWindow *)window;
+@end
+```
+
+File > Share is our own submenu on every platform (the same items
+everywhere); the toolbar item is the platform's where it has one.
 
 ## The library (milestone 2): a GNUstep share sheet
 
