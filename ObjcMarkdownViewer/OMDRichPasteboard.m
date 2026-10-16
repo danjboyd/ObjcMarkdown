@@ -86,7 +86,8 @@ BOOL OMDWriteRenderedDocumentToPasteboard(NSPasteboard *pasteboard,
     }
     NSData *rtf = nil;
     if (rendered != nil && [rendered length] > 0) {
-        rtf = [rendered RTFFromRange:NSMakeRange(0, [rendered length]) documentAttributes:nil];
+        rtf = [rendered RTFFromRange:NSMakeRange(0, [rendered length])
+                 documentAttributes:[NSDictionary dictionary]];
     }
     NSString *plain = markdown;
     if (rendered != nil && [rendered length] > 0) {
