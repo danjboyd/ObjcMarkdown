@@ -38,4 +38,23 @@
     XCTAssertFalse(OMDMailAppTakesAttachments(nil));
 }
 
+- (void)testThunderbirdIsRecognised
+{
+    XCTAssertTrue(OMDMailAppIsThunderbird(@"thunderbird.desktop"));
+    XCTAssertTrue(OMDMailAppIsThunderbird(@"net.thunderbird.Thunderbird.desktop"));
+    XCTAssertTrue(OMDMailAppIsThunderbird(@"eu.betterbird.Betterbird.desktop"));
+    XCTAssertFalse(OMDMailAppIsThunderbird(@"org.gnome.Evolution.desktop"));
+    XCTAssertFalse(OMDMailAppIsThunderbird(nil));
+}
+
+- (void)testThunderbirdComposeArgument
+{
+    XCTAssertEqualObjects(OMDThunderbirdComposeArgument(@"Q3 Plan", @"/tmp/x/Q3 Plan.html"),
+                          @"subject='Q3 Plan',message='/tmp/x/Q3 Plan.html',format=html");
+    XCTAssertEqualObjects(OMDThunderbirdComposeArgument(@"Dan's plan, v2", @"/tmp/a.html"),
+                          @"subject='Dans plan v2',message='/tmp/a.html',format=html");
+    XCTAssertNil(OMDThunderbirdComposeArgument(@"x", @"/tmp/it's.html"));
+    XCTAssertNil(OMDThunderbirdComposeArgument(@"x", nil));
+}
+
 @end

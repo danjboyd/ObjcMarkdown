@@ -26,3 +26,24 @@ BOOL OMDMailAppTakesAttachments(NSString *appID)
     }
     return NO;
 }
+
+BOOL OMDMailAppIsThunderbird(NSString *appID)
+{
+    NSString *lower = [appID lowercaseString];
+    if ([lower length] == 0) {
+        return NO;
+    }
+    return [lower rangeOfString:@"thunderbird"].location != NSNotFound ||
+           [lower rangeOfString:@"betterbird"].location != NSNotFound;
+}
+
+NSString *OMDThunderbirdComposeArgument(NSString *subject, NSString *path)
+{
+    if ([path length] == 0 || [path rangeOfString:@"'"].location != NSNotFound) {
+        return nil;
+    }
+    NSMutableString *clean = [NSMutableString stringWithString:(subject != nil ? subject : @"")];
+    [clean replaceOccurrencesOfString:@"'" withString:@"" options:0 range:NSMakeRange(0, [clean length])];
+    [clean replaceOccurrencesOfString:@"," withString:@"" options:0 range:NSMakeRange(0, [clean length])];
+    return [NSString stringWithFormat:@"subject='%@',message='%@',format=html", clean, path];
+}

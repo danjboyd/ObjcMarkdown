@@ -248,9 +248,27 @@ static NSInteger OMDShareSheetChoices[] = {
     }
     NSString *title = [OMDShareExporter safeFileBaseName:[_source shareBaseName]];
     NSAttributedString *rendered = [_source shareRenderedText];
+    // The document as an HTML file too, for a mail app that takes its body
+    // from a file (Thunderbird); nil if it couldn't be written.
+    NSURL *htmlFile = nil;
+    NSString *directory = [OMDShareExporter launchTemporaryDirectory];
+    NSString *html = OMDClipboardHTMLFromMarkdown(markdown);
+    if (directory != nil && html != nil) {
+        NSString *path = [[directory stringByAppendingPathComponent:@"message"]
+                             stringByAppendingPathComponent:[title stringByAppendingPathExtension:@"html"]];
+        [[NSFileManager defaultManager] createDirectoryAtPath:[path stringByDeletingLastPathComponent]
+                                  withIntermediateDirectories:YES
+                                                   attributes:nil
+                                                        error:NULL];
+        // The fragment starts with its charset, which a body may hold.
+        NSString *document = [NSString stringWithFormat:@"<!DOCTYPE html>\n<html><body>%@</body></html>\n", html];
+        if ([document writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:NULL]) {
+            htmlFile = [NSURL fileURLWithPath:path];
+        }
+    }
     OMDShareItem *item = [[[OMDShareItem alloc] initWithTitle:title
                                                        format:OMDShareFormatHTML
-                                                      fileURL:nil
+                                                      fileURL:htmlFile
                                                  renderedText:rendered] autorelease];
     OMDShareSetLastEmailChoice(OMDShareEmailInMessageTag);
     // A mail app that takes the body itself (Mail on macOS).
