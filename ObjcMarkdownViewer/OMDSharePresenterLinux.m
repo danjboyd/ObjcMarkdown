@@ -86,7 +86,31 @@ static BOOL OMDCallPortalWithFile(const char *interface,
     return called;
 }
 
+// Opens a URI with the desktop's default app for it, as GIO finds it
+// (GNUstep's NSWorkspace has no handler for mailto: and says so in an
+// alert).
+static BOOL OMDLaunchDefaultForURL(NSURL *url)
+{
+    const char *uri = [[url absoluteString] UTF8String];
+    if (uri == NULL) {
+        return NO;
+    }
+    GError *error = NULL;
+    gboolean launched = g_app_info_launch_default_for_uri(uri, NULL, &error);
+    g_clear_error(&error);
+    return launched ? YES : NO;
+}
+
 @implementation OMDSharePresenterLinux
+
+- (void)emailShareItemWithMailtoDraft:(OMDShareItem *)item forWindow:(NSWindow *)window
+{
+    BOOL opened = OMDLaunchDefaultForURL(OMDMailtoURLWithSubject([item title]));
+    NSString *message = opened
+        ? [NSString stringWithFormat:@"Attach \u201C%@\u201D to the email.", [item fileName]]
+        : [NSString stringWithFormat:@"No email app opened. \u201C%@\u201D is ready to attach.", [item fileName]];
+    [OMDShareNotice showNoticeWithMessage:message shareItem:item presenter:self forWindow:window];
+}
 
 - (void)presentShareItem:(OMDShareItem *)item fromView:(NSView *)view
 {
@@ -140,7 +164,7 @@ static BOOL OMDCallPortalWithFile(const char *interface,
     }
     // A webmail tab or another app that can't take the file: the draft,
     // and the file to drag into it.
-    OMDOpenURL(OMDMailtoURLWithSubject(subject));
+    OMDLaunchDefaultForURL(OMDMailtoURLWithSubject(subject));
     NSString *message = [NSString stringWithFormat:@"Your email app can't receive attachments directly. Attach \u201C%@\u201D to the email.",
                                                    [item fileName]];
     [OMDShareNotice showNoticeWithMessage:message shareItem:item presenter:self forWindow:window];
