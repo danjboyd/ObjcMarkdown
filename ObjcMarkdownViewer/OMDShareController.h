@@ -7,7 +7,8 @@
 
 // The Share items, the same in File > Share and the toolbar's menu: each
 // "Share as" item has its format as its tag and the action shareDocument:;
-// then emailDocument:, copyRenderedDocument: and showDocumentInFolder:.
+// then the Email as submenu (emailDocument:, tagged by format the same
+// way), copyRenderedDocument: and showDocumentInFolder:.
 // The target is not retained (nil sends them along the responder chain).
 void OMDAddShareMenuItems(NSMenu *menu, id target);
 
@@ -34,16 +35,13 @@ void OMDAddShareMenuItems(NSMenu *menu, id target);
 // Exports in format and presents the file from view (the window's content
 // view if nil). Errors are shown in an alert.
 - (void)shareInFormat:(OMDShareFormat)format fromView:(NSView *)view;
-// An email draft with the document attached in the last format.
-- (void)emailDocument;
+// An email draft with the document attached in format.
+- (void)emailDocumentInFormat:(OMDShareFormat)format;
 // The document's own file in the file manager.
 - (void)showDocumentFileInFolder:(NSString *)path;
 
 // The toolbar's Share item: the presenter's own, or one that pops up the
 // Share menu with actions to target.
 - (NSToolbarItem *)toolbarItemWithIdentifier:(NSString *)identifier target:(id)target;
-
-// "Email as PDF..." for the last format.
-+ (NSString *)emailMenuTitle;
 
 @end
