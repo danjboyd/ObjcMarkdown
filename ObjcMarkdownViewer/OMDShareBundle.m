@@ -182,8 +182,13 @@ static void OMDShareBundleRewrite(NSMutableString *markdown, NSString *reference
     NSString *escaped = [NSRegularExpression escapedPatternForString:reference];
     NSString *pattern = [NSString stringWithFormat:@"\\]\\((?:<%@>|%@(?=[\\s)]))", escaped, escaped];
     NSRegularExpression *expression = [NSRegularExpression regularExpressionWithPattern:pattern options:0 error:NULL];
-    NSString *template = [NSRegularExpression escapedTemplateForString:
-        [NSString stringWithFormat:@"](%@", destination]];
+    // A template with \ and $ escaped (GNUstep has no
+    // +escapedTemplateForString:).
+    NSMutableString *template = [NSMutableString stringWithFormat:@"](%@", destination];
+    [template replaceOccurrencesOfString:@"\\" withString:@"\\\\" options:0
+                                   range:NSMakeRange(0, [template length])];
+    [template replaceOccurrencesOfString:@"$" withString:@"\\$" options:0
+                                   range:NSMakeRange(0, [template length])];
     [expression replaceMatchesInString:markdown options:0 range:NSMakeRange(0, [markdown length])
                           withTemplate:template];
     NSArray *quotes = [NSArray arrayWithObjects:@"\"", @"'", nil];
