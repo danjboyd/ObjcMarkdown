@@ -16,6 +16,32 @@
 #define OMDPasteboardTypeString NSPasteboardTypeString
 #endif
 
+static void OMDReplaceAll(NSMutableString *string, NSString *target, NSString *replacement)
+{
+    [string replaceOccurrencesOfString:target
+                            withString:replacement
+                               options:0
+                                 range:NSMakeRange(0, [string length])];
+}
+
+// Mail clients ignore <style> blocks, so tables, code and quotes carry
+// their look inline (GitHub's light colours); chats restyle what they keep.
+static void OMDAddInlineStyles(NSMutableString *html)
+{
+    NSString *cell = @"border:1px solid #d0d7de;padding:4px 8px";
+    // Cells with an align attribute first, so plain ones aren't styled twice.
+    OMDReplaceAll(html, @"<table>", @"<table style=\"border-collapse:collapse\">");
+    OMDReplaceAll(html, @"<th ", [NSString stringWithFormat:@"<th style=\"%@\" ", cell]);
+    OMDReplaceAll(html, @"<th>", [NSString stringWithFormat:@"<th style=\"%@\">", cell]);
+    OMDReplaceAll(html, @"<td ", [NSString stringWithFormat:@"<td style=\"%@\" ", cell]);
+    OMDReplaceAll(html, @"<td>", [NSString stringWithFormat:@"<td style=\"%@\">", cell]);
+    // Inline code first, then code blocks (whose <code> follows <pre>).
+    OMDReplaceAll(html, @"<code>", @"<code style=\"background:#eff1f3;padding:1px 4px;border-radius:4px\">");
+    OMDReplaceAll(html, @"<pre><code style=\"background:#eff1f3;padding:1px 4px;border-radius:4px\">", @"<pre><code>");
+    OMDReplaceAll(html, @"<pre>", @"<pre style=\"background:#f6f8fa;padding:8px 12px;border-radius:6px\">");
+    OMDReplaceAll(html, @"<blockquote>", @"<blockquote style=\"margin:0;padding:0 12px;border-left:3px solid #d0d7de;color:#59636e\">");
+}
+
 NSString *OMDClipboardHTMLFromMarkdown(NSString *markdown)
 {
     if (markdown == nil) {
@@ -44,6 +70,7 @@ NSString *OMDClipboardHTMLFromMarkdown(NSString *markdown)
                               withString:@"&#9744; "
                                  options:0
                                    range:NSMakeRange(0, [fragment length])];
+    OMDAddInlineStyles(fragment);
     return [NSString stringWithFormat:@"<meta charset=\"utf-8\">%@", fragment];
 }
 

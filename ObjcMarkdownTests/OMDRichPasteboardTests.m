@@ -22,15 +22,24 @@
     XCTAssertTrue([html hasPrefix:@"<meta charset=\"utf-8\">"]);
     [self assertHTML:html contains:@"<h1>Plan</h1>"];
     [self assertHTML:html contains:@"<li><strong>two</strong></li>"];
-    [self assertHTML:html contains:@"<pre><code>a &lt; b\n</code></pre>"];
+    [self assertHTML:html contains:@"<pre style=\"background:#f6f8fa;padding:8px 12px;border-radius:6px\"><code>a &lt; b\n</code></pre>"];
 }
 
 - (void)testGitHubExtensionsRender
 {
     NSString *html = OMDClipboardHTMLFromMarkdown(@"| a | b |\n|---|---|\n| 1 | 2 |\n\n~~gone~~\n");
-    [self assertHTML:html contains:@"<table>"];
-    [self assertHTML:html contains:@"<td>2</td>"];
+    [self assertHTML:html contains:@"<table style=\"border-collapse:collapse\">"];
+    [self assertHTML:html contains:@"<td style=\"border:1px solid #d0d7de;padding:4px 8px\">2</td>"];
+    XCTAssertTrue([html rangeOfString:@"<thead style"].location == NSNotFound);
     [self assertHTML:html contains:@"<del>gone</del>"];
+}
+
+- (void)testInlineCodeAndQuotesAreStyledInline
+{
+    NSString *html = OMDClipboardHTMLFromMarkdown(@"> said `x`\n\n| a |\n|:-:|\n| 1 |\n");
+    [self assertHTML:html contains:@"<blockquote style=\"margin:0;padding:0 12px;border-left:3px solid #d0d7de;color:#59636e\">"];
+    [self assertHTML:html contains:@"<code style=\"background:#eff1f3;padding:1px 4px;border-radius:4px\">x</code>"];
+    [self assertHTML:html contains:@"<th style=\"border:1px solid #d0d7de;padding:4px 8px\" align=\"center\">a</th>"];
 }
 
 - (void)testTaskBoxesBecomeBallotBoxes
