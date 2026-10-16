@@ -43,6 +43,40 @@
 
 @end
 
+// The same, with a selection.
+@interface OMDShareSelectionTestSource : OMDShareTestSource
+{
+@public
+    NSString *_selection;
+    NSString *_pdfMarkdown;
+}
+@end
+
+@implementation OMDShareSelectionTestSource
+
+- (void)dealloc
+{
+    [_selection release];
+    [_pdfMarkdown release];
+    [super dealloc];
+}
+
+- (NSString *)shareSelectedSourceText { return _selection; }
+- (NSString *)shareSelectedMarkdownText { return _selection; }
+- (NSAttributedString *)shareRenderedTextForMarkdown:(NSString *)markdown
+{
+    return [[[NSAttributedString alloc] initWithString:markdown] autorelease];
+}
+
+- (BOOL)shareWritePDFForMarkdown:(NSString *)markdown toPath:(NSString *)path
+{
+    [_pdfMarkdown release];
+    _pdfMarkdown = [markdown copy];
+    return [@"%PDF-1.4\n" writeToFile:path atomically:YES encoding:NSASCIIStringEncoding error:NULL];
+}
+
+@end
+
 @interface OMDShareExporterTests : XCTestCase
 @end
 
@@ -204,6 +238,43 @@
     XCTAssertFalse([manager fileExistsAtPath:finished]);
     XCTAssertFalse([manager fileExistsAtPath:old]);
     XCTAssertTrue([manager fileExistsAtPath:current]);
+}
+
+- (void)testSelectionSharesOnlyTheSelection
+{
+    OMDShareSelectionTestSource *source = [[[OMDShareSelectionTestSource alloc] init] autorelease];
+    source->_baseName = [@"Q3 Plan" copy];
+    source->_text = [@"# Plan\n\nAll of it\n" copy];
+    source->_extension = [@"md" copy];
+    source->_selection = [@"Just this" copy];
+    OMDShareExporter *exporter = [[[OMDShareExporter alloc] initWithSource:source] autorelease];
+    XCTAssertTrue([exporter hasSelection]);
+
+    NSError *error = nil;
+    OMDShareItem *item = [exporter shareItemForFormat:OMDShareFormatMarkdown selectionOnly:YES error:&error];
+    XCTAssertNotNil(item, @"%@", error);
+    XCTAssertEqualObjects([NSString stringWithContentsOfURL:[item fileURL] encoding:NSUTF8StringEncoding error:NULL],
+                          @"Just this");
+    XCTAssertEqualObjects([[item renderedText] string], @"Just this");
+
+    item = [exporter shareItemForFormat:OMDShareFormatPDF selectionOnly:YES error:&error];
+    XCTAssertNotNil(item, @"%@", error);
+    XCTAssertEqualObjects(source->_pdfMarkdown, @"Just this");
+    XCTAssertFalse(source->_pdfWritten);
+
+    item = [exporter shareItemForFormat:OMDShareFormatMarkdown selectionOnly:NO error:&error];
+    XCTAssertEqualObjects([NSString stringWithContentsOfURL:[item fileURL] encoding:NSUTF8StringEncoding error:NULL],
+                          @"# Plan\n\nAll of it\n");
+}
+
+- (void)testSelectionOnlyWithoutASelectionFails
+{
+    OMDShareTestSource *source = [self sourceWithName:@"Q3 Plan" text:@"# Plan\n" extension:@"md"];
+    OMDShareExporter *exporter = [[[OMDShareExporter alloc] initWithSource:source] autorelease];
+    XCTAssertFalse([exporter hasSelection]);
+    NSError *error = nil;
+    XCTAssertNil([exporter shareItemForFormat:OMDShareFormatMarkdown selectionOnly:YES error:&error]);
+    XCTAssertEqual([error code], (NSInteger)OMDShareErrorNoDocument);
 }
 
 @end

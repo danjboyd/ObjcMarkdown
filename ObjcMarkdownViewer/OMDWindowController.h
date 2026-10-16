@@ -64,6 +64,9 @@ typedef unsigned short mode_t;
     NSString *_currentSuppressedDiskFingerprint;
     NSInteger _currentDocumentRenderMode;
     NSString *_currentDocumentSyntaxLanguage;
+    // While a selection is printed to PDF for sharing: the Markdown to
+    // print instead of the document.
+    NSString *_printMarkdownOverride;
     BOOL _currentDocumentReadOnly;
     OMDDocumentTabsController *_documentTabsController;
     OMDExplorerController *_explorerController;
