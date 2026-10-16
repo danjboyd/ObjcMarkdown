@@ -528,7 +528,7 @@ static CGFloat OMDPreferencesFinishCard(NSView *card, CGFloat height)
     CGFloat controlWidth = layout.width - rowLabelWidth - 12.0;
 #if defined(GNUSTEP)
     NSString *appearanceSummary = @"Choose the active GNUstep theme, how roomy the interface should feel and where the menus go.";
-    NSString *appearanceNote = @"GNUstep's default scroll speed is at the left. Theme changes apply on next launch; layout mode and scroll speed update immediately. A theme without a menu button keeps the menu bar.";
+    NSString *appearanceNote = @"GNUstep's default scroll speed is at the left. Theme and menu changes apply on next launch (some themes move the menus at once); layout mode and scroll speed update immediately. A theme without a menu button keeps the menu bar.";
 #else
     // On macOS the system draws the app (light or dark is the system's
     // setting), so there is no theme to choose.
