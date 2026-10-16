@@ -1,0 +1,420 @@
+From bb42f0b221935fbe6191ab1bc03156ee68a2a145 Mon Sep 17 00:00:00 2001
+From: Daniel Boyd <danieljboyd@icloud.com>
+Date: Fri, 16 Oct 2026 18:14:31 -0500
+Subject: [PATCH] xpbs: offer copied files as text/uri-list and
+ x-special/gnome-copied-files
+
+When the general pasteboard holds file names (NSFilenamesPboardType),
+xpbs offered them on CLIPBOARD only as FILE_NAME, with the last file as
+a localhost URI.  File managers don't read FILE_NAME, so files copied in
+a GNUstep application could not be pasted into them: they paste copied
+files from x-special/gnome-copied-files (GNOME Files, Nemo, Caja, Thunar)
+or text/uri-list (GNOME Files 4x, Dolphin).
+
+xpbs now also offers, for file names:
+- text/uri-list: every file as a file URI, one per line, each line
+  ending in CRLF (RFC 2483), unless an NSURLPboardType already supplies
+  text/uri-list, which then keeps answering it as before;
+- x-special/gnome-copied-files: "copy" and then a file URI per line,
+  the GNOME convention the GTK file managers read (a copy, never a cut).
+FILE_NAME is answered as before.
+
+Testing: Tests/x11/xpbscopiedfiles.m puts two files (one with a space
+in its name) on the general pasteboard, waits for gpbs to take
+CLIPBOARD, then plays the pasting client from its own X connection: it
+asks for TARGETS, text/uri-list and x-special/gnome-copied-files with
+XConvertSelection and checks the lists and the exact bytes, and checks
+that copied text still answers UTF8_STRING and offers neither file
+type.  It needs the gpbs from this tree running (it skips if no gpbs
+takes CLIPBOARD).  Against the gpbs built from this tree the nine checks
+pass; against an unpatched gpbs the file checks fail.  By hand: copy a
+file in a GNUstep app, paste in GNOME Files.
+
+AI assistance: this change, its test and this description were written
+with Claude (Anthropic's Claude Code).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01QPxa9GM3VNfjDaKvw56sSW
+---
+ ChangeLog                   |  11 ++
+ Tests/x11/xpbscopiedfiles.m | 258 ++++++++++++++++++++++++++++++++++++
+ Tools/xpbs.m                |  51 ++++++-
+ 3 files changed, 318 insertions(+), 2 deletions(-)
+ create mode 100644 Tests/x11/xpbscopiedfiles.m
+
+diff --git a/ChangeLog b/ChangeLog
+index 2b1b779..1c3b770 100644
+--- a/ChangeLog
++++ b/ChangeLog
+@@ -1,3 +1,14 @@
++2026-10-16 Daniel Boyd <danieljboyd@icloud.com>
++
++	* Tools/xpbs.m: When the general pasteboard holds file names, offer
++	them on the X selection the way file managers paste copied files:
++	text/uri-list (unless an NSURLPboardType already gives it), the files
++	as file URIs, one per line, each ending in CRLF; and
++	x-special/gnome-copied-files, "copy" and then a file URI per line.
++	Only FILE_NAME was offered, which file managers don't read, so copied
++	files could not be pasted into them.
++	* Tests/x11/xpbscopiedfiles.m: New test.
++
+ 2026-07-22 Richard Frith-Macdonald <rfm@gnu.org>
+ 
+ 	* Source/x11/XGServerEvent.m:
+diff --git a/Tests/x11/xpbscopiedfiles.m b/Tests/x11/xpbscopiedfiles.m
+new file mode 100644
+index 0000000..eb2161a
+--- /dev/null
++++ b/Tests/x11/xpbscopiedfiles.m
+@@ -0,0 +1,258 @@
++/* Copying files for other X clients to paste.  When the general pasteboard
++ * holds file names, the pasteboard server's X side (xpbs, in gpbs) must
++ * offer them on CLIPBOARD the way file managers paste copied files:
++ * text/uri-list, one file URI per line, each ending in CRLF (RFC 2483),
++ * and x-special/gnome-copied-files, "copy" and then a file URI per line
++ * (read by GNOME Files, Nemo, Caja and Thunar).  Before, only FILE_NAME
++ * was offered, which file managers don't read, so pasting did nothing.
++ *
++ * The test sets the general pasteboard, waits for gpbs to take CLIPBOARD,
++ * and then plays the pasting client from its own X connection: it asks
++ * for TARGETS and for each type with XConvertSelection and reads back what
++ * gpbs wrote.  It needs the gpbs built from this tree to be the one
++ * running (gpbs is started on the first pasteboard use if none is).
++ */
++#import <Foundation/Foundation.h>
++#import "Testing.h"
++#include "config.h"
++
++#if defined(BUILD_SERVER) && defined(SERVER_x11) && BUILD_SERVER == SERVER_x11
++
++#import <AppKit/AppKit.h>
++#include <X11/Xlib.h>
++#include <X11/Xatom.h>
++#include <unistd.h>
++
++/* Asks the CLIPBOARD owner for target, the way a pasting client does.
++ * Returns what it sent (for 32-bit data, the values as an array of Atom),
++ * or nil if it refused or didn't answer within five seconds.  *type is
++ * the property's type, *answered whether a SelectionNotify came.
++ */
++static NSData *
++requestClipboard(Display *dpy, Atom target, Atom *type, BOOL *answered)
++{
++  Atom		selection = XInternAtom(dpy, "CLIPBOARD", False);
++  Atom		property = XInternAtom(dpy, "GS_TEST_PASTE_DATA", False);
++  Window	requestor;
++  XEvent	event;
++  NSData	*result = nil;
++  int		i;
++
++  *type = None;
++  *answered = NO;
++  requestor = XCreateSimpleWindow(dpy, DefaultRootWindow(dpy),
++    0, 0, 1, 1, 0, 0, 0);
++  XConvertSelection(dpy, selection, target, property, requestor, CurrentTime);
++  XFlush(dpy);
++
++  /* gpbs is another process: just wait for its answer. */
++  for (i = 0; i < 100 && *answered == NO; i++)
++    {
++      if (XCheckTypedWindowEvent(dpy, requestor, SelectionNotify, &event))
++	{
++	  *answered = YES;
++	}
++      else
++	{
++	  usleep(50000);
++	}
++    }
++
++  if (*answered && event.xselection.property != None)
++    {
++      Atom		actualType;
++      int		actualFormat;
++      unsigned long	count;
++      unsigned long	remaining;
++      unsigned char	*bytes = NULL;
++
++      if (XGetWindowProperty(dpy, requestor, property, 0, 65536, True,
++	AnyPropertyType, &actualType, &actualFormat, &count, &remaining,
++	&bytes) == Success && bytes != NULL)
++	{
++	  if (actualFormat == 8)
++	    {
++	      result = [NSData dataWithBytes: bytes length: count];
++	    }
++	  else if (actualFormat == 32)
++	    {
++	      /* Xlib returns 32-bit items as longs. */
++	      result = [NSData dataWithBytes: bytes
++				      length: count * sizeof(Atom)];
++	    }
++	  *type = actualType;
++	  XFree(bytes);
++	}
++    }
++  XDestroyWindow(dpy, requestor);
++  XFlush(dpy);
++  return result;
++}
++
++/* Whether a TARGETS answer lists atom. */
++static BOOL
++listsTarget(NSData *targets, Atom atom)
++{
++  const Atom	*atoms = (const Atom *)[targets bytes];
++  NSUInteger	count = [targets length] / sizeof(Atom);
++  NSUInteger	i;
++
++  for (i = 0; i < count; i++)
++    {
++      if (atoms[i] == atom)
++	{
++	  return YES;
++	}
++    }
++  return NO;
++}
++
++static NSString *
++utf8String(NSData *data)
++{
++  if (data == nil)
++    {
++      return nil;
++    }
++  return [[[NSString alloc] initWithData: data
++				encoding: NSUTF8StringEncoding] autorelease];
++}
++
++/* Waits up to five seconds for gpbs to own CLIPBOARD with a window other
++ * than previous; returns the owner, or None.
++ */
++static Window
++waitForClipboardOwner(Display *dpy, Window previous)
++{
++  Atom	selection = XInternAtom(dpy, "CLIPBOARD", False);
++  int	i;
++
++  for (i = 0; i < 100; i++)
++    {
++      Window	owner = XGetSelectionOwner(dpy, selection);
++
++      if (owner != None && owner != previous)
++	{
++	  return owner;
++	}
++      usleep(50000);
++    }
++  return None;
++}
++
++int
++main(int argc, const char **argv)
++{
++  START_SET("xpbs copied files")
++
++  NSAutoreleasePool	*pool = [NSAutoreleasePool new];
++  Display		*dpy;
++  NSPasteboard		*pb;
++  Window		before;
++  Window		owner;
++  Atom			uriList;
++  Atom			gnomeFiles;
++  Atom			fileName;
++  Atom			utf8;
++  Atom			targetsAtom;
++  Atom			type;
++  BOOL			answered;
++  NSData		*data;
++  NSArray		*names;
++
++  if (getenv("DISPLAY") == NULL || *getenv("DISPLAY") == '\0')
++    {
++      SKIP("no window server available")
++    }
++  dpy = XOpenDisplay(NULL);
++  if (dpy == NULL)
++    {
++      SKIP("no window server available")
++    }
++
++  uriList = XInternAtom(dpy, "text/uri-list", False);
++  gnomeFiles = XInternAtom(dpy, "x-special/gnome-copied-files", False);
++  fileName = XInternAtom(dpy, "FILE_NAME", False);
++  utf8 = XInternAtom(dpy, "UTF8_STRING", False);
++  targetsAtom = XInternAtom(dpy, "TARGETS", False);
++  before = XGetSelectionOwner(dpy, XInternAtom(dpy, "CLIPBOARD", False));
++
++  /* Two files, one with a space in its name. */
++  pb = [NSPasteboard generalPasteboard];
++  names = [NSArray arrayWithObjects:
++    @"/tmp/xpbs test/a b.txt", @"/tmp/c.pdf", nil];
++  [pb declareTypes: [NSArray arrayWithObject: NSFilenamesPboardType]
++	     owner: nil];
++  [pb setPropertyList: names forType: NSFilenamesPboardType];
++
++  owner = waitForClipboardOwner(dpy, before);
++  if (owner == None)
++    {
++      SKIP("gpbs did not take CLIPBOARD (no X support in the running gpbs?)")
++    }
++
++  data = requestClipboard(dpy, targetsAtom, &type, &answered);
++  PASS(data != nil && type == XA_ATOM,
++    "copied files answer TARGETS with a list of atoms");
++  PASS(listsTarget(data, uriList) && listsTarget(data, gnomeFiles),
++    "the list has text/uri-list and x-special/gnome-copied-files");
++  PASS(listsTarget(data, fileName),
++    "the list still has FILE_NAME");
++
++  data = requestClipboard(dpy, uriList, &type, &answered);
++  PASS(data != nil && type == uriList,
++    "copied files answer text/uri-list");
++  PASS_EQUAL(utf8String(data),
++    @"file:///tmp/xpbs%20test/a%20b.txt\r\nfile:///tmp/c.pdf\r\n",
++    "it lists every file as a file URI, each line ending in CRLF");
++
++  data = requestClipboard(dpy, gnomeFiles, &type, &answered);
++  PASS(data != nil && type == gnomeFiles,
++    "copied files answer x-special/gnome-copied-files");
++  PASS_EQUAL(utf8String(data),
++    @"copy\nfile:///tmp/xpbs%20test/a%20b.txt\nfile:///tmp/c.pdf",
++    "it is \"copy\" and then a file URI per line");
++
++  /* Text: neither file type is offered. */
++  [pb declareTypes: [NSArray arrayWithObject: NSStringPboardType] owner: nil];
++  [pb setString: @"copied text" forType: NSStringPboardType];
++  /* The same gpbs window owns CLIPBOARD again: wait for the text. */
++  {
++    int	i;
++
++    for (i = 0; i < 100; i++)
++      {
++	data = requestClipboard(dpy, utf8, &type, &answered);
++	if ([utf8String(data) isEqual: @"copied text"])
++	  {
++	    break;
++	  }
++	usleep(50000);
++      }
++  }
++  PASS_EQUAL(utf8String(data), @"copied text",
++    "copied text still answers UTF8_STRING");
++  data = requestClipboard(dpy, targetsAtom, &type, &answered);
++  PASS(listsTarget(data, utf8) && listsTarget(data, uriList) == NO
++    && listsTarget(data, gnomeFiles) == NO,
++    "copied text lists UTF8_STRING and neither file type");
++
++  XCloseDisplay(dpy);
++  [pool release];
++
++  END_SET("xpbs copied files")
++  return 0;
++}
++
++#else
++
++int
++main(int argc, const char **argv)
++{
++  START_SET("xpbs copied files")
++    SKIP("back is not built with the x11 server")
++  END_SET("xpbs copied files")
++  return 0;
++}
++
++#endif
+diff --git a/Tools/xpbs.m b/Tools/xpbs.m
+index 0986e13..809dcf6 100644
+--- a/Tools/xpbs.m
++++ b/Tools/xpbs.m
+@@ -87,7 +87,8 @@ static char *atom_names[] = {
+   "application/rtf",
+   "text/richtext",
+   "text/plain;charset=utf-8",
+-  "application/pdf"
++  "application/pdf",
++  "x-special/gnome-copied-files"
+ };
+ static Atom atoms[sizeof(atom_names)/sizeof(char*)];
+ 
+@@ -133,6 +134,7 @@ static Atom atoms[sizeof(atom_names)/sizeof(char*)];
+ #define XG_MIME_TEXT_RICHTEXT atoms[35]
+ #define XG_MIME_UTF8		atoms[36]
+ #define XG_MIME_PDF       	atoms[37]
++#define XG_GNOME_COPIED_FILES	atoms[38]
+ 
+ /** Return the GNUstep pasteboard type corresponding to the given atom
+  * or nil if there is no corresponding type.
+@@ -1562,7 +1564,7 @@ xErrorHandler(Display *d, XErrorEvent *e)
+     {
+       unsigned	numTypes = 0;
+       // ATTENTION: Increase this array when adding more types
+-      Atom	xTypes[23];
++      Atom	xTypes[25];
+       
+       /*
+        * The requestor wants a list of the types we can supply it with.
+@@ -1589,6 +1591,12 @@ xErrorHandler(Display *d, XErrorEvent *e)
+       if ([types containsObject: NSFilenamesPboardType])
+         {
+           xTypes[numTypes++] = XG_FILE_NAME;
++          /* File managers paste copied files from these two. */
++          if (![types containsObject: NSURLPboardType])
++            {
++              xTypes[numTypes++] = XG_MIME_URI;
++            }
++          xTypes[numTypes++] = XG_GNOME_COPIED_FILES;
+         }
+       
+       if ([types containsObject: NSRTFPboardType])
+@@ -1889,6 +1897,45 @@ xErrorHandler(Display *d, XErrorEvent *e)
+       format = 8;
+       numItems = [data length];
+     }
++  else if (((xEvent->target == XG_MIME_URI)
++      || (xEvent->target == XG_GNOME_COPIED_FILES))
++    && [types containsObject: NSFilenamesPboardType])
++    {
++      /* Copied files, as file managers paste them: text/uri-list is one
++       * file URI per line, each ending in CRLF (RFC 2483);
++       * x-special/gnome-copied-files is "copy" and then a URI per line,
++       * which GNOME Files, Nemo, Caja and Thunar read.
++       */
++      NSArray		*names = [_pb propertyListForType: NSFilenamesPboardType];
++      BOOL		gnome = (xEvent->target == XG_GNOME_COPIED_FILES);
++      NSMutableString	*list = [NSMutableString string];
++      NSEnumerator	*e = [names objectEnumerator];
++      NSString		*name;
++
++      if (gnome)
++        {
++          [list appendString: @"copy"];
++        }
++      while ((name = [e nextObject]) != nil)
++        {
++          NSURL	*url = [NSURL fileURLWithPath: name];
++
++          if (gnome)
++            {
++              [list appendString: @"\n"];
++              [list appendString: [url absoluteString]];
++            }
++          else
++            {
++              [list appendString: [url absoluteString]];
++              [list appendString: @"\r\n"];
++            }
++        }
++      data = [list dataUsingEncoding: NSUTF8StringEncoding];
++      xType = xEvent->target;
++      format = 8;
++      numItems = [data length];
++    }
+   else if ((xEvent->target == XG_MIME_TIFF)
+     && [types containsObject: NSTIFFPboardType])
+     {
+-- 
+2.47.3
+
