@@ -5,6 +5,7 @@
 #import <AppKit/AppKit.h>
 
 #import "OMDRichPasteboard.h"
+#import "OMDWindowsClipboard.h"
 
 @interface OMDRichPasteboardTests : XCTestCase
 @end
@@ -86,6 +87,32 @@
     XCTAssertFalse([[pasteboard types] containsObject:NSRTFPboardType]);
     XCTAssertEqualObjects([pasteboard stringForType:NSStringPboardType], @"# Plan\n");
     [pasteboard releaseGlobally];
+}
+
+// Windows' "HTML Format" (#179): the header's offsets count UTF-8 bytes and
+// point at the document and at the fragment between its comments.
+- (void)testWindowsHTMLFormatOffsetsPointAtTheFragment
+{
+    NSString *fragment = @"<p>caf\u00E9 \u2014 na\u00EFve</p>";
+    NSData *data = OMDWindowsClipboardHTMLData(fragment);
+    const char *bytes = (const char *)[data bytes];
+    XCTAssertEqual(bytes[[data length] - 1], (char)0);
+    NSString *text = [[[NSString alloc] initWithBytes:bytes length:[data length] - 1 encoding:NSUTF8StringEncoding] autorelease];
+    XCTAssertTrue([text hasPrefix:@"Version:0.9\r\nStartHTML:"]);
+
+    NSInteger (^offset)(NSString *) = ^NSInteger(NSString *key) {
+        NSRange range = [text rangeOfString:[key stringByAppendingString:@":"]];
+        return [[text substringWithRange:NSMakeRange(NSMaxRange(range), 10)] integerValue];
+    };
+    NSInteger startHTML = offset(@"StartHTML");
+    NSInteger endHTML = offset(@"EndHTML");
+    NSInteger startFragment = offset(@"StartFragment");
+    NSInteger endFragment = offset(@"EndFragment");
+    XCTAssertEqual(endHTML, (NSInteger)[data length] - 1);
+    NSString *document = [[[NSString alloc] initWithBytes:bytes + startHTML length:endHTML - startHTML encoding:NSUTF8StringEncoding] autorelease];
+    XCTAssertTrue([document hasPrefix:@"<html><body>"]);
+    NSString *copied = [[[NSString alloc] initWithBytes:bytes + startFragment length:endFragment - startFragment encoding:NSUTF8StringEncoding] autorelease];
+    XCTAssertEqualObjects(copied, fragment);
 }
 
 @end

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #import "OMDSharePresenter.h"
+#import "OMDWindowsClipboard.h"
 
 #if defined(GNUSTEP) && defined(_WIN32)
 // Windows: the Windows share sheet (DataTransferManager through
@@ -731,6 +732,16 @@ static HWND OMDWindowHandle(NSWindow *window)
     }
     if (FAILED(result)) {
         [super showShareItemInFolder:item];
+    }
+}
+
+// CF_HDROP, so pasting attaches the file in Outlook, Teams and Explorer
+// (#179); GNUstep's win32 pasteboard server passes only text and images.
+- (void)copyFileOfShareItem:(OMDShareItem *)item
+{
+    NSString *path = [[item fileURL] path];
+    if (path == nil || !OMDWindowsClipboardWriteFiles([NSArray arrayWithObject:path])) {
+        [super copyFileOfShareItem:item];
     }
 }
 

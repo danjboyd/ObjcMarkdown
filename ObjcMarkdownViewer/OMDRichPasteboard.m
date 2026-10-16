@@ -3,6 +3,7 @@
 
 #import "OMDRichPasteboard.h"
 #import "OMGFMParser.h"
+#import "OMDWindowsClipboard.h"
 
 #include <stdlib.h>
 
@@ -94,6 +95,22 @@ BOOL OMDWriteRenderedDocumentToPasteboard(NSPasteboard *pasteboard,
         // Without the attachment characters (rules, images, math).
         plain = [[rendered string] stringByReplacingOccurrencesOfString:@"\uFFFC" withString:@""];
     }
+
+#if defined(_WIN32)
+    // GNUstep's win32 pasteboard server hands Windows only the text, so the
+    // general pasteboard is written as the Windows clipboard itself (#179).
+    // Writing both would race: the server empties the clipboard as it takes
+    // it over. It still offers the text to GNUstep apps from there.
+    if (pasteboard == [NSPasteboard generalPasteboard]) {
+        NSString *fragment = html;
+        if ([fragment hasPrefix:@"<meta charset=\"utf-8\">"]) {
+            fragment = [fragment substringFromIndex:[@"<meta charset=\"utf-8\">" length]];
+        }
+        if (OMDWindowsClipboardWriteRichText(plain, fragment, rtf)) {
+            return YES;
+        }
+    }
+#endif
 
     NSMutableArray *types = [NSMutableArray arrayWithObject:OMDPasteboardTypeHTML];
     if (rtf != nil) {
