@@ -12,6 +12,16 @@
 #include <unistd.h>
 #include <gio/gio.h>
 #include <gio/gunixfdlist.h>
+#include <gio/gdesktopappinfo.h>
+
+// The document portal takes O_PATH descriptors, which glibc only declares
+// with _GNU_SOURCE (Linux's value; the BSDs have no document portal).
+#if defined(__linux__) && !defined(O_PATH)
+#define O_PATH 010000000
+#endif
+#if !defined(O_PATH)
+#define O_PATH O_RDONLY
+#endif
 
 // Linux and the BSDs (#174). There is no system share sheet, so Share
 // shows our picker; email goes to the default mail app with the file
@@ -27,9 +37,12 @@ static BOOL OMDRunningInFlatpak(void)
 }
 
 // The default mailto: handler's desktop file ID ("org.gnome.Evolution.desktop"),
-// or nil when there is none.
-static NSString *OMDDefaultMailAppID(void)
+// or nil when there is none, and its Flatpak app ID when it is a Flatpak.
+static NSString *OMDDefaultMailAppID(NSString **flatpakID)
 {
+    if (flatpakID != NULL) {
+        *flatpakID = nil;
+    }
     GAppInfo *app = g_app_info_get_default_for_uri_scheme("mailto");
     if (app == NULL) {
         return nil;
@@ -42,7 +55,79 @@ static NSString *OMDDefaultMailAppID(void)
     } else if (executable != NULL) {
         result = [[NSString stringWithUTF8String:executable] lastPathComponent];
     }
+    if (flatpakID != NULL && G_IS_DESKTOP_APP_INFO(app)) {
+        char *flatpak = g_desktop_app_info_get_string(G_DESKTOP_APP_INFO(app), "X-Flatpak");
+        if (flatpak != NULL && flatpak[0] != '\0') {
+            *flatpakID = [NSString stringWithUTF8String:flatpak];
+        }
+        g_free(flatpak);
+    }
     g_object_unref(app);
+    return result;
+}
+
+// A path to the file that a sandboxed (Flatpak) app can read: the file
+// exported through the document portal, with read access for that app
+// only. A Flatpak mail app can't see our temporary folder, so it would
+// drop the attachment. Nil if the portal isn't there.
+static NSString *OMDDocumentPortalPathForFile(NSString *path, NSString *appID)
+{
+    GError *error = NULL;
+    GDBusConnection *bus = g_bus_get_sync(G_BUS_TYPE_SESSION, NULL, &error);
+    if (bus == NULL) {
+        g_clear_error(&error);
+        return nil;
+    }
+    NSString *result = nil;
+    int fd = open([path fileSystemRepresentation], O_PATH | O_CLOEXEC);
+    GUnixFDList *fds = g_unix_fd_list_new();
+    gint32 handle = fd >= 0 ? g_unix_fd_list_append(fds, fd, &error) : -1;
+    if (fd >= 0) {
+        close(fd);
+    }
+    GVariant *added = NULL;
+    GVariant *mount = NULL;
+    if (handle >= 0) {
+        added = g_dbus_connection_call_with_unix_fd_list_sync(bus,
+            "org.freedesktop.portal.Documents", "/org/freedesktop/portal/documents",
+            "org.freedesktop.portal.Documents", "Add",
+            g_variant_new("(hbb)", handle, TRUE, FALSE),
+            G_VARIANT_TYPE("(s)"), G_DBUS_CALL_FLAGS_NONE, -1, fds, NULL, NULL, &error);
+    }
+    if (added != NULL) {
+        const char *docID = NULL;
+        g_variant_get(added, "(&s)", &docID);
+        const char *permissions[] = { "read", NULL };
+        GVariant *granted = g_dbus_connection_call_sync(bus,
+            "org.freedesktop.portal.Documents", "/org/freedesktop/portal/documents",
+            "org.freedesktop.portal.Documents", "GrantPermissions",
+            g_variant_new("(ss^as)", docID, [appID UTF8String], permissions),
+            NULL, G_DBUS_CALL_FLAGS_NONE, -1, NULL, &error);
+        if (granted != NULL) {
+            g_variant_unref(granted);
+            mount = g_dbus_connection_call_sync(bus,
+                "org.freedesktop.portal.Documents", "/org/freedesktop/portal/documents",
+                "org.freedesktop.portal.Documents", "GetMountPoint",
+                NULL, G_VARIANT_TYPE("(ay)"), G_DBUS_CALL_FLAGS_NONE, -1, NULL, &error);
+        }
+        if (mount != NULL) {
+            const char *mountPoint = NULL;
+            g_variant_get(mount, "(^&ay)", &mountPoint);
+            if (mountPoint != NULL) {
+                result = [[[NSString stringWithUTF8String:mountPoint]
+                    stringByAppendingPathComponent:[NSString stringWithUTF8String:docID]]
+                    stringByAppendingPathComponent:[path lastPathComponent]];
+            }
+            g_variant_unref(mount);
+        }
+        g_variant_unref(added);
+    }
+    g_clear_error(&error);
+    g_object_unref(fds);
+    g_object_unref(bus);
+    if (result != nil && ![[NSFileManager defaultManager] fileExistsAtPath:result]) {
+        return nil;
+    }
     return result;
 }
 
@@ -143,12 +228,18 @@ static BOOL OMDLaunchDefaultForURL(NSURL *url)
         return;
     }
 
-    NSString *appID = OMDDefaultMailAppID();
+    NSString *flatpakID = nil;
+    NSString *appID = OMDDefaultMailAppID(&flatpakID);
     NSString *xdgEmail = OMDExecutablePathNamed(@"xdg-email");
-    if (xdgEmail != nil && OMDMailAppTakesAttachments(appID)) {
+    NSString *attachPath = path;
+    if (flatpakID != nil) {
+        // A Flatpak mail app only sees files the document portal gives it.
+        attachPath = OMDDocumentPortalPathForFile(path, flatpakID);
+    }
+    if (xdgEmail != nil && attachPath != nil && OMDMailAppTakesAttachments(appID)) {
         NSTask *task = [[[NSTask alloc] init] autorelease];
         [task setLaunchPath:xdgEmail];
-        [task setArguments:[NSArray arrayWithObjects:@"--subject", subject, @"--attach", path, nil]];
+        [task setArguments:[NSArray arrayWithObjects:@"--subject", subject, @"--attach", attachPath, nil]];
         @try {
             [task launch];
             return;
