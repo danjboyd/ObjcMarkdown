@@ -4,13 +4,7 @@
 #import <AppKit/AppKit.h>
 #import "OMDShareExporter.h"
 #import "OMDSharePresenter.h"
-
-// The Share items, the same in File > Share and the toolbar's menu: each
-// "Share as" item has its format as its tag and the action shareDocument:;
-// then the Email as submenu (emailDocument:, tagged by format the same
-// way), copyRenderedDocument: and showDocumentInFolder:.
-// The target is not retained (nil sends them along the responder chain).
-void OMDAddShareMenuItems(NSMenu *menu, id target);
+#import "OMDShareMenu.h"
 
 // Share for one window: exports the document (OMDShareExporter) and hands
 // it to the platform's presenter. It remembers the last format used, which
@@ -37,6 +31,10 @@ void OMDAddShareMenuItems(NSMenu *menu, id target);
 - (void)shareInFormat:(OMDShareFormat)format fromView:(NSView *)view;
 // An email draft with the document attached in format.
 - (void)emailDocumentInFormat:(OMDShareFormat)format;
+// An email draft with the rendered document as its body: filled in where
+// the presenter can (emailRenderedDocument:forWindow:), otherwise put on the
+// clipboard to paste into the draft, with a notice saying so.
+- (void)emailDocumentInMessage;
 // The document's own file in the file manager.
 - (void)showDocumentFileInFolder:(NSString *)path;
 

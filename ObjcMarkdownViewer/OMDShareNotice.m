@@ -98,7 +98,8 @@
                       shareItem:(OMDShareItem *)item
                       presenter:(id<OMDSharePresenter>)presenter
                       forWindow:(NSWindow *)window
-                         picker:(BOOL)picker;
+                         picker:(BOOL)picker
+                         detail:(NSString *)detail;
 - (void)show;
 - (void)close;
 @end
@@ -155,7 +156,8 @@ static NSButton *OMDShareNoticeButton(NSString *title, NSRect frame, id target, 
                                                             shareItem:item
                                                             presenter:presenter
                                                             forWindow:window
-                                                               picker:NO] autorelease];
+                                                               picker:NO
+                                                               detail:nil] autorelease];
     [OMDShareNotices() setObject:notice forKey:OMDShareNoticeKey(window)];
     [notice show];
 }
@@ -170,7 +172,23 @@ static NSButton *OMDShareNoticeButton(NSString *title, NSRect frame, id target, 
                                                             shareItem:item
                                                             presenter:presenter
                                                             forWindow:window
-                                                               picker:YES] autorelease];
+                                                               picker:YES
+                                                               detail:nil] autorelease];
+    [OMDShareNotices() setObject:notice forKey:OMDShareNoticeKey(window)];
+    [notice show];
+}
+
++ (void)showMessage:(NSString *)message
+            detail:(NSString *)detail
+         forWindow:(NSWindow *)window
+{
+    [self dismissNoticeForWindow:window];
+    OMDShareNotice *notice = [[[OMDShareNotice alloc] initWithMessage:message
+                                                            shareItem:nil
+                                                            presenter:nil
+                                                            forWindow:window
+                                                               picker:NO
+                                                               detail:detail] autorelease];
     [OMDShareNotices() setObject:notice forKey:OMDShareNoticeKey(window)];
     [notice show];
 }
@@ -186,6 +204,7 @@ static NSButton *OMDShareNoticeButton(NSString *title, NSRect frame, id target, 
                       presenter:(id<OMDSharePresenter>)presenter
                       forWindow:(NSWindow *)window
                          picker:(BOOL)picker
+                         detail:(NSString *)detail
 {
     self = [super init];
     if (self == nil) {
@@ -209,29 +228,36 @@ static NSButton *OMDShareNoticeButton(NSString *title, NSRect frame, id target, 
     [_panel setDelegate:self];
     NSView *content = [_panel contentView];
 
-    OMDShareFileDragView *icon = [[[OMDShareFileDragView alloc] initWithFrame:
-        NSMakeRect(margin, height - margin - iconSize, iconSize, iconSize)] autorelease];
+    // The file, when there is one: dragged into a mail or a chat.
+    BOOL hasFile = ([item fileURL] != nil);
+    if (hasFile) {
+        OMDShareFileDragView *icon = [[[OMDShareFileDragView alloc] initWithFrame:
+            NSMakeRect(margin, height - margin - iconSize, iconSize, iconSize)] autorelease];
 #if defined(GNUSTEP) && !defined(_WIN32)
-    // Icon themes no longer carry coloured file icons, and GNUstep's own
-    // is a question mark: the app's page.
-    NSImage *fileIcon = OMDSymbolicImageNamed(@"omd-share-file-symbolic");
+        // Icon themes no longer carry coloured file icons, and GNUstep's own
+        // is a question mark: the app's page.
+        NSImage *fileIcon = OMDSymbolicImageNamed(@"omd-share-file-symbolic");
 #else
-    NSImage *fileIcon = [[NSWorkspace sharedWorkspace] iconForFile:[[item fileURL] path]];
+        NSImage *fileIcon = [[NSWorkspace sharedWorkspace] iconForFile:[[item fileURL] path]];
 #endif
-    [icon setImage:fileIcon];
-    [icon setImageScaling:NSImageScaleProportionallyUpOrDown];
-    [icon setEditable:NO];
-    [icon setFileURL:[item fileURL]];
-    [icon setToolTip:@"Drag the file into an email or a chat"];
-    [content addSubview:icon];
+        [icon setImage:fileIcon];
+        [icon setImageScaling:NSImageScaleProportionallyUpOrDown];
+        [icon setEditable:NO];
+        [icon setFileURL:[item fileURL]];
+        [icon setToolTip:@"Drag the file into an email or a chat"];
+        [content addSubview:icon];
+    }
 
-    CGFloat textX = margin + iconSize + 12.0;
+    CGFloat textX = hasFile ? margin + iconSize + 12.0 : margin;
     CGFloat textWidth = width - textX - margin;
     [content addSubview:OMDShareNoticeLabel(message,
                                             NSMakeRect(textX, height - margin - 36.0, textWidth, 36.0),
                                             [NSFont systemFontOfSize:0.0],
                                             [NSColor labelColor])];
-    [content addSubview:OMDShareNoticeLabel(@"Drag it into an email or a chat, or copy it.",
+    if (detail == nil) {
+        detail = @"Drag it into an email or a chat, or copy it.";
+    }
+    [content addSubview:OMDShareNoticeLabel(detail,
                                             NSMakeRect(textX, height - margin - 70.0, textWidth, 32.0),
                                             [NSFont systemFontOfSize:[NSFont smallSystemFontSize]],
                                             [NSColor secondaryLabelColor])];
@@ -245,7 +271,7 @@ static NSButton *OMDShareNoticeButton(NSString *title, NSRect frame, id target, 
     CGFloat widths[] = { 80.0, 100.0, 130.0, 120.0, 90.0 };
     SEL actions[] = { @selector(closeClicked:), @selector(copyFileClicked:), @selector(showInFolderClicked:),
                       @selector(saveCopyClicked:), @selector(emailClicked:) };
-    NSUInteger count = picker ? 5 : 3;
+    NSUInteger count = picker ? 5 : (hasFile ? 3 : 1);
     NSUInteger index = 0;
     for (index = 0; index < count; index++) {
         x -= widths[index];

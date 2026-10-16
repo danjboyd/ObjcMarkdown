@@ -23,6 +23,12 @@
                      presenter:(id<OMDSharePresenter>)presenter
                      forWindow:(NSWindow *)window;
 
+// A notice with no file: a message, a line of detail and Close (the
+// rendered document put on the clipboard for an email's body).
++ (void)showMessage:(NSString *)message
+            detail:(NSString *)detail
+         forWindow:(NSWindow *)window;
+
 // Closes the window's notice, if it has one.
 + (void)dismissNoticeForWindow:(NSWindow *)window;
 

@@ -188,13 +188,9 @@ static BOOL OMDLaunchDefaultForURL(NSURL *url)
 
 @implementation OMDSharePresenterLinux
 
-- (void)emailShareItemWithMailtoDraft:(OMDShareItem *)item forWindow:(NSWindow *)window
+- (BOOL)openEmailDraftWithSubject:(NSString *)subject
 {
-    BOOL opened = OMDLaunchDefaultForURL(OMDMailtoURLWithSubject([item title]));
-    NSString *message = opened
-        ? [NSString stringWithFormat:@"Attach \u201C%@\u201D to the email.", [item fileName]]
-        : [NSString stringWithFormat:@"No email app opened. \u201C%@\u201D is ready to attach.", [item fileName]];
-    [OMDShareNotice showNoticeWithMessage:message shareItem:item presenter:self forWindow:window];
+    return OMDLaunchDefaultForURL(OMDMailtoURLWithSubject(subject));
 }
 
 - (void)presentShareItem:(OMDShareItem *)item fromView:(NSView *)view
@@ -255,7 +251,7 @@ static BOOL OMDLaunchDefaultForURL(NSURL *url)
     }
     // A webmail tab or another app that can't take the file: the draft,
     // and the file to drag into it.
-    OMDLaunchDefaultForURL(OMDMailtoURLWithSubject(subject));
+    [self openEmailDraftWithSubject:subject];
     NSString *message = [NSString stringWithFormat:@"Your email app can't receive attachments directly. Attach \u201C%@\u201D to the email.",
                                                    [item fileName]];
     [OMDShareNotice showNoticeWithMessage:message shareItem:item presenter:self forWindow:window];
