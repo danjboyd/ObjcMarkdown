@@ -13,5 +13,8 @@ rm -rf "$DEST"
 mkdir -p "$DEST"
 git -C "$SRC" archive "$COMMIT" GSSharing.make Headers Source Resources LICENSE README.md \
   | tar -x -C "$DEST"
+# git archive dates the files at the commit, which can be older than the
+# objects of the last build: date them now, so the next build compiles them.
+find "$DEST" -type f -exec touch {} +
 printf 'danjboyd/libs-sharing %s\nCopied by tools/vendor/vendor-libs-sharing.sh; don'"'"'t edit here: change the\nshared repository and copy it again.\n' "$COMMIT" > "$DEST/VERSION"
 echo "vendored libs-sharing $COMMIT"
