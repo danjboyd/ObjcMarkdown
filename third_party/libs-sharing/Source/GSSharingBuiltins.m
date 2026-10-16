@@ -18,7 +18,18 @@
 #if defined(_WIN32)
 #  include <windows.h>
 #  include <shellapi.h>
+/* shlobj.h (SHOpenWithDialog) brings in COM headers that declare with the
+   interface macro, which GNUstep's headers undefine: it would turn every
+   @interface into @struct. Defined only around the include. */
+#  if !defined(interface)
+#    define interface struct
+#    define GSSHARING_UNDEF_INTERFACE
+#  endif
 #  include <shlobj.h>
+#  if defined(GSSHARING_UNDEF_INTERFACE)
+#    undef interface
+#    undef GSSHARING_UNDEF_INTERFACE
+#  endif
 #elif defined(GSSHARING_HAVE_GIO)
 #  include <fcntl.h>
 #  include <unistd.h>
