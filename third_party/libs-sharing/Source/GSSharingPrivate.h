@@ -41,6 +41,7 @@
   NSArray *items;
   id delegate;          /* not retained */
   NSView *accessoryView;
+  BOOL servicesDisabled;
   id panel;             /* the GSSharingPickerPanel showing, or nil */
 }
 @end

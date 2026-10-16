@@ -4,6 +4,8 @@
 #import "OMDShareExporter.h"
 #import "OMDDocumentConverter.h"
 
+#include <dispatch/dispatch.h>
+
 #include <errno.h>
 #include <signal.h>
 #include <unistd.h>
@@ -263,6 +265,89 @@ static BOOL OMDShareLaunchIsRunning(NSString *directoryName)
                                          format:format
                                         fileURL:[NSURL fileURLWithPath:path]
                                    renderedText:[_source shareRenderedText]] autorelease];
+}
+
+- (void)shareItemForFormat:(OMDShareFormat)format
+                completion:(void (^)(OMDShareItem *item, NSError *error))completion
+{
+    if (![[self class] formatNeedsConverter:format]) {
+        NSError *error = nil;
+        OMDShareItem *item = [self shareItemForFormat:format error:&error];
+        completion(item, error);
+        return;
+    }
+    // Everything from the document and the window, read here on the main
+    // thread; only Pandoc runs on the queue.
+    NSString *markdown = [_source shareMarkdownText];
+    if (markdown == nil) {
+        completion(nil, OMDShareError(OMDShareErrorNoDocument, @"Open or import a document first."));
+        return;
+    }
+    OMDDocumentConverter *converter = [_source documentConverter];
+    if (converter == nil) {
+        completion(nil, OMDShareError(OMDShareErrorConverterUnavailable,
+                                      [OMDDocumentConverter missingBackendInstallMessage]));
+        return;
+    }
+    NSString *directory = [self newShareDirectory];
+    if (directory == nil) {
+        completion(nil, OMDShareError(OMDShareErrorTemporaryDirectory,
+                                      @"Couldn't make a temporary folder for the shared file."));
+        return;
+    }
+    NSString *title = [[self class] safeFileBaseName:[_source shareBaseName]];
+    NSString *path = [directory stringByAppendingPathComponent:
+        [title stringByAppendingPathExtension:[[self class] fileExtensionForFormat:format]]];
+    NSString *resourceDirectory = [_source shareResourceDirectory];
+    NSAttributedString *rendered = [_source shareRenderedText];
+    NSString *failure = [NSString stringWithFormat:@"The %@ could not be created.",
+                                                   [[self class] displayNameForFormat:format]];
+    void (^done)(OMDShareItem *, NSError *) = [completion copy];
+
+    [markdown retain];
+    [converter retain];
+    [directory retain];
+    [title retain];
+    [path retain];
+    [resourceDirectory retain];
+    [rendered retain];
+    [failure retain];
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
+        NSError *writeError = nil;
+        BOOL written = [converter exportMarkdown:markdown
+                                          toPath:path
+                               resourceDirectory:resourceDirectory
+                                           error:&writeError];
+        written = written && [[NSFileManager defaultManager] fileExistsAtPath:path];
+        [writeError retain];
+        [pool release];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            OMDShareItem *item = nil;
+            NSError *error = nil;
+            if (written) {
+                item = [[[OMDShareItem alloc] initWithTitle:title
+                                                     format:format
+                                                    fileURL:[NSURL fileURLWithPath:path]
+                                               renderedText:rendered] autorelease];
+            } else {
+                [[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
+                error = writeError != nil ? writeError
+                                          : OMDShareError(OMDShareErrorWriteFailed, failure);
+            }
+            done(item, error);
+            [done release];
+            [writeError release];
+            [markdown release];
+            [converter release];
+            [directory release];
+            [title release];
+            [path release];
+            [resourceDirectory release];
+            [rendered release];
+            [failure release];
+        });
+    });
 }
 
 @end

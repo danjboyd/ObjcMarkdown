@@ -4,6 +4,7 @@
 #import "OMDShareController.h"
 #import "OMDShareNotice.h"
 #import "OMDRichPasteboard.h"
+#import "OMDDocumentConverter.h"
 #import "OMDViewerImages.h"
 #if defined(GNUSTEP)
 #import "GSSharing.h"
@@ -35,6 +36,8 @@
     [(NSSharingServicePicker *)_picker close];
     [_picker release];
     [_formatControl release];
+    [_accessoryView release];
+    [_spinner release];
 #endif
     [OMDShareNotice dismissNoticeForWindow:_window];
     [_exporter release];
@@ -53,7 +56,8 @@
     NSAlert *alert = [[[NSAlert alloc] init] autorelease];
     [alert setMessageText:[NSString stringWithFormat:@"Couldn't share as %@",
                                                      [OMDShareExporter displayNameForFormat:format]]];
-    NSString *text = [error localizedDescription];
+    NSString *text = error != nil ? [error localizedDescription]
+                                  : [OMDDocumentConverter missingBackendInstallMessage];
     NSString *reason = [[error userInfo] objectForKey:NSLocalizedFailureReasonErrorKey];
     if ([reason length] > 0) {
         text = [NSString stringWithFormat:@"%@\n\n%@", text, reason];
@@ -120,6 +124,69 @@ static NSInteger OMDShareSheetChoices[] = {
     return _formatControl;
 }
 
+// The format switcher with a spinner at its right, shown while a format
+// exports in the background.
+- (NSView *)sheetAccessoryView
+{
+    if (_accessoryView == nil) {
+        NSSegmentedControl *control = [self formatControl];
+        NSRect controlFrame = [control frame];
+        NSView *view = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, NSWidth(controlFrame) + 28.0, 24.0)];
+        NSProgressIndicator *spinner = [[NSProgressIndicator alloc]
+                                           initWithFrame:NSMakeRect(NSWidth(controlFrame) + 8.0, 4.0, 16.0, 16.0)];
+        [spinner setStyle:NSProgressIndicatorSpinningStyle];
+        [spinner setDisplayedWhenStopped:NO];
+        [control setFrameOrigin:NSZeroPoint];
+        [view addSubview:control];
+        [view addSubview:spinner];
+        _accessoryView = view;
+        _spinner = spinner;
+    }
+    return _accessoryView;
+}
+
+- (void)setSheetBusy:(BOOL)busy
+{
+    [(NSSharingServicePicker *)_picker setServicesEnabled:!busy];
+    if (busy) {
+        [(NSProgressIndicator *)_spinner startAnimation:nil];
+    } else {
+        [(NSProgressIndicator *)_spinner stopAnimation:nil];
+    }
+}
+
+// Word and HTML export in the background: the sheet shows the file's name
+// with its services off and the spinner going until the file is ready.
+- (void)exportSheetChoiceInBackground:(NSInteger)choice
+{
+    NSUInteger generation = ++_exportGeneration;
+    OMDShareController *controller = self;
+    [self setSheetBusy:YES];
+    [_exporter shareItemForFormat:(OMDShareFormat)choice
+                       completion:^(OMDShareItem *item, NSError *error) {
+        if (generation != controller->_exportGeneration || controller->_picker == nil) {
+            return;
+        }
+        [controller setSheetBusy:NO];
+        if (item == nil) {
+            [controller presentError:error format:(OMDShareFormat)choice];
+            return;
+        }
+        OMDShareSetLastFormat((OMDShareFormat)choice);
+        [(NSSharingServicePicker *)controller->_picker setItems:[NSArray arrayWithObject:[item fileURL]]];
+    }];
+}
+
+// What the sheet shows while choice exports: a file named after the
+// document, not there yet.
+- (NSArray *)placeholderItemsForChoice:(NSInteger)choice
+{
+    NSString *name = [[OMDShareExporter safeFileBaseName:[_source shareBaseName]]
+                         stringByAppendingPathExtension:[OMDShareExporter fileExtensionForFormat:(OMDShareFormat)choice]];
+    return [NSArray arrayWithObject:[NSURL fileURLWithPath:
+        [[OMDShareExporter temporaryRootDirectory] stringByAppendingPathComponent:name]]];
+}
+
 - (void)selectSheetChoice:(NSInteger)choice
 {
     NSUInteger index = 0;
@@ -132,7 +199,15 @@ static NSInteger OMDShareSheetChoices[] = {
 
 - (void)showShareSheetWithChoice:(NSInteger)choice fromView:(NSView *)view
 {
-    NSArray *items = [self sheetItemsForChoice:choice];
+    BOOL inBackground = (choice != OMDShareEmailInMessageTag &&
+                         [OMDShareExporter formatNeedsConverter:(OMDShareFormat)choice]);
+    if (inBackground && [_source documentConverter] == nil) {
+        [self presentError:nil format:(OMDShareFormat)choice];
+        inBackground = NO;
+        choice = OMDShareFormatPDF;
+    }
+    NSArray *items = inBackground ? [self placeholderItemsForChoice:choice]
+                                  : [self sheetItemsForChoice:choice];
     if (items == nil) {
         return;
     }
@@ -144,7 +219,7 @@ static NSInteger OMDShareSheetChoices[] = {
     [_picker release];
     _picker = [[NSSharingServicePicker alloc] initWithItems:items];
     [(NSSharingServicePicker *)_picker setDelegate:self];
-    [(NSSharingServicePicker *)_picker setAccessoryView:[self formatControl]];
+    [(NSSharingServicePicker *)_picker setAccessoryView:[self sheetAccessoryView]];
     NSRect rect;
     if (view == nil || view == [_window contentView]) {
         // From the toolbar or a menu: under the top right of the window.
@@ -155,6 +230,11 @@ static NSInteger OMDShareSheetChoices[] = {
         rect = [view bounds];
     }
     [(NSSharingServicePicker *)_picker showRelativeToRect:rect ofView:view preferredEdge:NSMinYEdge];
+    if (inBackground) {
+        [self exportSheetChoiceInBackground:choice];
+    } else {
+        [self setSheetBusy:NO];
+    }
 }
 
 - (void)sheetFormatChanged:(id)sender
@@ -164,6 +244,21 @@ static NSInteger OMDShareSheetChoices[] = {
         return;
     }
     NSInteger choice = OMDShareSheetChoices[index];
+    if (choice != OMDShareEmailInMessageTag &&
+        [OMDShareExporter formatNeedsConverter:(OMDShareFormat)choice]) {
+        if ([_source documentConverter] == nil) {
+            [self presentError:nil format:(OMDShareFormat)choice];
+            [self selectSheetChoice:_sheetChoice];
+            return;
+        }
+        _sheetChoice = choice;
+        OMDShareSetLastSheetChoice(choice);
+        [(NSSharingServicePicker *)_picker setItems:[self placeholderItemsForChoice:choice]];
+        [self exportSheetChoiceInBackground:choice];
+        return;
+    }
+    ++_exportGeneration;
+    [self setSheetBusy:NO];
     NSArray *items = [self sheetItemsForChoice:choice];
     if (items == nil) {
         [self selectSheetChoice:_sheetChoice];
@@ -188,6 +283,15 @@ static NSInteger OMDShareSheetChoices[] = {
     OMDWriteRenderedDocumentToPasteboard([NSPasteboard generalPasteboard],
                                          [_source shareMarkdownText],
                                          [_source shareRenderedText]);
+}
+
+- (void)sharingServicePicker:(NSSharingServicePicker *)picker
+     didChooseSharingService:(NSSharingService *)service
+{
+    (void)picker;
+    (void)service;
+    // A background export finishing after the sheet closed is dropped.
+    ++_exportGeneration;
 }
 
 // In the Message: the app's own Email (draft and paste) and Copy (the

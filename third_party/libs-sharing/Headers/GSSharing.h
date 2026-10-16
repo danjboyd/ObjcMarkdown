@@ -153,6 +153,10 @@ GSSHARING_EXPORT NSSharingServiceName const GSSharingServiceNameOpenWith;
     say), or nil. */
 - (NSView *) accessoryView;
 - (void) setAccessoryView: (NSView *)view;
+/** Whether the services can be chosen (YES by default): NO while the app
+    prepares new items, say a document still exporting. */
+- (BOOL) servicesEnabled;
+- (void) setServicesEnabled: (BOOL)flag;
 
 @end
 
