@@ -141,8 +141,8 @@ modules:
     sources:
       - type: git
         url: https://github.com/danjboyd/plugins-themes-Adwaita.git
-        branch: markdownviewer-0.2.2-hotfix
-        commit: 83efd7183199b9c6cc00a5fb79e5cb9ed3f64343
+        tag: 0.1.0-alpha15
+        commit: b2d43262cc58b8001503a8ac4b40aea5a0761159
 
   # Export as HTML, DOCX, ODT and RTF and Import go through pandoc. Its
   # release binary is static and carries its data files; the AppImage
