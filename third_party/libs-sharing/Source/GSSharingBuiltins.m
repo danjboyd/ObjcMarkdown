@@ -466,6 +466,7 @@ GSSharingMailAppTakesAttachments(NSString *appID)
   return NO;
 }
 
+#if defined(GSSHARING_HAVE_GIO)
 static NSString *
 GSSharingExecutableNamed(NSString *name)
 {
@@ -485,6 +486,7 @@ GSSharingExecutableNamed(NSString *name)
     }
   return nil;
 }
+#endif
 
 static BOOL
 GSSharingOpenURL(NSURL *url)
