@@ -540,6 +540,7 @@ static CGFloat OMDClampedScrollSpeed(CGFloat value)
 - (void)mathArtifactsDidWarm:(NSNotification *)notification;
 - (void)remoteImagesDidWarm:(NSNotification *)notification;
 - (void)updateLinkedPreviewObject;
+- (BOOL)outlinePanelFitsInBounds:(NSRect)bounds;
 - (NSRect)layoutOutlinePanelInBounds:(NSRect)bounds;
 - (void)refreshOutline;
 - (NSArray *)outlineHeadings;
@@ -5336,6 +5337,19 @@ constrainSplitPosition:(CGFloat)proposedPosition
     [self layoutDocumentViews];
 }
 
+static CGFloat OMDOutlinePanelWidth(NSRect bounds)
+{
+    return floor(MIN(260.0, MAX(180.0, NSWidth(bounds) * 0.24)));
+}
+
+// Whether the outline is shown in a document area of these bounds: it is
+// turned on, there is a document, and the area has room for it.
+- (BOOL)outlinePanelFitsInBounds:(NSRect)bounds
+{
+    return _outlineVisible && [self hasLoadedDocument] &&
+           NSWidth(bounds) - OMDOutlinePanelWidth(bounds) >= 320.0;
+}
+
 // Places the outline panel at the right of the document area when shown,
 // and returns the rest of the area for the preview and editor.
 - (NSRect)layoutOutlinePanelInBounds:(NSRect)bounds
@@ -5344,8 +5358,8 @@ constrainSplitPosition:(CGFloat)proposedPosition
     if (panel == nil) {
         return bounds;
     }
-    CGFloat width = floor(MIN(260.0, MAX(180.0, NSWidth(bounds) * 0.24)));
-    if (!_outlineVisible || ![self hasLoadedDocument] || NSWidth(bounds) - width < 320.0) {
+    CGFloat width = OMDOutlinePanelWidth(bounds);
+    if (![self outlinePanelFitsInBounds:bounds]) {
         [panel removeFromSuperview];
         return bounds;
     }
@@ -8780,7 +8794,13 @@ static NSRange OMDCharacterRangeForSourceLines(NSString *source, NSRange lineRan
             NSBeep();
         }
     }
-    if ([[_outlineController view] superview] == nil && _outlineVisible && [self hasLoadedDocument]) {
+    // The outline turned on before there was a document to outline gets its
+    // place now. Only if it fits: laying out runs the copy buttons' update,
+    // which comes back here, so a panel that doesn't fit (a narrow window
+    // with the explorer open) laid out again and again until the stack ran
+    // out (#166).
+    if ([[_outlineController view] superview] == nil &&
+        [self outlinePanelFitsInBounds:[_documentContainer bounds]]) {
         [self layoutDocumentViews];
     }
     [self updateOutlineCurrentHeading];
