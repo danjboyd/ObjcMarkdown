@@ -2002,6 +2002,16 @@ static void OMCollectRawMathSources(NSString *raw, NSMutableDictionary *queues)
     }
 }
 
+BOOL OMMarkdownTextContainsMath(NSString *raw)
+{
+    if ([raw length] == 0 || [raw rangeOfString:@"$"].location == NSNotFound) {
+        return NO;
+    }
+    NSMutableDictionary *queues = [NSMutableDictionary dictionary];
+    OMCollectRawMathSources(raw, queues);
+    return [queues count] > 0;
+}
+
 // cmark has already dropped backslashes before punctuation in text nodes
 // ("\," becomes ","), so formulas are rendered from the block's raw source.
 void OMPrepareRawMathSources(cmark_node *node, const OMRenderContext *renderContext)

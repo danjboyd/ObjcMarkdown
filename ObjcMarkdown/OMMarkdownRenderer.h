@@ -16,6 +16,10 @@ OM_EXPORT NSString * const OMMarkdownRendererAnchorTargetStartKey;
 OM_EXPORT NSString * const OMMarkdownRendererAnchorTargetLengthKey;
 OM_EXPORT NSString * const OMMarkdownRendererAnchorBlockIDKey;
 
+// YES if raw Markdown prose (a paragraph, a heading, a table) has a $...$ or
+// $$...$$ formula by the renderer's delimiter rules (code spans skipped).
+OM_EXPORT BOOL OMMarkdownTextContainsMath(NSString *raw);
+
 // Keys in the dictionaries returned by -headings.
 OM_EXPORT NSString * const OMMarkdownRendererHeadingLevelKey;       // NSNumber, 1-6
 OM_EXPORT NSString * const OMMarkdownRendererHeadingTitleKey;       // NSString, plain text

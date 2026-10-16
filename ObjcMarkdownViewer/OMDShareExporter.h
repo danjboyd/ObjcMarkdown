@@ -90,6 +90,11 @@ typedef NS_ENUM(NSInteger, OMDShareErrorCode) {
              selectionOnly:(BOOL)selectionOnly
                 completion:(void (^)(OMDShareItem *item, NSError *error))completion;
 
+// The Markdown source with its local images as "<name>.zip" (#190;
+// OMDShareBundleEntries() says what goes in), for a reader who should get
+// the .md itself. The item's format is Markdown.
+- (OMDShareItem *)bundleShareItemWithError:(NSError **)error;
+
 // The same, without blocking the window for Word and HTML: what the export
 // needs from the document is read here, Pandoc converts on a background
 // queue, and completion runs on the main thread with the item or the error.

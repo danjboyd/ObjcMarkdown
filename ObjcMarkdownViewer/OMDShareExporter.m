@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #import "OMDShareExporter.h"
+#import "OMDShareBundle.h"
 #import "OMDDocumentConverter.h"
 
 #include <dispatch/dispatch.h>
@@ -348,6 +349,41 @@ static NSError *OMDShareMissingTextError(BOOL selectionOnly)
                                          format:format
                                         fileURL:[NSURL fileURLWithPath:path]
                                    renderedText:[self renderedTextForSelection:selectionOnly]] autorelease];
+}
+
+- (OMDShareItem *)bundleShareItemWithError:(NSError **)error
+{
+    NSString *sourceText = [_source shareSourceText];
+    if (sourceText == nil) {
+        if (error != NULL) {
+            *error = OMDShareError(OMDShareErrorNoDocument, @"Open or import a document first.");
+        }
+        return nil;
+    }
+    NSString *directory = [self newShareDirectory];
+    if (directory == nil) {
+        if (error != NULL) {
+            *error = OMDShareError(OMDShareErrorTemporaryDirectory,
+                                   @"Couldn't make a temporary folder for the shared file.");
+        }
+        return nil;
+    }
+    NSString *title = [[self class] safeFileBaseName:[_source shareBaseName]];
+    NSString *path = [directory stringByAppendingPathComponent:[title stringByAppendingPathExtension:@"zip"]];
+    NSMutableArray *names = [NSMutableArray array];
+    NSMutableArray *contents = [NSMutableArray array];
+    OMDShareBundleEntries(sourceText, [_source shareResourceDirectory], title, names, contents);
+    if (!OMDShareWriteZip(path, names, contents)) {
+        [[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
+        if (error != NULL) {
+            *error = OMDShareError(OMDShareErrorWriteFailed, @"The .zip could not be created.");
+        }
+        return nil;
+    }
+    return [[[OMDShareItem alloc] initWithTitle:title
+                                         format:OMDShareFormatMarkdown
+                                        fileURL:[NSURL fileURLWithPath:path]
+                                   renderedText:nil] autorelease];
 }
 
 - (void)shareItemForFormat:(OMDShareFormat)format
