@@ -7,8 +7,8 @@
 
 // The Share items, the same in File > Share and the toolbar's menu: each
 // "Share as" item has its format as its tag and the action shareDocument:;
-// then emailDocument: and showDocumentInFolder:. The target is not
-// retained (nil sends them along the responder chain).
+// then emailDocument:, copyRenderedDocument: and showDocumentInFolder:.
+// The target is not retained (nil sends them along the responder chain).
 void OMDAddShareMenuItems(NSMenu *menu, id target);
 
 // Share for one window: exports the document (OMDShareExporter) and hands

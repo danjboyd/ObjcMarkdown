@@ -27,6 +27,9 @@ void OMDAddShareMenuItems(NSMenu *menu, id target)
                      action:@selector(emailDocument:)
               keyEquivalent:@""] setTarget:target];
     [menu addItem:[NSMenuItem separatorItem]];
+    [[menu addItemWithTitle:@"Copy Rendered"
+                     action:@selector(copyRenderedDocument:)
+              keyEquivalent:@""] setTarget:target];
     [[menu addItemWithTitle:@"Show File in Folder"
                      action:@selector(showDocumentInFolder:)
               keyEquivalent:@""] setTarget:target];
