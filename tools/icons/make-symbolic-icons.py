@@ -143,6 +143,21 @@ def document_print(cr):
     fill(cr, 15, 10, 2, 1)
 
 
+def share(cr):
+    # A tray with an arrow going up out of it.
+    cr.set_line_width(W)
+    cr.set_line_join(cairo.LINE_JOIN_ROUND)
+    cr.move_to(8, 9)
+    cr.line_to(4, 9)
+    cr.line_to(4, 19)
+    cr.line_to(18, 19)
+    cr.line_to(18, 9)
+    cr.line_to(14, 9)
+    cr.stroke()
+    fill(cr, 10, 6, 2, 9)
+    triangle(cr, [(6, 7), (16, 7), (11, 2)])
+
+
 def preferences(cr):
     # Three sliders.
     for x, knob in ((4, 7), (10, 14), (16, 10)):
@@ -169,6 +184,7 @@ TOOLBAR_ICONS = {
     "omd-document-export-symbolic": (document_export, TOOLBAR),
     "omd-document-print-symbolic": (document_print, TOOLBAR),
     "omd-preferences-symbolic": (preferences, TOOLBAR),
+    "omd-share-symbolic": (share, TOOLBAR),
     "omd-edit-copy-symbolic": (edit_copy, SMALL),
 }
 

@@ -59,6 +59,7 @@ static NSString *OMDSystemSymbolNameForIcon(NSString *name)
             @"checkmark", @"omd-object-select-symbolic",
             @"chevron.down", @"omd-pan-down-symbolic",
             @"gearshape", @"omd-preferences-symbolic",
+            @"square.and.arrow.up", @"omd-share-symbolic",
             @"sidebar.left", @"omd-sidebar-show-symbolic",
             @"doc", @"omd-text-x-generic-symbolic",
             @"doc.text", @"omd-text-x-markdown-symbolic",
