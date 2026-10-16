@@ -523,12 +523,13 @@ BOOL OMIsTightList(NSMutableArray *listStack)
 // Circle and square bullets and task boxes aren't in every body font (a
 // real Helvetica has none of them), and where the text system finds no
 // fallback they drew as "?". A marker character the font lacks is drawn in
-// a font that has it.
+// a font that has it. The names are PostScript names, which is what
+// +fontWithName: looks up ("Segoe UI Symbol" finds nothing on Windows).
 static NSFont *OMListMarkerFallbackFont(unichar character, CGFloat size)
 {
     static NSArray *candidates = nil;
     if (candidates == nil) {
-        candidates = [[NSArray alloc] initWithObjects:@"DejaVuSans", @"Segoe UI Symbol", @"FreeSans", nil];
+        candidates = [[NSArray alloc] initWithObjects:@"DejaVuSans", @"SegoeUISymbol", @"FreeSans", nil];
     }
     NSUInteger index = 0;
     for (index = 0; index <= [candidates count]; index++) {
