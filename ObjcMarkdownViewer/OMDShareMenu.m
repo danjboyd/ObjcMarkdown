@@ -6,6 +6,7 @@
 
 static NSString * const OMDShareLastFormatKey = @"OMDShareLastFormat";
 static NSString * const OMDShareLastEmailChoiceKey = @"OMDShareLastEmailChoice";
+static NSString * const OMDShareLastSheetChoiceKey = @"OMDShareLastSheetChoice";
 
 static BOOL OMDShareIsFormat(NSInteger value)
 {
@@ -89,4 +90,34 @@ NSInteger OMDShareLastEmailChoice(void)
 void OMDShareSetLastEmailChoice(NSInteger choice)
 {
     [[NSUserDefaults standardUserDefaults] setInteger:choice forKey:OMDShareLastEmailChoiceKey];
+}
+
+static BOOL OMDShareIsSheetChoice(NSInteger value)
+{
+    return OMDShareIsFormat(value) || value == OMDShareEmailInMessageTag;
+}
+
+NSInteger OMDShareLastSheetChoice(void)
+{
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    if ([defaults objectForKey:OMDShareLastSheetChoiceKey] == nil) {
+        return OMDShareNoChoice;
+    }
+    NSInteger value = [defaults integerForKey:OMDShareLastSheetChoiceKey];
+    return OMDShareIsSheetChoice(value) ? value : OMDShareNoChoice;
+}
+
+void OMDShareSetLastSheetChoice(NSInteger choice)
+{
+    if (OMDShareIsSheetChoice(choice)) {
+        [[NSUserDefaults standardUserDefaults] setInteger:choice forKey:OMDShareLastSheetChoiceKey];
+    }
+}
+
+NSInteger OMDShareSuggestedSheetChoice(NSInteger lastChoice, NSUInteger documentLength)
+{
+    if (OMDShareIsSheetChoice(lastChoice)) {
+        return lastChoice;
+    }
+    return documentLength < OMDShareShortDocumentLength ? OMDShareEmailInMessageTag : OMDShareFormatPDF;
 }

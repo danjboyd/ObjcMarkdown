@@ -137,6 +137,7 @@ static NSInteger OMDShareSheetChoices[] = {
         return;
     }
     _sheetChoice = choice;
+    OMDShareSetLastSheetChoice(choice);
     [self selectSheetChoice:choice];
     [(NSSharingServicePicker *)_picker setDelegate:nil];
     [(NSSharingServicePicker *)_picker close];
@@ -169,6 +170,7 @@ static NSInteger OMDShareSheetChoices[] = {
         return;
     }
     _sheetChoice = choice;
+    OMDShareSetLastSheetChoice(choice);
     [(NSSharingServicePicker *)_picker setItems:items];
 }
 
@@ -299,7 +301,9 @@ static NSInteger OMDShareSheetChoices[] = {
     (void)sender;
     if ([self usesShareSheet]) {
         // One sheet: the Share button opens it, in the last format.
-        [self showShareSheetWithChoice:OMDShareLastFormat() fromView:nil];
+        [self showShareSheetWithChoice:OMDShareSuggestedSheetChoice(OMDShareLastSheetChoice(),
+                                                                    [[_source shareSourceText] length])
+                              fromView:nil];
         return;
     }
     NSEvent *event = [NSApp currentEvent];
