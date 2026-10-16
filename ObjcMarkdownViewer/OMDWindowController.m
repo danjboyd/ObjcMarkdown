@@ -5984,6 +5984,9 @@ constrainSplitPosition:(CGFloat)proposedPosition
         return;
     }
     [modeControl setSelectedSegment:_viewerMode];
+    // GNUstep's -setSelectedSegment: doesn't redisplay the control, so a
+    // mode set in code (New switching to Edit) kept showing the old one.
+    [modeControl setNeedsDisplay:YES];
     [self updatePreviewStatusIndicator];
 }
 
