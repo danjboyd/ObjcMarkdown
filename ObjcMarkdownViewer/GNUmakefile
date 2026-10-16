@@ -2,7 +2,7 @@ include $(GNUSTEP_MAKEFILES)/common.make
 
 APP_NAME = MarkdownViewer
 
-MarkdownViewer_OBJC_FILES = main.m OMDAppDelegate.m OMDWindowController.m OMDTextView.m OMDOutlineController.m OMDSourceTextView.m OMDSourceHighlighter.m OMDLineNumberRulerView.m OMDDocumentConverter.m OMDPandocConverter.m OMDPreviewSync.m OMDViewerModeState.m OMDCodeCopyButton.m OMDInlineToggle.m OMDPanelSelection.m OMDViewerDiagnostics.m OMDViewerColors.m OMDMainWindow.m OMDFillViews.m OMDToolbarViews.m OMDWin11SplitView.m OMDTextFileSupport.m OMDExternalTools.m OMDLayoutMetrics.m OMDViewerDefaults.m OMDViewerImages.m OMDExplorerController.m OMDExplorerRoot.m OMDExplorerTree.m OMDRemoteDocument.m OMDRemoteDocumentBar.m OMDOpenLocationController.m OMDPreferencesController.m OMDControlSupport.m OMDFormattingBarController.m OMDDocumentTabsController.m OMDMarkdownDocument.m OMDDocumentWindows.m OMDMainMenu.m OMDToolbarController.m OMDStatusBarController.m OMDMainThread.m OMDCopyButtonsController.m OMDRenderScheduler.m OMDPreviewTextUpdate.m OMDShareItem.m OMDShareExporter.m OMDShareBasicPresenter.m OMDSharePresenterMac.m OMDSharePresenterWindows.m OMDSharePresenterLinux.m OMDShareNotice.m OMDShareController.m OMDRichPasteboard.m
+MarkdownViewer_OBJC_FILES = main.m OMDAppDelegate.m OMDWindowController.m OMDTextView.m OMDOutlineController.m OMDSourceTextView.m OMDSourceHighlighter.m OMDLineNumberRulerView.m OMDDocumentConverter.m OMDPandocConverter.m OMDPreviewSync.m OMDViewerModeState.m OMDCodeCopyButton.m OMDInlineToggle.m OMDPanelSelection.m OMDViewerDiagnostics.m OMDViewerColors.m OMDMainWindow.m OMDFillViews.m OMDToolbarViews.m OMDWin11SplitView.m OMDTextFileSupport.m OMDExternalTools.m OMDLayoutMetrics.m OMDViewerDefaults.m OMDViewerImages.m OMDExplorerController.m OMDExplorerRoot.m OMDExplorerTree.m OMDRemoteDocument.m OMDRemoteDocumentBar.m OMDOpenLocationController.m OMDPreferencesController.m OMDControlSupport.m OMDFormattingBarController.m OMDDocumentTabsController.m OMDMarkdownDocument.m OMDDocumentWindows.m OMDMainMenu.m OMDToolbarController.m OMDStatusBarController.m OMDMainThread.m OMDCopyButtonsController.m OMDRenderScheduler.m OMDPreviewTextUpdate.m OMDShareItem.m OMDShareExporter.m OMDShareBasicPresenter.m OMDSharePresenterMac.m OMDSharePresenterWindows.m OMDSharePresenterLinux.m OMDShareNotice.m OMDShareController.m OMDRichPasteboard.m OMDShareMail.m
 MarkdownViewer_CPPFLAGS += -I../ObjcMarkdown
 # The version About shows: VERSION at the top, or OMD_VERSION=... for a build.
 OMD_VERSION ?= $(strip $(shell cat ../VERSION 2>/dev/null))
@@ -12,6 +12,12 @@ MarkdownViewer_CPPFLAGS += -I../third_party/cmark-gfm/compat -I../third_party/cm
 MarkdownViewer_CPPFLAGS += -I../third_party/TextViewVimKit/src
 MarkdownViewer_CPPFLAGS += -I../third_party/GPUpdaterCore/Headers
 MarkdownViewer_CPPFLAGS += -I../third_party/GPUpdaterUI/Headers
+# Share on Linux talks to the desktop through GIO (the portals, the mail
+# app); GNUstep's backend links GLib already.
+ifeq (,$(findstring mingw,$(GNUSTEP_HOST_OS)))
+MarkdownViewer_CPPFLAGS += $(shell pkg-config --cflags gio-unix-2.0)
+MarkdownViewer_LDFLAGS += $(shell pkg-config --libs gio-unix-2.0)
+endif
 ifneq (,$(findstring mingw,$(GNUSTEP_HOST_OS)))
 MarkdownViewer_WINDRES_FILES = MarkdownViewer.rc
 MarkdownViewer_LDFLAGS += -lgdi32

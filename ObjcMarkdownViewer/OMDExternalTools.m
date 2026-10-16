@@ -242,6 +242,13 @@ BOOL OMDOpenURL(NSURL *url)
     free(wideURL);
     return (INT_PTR)result > 32;
 #else
+#if !defined(__APPLE__)
+    // GNUstep's NSWorkspace has no mailto: handler and says so in an alert;
+    // the desktop's default mail app opens it.
+    if ([[[url scheme] lowercaseString] isEqualToString:@"mailto"] && OMDOpenURLUsingXDGOpen(url)) {
+        return YES;
+    }
+#endif
     if ([[NSWorkspace sharedWorkspace] openURL:url]) {
         return YES;
     }

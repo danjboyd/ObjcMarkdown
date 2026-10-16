@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #import "OMDShareNotice.h"
+#import "OMDViewerImages.h"
 
 // The shared file's icon, which drags the file into a mail or a chat.
 #if defined(GNUSTEP)
@@ -96,7 +97,8 @@
 - (instancetype)initWithMessage:(NSString *)message
                       shareItem:(OMDShareItem *)item
                       presenter:(id<OMDSharePresenter>)presenter
-                      forWindow:(NSWindow *)window;
+                      forWindow:(NSWindow *)window
+                         picker:(BOOL)picker;
 - (void)show;
 - (void)close;
 @end
@@ -152,7 +154,23 @@ static NSButton *OMDShareNoticeButton(NSString *title, NSRect frame, id target, 
     OMDShareNotice *notice = [[[OMDShareNotice alloc] initWithMessage:message
                                                             shareItem:item
                                                             presenter:presenter
-                                                            forWindow:window] autorelease];
+                                                            forWindow:window
+                                                               picker:NO] autorelease];
+    [OMDShareNotices() setObject:notice forKey:OMDShareNoticeKey(window)];
+    [notice show];
+}
+
++ (void)showPickerForShareItem:(OMDShareItem *)item
+                     presenter:(id<OMDSharePresenter>)presenter
+                     forWindow:(NSWindow *)window
+{
+    [self dismissNoticeForWindow:window];
+    NSString *message = [NSString stringWithFormat:@"\u201C%@\u201D is ready to share.", [item fileName]];
+    OMDShareNotice *notice = [[[OMDShareNotice alloc] initWithMessage:message
+                                                            shareItem:item
+                                                            presenter:presenter
+                                                            forWindow:window
+                                                               picker:YES] autorelease];
     [OMDShareNotices() setObject:notice forKey:OMDShareNoticeKey(window)];
     [notice show];
 }
@@ -167,6 +185,7 @@ static NSButton *OMDShareNoticeButton(NSString *title, NSRect frame, id target, 
                       shareItem:(OMDShareItem *)item
                       presenter:(id<OMDSharePresenter>)presenter
                       forWindow:(NSWindow *)window
+                         picker:(BOOL)picker
 {
     self = [super init];
     if (self == nil) {
@@ -176,7 +195,7 @@ static NSButton *OMDShareNoticeButton(NSString *title, NSRect frame, id target, 
     _item = [item retain];
     _presenter = [presenter retain];
 
-    CGFloat width = 440.0;
+    CGFloat width = picker ? 600.0 : 440.0;
     CGFloat height = 140.0;
     CGFloat margin = 16.0;
     CGFloat iconSize = 48.0;
@@ -192,7 +211,13 @@ static NSButton *OMDShareNoticeButton(NSString *title, NSRect frame, id target, 
 
     OMDShareFileDragView *icon = [[[OMDShareFileDragView alloc] initWithFrame:
         NSMakeRect(margin, height - margin - iconSize, iconSize, iconSize)] autorelease];
+#if defined(GNUSTEP) && !defined(_WIN32)
+    // Icon themes no longer carry coloured file icons, and GNUstep's own
+    // is a question mark: the app's page.
+    NSImage *fileIcon = OMDSymbolicImageNamed(@"omd-share-file-symbolic");
+#else
     NSImage *fileIcon = [[NSWorkspace sharedWorkspace] iconForFile:[[item fileURL] path]];
+#endif
     [icon setImage:fileIcon];
     [icon setImageScaling:NSImageScaleProportionallyUpOrDown];
     [icon setEditable:NO];
@@ -211,18 +236,30 @@ static NSButton *OMDShareNoticeButton(NSString *title, NSRect frame, id target, 
                                             [NSFont systemFontOfSize:[NSFont smallSystemFontSize]],
                                             [NSColor secondaryLabelColor])];
 
+    // The buttons, right to left: Close, Copy File, Show in Folder, and in
+    // the picker Save a Copy... and Email... (the default).
     CGFloat buttonHeight = 28.0;
     CGFloat buttonY = margin - 4.0;
-    NSButton *close = OMDShareNoticeButton(@"Close", NSMakeRect(width - margin - 80.0, buttonY, 80.0, buttonHeight),
-                                           self, @selector(closeClicked:));
-    [close setKeyEquivalent:@"\e"];
-    NSButton *copy = OMDShareNoticeButton(@"Copy File", NSMakeRect(width - margin - 80.0 - 8.0 - 100.0, buttonY, 100.0, buttonHeight),
-                                          self, @selector(copyFileClicked:));
-    NSButton *show = OMDShareNoticeButton(@"Show in Folder", NSMakeRect(width - margin - 80.0 - 8.0 - 100.0 - 8.0 - 130.0, buttonY, 130.0, buttonHeight),
-                                          self, @selector(showInFolderClicked:));
-    [content addSubview:show];
-    [content addSubview:copy];
-    [content addSubview:close];
+    CGFloat x = width - margin;
+    NSArray *titles = [NSArray arrayWithObjects:@"Close", @"Copy File", @"Show in Folder", @"Save a Copy...", @"Email...", nil];
+    CGFloat widths[] = { 80.0, 100.0, 130.0, 120.0, 90.0 };
+    SEL actions[] = { @selector(closeClicked:), @selector(copyFileClicked:), @selector(showInFolderClicked:),
+                      @selector(saveCopyClicked:), @selector(emailClicked:) };
+    NSUInteger count = picker ? 5 : 3;
+    NSUInteger index = 0;
+    for (index = 0; index < count; index++) {
+        x -= widths[index];
+        NSButton *button = OMDShareNoticeButton([titles objectAtIndex:index],
+                                                NSMakeRect(x, buttonY, widths[index], buttonHeight),
+                                                self, actions[index]);
+        if (index == 0) {
+            [button setKeyEquivalent:@"\e"];
+        } else if (picker && index == 4) {
+            [button setKeyEquivalent:@"\r"];
+        }
+        [content addSubview:button];
+        x -= 8.0;
+    }
 
     if (window != nil) {
         [[NSNotificationCenter defaultCenter] addObserver:self
@@ -272,6 +309,49 @@ static NSButton *OMDShareNoticeButton(NSString *title, NSRect frame, id target, 
 {
     (void)sender;
     [_presenter showShareItemInFolder:_item];
+}
+
+- (void)emailClicked:(id)sender
+{
+    (void)sender;
+    // Email may put up a notice of its own, which replaces this one.
+    [[_item retain] autorelease];
+    [[_presenter retain] autorelease];
+    OMDShareItem *item = _item;
+    id<OMDSharePresenter> presenter = _presenter;
+    NSWindow *window = _window;
+    [self close];
+    [presenter emailShareItem:item forWindow:window];
+}
+
+- (void)saveCopyClicked:(id)sender
+{
+    (void)sender;
+    NSSavePanel *panel = [NSSavePanel savePanel];
+    [panel setTitle:@"Save a Copy"];
+    [panel setNameFieldStringValue:[_item fileName]];
+    [panel setCanCreateDirectories:YES];
+    [panel setDirectory:NSHomeDirectory()];
+    NSInteger result = [panel runModal];
+    if (result != NSOKButton && result != NSFileHandlingPanelOKButton) {
+        return;
+    }
+    NSString *destination = [[panel URL] path];
+    if ([destination length] == 0) {
+        return;
+    }
+    NSFileManager *manager = [NSFileManager defaultManager];
+    // The panel has asked about replacing it.
+    [manager removeItemAtPath:destination error:NULL];
+    NSError *error = nil;
+    if (![manager copyItemAtPath:[[_item fileURL] path] toPath:destination error:&error]) {
+        NSAlert *alert = [[[NSAlert alloc] init] autorelease];
+        [alert setMessageText:@"Couldn't save a copy"];
+        [alert setInformativeText:(error != nil ? [error localizedDescription] : destination)];
+        [alert runModal];
+        return;
+    }
+    [self close];
 }
 
 - (void)closeClicked:(id)sender

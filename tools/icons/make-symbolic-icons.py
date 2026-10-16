@@ -158,6 +158,26 @@ def share(cr):
     triangle(cr, [(6, 7), (16, 7), (11, 2)])
 
 
+def share_file(cr):
+    # A page with a folded corner, 48x48: the shared file in the share
+    # notice on Linux, where icon themes no longer have coloured file icons.
+    cr.set_line_width(W)
+    cr.set_line_join(cairo.LINE_JOIN_ROUND)
+    cr.move_to(11, 5)
+    cr.line_to(29, 5)
+    cr.line_to(39, 15)
+    cr.line_to(39, 43)
+    cr.line_to(11, 43)
+    cr.close_path()
+    cr.stroke()
+    cr.move_to(29, 5)
+    cr.line_to(29, 15)
+    cr.line_to(39, 15)
+    cr.stroke()
+    for y in (22, 28, 34):
+        fill(cr, 16, y, 18, 2)
+
+
 def preferences(cr):
     # Three sliders.
     for x, knob in ((4, 7), (10, 14), (16, 10)):
@@ -185,6 +205,7 @@ TOOLBAR_ICONS = {
     "omd-document-print-symbolic": (document_print, TOOLBAR),
     "omd-preferences-symbolic": (preferences, TOOLBAR),
     "omd-share-symbolic": (share, TOOLBAR),
+    "omd-share-file-symbolic": (share_file, 48),
     "omd-edit-copy-symbolic": (edit_copy, SMALL),
 }
 
