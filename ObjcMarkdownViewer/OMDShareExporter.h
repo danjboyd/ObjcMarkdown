@@ -78,6 +78,14 @@ typedef NS_ENUM(NSInteger, OMDShareErrorCode) {
 // this launch's directory so the file keeps the document's name.
 - (OMDShareItem *)shareItemForFormat:(OMDShareFormat)format error:(NSError **)error;
 
+// The same, without blocking the window for Word and HTML: what the export
+// needs from the document is read here, Pandoc converts on a background
+// queue, and completion runs on the main thread with the item or the error.
+// Markdown and PDF (which prints on the main thread) complete before this
+// returns.
+- (void)shareItemForFormat:(OMDShareFormat)format
+                completion:(void (^)(OMDShareItem *item, NSError *error))completion;
+
 // Whether the source has a selection to share.
 - (BOOL)hasSelection;
 // The same as -shareItemForFormat:error: and its completion form, for the
@@ -94,13 +102,5 @@ typedef NS_ENUM(NSInteger, OMDShareErrorCode) {
 // OMDShareBundleEntries() says what goes in), for a reader who should get
 // the .md itself. The item's format is Markdown.
 - (OMDShareItem *)bundleShareItemWithError:(NSError **)error;
-
-// The same, without blocking the window for Word and HTML: what the export
-// needs from the document is read here, Pandoc converts on a background
-// queue, and completion runs on the main thread with the item or the error.
-// Markdown and PDF (which prints on the main thread) complete before this
-// returns.
-- (void)shareItemForFormat:(OMDShareFormat)format
-                completion:(void (^)(OMDShareItem *item, NSError *error))completion;
 
 @end
