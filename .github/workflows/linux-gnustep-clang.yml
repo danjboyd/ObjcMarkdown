@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     container:
-      image: ghcr.io/danjboyd/objcmarkdown-ci@sha256:8a30df09ea8237ea9f413f168e2feabbf3a079e3aab5daedc034a64e94dad599
+      image: ghcr.io/danjboyd/objcmarkdown-ci@sha256:f36cd4b3481494493f2244ae0c8f981ca3d90cd7f2075ca65bf19d50099e55a7
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
