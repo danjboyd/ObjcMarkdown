@@ -9,6 +9,9 @@
 #include <errno.h>
 #include <signal.h>
 #include <unistd.h>
+#if defined(_WIN32)
+#include <windows.h>
+#endif
 
 NSString * const OMDShareErrorDomain = @"OMDShareErrorDomain";
 
@@ -45,10 +48,6 @@ static BOOL OMDShareCreatePrivateDirectory(NSString *path)
 // Whether the launch that named a directory "<pid>-..." is still running.
 static BOOL OMDShareLaunchIsRunning(NSString *directoryName)
 {
-#if defined(_WIN32)
-    (void)directoryName;
-    return NO;
-#else
     NSRange dash = [directoryName rangeOfString:@"-"];
     if (dash.location == NSNotFound || dash.location == 0) {
         return NO;
@@ -57,6 +56,30 @@ static BOOL OMDShareLaunchIsRunning(NSString *directoryName)
     if (pid <= 0) {
         return NO;
     }
+#if defined(_WIN32)
+    // Windows reuses process IDs soon, so the process must also have
+    // started before the directory was named (the time after the dash).
+    HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, (DWORD)pid);
+    if (process == NULL) {
+        return GetLastError() == ERROR_ACCESS_DENIED;
+    }
+    FILETIME created, exited, kernel, user;
+    DWORD exitCode = 0;
+    BOOL running = (GetExitCodeProcess(process, &exitCode) && exitCode == STILL_ACTIVE);
+    if (running && GetProcessTimes(process, &created, &exited, &kernel, &user)) {
+        ULARGE_INTEGER ticks;
+        ticks.LowPart = created.dwLowDateTime;
+        ticks.HighPart = created.dwHighDateTime;
+        // FILETIME counts 100 ns from 1601; the name counts seconds from 1970.
+        double startedAt = (double)(ticks.QuadPart / 10000000ULL) - 11644473600.0;
+        double namedAt = [[directoryName substringFromIndex:dash.location + 1] doubleValue];
+        if (namedAt > 0.0 && startedAt > namedAt + 1.0) {
+            running = NO;
+        }
+    }
+    CloseHandle(process);
+    return running;
+#else
     return kill((pid_t)pid, 0) == 0 || errno == EPERM;
 #endif
 }
