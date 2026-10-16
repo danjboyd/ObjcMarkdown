@@ -4,6 +4,16 @@ APP_NAME = MarkdownViewer
 
 MarkdownViewer_OBJC_FILES = main.m OMDAppDelegate.m OMDWindowController.m OMDTextView.m OMDOutlineController.m OMDSourceTextView.m OMDSourceHighlighter.m OMDLineNumberRulerView.m OMDDocumentConverter.m OMDPandocConverter.m OMDPreviewSync.m OMDViewerModeState.m OMDCodeCopyButton.m OMDInlineToggle.m OMDPanelSelection.m OMDViewerDiagnostics.m OMDViewerColors.m OMDMainWindow.m OMDFillViews.m OMDToolbarViews.m OMDWin11SplitView.m OMDTextFileSupport.m OMDExternalTools.m OMDLayoutMetrics.m OMDViewerDefaults.m OMDViewerImages.m OMDExplorerController.m OMDExplorerRoot.m OMDExplorerTree.m OMDRemoteDocument.m OMDRemoteDocumentBar.m OMDOpenLocationController.m OMDPreferencesController.m OMDControlSupport.m OMDFormattingBarController.m OMDDocumentTabsController.m OMDMarkdownDocument.m OMDDocumentWindows.m OMDMainMenu.m OMDToolbarController.m OMDStatusBarController.m OMDMainThread.m OMDCopyButtonsController.m OMDRenderScheduler.m OMDPreviewTextUpdate.m OMDShareItem.m OMDShareExporter.m OMDShareBasicPresenter.m OMDSharePresenterMac.m OMDSharePresenterWindows.m OMDSharePresenterLinux.m OMDShareNotice.m OMDShareController.m OMDShareMenu.m OMDRichPasteboard.m OMDShareMail.m
 MarkdownViewer_CPPFLAGS += -I../ObjcMarkdown
+# libs-sharing (Apple's NSSharingService API for GNUstep, vendored by
+# tools/vendor/vendor-libs-sharing.sh): the share sheet and its services.
+# A separate += so macos/Makefile, which reads the list above, leaves it out:
+# macOS has Cocoa's own.
+GSSHARING_DIR = ../third_party/libs-sharing
+include $(GSSHARING_DIR)/GSSharing.make
+MarkdownViewer_OBJC_FILES += $(GSSHARING_OBJC_FILES)
+MarkdownViewer_CPPFLAGS += $(GSSHARING_INCLUDE_DIRS)
+MarkdownViewer_OBJCFLAGS += $(GSSHARING_OBJCFLAGS)
+MarkdownViewer_LDFLAGS += $(GSSHARING_LDFLAGS)
 # The version About shows: VERSION at the top, or OMD_VERSION=... for a build.
 OMD_VERSION ?= $(strip $(shell cat ../VERSION 2>/dev/null))
 MarkdownViewer_CPPFLAGS += -DOMD_APP_VERSION=\"$(OMD_VERSION)\"
@@ -29,7 +39,7 @@ MarkdownViewer_LDFLAGS += -L../third_party/GPUpdaterUI/$(GNUSTEP_OBJ_DIR) -lGPUp
 MarkdownViewer_LDFLAGS += -Wl,-rpath,'$$ORIGIN/../../ObjcMarkdownRuntime'
 MarkdownViewer_LDFLAGS += -Wl,-rpath,'$$ORIGIN/../../../GNUstep/System/Library/Libraries'
 MarkdownViewer_LDFLAGS += -ldispatch
-MarkdownViewer_RESOURCE_FILES = ../Resources/theme-github.toml ../Resources/theme-github-dark.toml ../Resources/markdown_icon.png $(wildcard ../Resources/icons/*-symbolic.png)
+MarkdownViewer_RESOURCE_FILES = ../Resources/theme-github.toml ../Resources/theme-github-dark.toml ../Resources/markdown_icon.png $(wildcard ../Resources/icons/*-symbolic.png) $(GSSHARING_RESOURCE_FILES)
 MarkdownViewer_APPLICATION_ICON = markdown_icon.png
 MarkdownViewer_GSWAPP_INFO_PLIST = MarkdownViewerInfo.plist
 

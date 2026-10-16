@@ -23,6 +23,11 @@
 // else; NO if none opened.
 - (BOOL)openEmailDraftWithSubject:(NSString *)subject;
 @optional
+// Whether -presentShareItem:fromView: shows the system's own share sheet
+// (macOS; Windows where its share UI is supported). Without it, or NO, the
+// share controller shows the library's sheet (libs-sharing) on GNUstep,
+// with the format switcher.
+- (BOOL)presentsSystemShareSheet;
 // A draft whose body is the rendered document (item's renderedText; it has
 // no file), where the mail app takes a body (macOS: Mail). NO to have the
 // share controller put the document on the clipboard to paste instead.

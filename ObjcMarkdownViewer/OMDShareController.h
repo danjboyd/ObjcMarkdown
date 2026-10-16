@@ -16,6 +16,12 @@
     OMDShareExporter *_exporter;
     id<OMDSharePresenter> _presenter;
     NSMenu *_toolbarMenu;
+    // GNUstep: the share sheet showing (an NSSharingServicePicker), its
+    // format switcher, and the choice it shows (a format, or
+    // OMDShareEmailInMessageTag for the document as a message).
+    id _picker;
+    id _formatControl;
+    NSInteger _sheetChoice;
 }
 
 // The source and window are not retained.

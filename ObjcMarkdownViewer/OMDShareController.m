@@ -5,6 +5,9 @@
 #import "OMDShareNotice.h"
 #import "OMDRichPasteboard.h"
 #import "OMDViewerImages.h"
+#if defined(GNUSTEP)
+#import "GSSharing.h"
+#endif
 
 @implementation OMDShareController
 
@@ -27,6 +30,12 @@
 
 - (void)dealloc
 {
+#if defined(GNUSTEP)
+    [(NSSharingServicePicker *)_picker setDelegate:nil];
+    [(NSSharingServicePicker *)_picker close];
+    [_picker release];
+    [_formatControl release];
+#endif
     [OMDShareNotice dismissNoticeForWindow:_window];
     [_exporter release];
     [_presenter release];
@@ -65,8 +74,156 @@
     return item;
 }
 
+#if defined(GNUSTEP)
+// Whether Share shows the library's sheet (no system share sheet here).
+- (BOOL)usesShareSheet
+{
+    return !([_presenter respondsToSelector:@selector(presentsSystemShareSheet)] &&
+             [_presenter presentsSystemShareSheet]);
+}
+
+static NSInteger OMDShareSheetChoices[] = {
+    OMDShareFormatPDF, OMDShareFormatWord, OMDShareFormatMarkdown, OMDShareEmailInMessageTag
+};
+
+// What the sheet shares for a choice: the exported file, or for In the
+// Message the rendered document. Nil (after an alert) if it couldn't be made.
+- (NSArray *)sheetItemsForChoice:(NSInteger)choice
+{
+    if (choice == OMDShareEmailInMessageTag) {
+        NSAttributedString *rendered = [_source shareRenderedText];
+        id text = rendered != nil ? (id)rendered : (id)[_source shareMarkdownText];
+        return text != nil ? [NSArray arrayWithObject:text] : nil;
+    }
+    OMDShareItem *item = [self exportInFormat:(OMDShareFormat)choice];
+    return item != nil ? [NSArray arrayWithObject:[item fileURL]] : nil;
+}
+
+- (NSSegmentedControl *)formatControl
+{
+    if (_formatControl == nil) {
+        NSArray *labels = [NSArray arrayWithObjects:@"PDF", @"Word", @"Markdown", @"In the Message", nil];
+        NSSegmentedControl *control = [[NSSegmentedControl alloc] initWithFrame:NSMakeRect(0, 0, 420, 24)];
+        NSUInteger index = 0;
+        [control setSegmentCount:[labels count]];
+        for (index = 0; index < [labels count]; index++) {
+            [control setLabel:[labels objectAtIndex:index] forSegment:index];
+            [control setWidth:(index == 3 ? 132.0 : 92.0) forSegment:index];
+        }
+        // Its frame fits the segments (GNUstep's -sizeToFit shrinks it to
+        // nothing once the widths are set).
+        [control setFrameSize:NSMakeSize(3 * 92.0 + 132.0 + 8.0, 24.0)];
+        [control setTarget:self];
+        [control setAction:@selector(sheetFormatChanged:)];
+        _formatControl = control;
+    }
+    return _formatControl;
+}
+
+- (void)selectSheetChoice:(NSInteger)choice
+{
+    NSUInteger index = 0;
+    for (index = 0; index < sizeof(OMDShareSheetChoices) / sizeof(OMDShareSheetChoices[0]); index++) {
+        if (OMDShareSheetChoices[index] == choice) {
+            [[self formatControl] setSelectedSegment:index];
+        }
+    }
+}
+
+- (void)showShareSheetWithChoice:(NSInteger)choice fromView:(NSView *)view
+{
+    NSArray *items = [self sheetItemsForChoice:choice];
+    if (items == nil) {
+        return;
+    }
+    _sheetChoice = choice;
+    [self selectSheetChoice:choice];
+    [(NSSharingServicePicker *)_picker setDelegate:nil];
+    [(NSSharingServicePicker *)_picker close];
+    [_picker release];
+    _picker = [[NSSharingServicePicker alloc] initWithItems:items];
+    [(NSSharingServicePicker *)_picker setDelegate:self];
+    [(NSSharingServicePicker *)_picker setAccessoryView:[self formatControl]];
+    NSRect rect;
+    if (view == nil || view == [_window contentView]) {
+        // From the toolbar or a menu: under the top right of the window.
+        view = [_window contentView];
+        NSRect bounds = [view bounds];
+        rect = NSMakeRect(NSMaxX(bounds) - 560.0, NSMaxY(bounds) - 1.0, 1.0, 1.0);
+    } else {
+        rect = [view bounds];
+    }
+    [(NSSharingServicePicker *)_picker showRelativeToRect:rect ofView:view preferredEdge:NSMinYEdge];
+}
+
+- (void)sheetFormatChanged:(id)sender
+{
+    NSInteger index = [(NSSegmentedControl *)sender selectedSegment];
+    if (index < 0 || index >= 4) {
+        return;
+    }
+    NSInteger choice = OMDShareSheetChoices[index];
+    NSArray *items = [self sheetItemsForChoice:choice];
+    if (items == nil) {
+        [self selectSheetChoice:_sheetChoice];
+        return;
+    }
+    _sheetChoice = choice;
+    [(NSSharingServicePicker *)_picker setItems:items];
+}
+
+- (void)emailInMessageService:(NSArray *)items service:(id)service
+{
+    (void)items;
+    (void)service;
+    [self emailDocumentInMessage];
+}
+
+- (void)copyRenderedService:(NSArray *)items service:(id)service
+{
+    (void)items;
+    (void)service;
+    OMDWriteRenderedDocumentToPasteboard([NSPasteboard generalPasteboard],
+                                         [_source shareMarkdownText],
+                                         [_source shareRenderedText]);
+}
+
+// In the Message: the app's own Email (draft and paste) and Copy (the
+// rendered document as HTML with inline styles, RTF and text), with the
+// library's titles and images; files get the library's services as they are.
+- (NSArray *)sharingServicePicker:(NSSharingServicePicker *)picker
+          sharingServicesForItems:(NSArray *)items
+          proposedSharingServices:(NSArray *)proposed
+{
+    (void)picker;
+    (void)items;
+    if (_sheetChoice != OMDShareEmailInMessageTag) {
+        return proposed;
+    }
+    NSSharingService *email = [NSSharingService sharingServiceNamed:NSSharingServiceNameComposeEmail];
+    NSSharingService *copy = [NSSharingService sharingServiceNamed:GSSharingServiceNameCopy];
+    NSSharingService *ours = [[[NSSharingService alloc] initWithTitle:@"Email"
+                                                                image:[email image]
+                                                       alternateImage:nil
+                                                               target:self
+                                                               action:@selector(emailInMessageService:service:)] autorelease];
+    NSSharingService *copyRendered = [[[NSSharingService alloc] initWithTitle:@"Copy"
+                                                                        image:[copy image]
+                                                               alternateImage:nil
+                                                                       target:self
+                                                                       action:@selector(copyRenderedService:service:)] autorelease];
+    return [NSArray arrayWithObjects:ours, copyRendered, nil];
+}
+#endif
+
 - (void)shareInFormat:(OMDShareFormat)format fromView:(NSView *)view
 {
+#if defined(GNUSTEP)
+    if ([self usesShareSheet]) {
+        [self showShareSheetWithChoice:format fromView:view];
+        return;
+    }
+#endif
     OMDShareItem *item = [self exportInFormat:format];
     if (item == nil) {
         return;
@@ -140,6 +297,11 @@
 - (void)toolbarItemClicked:(id)sender
 {
     (void)sender;
+    if ([self usesShareSheet]) {
+        // One sheet: the Share button opens it, in the last format.
+        [self showShareSheetWithChoice:OMDShareLastFormat() fromView:nil];
+        return;
+    }
     NSEvent *event = [NSApp currentEvent];
     NSView *view = [_window contentView];
     if (event == nil || view == nil) {
