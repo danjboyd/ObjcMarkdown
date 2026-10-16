@@ -26,3 +26,19 @@ void OMDShareSetLastFormat(OMDShareFormat format);
 // (PDF until something is emailed).
 NSInteger OMDShareLastEmailChoice(void);
 void OMDShareSetLastEmailChoice(NSInteger choice);
+
+// The sheet's last choice (a format or OMDShareEmailInMessageTag), or
+// OMDShareNoChoice when nothing has been shared from the sheet yet.
+enum {
+    OMDShareNoChoice = -1
+};
+NSInteger OMDShareLastSheetChoice(void);
+void OMDShareSetLastSheetChoice(NSInteger choice);
+
+// What the sheet opens with: the last choice, or with none yet, In the
+// Message for a short document (pasted into a chat or an email) and PDF
+// for a longer one (attached).
+NSInteger OMDShareSuggestedSheetChoice(NSInteger lastChoice, NSUInteger documentLength);
+
+// Below this many characters a document counts as short.
+#define OMDShareShortDocumentLength 1500

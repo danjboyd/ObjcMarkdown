@@ -58,4 +58,21 @@
     XCTAssertTrue(OMDShareEmailInMessageTag > OMDShareFormatHTML);
 }
 
+- (void)testTheSheetOpensWithTheLastChoice
+{
+    XCTAssertEqual(OMDShareSuggestedSheetChoice(OMDShareFormatWord, 10), (NSInteger)OMDShareFormatWord);
+    XCTAssertEqual(OMDShareSuggestedSheetChoice(OMDShareEmailInMessageTag, 100000),
+                   (NSInteger)OMDShareEmailInMessageTag);
+}
+
+- (void)testWithNoChoiceAShortDocumentGoesInTheMessage
+{
+    XCTAssertEqual(OMDShareSuggestedSheetChoice(OMDShareNoChoice, 400), (NSInteger)OMDShareEmailInMessageTag);
+    XCTAssertEqual(OMDShareSuggestedSheetChoice(OMDShareNoChoice, OMDShareShortDocumentLength),
+                   (NSInteger)OMDShareFormatPDF);
+    XCTAssertEqual(OMDShareSuggestedSheetChoice(OMDShareNoChoice, 50000), (NSInteger)OMDShareFormatPDF);
+    // Anything that isn't a choice counts as none.
+    XCTAssertEqual(OMDShareSuggestedSheetChoice(42, 10), (NSInteger)OMDShareEmailInMessageTag);
+}
+
 @end
