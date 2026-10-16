@@ -31,6 +31,8 @@ endif
 ifneq (,$(findstring mingw,$(GNUSTEP_HOST_OS)))
 MarkdownViewer_WINDRES_FILES = MarkdownViewer.rc
 MarkdownViewer_LDFLAGS += -lgdi32
+# The Windows share presenter: WinRT (the share sheet), OLE, the shell.
+MarkdownViewer_LDFLAGS += -lruntimeobject -lole32 -lshell32 -ladvapi32
 endif
 MarkdownViewer_LDFLAGS += -L../ObjcMarkdown/$(GNUSTEP_OBJ_DIR) -lObjcMarkdown
 MarkdownViewer_LDFLAGS += -L../third_party/TextViewVimKitBuild/$(GNUSTEP_OBJ_DIR) -lTextViewVimKit
