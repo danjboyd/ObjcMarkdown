@@ -86,6 +86,21 @@ static NSArray *OMDPickerItems(OMDShareItem *item)
     [_picker showRelativeToRect:[view bounds] ofView:view preferredEdge:NSRectEdgeMinY];
 }
 
+// A Mail draft with the items (the rendered body, the file) and the title
+// as the subject; NO when Mail isn't the default mail app or can't take
+// them.
+- (BOOL)composeMailWithItems:(NSArray *)items title:(NSString *)title
+{
+    NSSharingService *mail = [NSSharingService sharingServiceNamed:NSSharingServiceNameComposeEmail];
+    if (!OMDMailIsDefaultMailApp() || mail == nil || [items count] == 0 || ![mail canPerformWithItems:items]) {
+        return NO;
+    }
+    [mail setSubject:(title != nil ? title : @"")];
+    [self setService:mail];
+    [mail performWithItems:items];
+    return YES;
+}
+
 - (void)emailShareItem:(OMDShareItem *)item forWindow:(NSWindow *)window
 {
     NSMutableArray *items = [NSMutableArray array];
@@ -95,14 +110,20 @@ static NSArray *OMDPickerItems(OMDShareItem *item)
     if ([item fileURL] != nil) {
         [items addObject:[item fileURL]];
     }
-    NSSharingService *mail = [NSSharingService sharingServiceNamed:NSSharingServiceNameComposeEmail];
-    if (OMDMailIsDefaultMailApp() && mail != nil && [items count] > 0 && [mail canPerformWithItems:items]) {
-        [mail setSubject:([item title] != nil ? [item title] : @"")];
-        [self setService:mail];
-        [mail performWithItems:items];
-        return;
+    if (![self composeMailWithItems:items title:[item title]]) {
+        [self emailShareItemWithMailtoDraft:item forWindow:window];
     }
-    [self emailShareItemWithMailtoDraft:item forWindow:window];
+}
+
+// Email as > In the Message: the rendered document as Mail's body. With
+// another mail app the share controller puts it on the clipboard instead.
+- (BOOL)emailRenderedDocument:(OMDShareItem *)item forWindow:(NSWindow *)window
+{
+    (void)window;
+    if ([item renderedText] == nil) {
+        return NO;
+    }
+    return [self composeMailWithItems:[NSArray arrayWithObject:[item renderedText]] title:[item title]];
 }
 
 - (NSToolbarItem *)shareToolbarItemWithIdentifier:(NSString *)identifier
