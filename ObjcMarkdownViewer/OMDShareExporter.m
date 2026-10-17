@@ -147,9 +147,23 @@ static BOOL OMDShareLaunchIsRunning(NSString *directoryName)
     return [trimmed length] > 0 ? trimmed : @"Document";
 }
 
++ (NSString *)temporaryRootDirectoryInFlatpak:(BOOL)inFlatpak environment:(NSDictionary *)environment
+{
+    if (inFlatpak) {
+        NSString *cache = [environment objectForKey:@"XDG_CACHE_HOME"];
+        if ([cache length] == 0) {
+            cache = [NSHomeDirectory() stringByAppendingPathComponent:@".cache"];
+        }
+        return [cache stringByAppendingPathComponent:@"MarkdownViewer-share"];
+    }
+    return [NSTemporaryDirectory() stringByAppendingPathComponent:@"MarkdownViewer-share"];
+}
+
 + (NSString *)temporaryRootDirectory
 {
-    return [NSTemporaryDirectory() stringByAppendingPathComponent:@"MarkdownViewer-share"];
+    BOOL inFlatpak = [[NSFileManager defaultManager] fileExistsAtPath:@"/.flatpak-info"];
+    return [self temporaryRootDirectoryInFlatpak:inFlatpak
+                                     environment:[[NSProcessInfo processInfo] environment]];
 }
 
 + (NSString *)launchTemporaryDirectory
