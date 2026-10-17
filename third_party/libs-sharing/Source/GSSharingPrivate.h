@@ -43,8 +43,13 @@
   NSView *accessoryView;
   BOOL servicesDisabled;
   id panel;             /* the GSSharingPickerPanel showing, or nil */
+  BOOL keptWhileShowing; /* the picker retains itself while its sheet shows */
 }
 @end
+
+/* The picker's sheet has finished (a service chosen, or none): the picker
+   lets go of itself, as AppKit's does once its sheet is gone. */
+void GSSharingPickerDidFinish(NSSharingServicePicker *picker);
 
 /* Kinds of item a service can take. */
 enum {

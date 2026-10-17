@@ -432,6 +432,14 @@ GSSharingDisplayNameOfItem(id item)
   GSSharingPickerState *state = GSSharingStateForPicker(self, YES);
 
   [(GSSharingPickerPanel *)state->panel closeWithoutChoice];
+  /* As AppKit's picker, it lives while its sheet shows, so an app may make
+     one, show it and let go of it (a local under ARC): otherwise the sheet
+     went with the autorelease pool before it was drawn. */
+  if (state->keptWhileShowing == NO)
+    {
+      state->keptWhileShowing = YES;
+      RETAIN(self);
+    }
   ASSIGN(state->panel, AUTORELEASE([[GSSharingPickerPanel alloc]
                                       initWithPicker: self]));
   [(GSSharingPickerPanel *)state->panel showRelativeToRect: rect
@@ -447,6 +455,20 @@ GSSharingDisplayNameOfItem(id item)
 }
 
 @end
+
+
+void
+GSSharingPickerDidFinish(NSSharingServicePicker *picker)
+{
+  GSSharingPickerState *state = GSSharingStateForPicker(picker, NO);
+
+  if (state != nil && state->keptWhileShowing)
+    {
+      state->keptWhileShowing = NO;
+      /* Not at once: the sheet's own call back into it is still running. */
+      AUTORELEASE(picker);
+    }
+}
 
 
 /* Adds donor's methods to target where target has none of that name. */

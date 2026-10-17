@@ -6,6 +6,7 @@
 #import "OMDRichPasteboard.h"
 #import "OMDDocumentConverter.h"
 #import "OMDViewerImages.h"
+#import "OMDShareChecks.h"
 #if defined(GNUSTEP)
 #import "GSSharing.h"
 #endif
@@ -38,6 +39,8 @@
     [_formatControl release];
     [_accessoryView release];
     [_spinner release];
+    [_selectionCheckbox release];
+    [_warningsView release];
 #endif
     [OMDShareNotice dismissNoticeForWindow:_window];
     [_exporter release];
@@ -66,10 +69,45 @@
     [alert runModal];
 }
 
+// What is shared: the selection when the share is of the selection only
+// and the source has one, otherwise the whole document.
+- (NSString *)sharedMarkdown
+{
+    if (_selectionOnly && [_source respondsToSelector:@selector(shareSelectedMarkdownText)]) {
+        NSString *selected = [_source shareSelectedMarkdownText];
+        if (selected != nil) {
+            return selected;
+        }
+    }
+    return [_source shareMarkdownText];
+}
+
+- (NSAttributedString *)sharedRenderedText
+{
+    if (_selectionOnly && [_source respondsToSelector:@selector(shareSelectedMarkdownText)] &&
+        [_source respondsToSelector:@selector(shareRenderedTextForMarkdown:)]) {
+        NSString *selected = [_source shareSelectedMarkdownText];
+        if (selected != nil) {
+            return [_source shareRenderedTextForMarkdown:selected];
+        }
+    }
+    return [_source shareRenderedText];
+}
+
+// What a reader of a share in format would miss, for what is shared.
+- (NSArray *)warningsForFormat:(OMDShareFormat)format
+{
+    NSString *markdown = [self sharedMarkdown];
+    if (markdown == nil) {
+        return [NSArray array];
+    }
+    return OMDShareWarningsForFormat(OMDShareWarnings(markdown, [_source shareResourceDirectory]), format);
+}
+
 - (OMDShareItem *)exportInFormat:(OMDShareFormat)format
 {
     NSError *error = nil;
-    OMDShareItem *item = [_exporter shareItemForFormat:format error:&error];
+    OMDShareItem *item = [_exporter shareItemForFormat:format selectionOnly:_selectionOnly error:&error];
     if (item == nil) {
         [self presentError:error format:format];
         return nil;
@@ -95,8 +133,8 @@ static NSInteger OMDShareSheetChoices[] = {
 - (NSArray *)sheetItemsForChoice:(NSInteger)choice
 {
     if (choice == OMDShareEmailInMessageTag) {
-        NSAttributedString *rendered = [_source shareRenderedText];
-        id text = rendered != nil ? (id)rendered : (id)[_source shareMarkdownText];
+        NSAttributedString *rendered = [self sharedRenderedText];
+        id text = rendered != nil ? (id)rendered : (id)[self sharedMarkdown];
         return text != nil ? [NSArray arrayWithObject:text] : nil;
     }
     OMDShareItem *item = [self exportInFormat:(OMDShareFormat)choice];
@@ -124,8 +162,10 @@ static NSInteger OMDShareSheetChoices[] = {
     return _formatControl;
 }
 
-// The format switcher with a spinner at its right, shown while a format
-// exports in the background.
+// The sheet's own row above the services: the format switcher with a
+// spinner at its right (shown while a format exports in the background),
+// "Selection only" under it while there is a selection, and the warnings
+// for the choice under that (-updateSheetAccessory lays them out).
 - (NSView *)sheetAccessoryView
 {
     if (_accessoryView == nil) {
@@ -139,10 +179,136 @@ static NSInteger OMDShareSheetChoices[] = {
         [control setFrameOrigin:NSZeroPoint];
         [view addSubview:control];
         [view addSubview:spinner];
+
+        NSButton *checkbox = [[NSButton alloc] initWithFrame:NSMakeRect(0, 0, NSWidth(controlFrame), 20.0)];
+        [checkbox setButtonType:NSSwitchButton];
+        [checkbox setTitle:@"Selection only"];
+        [checkbox setTarget:self];
+        [checkbox setAction:@selector(sheetSelectionOnlyChanged:)];
+        [view addSubview:checkbox];
+
+        NSView *warnings = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, NSWidth([view frame]), 0)];
+        [view addSubview:warnings];
+
         _accessoryView = view;
         _spinner = spinner;
+        _selectionCheckbox = checkbox;
+        _warningsView = warnings;
     }
     return _accessoryView;
+}
+
+static NSTextField *OMDShareSheetLabel(NSString *text, CGFloat width)
+{
+    NSTextField *label = [[[NSTextField alloc] initWithFrame:NSMakeRect(0, 0, width, 18.0)] autorelease];
+    [label setStringValue:text];
+    [label setEditable:NO];
+    [label setSelectable:NO];
+    [label setBezeled:NO];
+    [label setBordered:NO];
+    [label setDrawsBackground:NO];
+    [label setTextColor:[NSColor secondaryLabelColor]];
+    [[label cell] setWraps:YES];
+    NSSize size = [[label cell] cellSizeForBounds:NSMakeRect(0, 0, width, 1000.0)];
+    [label setFrameSize:NSMakeSize(width, ceil(size.height))];
+    return label;
+}
+
+static NSButton *OMDShareSheetButton(NSString *title, id target, SEL action)
+{
+    NSButton *button = [[[NSButton alloc] initWithFrame:NSMakeRect(0, 0, 100, 24.0)] autorelease];
+    [button setButtonType:NSMomentaryPushInButton];
+    [button setBezelStyle:NSRoundedBezelStyle];
+    [button setTitle:title];
+    [button setTarget:target];
+    [button setAction:action];
+    [button sizeToFit];
+    [button setFrameSize:NSMakeSize(NSWidth([button frame]) + 12.0, 24.0)];
+    return button;
+}
+
+// The format the warnings are checked for: the message is HTML.
+static OMDShareFormat OMDShareFormatForSheetChoice(NSInteger choice)
+{
+    return choice == OMDShareEmailInMessageTag ? OMDShareFormatHTML : (OMDShareFormat)choice;
+}
+
+// Lays out the accessory for the choice shown: the warnings that apply,
+// what to do instead, and "Selection only" while there is a selection.
+// Called before the picker's items change, which lays out the sheet again.
+- (void)updateSheetAccessory
+{
+    NSView *view = [self sheetAccessoryView];
+    NSView *warnings = (NSView *)_warningsView;
+    NSButton *checkbox = (NSButton *)_selectionCheckbox;
+    CGFloat width = NSWidth([view frame]);
+    OMDShareFormat format = OMDShareFormatForSheetChoice(_sheetChoice);
+    NSArray *found = [self warningsForFormat:format];
+    BOOL offerPDF = NO;
+    BOOL offerBundle = NO;
+    NSMutableArray *labels = [NSMutableArray array];
+    NSEnumerator *e = [found objectEnumerator];
+    OMDShareWarning *warning = nil;
+
+    while ((warning = [e nextObject]) != nil) {
+        // The .zip carries the local images.
+        if (_sheetBundled && [warning offersBundle]) {
+            continue;
+        }
+        [labels addObject:OMDShareSheetLabel([warning messageForFormat:format], width)];
+        offerPDF = offerPDF || ([warning suggestsPDF] && _sheetChoice != OMDShareFormatPDF);
+        offerBundle = offerBundle || ([warning offersBundle] && _sheetChoice == OMDShareFormatMarkdown &&
+                                      !_selectionOnly && !_sheetBundled);
+    }
+
+    [[[[warnings subviews] copy] autorelease] makeObjectsPerformSelector:@selector(removeFromSuperview)];
+    NSMutableArray *buttons = [NSMutableArray array];
+    if (offerPDF) {
+        [buttons addObject:OMDShareSheetButton(@"Share as PDF", self, @selector(sheetShareAsPDF:))];
+    }
+    if (offerBundle) {
+        [buttons addObject:OMDShareSheetButton(@"Share as .zip with Images", self, @selector(sheetShareBundle:))];
+    }
+
+    // Bottom up (the view isn't flipped): buttons, then the labels.
+    CGFloat y = 0.0;
+    if ([buttons count] > 0) {
+        CGFloat x = 0.0;
+        NSEnumerator *b = [buttons objectEnumerator];
+        NSButton *button = nil;
+        while ((button = [b nextObject]) != nil) {
+            [button setFrameOrigin:NSMakePoint(x, 0.0)];
+            [warnings addSubview:button];
+            x += NSWidth([button frame]) + 8.0;
+        }
+        y = 24.0 + 6.0;
+    }
+    NSEnumerator *l = [labels reverseObjectEnumerator];
+    NSTextField *label = nil;
+    while ((label = [l nextObject]) != nil) {
+        [label setFrameOrigin:NSMakePoint(0.0, y)];
+        [warnings addSubview:label];
+        y += NSHeight([label frame]) + 2.0;
+    }
+    CGFloat warningsHeight = [labels count] > 0 ? y - 2.0 : 0.0;
+    [warnings setFrame:NSMakeRect(0.0, 0.0, width, warningsHeight)];
+    [warnings setHidden:(warningsHeight == 0.0)];
+
+    BOOL hasSelection = [_exporter hasSelection];
+    [checkbox setHidden:!hasSelection];
+    [checkbox setState:(_selectionOnly ? NSOnState : NSOffState)];
+
+    CGFloat height = (warningsHeight > 0.0 ? warningsHeight + 10.0 : 0.0)
+                   + (hasSelection ? 20.0 + 6.0 : 0.0) + 24.0;
+    [view setFrameSize:NSMakeSize(width, height)];
+    CGFloat top = height;
+    [[self formatControl] setFrameOrigin:NSMakePoint(0.0, top - 24.0)];
+    [(NSView *)_spinner setFrameOrigin:NSMakePoint(NSWidth([[self formatControl] frame]) + 8.0, top - 20.0)];
+    top -= 24.0;
+    if (hasSelection) {
+        top -= 6.0 + 20.0;
+        [checkbox setFrameOrigin:NSMakePoint(0.0, top)];
+    }
 }
 
 - (void)setSheetBusy:(BOOL)busy
@@ -163,6 +329,7 @@ static NSInteger OMDShareSheetChoices[] = {
     OMDShareController *controller = self;
     [self setSheetBusy:YES];
     [_exporter shareItemForFormat:(OMDShareFormat)choice
+                    selectionOnly:_selectionOnly
                        completion:^(OMDShareItem *item, NSError *error) {
         if (generation != controller->_exportGeneration || controller->_picker == nil) {
             return;
@@ -206,6 +373,9 @@ static NSInteger OMDShareSheetChoices[] = {
         inBackground = NO;
         choice = OMDShareFormatPDF;
     }
+    // Each sheet starts with the whole document.
+    _selectionOnly = NO;
+    _sheetBundled = NO;
     NSArray *items = inBackground ? [self placeholderItemsForChoice:choice]
                                   : [self sheetItemsForChoice:choice];
     if (items == nil) {
@@ -219,6 +389,7 @@ static NSInteger OMDShareSheetChoices[] = {
     [_picker release];
     _picker = [[NSSharingServicePicker alloc] initWithItems:items];
     [(NSSharingServicePicker *)_picker setDelegate:self];
+    [self updateSheetAccessory];
     [(NSSharingServicePicker *)_picker setAccessoryView:[self sheetAccessoryView]];
     NSRect rect;
     if (view == nil || view == [_window contentView]) {
@@ -237,36 +408,82 @@ static NSInteger OMDShareSheetChoices[] = {
     }
 }
 
-- (void)sheetFormatChanged:(id)sender
+// Shows choice in the sheet: exports it (Word and HTML in the background)
+// and lays out the warnings for it. NO, with the switcher back on the
+// choice shown, if it couldn't be made.
+- (BOOL)switchSheetToChoice:(NSInteger)choice
 {
-    NSInteger index = [(NSSegmentedControl *)sender selectedSegment];
-    if (index < 0 || index >= 4) {
-        return;
-    }
-    NSInteger choice = OMDShareSheetChoices[index];
+    _sheetBundled = NO;
     if (choice != OMDShareEmailInMessageTag &&
         [OMDShareExporter formatNeedsConverter:(OMDShareFormat)choice]) {
         if ([_source documentConverter] == nil) {
             [self presentError:nil format:(OMDShareFormat)choice];
             [self selectSheetChoice:_sheetChoice];
-            return;
+            return NO;
         }
         _sheetChoice = choice;
         OMDShareSetLastSheetChoice(choice);
+        [self selectSheetChoice:choice];
+        [self updateSheetAccessory];
         [(NSSharingServicePicker *)_picker setItems:[self placeholderItemsForChoice:choice]];
         [self exportSheetChoiceInBackground:choice];
-        return;
+        return YES;
     }
     ++_exportGeneration;
     [self setSheetBusy:NO];
     NSArray *items = [self sheetItemsForChoice:choice];
     if (items == nil) {
         [self selectSheetChoice:_sheetChoice];
-        return;
+        return NO;
     }
     _sheetChoice = choice;
     OMDShareSetLastSheetChoice(choice);
+    [self selectSheetChoice:choice];
+    [self updateSheetAccessory];
     [(NSSharingServicePicker *)_picker setItems:items];
+    return YES;
+}
+
+- (void)sheetFormatChanged:(id)sender
+{
+    NSInteger index = [(NSSegmentedControl *)sender selectedSegment];
+    if (index < 0 || index >= 4) {
+        return;
+    }
+    [self switchSheetToChoice:OMDShareSheetChoices[index]];
+}
+
+- (void)sheetSelectionOnlyChanged:(id)sender
+{
+    BOOL wanted = ([(NSButton *)sender state] == NSOnState);
+    BOOL was = _selectionOnly;
+    _selectionOnly = wanted;
+    if (![self switchSheetToChoice:_sheetChoice]) {
+        _selectionOnly = was;
+        [(NSButton *)sender setState:(was ? NSOnState : NSOffState)];
+    }
+}
+
+- (void)sheetShareAsPDF:(id)sender
+{
+    (void)sender;
+    [self switchSheetToChoice:OMDShareFormatPDF];
+}
+
+// The Markdown and its local images in a .zip (OMDShareExporter).
+- (void)sheetShareBundle:(id)sender
+{
+    (void)sender;
+    NSError *error = nil;
+    OMDShareItem *item = [_exporter bundleShareItemWithError:&error];
+    if (item == nil) {
+        [self presentError:error format:OMDShareFormatMarkdown];
+        return;
+    }
+    ++_exportGeneration;
+    _sheetBundled = YES;
+    [self updateSheetAccessory];
+    [(NSSharingServicePicker *)_picker setItems:[NSArray arrayWithObject:[item fileURL]]];
 }
 
 - (void)emailInMessageService:(NSArray *)items service:(id)service
@@ -281,8 +498,8 @@ static NSInteger OMDShareSheetChoices[] = {
     (void)items;
     (void)service;
     OMDWriteRenderedDocumentToPasteboard([NSPasteboard generalPasteboard],
-                                         [_source shareMarkdownText],
-                                         [_source shareRenderedText]);
+                                         [self sharedMarkdown],
+                                         [self sharedRenderedText]);
 }
 
 - (void)sharingServicePicker:(NSSharingServicePicker *)picker
@@ -330,7 +547,47 @@ static NSInteger OMDShareSheetChoices[] = {
         return;
     }
 #endif
-    OMDShareItem *item = [self exportInFormat:format];
+    _selectionOnly = NO;
+    BOOL hasSelection = [_exporter hasSelection];
+    NSArray *warnings = [self warningsForFormat:format];
+    if (([warnings count] > 0 || hasSelection) &&
+        [_presenter respondsToSelector:@selector(confirmShareWithWarnings:format:hasSelection:forWindow:completion:)]) {
+        OMDShareController *controller = self;
+        NSView *from = view;
+        [_presenter confirmShareWithWarnings:warnings
+                                      format:format
+                                hasSelection:hasSelection
+                                   forWindow:_window
+                                  completion:^(OMDShareWarningChoice choice, BOOL selectionOnly) {
+            [controller finishShareWithChoice:choice format:format selectionOnly:selectionOnly fromView:from];
+        }];
+        return;
+    }
+    [self finishShareWithChoice:OMDShareWarningChoiceContinue format:format selectionOnly:NO fromView:view];
+}
+
+// The share once the warnings are answered: the format, a PDF instead, or
+// the Markdown with its images in a .zip.
+- (void)finishShareWithChoice:(OMDShareWarningChoice)choice
+                       format:(OMDShareFormat)format
+                selectionOnly:(BOOL)selectionOnly
+                     fromView:(NSView *)view
+{
+    if (choice == OMDShareWarningChoiceCancel) {
+        return;
+    }
+    OMDShareItem *item = nil;
+    _selectionOnly = selectionOnly;
+    if (choice == OMDShareWarningChoiceBundle) {
+        NSError *error = nil;
+        item = [_exporter bundleShareItemWithError:&error];
+        if (item == nil) {
+            [self presentError:error format:OMDShareFormatMarkdown];
+        }
+    } else {
+        item = [self exportInFormat:(choice == OMDShareWarningChoicePDF ? OMDShareFormatPDF : format)];
+    }
+    _selectionOnly = NO;
     if (item == nil) {
         return;
     }
@@ -348,12 +605,12 @@ static NSInteger OMDShareSheetChoices[] = {
 
 - (void)emailDocumentInMessage
 {
-    NSString *markdown = [_source shareMarkdownText];
+    NSString *markdown = [self sharedMarkdown];
     if (markdown == nil) {
         return;
     }
     NSString *title = [OMDShareExporter safeFileBaseName:[_source shareBaseName]];
-    NSAttributedString *rendered = [_source shareRenderedText];
+    NSAttributedString *rendered = [self sharedRenderedText];
     // The document as an HTML file too, for a mail app that takes its body
     // from a file (Thunderbird); nil if it couldn't be written.
     NSURL *htmlFile = nil;

@@ -4,6 +4,14 @@
 #import <AppKit/AppKit.h>
 #import "OMDShareItem.h"
 
+// What to do about the warnings before a share (OMDShareChecks.h, #190).
+typedef NS_ENUM(NSInteger, OMDShareWarningChoice) {
+    OMDShareWarningChoiceCancel = 0,
+    OMDShareWarningChoiceContinue,
+    OMDShareWarningChoicePDF,      // share as PDF instead
+    OMDShareWarningChoiceBundle    // share the Markdown as a .zip with its images
+};
+
 // Hands an exported document to the platform: its share sheet, its email
 // client, its file manager, its clipboard (docs/share-design.md). Each
 // platform has its own file: OMDSharePresenterMac.m, ...Windows.m and
@@ -38,6 +46,18 @@
 // up the Share menu.
 - (NSToolbarItem *)shareToolbarItemWithIdentifier:(NSString *)identifier
                                      itemProvider:(OMDShareItem *(^)(void))provider;
+// Asked before a share in format that has warnings (OMDShareWarning, those
+// that apply to format) or while the document has a selection, where the
+// share controller has no sheet of its own to show them in (macOS, the
+// Windows share UI). Offer PDF if any warning -suggestsPDF, Bundle if
+// format is Markdown and any -offersBundle, and "Selection only" if
+// hasSelection. Calls completion once, on the main thread. Without this
+// method the share goes ahead, for the whole document.
+- (void)confirmShareWithWarnings:(NSArray *)warnings
+                          format:(OMDShareFormat)format
+                    hasSelection:(BOOL)hasSelection
+                       forWindow:(NSWindow *)window
+                      completion:(void (^)(OMDShareWarningChoice choice, BOOL selectionOnly))completion;
 @end
 
 // What every platform can do with AppKit alone: a notice for present and
