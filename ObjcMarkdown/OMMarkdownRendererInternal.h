@@ -204,6 +204,7 @@ NSString *OMPlainTexExecutablePath(void);
 void OMPrepareRawMathSources(cmark_node *node, const OMRenderContext *renderContext);
 NSString *OMRawMathFormula(NSString *formula, BOOL display, const OMRenderContext *renderContext);
 NSString *OMReadableMathFallbackString(NSString *formula);
+void OMAppendMathText(NSMutableAttributedString *output, NSString *text, NSDictionary *mathAttrs);
 cmark_node *OMTryAppendMultiNodeDisplayMath(cmark_node *startNode,
                                             OMTheme *theme,
                                             NSMutableAttributedString *output,

@@ -1030,7 +1030,7 @@ static void OMAppendTextWithMathSpans(NSString *text,
                                                     [NSString stringWithFormat:@"$%@$", formula]);
                             } else {
                                 NSDictionary *mathAttrs = OMMathAttributes(theme, attributes, scale, NO);
-                                OMAppendString(output, OMReadableMathFallbackString(formula), mathAttrs);
+                                OMAppendMathText(output, OMReadableMathFallbackString(formula), mathAttrs);
                             }
                             renderedMath = YES;
                             cursor = i + 1;
