@@ -402,6 +402,62 @@ NSDictionary *OMMathAttributes(OMTheme *theme,
     return [mathAttrs autorelease];
 }
 
+#if defined(GNUSTEP)
+/* A font of font's size and slant for a character font lacks. GNUstep
+   doesn't fall back per glyph, so a symbol the math text maps to (an
+   integral sign in Noto Sans Mono, say) would draw as "?". */
+static NSFont *OMMathFontCoveringCharacter(NSFont *font, unichar ch)
+{
+    static NSArray *candidates = nil;
+    if (candidates == nil) {
+        candidates = [[NSArray alloc] initWithObjects:@"DejaVuSansMono", @"DejaVuSans",
+                                                      @"LiberationMono", @"CambriaMath",
+                                                      @"SegoeUISymbol", nil];
+    }
+    BOOL italic = ([[NSFontManager sharedFontManager] traitsOfFont:font] & NSItalicFontMask) != 0;
+    for (NSString *name in candidates) {
+        NSFont *candidate = [NSFont fontWithName:name size:[font pointSize]];
+        if (candidate == nil || ![[candidate coveredCharacterSet] characterIsMember:ch]) {
+            continue;
+        }
+        if (italic) {
+            NSFont *slanted = OMFontWithTraits(candidate, NSItalicFontMask);
+            if (slanted != nil && [[slanted coveredCharacterSet] characterIsMember:ch]) {
+                return slanted;
+            }
+        }
+        return candidate;
+    }
+    return nil;
+}
+#endif
+
+void OMAppendMathText(NSMutableAttributedString *output, NSString *text, NSDictionary *mathAttrs)
+{
+    NSUInteger start = [output length];
+    OMAppendString(output, text, mathAttrs);
+#if defined(GNUSTEP)
+    NSFont *font = [mathAttrs objectForKey:NSFontAttributeName];
+    NSCharacterSet *covered = [font coveredCharacterSet];
+    if (covered == nil) {
+        return;
+    }
+    NSUInteger length = [output length] - start;
+    NSString *appended = [[output string] substringWithRange:NSMakeRange(start, length)];
+    for (NSUInteger i = 0; i < length; i++) {
+        unichar ch = [appended characterAtIndex:i];
+        if (ch < 0x80 || (ch >= 0xD800 && ch <= 0xDFFF)
+            || [covered characterIsMember:ch]) {
+            continue;
+        }
+        NSFont *fallback = OMMathFontCoveringCharacter(font, ch);
+        if (fallback != nil) {
+            [output addAttribute:NSFontAttributeName value:fallback range:NSMakeRange(start + i, 1)];
+        }
+    }
+#endif
+}
+
 static BOOL OMMathIsCommandCharacter(unichar ch)
 {
     return (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z');
@@ -2135,7 +2191,7 @@ void OMAppendDisplayMathFormula(NSString *formula,
                             formula,
                             [NSString stringWithFormat:@"$$\n%@\n$$", OMTrimmedCellText(formula)]);
     } else {
-        OMAppendString(output, OMReadableMathFallbackString(formula), mathAttrs);
+        OMAppendMathText(output, OMReadableMathFallbackString(formula), mathAttrs);
     }
 }
 
