@@ -3946,7 +3946,9 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
             "table{width:100%%;border-collapse:collapse;table-layout:auto;font-size:0.96em;page-break-inside:auto;}"
             "thead{display:table-header-group;}"
             "tr{page-break-inside:avoid;page-break-after:auto;}"
-            "th,td{border:1px solid #d0d7de;padding:6px 10px;vertical-align:top;text-align:left;}"
+            "th,td{border:1px solid #d0d7de;padding:6px 10px;vertical-align:top;}"
+            // cmark-gfm aligns columns with align="right"; a rule would win.
+            "th:not([align]),td:not([align]){text-align:left;}"
             "th{font-weight:600;background:#f6f8fa;}"
             "img{max-width:100%%;}"
             "hr{border:none;border-top:1px solid #d0d7de;margin:1.5em 0;}"
