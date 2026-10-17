@@ -2,7 +2,7 @@
 
 **Repository:** gnustep/libs-base
 **Reproducer:** [2-libs-base-win32-pipe-availabledata.m](2-libs-base-win32-pipe-availabledata.m)
-**Status:** draft, not approved (needs Dan's sign-off in `docs/UPSTREAM_SIGNOFF.md`; GCC check still to run).
+**Status:** draft, not approved (needs Dan's sign-off in `docs/UPSTREAM_SIGNOFF.md`). GCC check: ok (2026-10-16, `tools/upstream/gcc-syntax-check.sh --files`, canary passing).
 **Found:** ObjcMarkdown #198 (libs-sharing's rclone upload read rclone's stderr through `-availableData`; on Windows the app ended with an uncaught exception). libs-sharing works around it with `PeekNamedPipe` and `-readDataOfLength:`.
 
 Everything between the two rules below is the issue as it would be filed:
@@ -55,6 +55,6 @@ already mapped to end of file in `-read:length:`.
 ---
 
 Not filed. To do before asking for sign-off:
-- [ ] `tools/upstream/gcc-syntax-check.sh` on the reproducer (on the Linux box).
+- [x] `tools/upstream/gcc-syntax-check.sh --files` on the reproducer: ok (Linux box, 2026-10-16).
 - [ ] Check libs-base master: is this still the code?
 - [ ] Consider sending a patch with a test (Tests/base/NSFileHandle) instead of an issue.
