@@ -39,6 +39,8 @@ On **Windows** Share opens the Windows share sheet (Windows 10 and 11). Where th
 - [ ] Dan: version and tag.
 - [ ] macOS by-eye checklist on #170 (comment of 2026-10-17), and #177.
 - [ ] Windows check of Share on a CI MSI of main (Windows session, 2026-10-17 night).
-- [ ] Linux check of Share on the CI AppImage and Flatpak of main.
+- [x] Linux check of Share on the CI AppImage of main (#170 comment 6229907288). Flatpak built green, not checked by eye again.
+- [ ] Merge #225 + libs-sharing#4 (rclone remotes kept during a refresh; green on all three). Optionally libs-sharing#5 (share callbacks when uploads finish; GNUstep only) and #231 (math symbols, green).
+- [ ] #226 (Windows: PDF/Print without Pandoc, #169): Dan decides if it's in.
 - [ ] #198: one real rclone link with Dan's own remote (optional for the release; the stand-in checks pass).
 - [ ] Release body: add the macOS/Windows paragraphs and the bundled theme commits.
