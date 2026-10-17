@@ -79,6 +79,11 @@ NSSharingService *GSSharingMakeBuiltinService(NSString *name,
 /* The built-in services for items, in the sheet's order. */
 NSArray *GSSharingBuiltinServicesForItems(NSArray *items);
 
+/* rclone's services for items: one per remote that makes links, or one
+   to unlock an encrypted config; none in a Flatpak or without rclone
+   (GSSharingRcloneService.m). */
+NSArray *GSSharingRcloneServicesForItems(NSArray *items);
+
 /* The providers registered by the app and found in plug-ins. */
 NSArray *GSSharingProviders(void);
 
@@ -93,3 +98,15 @@ BOOL GSSharingIsImageFile(id item);
 
 /* The file name of an item, for titles and previews. */
 NSString *GSSharingDisplayNameOfItem(id item);
+
+#if defined(_WIN32)
+/* Windows (GSSharingWin32.m): the clipboard in the formats other Windows
+   apps read (GNUstep's win32 pasteboard server passes only text and
+   images), Simple MAPI, and Explorer with a file selected. */
+BOOL GSSharingWin32WriteText(NSString *plain, NSData *rtf);
+BOOL GSSharingWin32WriteFiles(NSArray *paths, NSData *png);
+BOOL GSSharingWin32ShowInFolder(NSString *path);
+BOOL GSSharingWin32MailClientTakesMAPI(void);
+BOOL GSSharingWin32SendMail(NSString *subject, NSArray *paths,
+                            NSArray *recipients, void *window);
+#endif

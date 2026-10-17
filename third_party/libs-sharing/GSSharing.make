@@ -25,7 +25,10 @@ GSSHARING_OBJC_FILES = \
   $(GSSHARING_DIR)/Source/GSSharingPickerPanel.m \
   $(GSSHARING_DIR)/Source/GSSharingNotice.m \
   $(GSSHARING_DIR)/Source/GSSharingBuiltins.m \
-  $(GSSHARING_DIR)/Source/GSSharingToolbarItem.m
+  $(GSSHARING_DIR)/Source/GSSharingToolbarItem.m \
+  $(GSSHARING_DIR)/Source/GSSharingRclone.m \
+  $(GSSHARING_DIR)/Source/GSSharingRcloneService.m \
+  $(GSSHARING_DIR)/Source/GSSharingWin32.m
 
 GSSHARING_RESOURCE_FILES = $(wildcard $(GSSHARING_DIR)/Resources/*-symbolic.png)
 
@@ -34,8 +37,9 @@ GSSHARING_INCLUDE_DIRS = -I$(GSSHARING_DIR)/Headers -I$(GSSHARING_DIR)/Source
 GSSHARING_OBJCFLAGS =
 GSSHARING_LDFLAGS =
 ifneq (,$(findstring mingw,$(GNUSTEP_HOST_OS)))
-# Open With… (SHOpenWithDialog) and ShellExecuteW.
-GSSHARING_LDFLAGS += -lshell32
+# Open With… (SHOpenWithDialog) and ShellExecuteW; Explorer's selection,
+# the clipboard and MAPI's client lookup (GSSharingWin32.m).
+GSSHARING_LDFLAGS += -lshell32 -lole32 -ladvapi32
 endif
 ifeq (,$(findstring mingw,$(GNUSTEP_HOST_OS)))
 ifneq (,$(shell pkg-config --exists gio-unix-2.0 && echo yes))
