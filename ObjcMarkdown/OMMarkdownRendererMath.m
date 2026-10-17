@@ -434,7 +434,9 @@ static NSFont *OMMathFontCoveringCharacter(NSFont *font, unichar ch)
 
 void OMAppendMathText(NSMutableAttributedString *output, NSString *text, NSDictionary *mathAttrs)
 {
+#if defined(GNUSTEP)
     NSUInteger start = [output length];
+#endif
     OMAppendString(output, text, mathAttrs);
 #if defined(GNUSTEP)
     NSFont *font = [mathAttrs objectForKey:NSFontAttributeName];
