@@ -3,6 +3,7 @@
 
 #import "OMDSharePresenter.h"
 #import "OMDShareChecks.h"
+#import "OMDShareRcloneMac.h"
 
 #if !defined(GNUSTEP)
 
@@ -24,6 +25,10 @@ static NSString * const OMDAppleMailBundleIdentifier = @"com.apple.mail";
     // While the confirm sheet is up: its .zip button, which Selection only
     // turns off (not retained; the alert holds it).
     NSButton *_bundleButton;
+    // Links through rclone, in the picker.
+    OMDShareRcloneMac *_rclone;
+    // The window of the last share (not retained), for rclone's sheets.
+    NSWindow *_shareWindow;
 }
 @end
 
@@ -51,8 +56,19 @@ static NSArray *OMDPickerItems(OMDShareItem *item)
 
 @implementation OMDSharePresenterMac
 
+- (instancetype)init
+{
+    self = [super init];
+    if (self != nil) {
+        _rclone = [[OMDShareRcloneMac alloc] init];
+        [OMDShareRcloneMac refreshRemotes];
+    }
+    return self;
+}
+
 - (void)dealloc
 {
+    [_rclone release];
     [_picker setDelegate:nil];
     [_picker release];
     [_service setDelegate:nil];
@@ -83,6 +99,7 @@ static NSArray *OMDPickerItems(OMDShareItem *item)
         [super presentShareItem:item fromView:view];
         return;
     }
+    _shareWindow = [view window];
     [_picker setDelegate:nil];
     [_picker release];
     _picker = [[NSSharingServicePicker alloc] initWithItems:items];
@@ -259,10 +276,33 @@ static NSArray *OMDPickerItems(OMDShareItem *item)
     return self;
 }
 
+// Apple's services, then a link through each rclone remote.
+- (NSArray *)sharingServicePicker:(NSSharingServicePicker *)sharingServicePicker
+          sharingServicesForItems:(NSArray *)items
+          proposedSharingServices:(NSArray *)proposedServices
+{
+    (void)sharingServicePicker;
+    NSURL *file = nil;
+    for (id item in items) {
+        if ([item isKindOfClass:[NSURL class]] && [item isFileURL]) {
+            file = item;
+            break;
+        }
+    }
+    NSWindow *window = (_shareWindow != nil ? _shareWindow : [NSApp keyWindow]);
+    NSArray *links = [_rclone sharingServicesForFile:file window:window];
+    if ([links count] == 0) {
+        return proposedServices;
+    }
+    return [proposedServices arrayByAddingObjectsFromArray:links];
+}
+
 - (void)sharingServicePicker:(NSSharingServicePicker *)sharingServicePicker
      didChooseSharingService:(NSSharingService *)service
 {
     (void)service;
+    // rclone's remotes may have changed by the next share.
+    [OMDShareRcloneMac refreshRemotes];
     if (sharingServicePicker == _picker) {
         [_picker setDelegate:nil];
         [_picker autorelease];

@@ -68,10 +68,16 @@ TEST_OBJS := $(call obj,test,$(TEST_OBJC))
 # The Quick Look preview extension: its controller and the app's preview view.
 QL_OBJC := macos/QuickLook/OMDQuickLookPreviewController.m ObjcMarkdownViewer/OMDTextView.m ObjcMarkdownViewer/OMDTextFileSupport.m
 QL_OBJS := $(call obj,ql,$(QL_OBJC))
+# Links through rclone (#198): libs-sharing's Foundation-only core, as
+# vendored (tools/vendor/vendor-libs-sharing.sh), built as it is.
+SHARING_DIR := $(ROOT)/third_party/libs-sharing
+SHARING_OBJC := third_party/libs-sharing/Source/GSSharingRclone.m
+SHARING_OBJS := $(call obj,sharing,$(SHARING_OBJC))
 
 LIB_FLAGS := $(COMMON_FLAGS) -I$(ROOT)/ObjcMarkdown $(CMARK_CPPFLAGS) -I$(ROOT)/third_party/tomlc99 -DOBJCMARKDOWN_ENABLE_TOML_THEME=1
 VIM_FLAGS := $(COMMON_FLAGS) -fobjc-arc -I$(VIM_DIR)
-APP_FLAGS := $(COMMON_FLAGS) $(WERROR) -DOMD_APP_VERSION=\"$(OMD_VERSION)\" -F$(SPARKLE_DIR) -I$(ROOT)/ObjcMarkdown -I$(ROOT)/ObjcMarkdownViewer $(CMARK_CPPFLAGS) -I$(VIM_DIR)
+APP_FLAGS := $(COMMON_FLAGS) $(WERROR) -DOMD_APP_VERSION=\"$(OMD_VERSION)\" -F$(SPARKLE_DIR) -I$(ROOT)/ObjcMarkdown -I$(ROOT)/ObjcMarkdownViewer $(CMARK_CPPFLAGS) -I$(VIM_DIR) -I$(SHARING_DIR)/Headers
+SHARING_FLAGS := $(COMMON_FLAGS) -I$(SHARING_DIR)/Headers
 QL_FLAGS := $(APP_FLAGS) -fapplication-extension
 TEST_FLAGS := $(APP_FLAGS) -F$(PLATFORM_DIR)/Developer/Library/Frameworks -DOM_SPEC_DIR=\"$(ROOT)/ObjcMarkdownTests/Spec\"
 
@@ -120,6 +126,10 @@ $(OBJDIR)/app/%.m.o: $(ROOT)/%.m
 	@mkdir -p $(dir $@)
 	@echo "  CC $(patsubst $(ROOT)/%,%,$<)"
 	$(Q)$(CC) $(APP_FLAGS) -MMD -MP -c $< -o $@
+$(OBJDIR)/sharing/%.m.o: $(ROOT)/%.m
+	@mkdir -p $(dir $@)
+	@echo "  CC $(patsubst $(ROOT)/%,%,$<)"
+	$(Q)$(CC) $(SHARING_FLAGS) -MMD -MP -c $< -o $@
 $(OBJDIR)/ql/%.m.o: $(ROOT)/%.m
 	@mkdir -p $(dir $@)
 	@echo "  CC $(patsubst $(ROOT)/%,%,$<)"
@@ -152,11 +162,11 @@ $(APPEX): $(QL_OBJS) $(LIB) QuickLook/Info.plist QuickLook/QuickLook.entitlement
 	$(Q)plutil -lint -s $@/Contents/Info.plist
 	$(Q)codesign --force --sign - --entitlements QuickLook/QuickLook.entitlements $@
 
-$(APP): $(APP_OBJS) $(LIB) $(VIM_LIB) Info.plist $(APP_RESOURCES) $(BUILD)/MarkdownViewer.icns $(APPEX)
+$(APP): $(APP_OBJS) $(SHARING_OBJS) $(LIB) $(VIM_LIB) Info.plist $(APP_RESOURCES) $(BUILD)/MarkdownViewer.icns $(APPEX)
 	@rm -rf $@
 	@mkdir -p $@/Contents/MacOS $@/Contents/Resources
 	@echo "  LD $(notdir $@)"
-	$(Q)$(CC) $(ARCH_FLAGS) -o $@/Contents/MacOS/MarkdownViewer $(APP_OBJS) $(LIB) $(VIM_LIB) $(FRAMEWORKS) \
+	$(Q)$(CC) $(ARCH_FLAGS) -o $@/Contents/MacOS/MarkdownViewer $(APP_OBJS) $(SHARING_OBJS) $(LIB) $(VIM_LIB) $(FRAMEWORKS) \
 		-F$(SPARKLE_DIR) -framework Sparkle -Wl,-rpath,@executable_path/../Frameworks
 	$(Q)sed -e 's/@VERSION@/$(SHORT_VERSION)/g' -e 's/@BUILD_NUMBER@/$(BUILD_NUMBER)/g' Info.plist > $@/Contents/Info.plist
 	$(Q)plutil -lint -s $@/Contents/Info.plist
