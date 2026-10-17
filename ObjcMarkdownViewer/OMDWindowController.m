@@ -528,6 +528,7 @@ static CGFloat OMDClampedScrollSpeed(CGFloat value)
 - (NSString *)temporaryHTMLExportPath;
 - (NSString *)styledHTMLDocumentWithBody:(NSString *)bodyHTML title:(NSString *)title;
 - (BOOL)writePandocHTMLForCurrentPreviewToPath:(NSString *)path;
+- (BOOL)writeMarkdownHTMLForCurrentPreviewToPath:(NSString *)path;
 - (BOOL)writeHTMLForPrintView:(OMDTextView *)printView toPath:(NSString *)path;
 - (BOOL)exportHTMLAtPath:(NSString *)htmlPath toPDFAtPath:(NSString *)pdfPath usingBrowser:(NSString *)browserPath;
 - (BOOL)exportPrintView:(OMDTextView *)printView toPDFAtPath:(NSString *)pdfPath usingBrowser:(NSString *)browserPath;
@@ -3911,8 +3912,19 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
 {
     NSString *safeTitle = OMDHTMLEscapedString(title != nil ? title : @"Document");
     NSString *body = (bodyHTML != nil ? bodyHTML : @"");
+    // The page is written to the temporary directory, so relative images
+    // resolve against the document's folder.
+    NSString *base = @"";
+    if (_currentPath != nil) {
+        NSURL *folderURL = [NSURL fileURLWithPath:[_currentPath stringByDeletingLastPathComponent]
+                                      isDirectory:YES];
+        if (folderURL != nil) {
+            base = [NSString stringWithFormat:@"<base href=\"%@\">",
+                                              OMDHTMLEscapedString([folderURL absoluteString])];
+        }
+    }
     return [NSString stringWithFormat:
-            @"<!doctype html><html><head><meta charset=\"utf-8\">"
+            @"<!doctype html><html><head><meta charset=\"utf-8\">%@"
             "<title>%@</title>"
             "<style>"
             "@page{size:auto;margin:0.7in;}"
@@ -3939,6 +3951,7 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
             "img{max-width:100%%;}"
             "hr{border:none;border-top:1px solid #d0d7de;margin:1.5em 0;}"
             "</style></head><body><div class=\"page\">%@</div></body></html>",
+            base,
             safeTitle,
             body];
 }
@@ -3996,6 +4009,31 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
         html = [self styledHTMLDocumentWithBody:fragment title:title];
     }
 
+    NSData *htmlData = [html dataUsingEncoding:NSUTF8StringEncoding];
+    if (htmlData == nil || [htmlData length] == 0) {
+        return NO;
+    }
+    return [htmlData writeToFile:path atomically:YES];
+}
+
+// Without pandoc: cmark-gfm's HTML, the same as Copy Rendered puts on the
+// clipboard (math as readable TeX), so headings, tables and code keep their
+// look (#169).
+- (BOOL)writeMarkdownHTMLForCurrentPreviewToPath:(NSString *)path
+{
+    if (path == nil || [path length] == 0) {
+        return NO;
+    }
+    NSString *markdown = [self markdownForCurrentPreview];
+    if (markdown == nil) {
+        markdown = _currentMarkdown;
+    }
+    NSString *fragment = OMDClipboardHTMLFromMarkdown(markdown);
+    if (fragment == nil) {
+        return NO;
+    }
+    NSString *title = (_currentPath != nil ? [[_currentPath lastPathComponent] stringByDeletingPathExtension] : @"Markdown Export");
+    NSString *html = [self styledHTMLDocumentWithBody:fragment title:title];
     NSData *htmlData = [html dataUsingEncoding:NSUTF8StringEncoding];
     if (htmlData == nil || [htmlData length] == 0) {
         return NO;
@@ -4101,6 +4139,9 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
     }
 
     BOOL wroteHTML = [self writePandocHTMLForCurrentPreviewToPath:htmlPath];
+    if (!wroteHTML) {
+        wroteHTML = [self writeMarkdownHTMLForCurrentPreviewToPath:htmlPath];
+    }
     if (!wroteHTML) {
         wroteHTML = [self writeHTMLForPrintView:printView toPath:htmlPath];
     }
