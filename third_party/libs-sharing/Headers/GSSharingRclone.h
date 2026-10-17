@@ -86,7 +86,10 @@ enum {
     the last look (nil if none yet, or it failed), the error of the last
     look (GSSharingRcloneErrorNeedsPassword for an encrypted config), and a
     look in the background that posts
-    GSSharingRcloneRemotesDidChangeNotification when it's done. */
+    GSSharingRcloneRemotesDidChangeNotification when it's done. The remotes
+    kept stay until the look ends. A look asked for while one runs (with a
+    password just typed, say) runs after it, and the notification comes
+    once, after the last. */
 + (NSArray *) cachedRemotes;
 + (NSError *) lastRemotesError;
 + (void) refreshRemotesInBackgroundWithPassword: (NSString *)password;
