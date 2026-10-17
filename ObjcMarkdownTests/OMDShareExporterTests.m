@@ -277,4 +277,16 @@
     XCTAssertEqual([error code], (NSInteger)OMDShareErrorNoDocument);
 }
 
+- (void)testBundleIsAZipNamedAfterTheDocument
+{
+    OMDShareTestSource *source = [self sourceWithName:@"Q3 Plan" text:@"# Plan\n" extension:@"md"];
+    OMDShareExporter *exporter = [[[OMDShareExporter alloc] initWithSource:source] autorelease];
+    NSError *error = nil;
+    OMDShareItem *item = [exporter bundleShareItemWithError:&error];
+    XCTAssertNotNil(item, @"%@", error);
+    XCTAssertEqualObjects([item fileName], @"Q3 Plan.zip");
+    XCTAssertEqual([item format], OMDShareFormatMarkdown);
+    XCTAssertTrue([[NSFileManager defaultManager] fileExistsAtPath:[[item fileURL] path]]);
+}
+
 @end
