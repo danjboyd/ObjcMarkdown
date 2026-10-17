@@ -12,6 +12,10 @@
 
 #import "GSSharingRclone.h"
 
+#if defined(_WIN32)
+#  include <windows.h>
+#endif
+
 NSString * const GSSharingRcloneErrorDomain = @"GSSharingRcloneErrorDomain";
 NSString * const GSSharingRcloneRemotesDidChangeNotification
   = @"GSSharingRcloneRemotesDidChangeNotification";
@@ -337,20 +341,46 @@ static NSString *chosenExecutable = nil;
   [self forgetRemotes];
 }
 
+/* An environment variable. Windows' names ignore case, and its PATH is
+   "Path", but GNUstep's environment dictionary is case-sensitive. */
+static NSString *
+GSSharingRcloneEnvironmentValue(NSDictionary *environment, NSString *name)
+{
+  NSString *value = [environment objectForKey: name];
+#if defined(_WIN32)
+  NSEnumerator *e;
+  NSString *key;
+
+  if (value != nil)
+    {
+      return value;
+    }
+  e = [environment keyEnumerator];
+  while ((key = [e nextObject]) != nil)
+    {
+      if ([key caseInsensitiveCompare: name] == NSOrderedSame)
+        {
+          return [environment objectForKey: key];
+        }
+    }
+#endif
+  return value;
+}
+
 + (NSString *) executablePath
 {
   NSFileManager *manager = [NSFileManager defaultManager];
   NSDictionary *environment = [[NSProcessInfo processInfo] environment];
   NSString *home = NSHomeDirectory();
   NSMutableArray *directories = [NSMutableArray array];
-  NSString *pathList = [environment objectForKey: @"PATH"];
+  NSString *pathList = GSSharingRcloneEnvironmentValue(environment, @"PATH");
   NSEnumerator *e;
   NSString *directory;
 #if defined(_WIN32)
   NSString *name = @"rclone.exe";
   NSString *separator = @";";
-  NSString *local = [environment objectForKey: @"LOCALAPPDATA"];
-  NSString *programData = [environment objectForKey: @"ProgramData"];
+  NSString *local = GSSharingRcloneEnvironmentValue(environment, @"LOCALAPPDATA");
+  NSString *programData = GSSharingRcloneEnvironmentValue(environment, @"ProgramData");
 #else
   NSString *name = @"rclone";
   NSString *separator = @":";
@@ -772,6 +802,53 @@ static NSString *chosenExecutable = nil;
   return name;
 }
 
+/* The next part of what the task writes to the pipe, or nil at its end.
+   On Windows GNUstep's -availableData raises for a pipe (error 232, "The
+   pipe is being closed") as soon as it has nothing to read, so the pipe
+   is polled there: as much as it holds, until the task has exited and the
+   pipe is drained. A read that raises ends the reading anywhere: an
+   exception here would end the app, on this thread. */
+static NSData *
+GSSharingRcloneNextChunk(NSFileHandle *reader, NSTask *task)
+{
+  NSData *chunk = nil;
+
+  NS_DURING
+    {
+#if defined(_WIN32)
+      HANDLE handle = (HANDLE)[reader nativeHandle];
+
+      for (;;)
+        {
+          DWORD available = 0;
+
+          if (PeekNamedPipe(handle, NULL, 0, NULL, &available, NULL) == 0)
+            {
+              break;
+            }
+          if (available > 0)
+            {
+              chunk = [reader readDataOfLength: available];
+              break;
+            }
+          if ([task isRunning] == NO)
+            {
+              break;
+            }
+          Sleep(100);
+        }
+#else
+      chunk = [reader availableData];
+#endif
+    }
+  NS_HANDLER
+    {
+      chunk = nil;
+    }
+  NS_ENDHANDLER
+  return ([chunk length] > 0) ? chunk : nil;
+}
+
 /* The upload, reading rclone's JSON log for its progress. */
 - (int) upload: (NSString *)destination errors: (NSString **)errorText
 {
@@ -819,7 +896,7 @@ static NSString *chosenExecutable = nil;
   _uploadStarted = YES;
   [_lock unlock];
   reader = [errPipe fileHandleForReading];
-  while ((chunk = [reader availableData]) != nil && [chunk length] > 0)
+  while ((chunk = GSSharingRcloneNextChunk(reader, task)) != nil)
     {
       NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
       const char *bytes;
@@ -887,6 +964,17 @@ static NSString *chosenExecutable = nil;
       [pending replaceBytesInRange: NSMakeRange(0, start) withBytes: NULL length: 0];
       [pool release];
     }
+  /* If a read error ended the loop while rclone still writes, a full pipe
+     would block it and the wait below with it: closing this end makes its
+     writes fail instead. The result is the exit status either way. */
+  NS_DURING
+    {
+      [reader closeFile];
+    }
+  NS_HANDLER
+    {
+    }
+  NS_ENDHANDLER
   [task waitUntilExit];
   status = [task terminationStatus];
   [_lock lock];
