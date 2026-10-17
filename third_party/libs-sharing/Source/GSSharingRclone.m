@@ -313,12 +313,18 @@ GSSharingRcloneLastError(NSString *text)
 }
 
 
+@interface GSSharingRclone (Private)
++ (NSArray *) fetchRemotesWithPassword: (NSString *)password error: (NSError **)error;
+@end
+
 @implementation GSSharingRclone
 
 static NSArray *cachedRemotes = nil;
 static NSDate *cachedAt = nil;
 static NSError *lastError = nil;
 static BOOL refreshing = NO;
+static BOOL refreshAgain = NO;
+static NSString *refreshPassword = nil;
 static NSLock *cacheLock = nil;
 static NSString *chosenExecutable = nil;
 
@@ -508,9 +514,6 @@ GSSharingRcloneEnvironmentValue(NSDictionary *environment, NSString *name)
 + (NSArray *) remotesWithPassword: (NSString *)password error: (NSError **)error
 {
   NSArray *remotes = nil;
-  NSString *output = nil;
-  NSString *errors = nil;
-  int status;
 
   [cacheLock lock];
   if (cachedRemotes != nil && cachedAt != nil
@@ -523,12 +526,29 @@ GSSharingRcloneEnvironmentValue(NSDictionary *environment, NSString *name)
     {
       return remotes;
     }
+  return [self fetchRemotesWithPassword: password error: error];
+}
+
+/* Runs listremotes whatever is kept, and only then replaces what is kept,
+   so a sheet reading cachedRemotes during a refresh still sees the old
+   list. A failure clears it, as the remotes may no longer be reachable. */
++ (NSArray *) fetchRemotesWithPassword: (NSString *)password error: (NSError **)error
+{
+  NSArray *remotes = nil;
+  NSString *output = nil;
+  NSString *errors = nil;
+  int status;
+
   if ([self executablePath] == nil)
     {
       NSError *notInstalled = GSSharingRcloneError(GSSharingRcloneErrorNotInstalled,
         @"rclone isn't installed.", nil);
 
       [cacheLock lock];
+      [cachedRemotes release];
+      cachedRemotes = nil;
+      [cachedAt release];
+      cachedAt = nil;
       [lastError release];
       lastError = [notInstalled retain];
       [cacheLock unlock];
@@ -548,6 +568,10 @@ GSSharingRcloneEnvironmentValue(NSDictionary *environment, NSString *name)
                                       remote: nil];
 
       [cacheLock lock];
+      [cachedRemotes release];
+      cachedRemotes = nil;
+      [cachedAt release];
+      cachedAt = nil;
       [lastError release];
       lastError = [failed retain];
       [cacheLock unlock];
@@ -606,15 +630,37 @@ GSSharingRcloneEnvironmentValue(NSDictionary *environment, NSString *name)
                   object: self];
 }
 
+/* A refresh asked for while one runs (with a password just typed, say)
+   runs right after it, and observers hear once, about the last one. */
 + (void) refreshRemotes: (NSString *)password
 {
   NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
+  BOOL again;
 
-  [self forgetRemotes];
-  [self remotesWithPassword: password error: NULL];
-  [cacheLock lock];
-  refreshing = NO;
-  [cacheLock unlock];
+  [password retain];
+  do
+    {
+      NSAutoreleasePool *inner = [[NSAutoreleasePool alloc] init];
+
+      [self fetchRemotesWithPassword: password error: NULL];
+      [password release];
+      password = nil;
+      [cacheLock lock];
+      again = refreshAgain;
+      if (again)
+        {
+          password = refreshPassword;
+          refreshPassword = nil;
+          refreshAgain = NO;
+        }
+      else
+        {
+          refreshing = NO;
+        }
+      [cacheLock unlock];
+      [inner release];
+    }
+  while (again);
   [self performSelectorOnMainThread: @selector(remotesRefreshed:)
                          withObject: nil
                       waitUntilDone: NO];
@@ -628,6 +674,16 @@ GSSharingRcloneEnvironmentValue(NSDictionary *environment, NSString *name)
   [cacheLock lock];
   already = refreshing;
   refreshing = YES;
+  if (already)
+    {
+      /* A password asked for earlier is kept if this call has none. */
+      refreshAgain = YES;
+      if (password != nil)
+        {
+          [refreshPassword release];
+          refreshPassword = [password copy];
+        }
+    }
   [cacheLock unlock];
   if (already == NO)
     {
