@@ -1,6 +1,6 @@
-# Release notes draft: Share
+# Release notes: 0.2.3
 
-Draft for the release that brings Share (#170). The version is Dan's call: ReleaseCoordinator suggests 0.2.3 final from rc3 without Share, then this as 0.3.0 from main. The text below doesn't name a version, so it works either way. Changes are since v0.2.3-rc3 (23d05c2).
+Dan chose (2026-10-17) to ship Share (#170) in 0.2.3, from `main`, rather than 0.2.3 from rc3 and Share as 0.3.0. Changes are since v0.2.2; rc1 to rc3 were candidates without Share.
 
 ---
 
@@ -24,6 +24,16 @@ On **Windows** Share opens the Windows share sheet (Windows 10 and 11). Where th
 - Linux packages bundle Adwaita 0.1.0-alpha15 (b2d4326).
 - Linux: files drag out of the app and copied files paste into file managers (GNUstep fixes the packages carry until they're upstream).
 
+**Fixed since 0.2.2**
+- Linux: Alt+F4 (or the window's close in the window manager) asks to save unsaved edits instead of quitting (#158).
+- File > Close closes the selected window tab while others remain open (#135).
+- Split and Read: a large document opens without repeated layouts (#121, #154); the outline lays out again only when it fits (#166).
+- Source editor: no ligatures, so "fi" keeps two columns (#125).
+- Updater: says at the next launch why an update didn't install (#134); no Check for Updates where the package has no updater (#122).
+- Pandoc hints for each platform; Homebrew's pandoc is found on macOS (#131).
+- Windows: web links open in the browser (#144); task boxes fall back to Segoe UI Symbol (#162); Export as PDF, Print and Share as PDF no longer hang on headless Edge's output (#232); the MSI bundles WinUITheme 0.1.0-alpha8 (906e462) with the carried libs-back and libs-gui scroller fix (#157, #156) and only the TinyTeX math needs (#127).
+- macOS: says the app stays open after its last window closes (#136).
+
 **Known issues**
 - Windows: files can't be dragged out of the app yet (#213); use Copy File.
 - Windows: without Pandoc, Export as PDF, Print and Share as PDF give unformatted monospace text (#169; fix in review as #226, which may land before the release); typing in the source editor uses more CPU than it should on large documents (#164); printing goes through a PDF in the browser (#82).
@@ -36,12 +46,14 @@ On **Windows** Share opens the Windows share sheet (Windows 10 and 11). Where th
 
 ## Before this ships (checklist)
 
-- [ ] Dan: version and tag.
+- [x] Dan: version 0.2.3, with Share (2026-10-17).
+- [ ] Dan: OK to tag v0.2.3-rc4 from main once the merges below are in; final tag after the checks.
 - [ ] macOS by-eye checklist on #170 (comment of 2026-10-17), and #177.
 - [x] Windows check of Share on CI MSIs on Server 2022 (#198 comment 6230285785): rclone and built-ins pass; WinUITheme 906e462.
-- [ ] **Must-merge: #233** (#232: Share/Export as PDF and Print can hang the app on Windows; headless Edge blocked on an unread stderr pipe). Green, reviewed.
+- [x] **Must-merge: #233** (merged d597637) (#232: Share/Export as PDF and Print can hang the app on Windows; headless Edge blocked on an unread stderr pipe). Green, reviewed.
 - [x] Linux check of Share on the CI AppImage of main (#170 comment 6229907288). Flatpak built green, not checked by eye again.
-- [ ] Merge #225 + libs-sharing#4 (rclone remotes kept during a refresh; green on all three). Optionally libs-sharing#5 (share callbacks when uploads finish; GNUstep only) and #231 (math symbols, green).
+- [ ] Merge #225 + libs-sharing#4 (rclone remotes kept during a refresh; green on all three). Also #231 (math symbols) and #234 (TeX tools write to files), both green; they merge cleanly together. libs-sharing#5 optional (GNUstep only; review asked for a pending-job count).
 - [ ] #226 (Windows: PDF/Print without Pandoc, #169): Dan decides if it's in.
 - [ ] #198: one real rclone link with Dan's own remote (optional for the release; the stand-in checks pass).
 - [ ] Release body: add the macOS/Windows paragraphs and the bundled theme commits.
+- [ ] rc4 checks on the CI packages: Linux AppImage + Flatpak, Windows MSI, macOS dmg.
