@@ -31,12 +31,12 @@ On **Windows** Share opens the Windows share sheet (Windows 10 and 11). Where Wi
 - Source editor: no ligatures, so "fi" keeps two columns (#125).
 - Updater: says at the next launch why an update didn't install (#134); no Check for Updates where the package has no updater (#122).
 - Pandoc hints for each platform; Homebrew's pandoc is found on macOS (#131).
-- Windows: web links open in the browser (#144); task boxes fall back to Segoe UI Symbol (#162); Export as PDF, Print and Share as PDF no longer hang on headless Edge's output (#232); the MSI bundles WinUITheme 0.1.0-alpha8 (906e462) with the carried libs-back and libs-gui scroller fix (#157, #156) and only the TinyTeX math needs (#127).
+- Windows: web links open in the browser (#144); task boxes fall back to Segoe UI Symbol (#162); Export as PDF, Print and Share as PDF no longer hang on headless Edge's output (#232), and without Pandoc they keep headings, tables, code, quotes, local images and column alignment, with math as readable TeX (#169); the MSI bundles WinUITheme 0.1.0-alpha8 (906e462) with the carried libs-back and libs-gui scroller fix (#157, #156) and only the TinyTeX math needs (#127).
 - macOS: says the app stays open after its last window closes (#136).
 
 **Known issues**
 - Windows: files can't be dragged out of the app yet (#213); use Copy File.
-- Windows: without Pandoc, Export as PDF, Print and Share as PDF give unformatted monospace text (#169; fix in review as #226, which may land before the release); typing in the source editor uses more CPU than it should on large documents (#164); printing goes through a PDF in the browser (#82).
+- Windows: typing in the source editor uses more CPU than it should on large documents (#164); printing goes through a PDF in the browser (#82).
 - macOS: pasting Copy Rendered and Copy for Slack into Mail, Teams and Slack hasn't been checked by eye yet (#177). If Slack shows Copy for Slack's `*bold*` as typed, a follow-up adds an HTML version.
 - rclone links haven't been made with a real remote yet, only a stand-in (#198).
 - Links through GNOME Online Accounts aren't there yet (#197); use rclone.
@@ -53,7 +53,7 @@ On **Windows** Share opens the Windows share sheet (Windows 10 and 11). Where Wi
 - [x] **Must-merge: #233** (merged d597637) (#232: Share/Export as PDF and Print can hang the app on Windows; headless Edge blocked on an unread stderr pipe). Green, reviewed.
 - [x] Linux check of Share on the CI AppImage of main (#170 comment 6229907288). Flatpak built green, not checked by eye again.
 - [ ] Merge #225 + libs-sharing#4 (rclone remotes kept during a refresh; green on all three). Also #231 (math symbols) and #234 (TeX tools write to files), both green; they merge cleanly together. libs-sharing#5 optional (GNUstep only; review asked for a pending-job count).
-- [ ] #226 (Windows: PDF/Print without Pandoc, #169): Dan decides if it's in.
+- [ ] #226 (Windows: PDF/Print without Pandoc, #169): in (Dan marked it ready 2026-10-17); merge.
 - [ ] #198: one real rclone link with Dan's own remote (optional for the release; the stand-in checks pass).
 - [ ] Release body: add the macOS/Windows paragraphs and the bundled theme commits.
 - [ ] rc4 checks on the CI packages: Linux AppImage + Flatpak, Windows MSI, macOS dmg.
