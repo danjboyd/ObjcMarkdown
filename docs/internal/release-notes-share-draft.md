@@ -17,7 +17,7 @@ On **Linux** the sheet comes from libs-sharing, a GNUstep implementation of Appl
 
 On **macOS** Share goes through the Mac's own share menu: Mail, Messages, AirDrop and your apps' share extensions. Email as opens a Mail draft with the document as the message body, or attached in the format you pick; with another mail app as your default, a draft opens and Markdown Viewer offers the file to attach. rclone remotes appear in the same menu as "Link on <remote>".
 
-On **Windows**: WINDOWS-LINES (from the Windows session).
+On **Windows** Share opens the Windows share sheet (Windows 10 and 11). Where there's no share sheet (Windows Server), or it doesn't open, a notice offers the file: Show in Folder, Copy File and Open With. Email opens a new message in your desktop mail client (classic Outlook, Thunderbird) with the document attached; with no such client (the new Outlook, webmail) it opens a `mailto:` draft and tells you where the file is. Show in Folder opens Explorer with the file selected. Copy Rendered puts HTML and RTF on the clipboard for Outlook, Teams or Word, and Copy File pastes as the file in Explorer, Outlook and Teams. rclone is found on PATH and where Scoop, WinGet and Chocolatey put it.
 
 **Also new**
 - Preferences > Menus: a menu bar or a menu button, for this app only (#185).
@@ -25,8 +25,8 @@ On **Windows**: WINDOWS-LINES (from the Windows session).
 - Linux: files drag out of the app and copied files paste into file managers (GNUstep fixes the packages carry until they're upstream).
 
 **Known issues**
-- Windows: files can't be dragged out of the app yet (#213).
-- Windows: Export as PDF and Print give plain text (#169); typing in the source editor is slow on some machines (#164); printing goes through a PDF in the browser (#82).
+- Windows: files can't be dragged out of the app yet (#213); use Copy File.
+- Windows: without Pandoc, Export as PDF, Print and Share as PDF give unformatted monospace text (#169; fix in review as #226, which may land before the release); typing in the source editor uses more CPU than it should on large documents (#164); printing goes through a PDF in the browser (#82).
 - macOS: pasting Copy Rendered and Copy for Slack into Mail, Teams and Slack hasn't been checked by eye yet (#177). If Slack shows Copy for Slack's `*bold*` as typed, a follow-up adds an HTML version.
 - rclone links haven't been made with a real remote yet, only a stand-in (#198).
 - Links through GNOME Online Accounts aren't there yet (#197); use rclone.
