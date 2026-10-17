@@ -426,6 +426,7 @@ GSSharingDetailOfItems(NSArray *items)
     {
       [delegate sharingServicePicker: _picker didChooseSharingService: service];
     }
+  GSSharingPickerDidFinish(_picker);
   AUTORELEASE(self);
 }
 
