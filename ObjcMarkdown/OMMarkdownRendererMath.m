@@ -1042,10 +1042,33 @@ static BOOL OMRunTask(NSString *launchPath,
     [task setArguments:arguments];
 #endif
 
-    NSPipe *outputPipe = [NSPipe pipe];
-    NSPipe *errorPipe = [NSPipe pipe];
-    [task setStandardOutput:outputPipe];
-    [task setStandardError:errorPipe];
+    // Files, not pipes: dvisvgm writes a whole SVG to stdout, and a pipe
+    // nobody reads while it runs fills up and stalls it until the timeout.
+    NSString *outputBase = [NSTemporaryDirectory() stringByAppendingPathComponent:
+        [NSString stringWithFormat:@"om-math-%@", [[NSProcessInfo processInfo] globallyUniqueString]]];
+    NSString *outputPath = [outputBase stringByAppendingString:@".out"];
+    NSString *errorPath = [outputBase stringByAppendingString:@".err"];
+    NSFileManager *fileManager = [NSFileManager defaultManager];
+    if (![fileManager createFileAtPath:outputPath contents:nil attributes:nil] ||
+        ![fileManager createFileAtPath:errorPath contents:nil attributes:nil]) {
+        [fileManager removeItemAtPath:outputPath error:NULL];
+#if defined(_WIN32)
+        if (currentDirectoryPath != nil && [currentDirectoryPath length] > 0) {
+            NSString *scriptPath = OMWindowsTaskScriptPath(currentDirectoryPath);
+            if (scriptPath != nil) {
+                [fileManager removeItemAtPath:scriptPath error:NULL];
+            }
+        }
+#endif
+        if (terminationStatus != NULL) {
+            *terminationStatus = -1;
+        }
+        return NO;
+    }
+    NSFileHandle *outputHandle = [NSFileHandle fileHandleForWritingAtPath:outputPath];
+    NSFileHandle *errorHandle = [NSFileHandle fileHandleForWritingAtPath:errorPath];
+    [task setStandardOutput:outputHandle];
+    [task setStandardError:errorHandle];
 
     BOOL launched = YES;
     BOOL timedOut = NO;
@@ -1081,8 +1104,12 @@ static BOOL OMRunTask(NSString *launchPath,
 #endif
     }
 
-    NSData *capturedOutput = [[outputPipe fileHandleForReading] readDataToEndOfFile];
-    NSData *capturedError = [[errorPipe fileHandleForReading] readDataToEndOfFile];
+    [outputHandle closeFile];
+    [errorHandle closeFile];
+    NSData *capturedOutput = [NSData dataWithContentsOfFile:outputPath];
+    NSData *capturedError = [NSData dataWithContentsOfFile:errorPath];
+    [fileManager removeItemAtPath:outputPath error:NULL];
+    [fileManager removeItemAtPath:errorPath error:NULL];
 
 #if defined(_WIN32)
     if (currentDirectoryPath != nil && [currentDirectoryPath length] > 0) {
