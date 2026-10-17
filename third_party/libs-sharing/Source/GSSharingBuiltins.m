@@ -54,6 +54,10 @@
 + (void) saveCopy: (NSArray *)items service: (NSSharingService *)service;
 + (void) showInFolder: (NSArray *)items service: (NSSharingService *)service;
 + (void) openWith: (NSArray *)items service: (NSSharingService *)service;
+#if defined(_WIN32)
++ (void) sendMAPIMail: (NSDictionary *)job;
++ (void) emailDraftWithNotice: (NSDictionary *)job;
+#endif
 @end
 
 
@@ -227,6 +231,13 @@ GSSharingWriteText(NSPasteboard *pasteboard, id text)
     {
       plain = text;
     }
+#if defined(_WIN32)
+  if (pasteboard == [NSPasteboard generalPasteboard]
+    && GSSharingWin32WriteText(plain, rtf))
+    {
+      return;
+    }
+#endif
   if (rtf != nil)
     {
       [types addObject: NSRTFPboardType];
@@ -259,6 +270,38 @@ GSSharingWriteFiles(NSPasteboard *pasteboard, NSArray *files)
       [paths addObject: [file path]];
       [uriList appendFormat: @"%@\r\n", [file absoluteString]];
     }
+#if defined(_WIN32)
+  /* CF_HDROP: Explorer, Outlook and Teams paste it as the file; one
+     picture file goes as its PNG too, for chats and documents. */
+  if (pasteboard == [NSPasteboard generalPasteboard])
+    {
+      NSData *png = nil;
+
+      if ([files count] == 1 && GSSharingIsImageFile([files objectAtIndex: 0]))
+        {
+          NSString *path = [[files objectAtIndex: 0] path];
+
+          if ([[[path pathExtension] lowercaseString] isEqualToString: @"png"])
+            {
+              png = [NSData dataWithContentsOfFile: path];
+            }
+          else
+            {
+              NSImage *image = AUTORELEASE([[NSImage alloc]
+                initWithContentsOfFile: path]);
+              NSBitmapImageRep *rep = [NSBitmapImageRep imageRepWithData:
+                [image TIFFRepresentation]];
+
+              png = [rep representationUsingType: NSPNGFileType
+                                      properties: [NSDictionary dictionary]];
+            }
+        }
+      if (GSSharingWin32WriteFiles(paths, png))
+        {
+          return;
+        }
+    }
+#endif
   if ([files count] == 1 && GSSharingIsImageFile([files objectAtIndex: 0]))
     {
       NSString *path = [[files objectAtIndex: 0] path];
@@ -793,6 +836,25 @@ GSSharingOpenURL(NSURL *url)
 #endif
 }
 
+/* The mailto: draft, and the notice with the file to attach. */
+static void
+GSSharingEmailDraftWithNotice(NSURL *draft, NSURL *file)
+{
+  BOOL opened = GSSharingOpenURL(draft);
+
+  [GSSharingNotice showMessage: (opened
+      ? [NSString stringWithFormat: @"Attach “%@” to the email.",
+                  [[file path] lastPathComponent]]
+      : @"No email app opened. The file is ready to attach.")
+#if defined(_WIN32)
+                        /* No drags out of a GNUstep window on Windows yet. */
+                        detail: @"Copy it, then paste it into the message."
+#else
+                        detail: @"Drag it into the message, or copy it and paste it there."
+#endif
+                          file: file];
+}
+
 
 @implementation GSSharingBuiltins
 
@@ -865,15 +927,58 @@ GSSharingOpenURL(NSURL *url)
       }
   }
 #endif
-  /* The draft, and the file to drag into it. */
-  opened = GSSharingOpenURL(draft);
-  [GSSharingNotice showMessage: (opened
-      ? [NSString stringWithFormat: @"Attach “%@” to the email.",
-                  [[[files objectAtIndex: 0] path] lastPathComponent]]
-      : @"No email app opened. The file is ready to attach.")
-                        detail: @"Drag it into the message, or copy it and paste it there."
-                          file: [files objectAtIndex: 0]];
+#if defined(_WIN32)
+  /* Simple MAPI attaches the file in the default client (Outlook, classic,
+     and Thunderbird take it). It blocks until the client is done with the
+     draft, so it runs off the main thread; a failure comes back to
+     +emailDraftWithNotice:. Without a MAPI client (none, the new Outlook,
+     webmail) the mailto: draft and the notice, below. */
+  if (GSSharingWin32MailClientTakesMAPI())
+    {
+      NSMutableArray *paths = [NSMutableArray array];
+      NSEnumerator *e = [files objectEnumerator];
+      NSURL *file;
+      NSDictionary *job;
+
+      while ((file = [e nextObject]) != nil)
+        {
+          [paths addObject: [file path]];
+        }
+      job = [NSDictionary dictionaryWithObjectsAndKeys:
+        subject, @"subject", paths, @"paths",
+        ([service recipients] != nil ? [service recipients] : [NSArray array]),
+        @"recipients", draft, @"draft", [files objectAtIndex: 0], @"file", nil];
+      [NSThread detachNewThreadSelector: @selector(sendMAPIMail:)
+                               toTarget: self
+                             withObject: job];
+      return;
+    }
+#endif
+  GSSharingEmailDraftWithNotice(draft, [files objectAtIndex: 0]);
 }
+
+#if defined(_WIN32)
++ (void) sendMAPIMail: (NSDictionary *)job
+{
+  CREATE_AUTORELEASE_POOL(pool);
+
+  if (GSSharingWin32SendMail([job objectForKey: @"subject"],
+                             [job objectForKey: @"paths"],
+                             [job objectForKey: @"recipients"], NULL) == NO)
+    {
+      [self performSelectorOnMainThread: @selector(emailDraftWithNotice:)
+                             withObject: job
+                          waitUntilDone: NO];
+    }
+  RELEASE(pool);
+}
+
++ (void) emailDraftWithNotice: (NSDictionary *)job
+{
+  GSSharingEmailDraftWithNotice([job objectForKey: @"draft"],
+                                [job objectForKey: @"file"]);
+}
+#endif
 
 + (void) copy: (NSArray *)items service: (NSSharingService *)service
 {
@@ -958,6 +1063,10 @@ GSSharingOpenURL(NSURL *url)
       return;
     }
 #if defined(_WIN32)
+  if (GSSharingWin32ShowInFolder(path))
+    {
+      return;
+    }
   {
     NSTask *task = AUTORELEASE([NSTask new]);
 
@@ -1084,7 +1193,7 @@ GSSharingBuiltinServicesForItems(NSArray *items)
 #endif
     nil];
 
-  return all;
+  return [all arrayByAddingObjectsFromArray: GSSharingRcloneServicesForItems(items)];
 }
 
 

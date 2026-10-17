@@ -9,6 +9,7 @@
 */
 
 #import "GSSharingPickerPanel.h"
+#import "GSSharingRclone.h"
 
 #ifndef GS_HAS_SHARING_SERVICES
 
@@ -146,12 +147,25 @@ GSSharingDetailOfItems(NSArray *items)
   if ((self = [super init]) != nil)
     {
       _picker = picker;
+      /* rclone's remotes come in the background: the sheet shows them
+         when they are there. */
+      [[NSNotificationCenter defaultCenter]
+        addObserver: self
+           selector: @selector(rcloneRemotesDidChange:)
+               name: GSSharingRcloneRemotesDidChangeNotification
+             object: nil];
     }
   return self;
 }
 
+- (void) rcloneRemotesDidChange: (NSNotification *)notification
+{
+  [self pickerItemsDidChange];
+}
+
 - (void) dealloc
 {
+  [[NSNotificationCenter defaultCenter] removeObserver: self];
   [_panel setDelegate: nil];
   RELEASE(_panel);
   RELEASE(_services);
