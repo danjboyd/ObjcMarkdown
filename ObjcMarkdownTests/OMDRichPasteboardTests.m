@@ -115,4 +115,35 @@
     XCTAssertEqualObjects(copied, fragment);
 }
 
+- (void)testMathBecomesReadableTextNotTeX
+{
+    NSString *html = OMDClipboardHTMLFromMarkdown(@"Area $x^2$ here.\n\n$$\\int_0^1 f(x)\\,dx$$\n");
+    XCTAssertTrue([html rangeOfString:@"$"].location == NSNotFound, @"%@", html);
+    XCTAssertTrue([html rangeOfString:@"\\int"].location == NSNotFound, @"%@", html);
+    XCTAssertTrue([html rangeOfString:@"\\"].location == NSNotFound, @"%@", html);
+    [self assertHTML:html contains:@"\u222B"];
+    [self assertHTML:html contains:@"Area x"];
+}
+
+- (void)testMathInCodeIsKeptAsWritten
+{
+    NSString *html = OMDClipboardHTMLFromMarkdown(@"Type `$x^2$` for a square.\n");
+    [self assertHTML:html contains:@">$x^2$</code>"];
+}
+
+- (void)testRTFHasNoAttachmentPlaceholders
+{
+    NSPasteboard *pasteboard = [NSPasteboard pasteboardWithUniqueName];
+    NSTextAttachment *attachment = [[[NSTextAttachment alloc] initWithFileWrapper:nil] autorelease];
+    NSMutableAttributedString *rendered = [[[NSMutableAttributedString alloc] initWithString:@"Plan"] autorelease];
+    [rendered appendAttributedString:[NSAttributedString attributedStringWithAttachment:attachment]];
+    [rendered appendAttributedString:[[[NSAttributedString alloc] initWithString:@" done"] autorelease]];
+    XCTAssertTrue(OMDWriteRenderedDocumentToPasteboard(pasteboard, @"# Plan\n\n---\n\ndone\n", rendered));
+    NSString *rtf = [[[NSString alloc] initWithData:[pasteboard dataForType:NSRTFPboardType]
+                                           encoding:NSASCIIStringEncoding] autorelease];
+    XCTAssertTrue([rtf rangeOfString:@"unnamed_file"].location == NSNotFound, @"%@", rtf);
+    XCTAssertTrue([rtf rangeOfString:@"Plan done"].location != NSNotFound, @"%@", rtf);
+    [pasteboard releaseGlobally];
+}
+
 @end

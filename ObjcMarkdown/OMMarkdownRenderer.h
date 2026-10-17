@@ -20,6 +20,11 @@ OM_EXPORT NSString * const OMMarkdownRendererAnchorBlockIDKey;
 // $$...$$ formula by the renderer's delimiter rules (code spans skipped).
 OM_EXPORT BOOL OMMarkdownTextContainsMath(NSString *raw);
 
+// The Markdown with each $...$ and $$...$$ formula replaced by readable
+// text (superscripts and symbols as Unicode, as the renderer shows math it
+// can't draw), for readers that show TeX as it is: mail, chats.
+OM_EXPORT NSString *OMMarkdownWithReadableMath(NSString *markdown);
+
 // Keys in the dictionaries returned by -headings.
 OM_EXPORT NSString * const OMMarkdownRendererHeadingLevelKey;       // NSNumber, 1-6
 OM_EXPORT NSString * const OMMarkdownRendererHeadingTitleKey;       // NSString, plain text

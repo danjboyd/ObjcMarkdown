@@ -4,6 +4,7 @@
 #import "OMDRichPasteboard.h"
 #import "OMGFMParser.h"
 #import "OMDWindowsClipboard.h"
+#import "OMMarkdownRenderer.h"
 
 #include <stdlib.h>
 
@@ -50,7 +51,9 @@ NSString *OMDClipboardHTMLFromMarkdown(NSString *markdown)
     if (markdown == nil) {
         return nil;
     }
-    NSData *utf8 = [markdown dataUsingEncoding:NSUTF8StringEncoding];
+    // Mail and chats show TeX as it is, and cmark would drop its backslashes
+    // before punctuation ("\," became ","): formulas as readable text.
+    NSData *utf8 = [OMMarkdownWithReadableMath(markdown) dataUsingEncoding:NSUTF8StringEncoding];
     cmark_node *document = OMGFMParseDocument((const char *)[utf8 bytes],
                                               (size_t)[utf8 length],
                                               CMARK_OPT_DEFAULT);
@@ -87,8 +90,18 @@ BOOL OMDWriteRenderedDocumentToPasteboard(NSPasteboard *pasteboard,
     }
     NSData *rtf = nil;
     if (rendered != nil && [rendered length] > 0) {
-        rtf = [rendered RTFFromRange:NSMakeRange(0, [rendered length])
-                 documentAttributes:[NSDictionary dictionary]];
+        // Without the attachments (rules, images, math): RTF can't carry
+        // them, and GNUstep writes each as "__unnamed_file__" text.
+        NSMutableAttributedString *text = [[rendered mutableCopy] autorelease];
+        NSUInteger index = [text length];
+        while (index > 0) {
+            index -= 1;
+            if ([[text string] characterAtIndex:index] == NSAttachmentCharacter) {
+                [text deleteCharactersInRange:NSMakeRange(index, 1)];
+            }
+        }
+        rtf = [text RTFFromRange:NSMakeRange(0, [text length])
+             documentAttributes:[NSDictionary dictionary]];
     }
     NSString *plain = markdown;
     if (rendered != nil && [rendered length] > 0) {

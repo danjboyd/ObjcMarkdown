@@ -1921,9 +1921,13 @@ static void OMQueueRawMath(NSMutableDictionary *queues, NSString *raw, BOOL disp
     [queue addObject:raw];
 }
 
-// Collects a block's $...$ and $$...$$ formulas from its raw source, using
-// the same delimiter rules as OMAppendTextWithMathSpans and skipping code spans.
-static void OMCollectRawMathSources(NSString *raw, NSMutableDictionary *queues)
+// Called for each formula a scan finds: the whole span with its dollars,
+// and the formula inside them.
+typedef void (*OMMathSpanFunction)(NSRange span, NSRange formula, BOOL display, void *context);
+
+// Finds raw Markdown's $...$ and $$...$$ formulas, using the same delimiter
+// rules as OMAppendTextWithMathSpans and skipping code spans.
+static void OMScanMathSpans(NSString *raw, OMMathSpanFunction found, void *context)
 {
     NSUInteger length = [raw length];
     NSUInteger index = 0;
@@ -1962,7 +1966,8 @@ static void OMCollectRawMathSources(NSString *raw, NSMutableDictionary *queues)
                 close += 1;
             }
             if (close + 1 < length && close > index + 2) {
-                OMQueueRawMath(queues, [raw substringWithRange:NSMakeRange(index + 2, close - index - 2)], YES);
+                found(NSMakeRange(index, close + 2 - index),
+                      NSMakeRange(index + 2, close - index - 2), YES, context);
                 index = close + 2;
             } else {
                 index += 2;
@@ -1974,7 +1979,7 @@ static void OMCollectRawMathSources(NSString *raw, NSMutableDictionary *queues)
             continue;
         }
         NSUInteger close = index + 1;
-        BOOL found = NO;
+        BOOL closed = NO;
         while (close < length) {
             unichar c = [raw characterAtIndex:close];
             if (c == '\\') {
@@ -1987,19 +1992,73 @@ static void OMCollectRawMathSources(NSString *raw, NSMutableDictionary *queues)
                 BOOL adjacentToDollar = ([raw characterAtIndex:close - 1] == '$') ||
                                         (close + 1 < length && [raw characterAtIndex:close + 1] == '$');
                 if (!precededByWhitespace && !followedByDigit && !adjacentToDollar) {
-                    found = YES;
+                    closed = YES;
                     break;
                 }
             }
             close += 1;
         }
-        if (found) {
-            OMQueueRawMath(queues, [raw substringWithRange:NSMakeRange(index + 1, close - index - 1)], NO);
+        if (closed) {
+            found(NSMakeRange(index, close + 1 - index),
+                  NSMakeRange(index + 1, close - index - 1), NO, context);
             index = close + 1;
         } else {
             index += 1;
         }
     }
+}
+
+static void OMQueueFoundMath(NSRange span, NSRange formula, BOOL display, void *context)
+{
+    NSArray *args = (NSArray *)context;
+    (void)span;
+    OMQueueRawMath([args objectAtIndex:1], [[args objectAtIndex:0] substringWithRange:formula], display);
+}
+
+// Collects a block's $...$ and $$...$$ formulas from its raw source.
+static void OMCollectRawMathSources(NSString *raw, NSMutableDictionary *queues)
+{
+    OMScanMathSpans(raw, OMQueueFoundMath, [NSArray arrayWithObjects:raw, queues, nil]);
+}
+
+static void OMRecordFoundMath(NSRange span, NSRange formula, BOOL display, void *context)
+{
+    (void)display;
+    [(NSMutableArray *)context addObject:[NSArray arrayWithObjects:
+        [NSValue valueWithRange:span], [NSValue valueWithRange:formula], nil]];
+}
+
+NSString *OMMarkdownWithReadableMath(NSString *markdown)
+{
+    if ([markdown rangeOfString:@"$"].location == NSNotFound) {
+        return markdown;
+    }
+    NSMutableArray *spans = [NSMutableArray array];
+    OMScanMathSpans(markdown, OMRecordFoundMath, spans);
+    if ([spans count] == 0) {
+        return markdown;
+    }
+    NSCharacterSet *punctuation = [NSCharacterSet characterSetWithCharactersInString:
+        @"!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~"];
+    NSMutableString *result = [NSMutableString stringWithString:markdown];
+    NSEnumerator *e = [spans reverseObjectEnumerator];
+    NSArray *found = nil;
+    while ((found = [e nextObject]) != nil) {
+        NSRange span = [[found objectAtIndex:0] rangeValue];
+        NSRange formula = [[found objectAtIndex:1] rangeValue];
+        NSString *readable = OMReadableMathFallbackString([markdown substringWithRange:formula]);
+        NSMutableString *escaped = [NSMutableString string];
+        NSUInteger i = 0;
+        for (i = 0; i < [readable length]; i++) {
+            unichar c = [readable characterAtIndex:i];
+            if ([punctuation characterIsMember:c]) {
+                [escaped appendString:@"\\"];
+            }
+            [escaped appendFormat:@"%C", c];
+        }
+        [result replaceCharactersInRange:span withString:escaped];
+    }
+    return result;
 }
 
 BOOL OMMarkdownTextContainsMath(NSString *raw)
