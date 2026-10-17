@@ -21,9 +21,15 @@
     // OMDShareEmailInMessageTag for the document as a message).
     id _picker;
     id _formatControl;
-    id _accessoryView;      // the format switcher and a spinner
+    id _accessoryView;      // the format switcher and a spinner, then the rows below
     id _spinner;
+    id _selectionCheckbox;  // "Selection only", shown while there is a selection
+    id _warningsView;       // the warnings for the choice, and what to do instead
     NSInteger _sheetChoice;
+    // Whether the share is of the selection only (#192).
+    BOOL _selectionOnly;
+    // Whether the sheet shows the Markdown's .zip with its images.
+    BOOL _sheetBundled;
     // Each background export's number: a result for an earlier one (the
     // format was switched again, or the sheet closed) is dropped.
     NSUInteger _exportGeneration;
@@ -38,7 +44,9 @@
 + (OMDShareFormat)lastFormat;
 
 // Exports in format and presents the file from view (the window's content
-// view if nil). Errors are shown in an alert.
+// view if nil). Errors are shown in an alert. What the reader would miss
+// (OMDShareChecks.h) is shown first: in the sheet on GNUstep, through the
+// presenter's -confirmShareWithWarnings:... elsewhere.
 - (void)shareInFormat:(OMDShareFormat)format fromView:(NSView *)view;
 // An email draft with the document attached in format.
 - (void)emailDocumentInFormat:(OMDShareFormat)format;
