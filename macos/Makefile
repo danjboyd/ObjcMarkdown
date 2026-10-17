@@ -64,6 +64,10 @@ obj = $(addprefix $(OBJDIR)/$(1)/,$(addsuffix .o,$(2)))
 LIB_OBJS := $(call obj,lib,$(LIB_OBJC) $(LIB_C))
 VIM_OBJS := $(call obj,vim,$(VIM_OBJC))
 APP_OBJS := $(call obj,app,$(APP_OBJC))
+# The macOS share presenter and its tests, on top of the shared list.
+TEST_OBJC += ObjcMarkdownTests/OMDSharePresenterMacTests.m ObjcMarkdownViewer/OMDSharePresenterMac.m \
+	ObjcMarkdownViewer/OMDShareRcloneMac.m ObjcMarkdownViewer/OMDShareBasicPresenter.m \
+	ObjcMarkdownViewer/OMDShareNotice.m ObjcMarkdownViewer/OMDViewerImages.m
 TEST_OBJS := $(call obj,test,$(TEST_OBJC))
 # The Quick Look preview extension: its controller and the app's preview view.
 QL_OBJC := macos/QuickLook/OMDQuickLookPreviewController.m ObjcMarkdownViewer/OMDTextView.m ObjcMarkdownViewer/OMDTextFileSupport.m
@@ -190,11 +194,11 @@ $(BUILD)/MarkdownViewer.icns: $(ROOT)/Resources/markdown_icon.png
 	$(Q)iconutil -c icns -o $@ $(BUILD)/MarkdownViewer.iconset
 
 # XCTest itself needs macOS 14, so the bundle does too.
-$(TESTS): $(TEST_OBJS) $(LIB)
+$(TESTS): $(TEST_OBJS) $(SHARING_OBJS) $(LIB)
 	@rm -rf $@
 	@mkdir -p $@/Contents/MacOS
 	@echo "  LD $(notdir $@)"
-	$(Q)$(CC) $(ARCH_FLAGS) -mmacosx-version-min=14.0 -bundle -o $@/Contents/MacOS/ObjcMarkdownTests $(TEST_OBJS) $(LIB) \
+	$(Q)$(CC) $(ARCH_FLAGS) -mmacosx-version-min=14.0 -bundle -o $@/Contents/MacOS/ObjcMarkdownTests $(TEST_OBJS) $(SHARING_OBJS) $(LIB) \
 		$(FRAMEWORKS) -F$(PLATFORM_DIR)/Developer/Library/Frameworks -framework XCTest \
 		-Wl,-rpath,$(PLATFORM_DIR)/Developer/Library/Frameworks
 	$(Q)sed -e 's/@VERSION@/$(SHORT_VERSION)/g' TestsInfo.plist > $@/Contents/Info.plist
