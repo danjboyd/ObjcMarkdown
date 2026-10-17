@@ -65,6 +65,10 @@ typedef NS_ENUM(NSInteger, OMDShareErrorCode) {
 
 // The directory under which each launch keeps its exports.
 + (NSString *)temporaryRootDirectory;
+// The same for a sandbox or not, in an environment. A Flatpak's /tmp is
+// its own, which the portals that take the file (email, the file
+// manager) can't see, so there it is in the app's cache, which they can.
++ (NSString *)temporaryRootDirectoryInFlatpak:(BOOL)inFlatpak environment:(NSDictionary *)environment;
 // This launch's directory, created (0700) on first use.
 + (NSString *)launchTemporaryDirectory;
 // Removes the directories of launches that are over (their process is

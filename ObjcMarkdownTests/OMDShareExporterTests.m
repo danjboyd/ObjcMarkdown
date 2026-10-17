@@ -208,6 +208,18 @@
     XCTAssertEqual(code, (NSInteger)OMDShareErrorConverterUnavailable);
 }
 
+- (void)testFlatpakSharesFromItsCacheNotItsTmp
+{
+    NSDictionary *environment = [NSDictionary dictionaryWithObject:@"/home/u/.var/app/x/cache"
+                                                            forKey:@"XDG_CACHE_HOME"];
+    XCTAssertEqualObjects([OMDShareExporter temporaryRootDirectoryInFlatpak:YES environment:environment],
+                          @"/home/u/.var/app/x/cache/MarkdownViewer-share");
+    XCTAssertTrue([[OMDShareExporter temporaryRootDirectoryInFlatpak:YES environment:[NSDictionary dictionary]]
+                      hasSuffix:@"/.cache/MarkdownViewer-share"]);
+    XCTAssertEqualObjects([OMDShareExporter temporaryRootDirectoryInFlatpak:NO environment:environment],
+                          [NSTemporaryDirectory() stringByAppendingPathComponent:@"MarkdownViewer-share"]);
+}
+
 - (void)testLaunchDirectoryIsPrivate
 {
     NSString *directory = [OMDShareExporter launchTemporaryDirectory];
