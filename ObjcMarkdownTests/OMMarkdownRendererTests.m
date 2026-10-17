@@ -1036,6 +1036,55 @@ static BOOL OMDMathToolchainAvailable(void)
     XCTAssertTrue([text rangeOfString:@"P(A | B)"].location != NSNotFound);
 }
 
+#if defined(GNUSTEP)
+- (void)testStyledMathSymbolsDrawInAFontThatHasThem
+{
+    OMMarkdownParsingOptions *options = [OMMarkdownParsingOptions defaultOptions];
+    [options setMathRenderingPolicy:OMMarkdownMathRenderingPolicyStyledText];
+    /* Noto Sans Mono has no integral sign; GNUstep doesn't fall back per glyph. */
+    NSString *themePath = [NSTemporaryDirectory() stringByAppendingPathComponent:@"om-math-font-theme.toml"];
+    [@"[code]\nfont_family = \"NotoSansMono-Regular\"\n" writeToFile:themePath
+                                                          atomically:YES
+                                                            encoding:NSUTF8StringEncoding
+                                                               error:NULL];
+    OMTheme *theme = [OMTheme themeWithContentsOfFile:themePath error:NULL];
+    [[NSFileManager defaultManager] removeItemAtPath:themePath error:NULL];
+    XCTAssertNotNil(theme);
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] initWithTheme:theme
+                                                                parsingOptions:options] autorelease];
+
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:
+        @"Inline $\\int_0^1 x\\,dx \\le \\infty$.\n\n$$\n\\int_{-\\infty}^{\\infty} e^{-x^2}\\,dx = \\sqrt{\\pi}\n$$\n"];
+    NSString *text = [rendered string];
+    BOOL anyFontHasIntegral = NO;
+    NSArray *names = [NSArray arrayWithObjects:@"DejaVuSansMono", @"DejaVuSans", @"LiberationMono",
+                                               @"CambriaMath", @"SegoeUISymbol", nil];
+    for (NSString *name in names) {
+        NSFont *candidate = [NSFont fontWithName:name size:12.0];
+        if ([[candidate coveredCharacterSet] characterIsMember:0x222B]) {
+            anyFontHasIntegral = YES;
+        }
+    }
+
+    NSUInteger integrals = 0;
+    for (NSUInteger i = 0; i < [text length]; i++) {
+        unichar ch = [text characterAtIndex:i];
+        if (ch != 0x222B && ch != 0x221E && ch != 0x221A && ch != 0x2264) {
+            continue;
+        }
+        if (ch == 0x222B) {
+            integrals += 1;
+        }
+        NSFont *font = [rendered attribute:NSFontAttributeName atIndex:i effectiveRange:NULL];
+        NSCharacterSet *covered = [font coveredCharacterSet];
+        if (covered != nil && anyFontHasIntegral && ch == 0x222B) {
+            XCTAssertTrue([covered characterIsMember:ch], @"U+%04X drawn in %@", ch, [font fontName]);
+        }
+    }
+    XCTAssertEqual(integrals, (NSUInteger)2);
+}
+#endif
+
 - (void)testHTMLPolicyIgnoreDropsInlineAndBlockHTML
 {
     OMMarkdownParsingOptions *options = [OMMarkdownParsingOptions defaultOptions];
