@@ -165,5 +165,21 @@
     XCTAssertTrue([mail canPerformWithItems:items]);
 }
 
+// libs-sharing 0b93d2e (#225): a look for remotes keeps the ones found
+// before until it's done, so a picker opened meanwhile still lists them.
+- (void)testRemotesStayWhileARefreshRuns
+{
+    [self useRcloneListing:@"Personal: drive\\n" failure:nil];
+    [self presenterAfterItsLook];
+    // A new window's presenter starts another look; the picker, opened
+    // meanwhile, still has the remotes found before.
+    id<OMDSharePresenter> presenter = [OMDCreatePlatformSharePresenter() autorelease];
+    NSArray *titles = [self pickerTitlesFrom:presenter items:[NSArray arrayWithObject:_file] proposed:[NSArray array]];
+    XCTAssertEqualObjects(titles, [NSArray arrayWithObject:@"Link on Personal (Google Drive)"]);
+    XCTNSNotificationExpectation *done =
+        [[[XCTNSNotificationExpectation alloc] initWithName:GSSharingRcloneRemotesDidChangeNotification] autorelease];
+    [self waitForExpectations:[NSArray arrayWithObject:done] timeout:10.0];
+}
+
 @end
 #endif
