@@ -31,6 +31,15 @@
   /* Built-in services: which kinds of item they take, as GSSharingItemKind
      bits; 0 for the app's own services, which take anything. */
   unsigned accepts;
+  /* -performWithItems: is running the service's work. */
+  BOOL performing;
+  /* This -performWithItems:'s job reports how it went itself
+     (GSSharingServiceWillFinishLater). */
+  BOOL performDefers;
+  /* Jobs that will report and haven't yet: one per perform that deferred,
+     each holding a retain of the service. Jobs that overlap (an upload
+     started again before the first ends) report in the order they finish. */
+  unsigned pendingJobs;
 }
 @end
 
@@ -75,6 +84,26 @@ NSSharingService *GSSharingMakeBuiltinService(NSString *name,
                                               NSString *imageName,
                                               unsigned accepts,
                                               SEL action);
+
+/* A service whose work goes on after it returns (an upload), or that can
+   fail or be cancelled, says so while it performs, and reports how it went
+   with GSSharingServiceFinish: then, or later. The delegate then gets
+   -sharingService:didShareItems: (error nil) or
+   -sharingService:didFailToShareItems:error:, once per job. A service that
+   doesn't is done when it returns, and -performWithItems: reports it
+   shared, as before. The service is kept until each job reports.
+
+   The delegate isn't retained (as AppKit's isn't), and a report can now
+   come long after the sheet has gone: a delegate that may be deallocated
+   first must set the service's delegate to nil in its -dealloc. */
+/* Once per job: each call is a job that GSSharingServiceFinish ends. */
+void GSSharingServiceWillFinishLater(NSSharingService *service);
+void GSSharingServiceFinish(NSSharingService *service, NSArray *items,
+                            NSError *error);
+
+/* The error a service reports when the user cancels it (AppKit's:
+   NSCocoaErrorDomain, NSUserCancelledError). */
+NSError *GSSharingCancelledError(void);
 
 /* The built-in services for items, in the sheet's order. */
 NSArray *GSSharingBuiltinServicesForItems(NSArray *items);

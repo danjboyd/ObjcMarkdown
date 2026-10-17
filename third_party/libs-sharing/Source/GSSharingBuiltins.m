@@ -1025,8 +1025,13 @@ GSSharingEmailDraftWithNotice(NSURL *draft, NSURL *file)
   NSFileManager *manager = [NSFileManager defaultManager];
   NSError *error = nil;
 
+  /* It reports a dismissed panel as cancelled, and a copy that failed. */
+  GSSharingServiceWillFinishLater(service);
   if (file == nil)
     {
+      GSSharingServiceFinish(service, items,
+        [NSError errorWithDomain: NSCocoaErrorDomain
+                            code: NSFileNoSuchFileError userInfo: nil]);
       return;
     }
   panel = [NSSavePanel savePanel];
@@ -1036,11 +1041,13 @@ GSSharingEmailDraftWithNotice(NSURL *draft, NSURL *file)
   [panel setDirectory: NSHomeDirectory()];
   if ([panel runModal] != NSFileHandlingPanelOKButton)
     {
+      GSSharingServiceFinish(service, items, GSSharingCancelledError());
       return;
     }
   destination = [[panel URL] path];
   if ([destination length] == 0)
     {
+      GSSharingServiceFinish(service, items, GSSharingCancelledError());
       return;
     }
   /* The panel has asked about replacing it. */
@@ -1050,7 +1057,13 @@ GSSharingEmailDraftWithNotice(NSURL *draft, NSURL *file)
       NSRunAlertPanel(@"Couldn't save a copy",
                       (error != nil ? [error localizedDescription] : destination),
                       @"OK", nil, nil);
+      GSSharingServiceFinish(service, items,
+        (error != nil ? error : [NSError errorWithDomain: NSCocoaErrorDomain
+                                                    code: NSFileWriteUnknownError
+                                                userInfo: nil]));
+      return;
     }
+  GSSharingServiceFinish(service, items, nil);
 }
 
 + (void) showInFolder: (NSArray *)items service: (NSSharingService *)service

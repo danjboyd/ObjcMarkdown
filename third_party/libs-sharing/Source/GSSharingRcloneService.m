@@ -33,6 +33,8 @@ static NSDate *lastRefresh = nil;
   NSPanel *_panel;
   NSTextField *_label;
   NSProgressIndicator *_bar;
+  NSSharingService *_service;  /* reported to when the upload ends */
+  NSArray *_items;
 }
 + (void) upload: (NSArray *)items service: (NSSharingService *)service;
 + (void) unlock: (NSArray *)items service: (NSSharingService *)service;
@@ -180,12 +182,26 @@ GSSharingRcloneAsk(NSString *title, NSString *message, NSControl *control,
   return answer == NSRunStoppedResponse;
 }
 
+/* What the service reports when there's no file or remote to upload to. */
+static NSError *
+GSSharingRcloneNothingToUpload(void)
+{
+  return [NSError errorWithDomain: NSCocoaErrorDomain
+                             code: NSFileNoSuchFileError
+                         userInfo: [NSDictionary dictionaryWithObject:
+    @"There's nothing to upload, or nowhere to upload it."
+                                                            forKey: NSLocalizedDescriptionKey]];
+}
+
 @implementation GSSharingRcloneUpload
 
 - (id) initWithFile: (NSString *)path remote: (GSSharingRcloneRemote *)remote
+            service: (NSSharingService *)service items: (NSArray *)items
 {
   if ((self = [super init]) != nil)
     {
+      ASSIGN(_service, service);
+      ASSIGN(_items, items);
       _transfer = [[GSSharingRcloneTransfer alloc] initWithFile: path
                                                          remote: remote
                                                          folder: nil];
@@ -200,6 +216,8 @@ GSSharingRcloneAsk(NSString *title, NSString *message, NSControl *control,
   [_transfer setDelegate: nil];
   RELEASE(_transfer);
   RELEASE(_panel);
+  RELEASE(_service);
+  RELEASE(_items);
   [super dealloc];
 }
 
@@ -284,6 +302,7 @@ GSSharingRcloneAsk(NSString *title, NSString *message, NSControl *control,
                                           [[_transfer remote] audience],
                                           [_transfer remoteDisplayPath]]
                           file: nil];
+  GSSharingServiceFinish(_service, _items, nil);
   AUTORELEASE(self);
 }
 
@@ -300,14 +319,22 @@ GSSharingRcloneAsk(NSString *title, NSString *message, NSControl *control,
           text = [NSString stringWithFormat: @"%@\n\n%@", text, reason];
         }
       NSRunAlertPanel(@"Couldn't upload the file", @"%@", @"OK", nil, nil, text);
+      GSSharingServiceFinish(_service, _items, error);
+    }
+  else
+    {
+      GSSharingServiceFinish(_service, _items, GSSharingCancelledError());
     }
   AUTORELEASE(self);
 }
 
 + (void) uploadFile: (NSString *)path to: (GSSharingRcloneRemote *)remote
+            service: (NSSharingService *)service items: (NSArray *)items
 {
   GSSharingRcloneUpload *upload = AUTORELEASE([[self alloc] initWithFile: path
-                                                                  remote: remote]);
+                                                                  remote: remote
+                                                                 service: service
+                                                                   items: items]);
 
   [upload start];
 }
@@ -319,12 +346,15 @@ GSSharingRcloneAsk(NSString *title, NSString *message, NSControl *control,
   GSSharingRcloneRemote *remote = GSSharingRcloneRemoteNamed(name);
   NSURL *file = GSSharingRcloneFileOfItems(items);
 
+  /* The upload reports how it went: the link, rclone's error, or Cancel. */
+  GSSharingServiceWillFinishLater(service);
   if (remote == nil || file == nil)
     {
       NSBeep();
+      GSSharingServiceFinish(service, items, GSSharingRcloneNothingToUpload());
       return;
     }
-  [self uploadFile: [file path] to: remote];
+  [self uploadFile: [file path] to: remote service: service items: items];
 }
 
 /* An encrypted config: its password, then the remote, then the upload. */
@@ -337,14 +367,17 @@ GSSharingRcloneAsk(NSString *title, NSString *message, NSControl *control,
   NSError *error = nil;
   GSSharingRcloneRemote *remote;
 
+  GSSharingServiceWillFinishLater(service);
   if (file == nil)
     {
+      GSSharingServiceFinish(service, items, GSSharingRcloneNothingToUpload());
       return;
     }
   if (GSSharingRcloneAsk(@"rclone",
         @"rclone's configuration is encrypted. Its password is needed to list your remotes; it is kept only while this app runs.",
         field, @"Unlock") == NO)
     {
+      GSSharingServiceFinish(service, items, GSSharingCancelledError());
       return;
     }
   [GSSharingRclone forgetRemotes];
@@ -353,6 +386,7 @@ GSSharingRcloneAsk(NSString *title, NSString *message, NSControl *control,
     {
       NSRunAlertPanel(@"Couldn't unlock rclone", @"%@", @"OK", nil, nil,
                       [error localizedDescription]);
+      GSSharingServiceFinish(service, items, error);
       return;
     }
   ASSIGN(rclonePassword, [field stringValue]);
@@ -361,6 +395,7 @@ GSSharingRcloneAsk(NSString *title, NSString *message, NSControl *control,
     {
       NSRunAlertPanel(@"rclone", @"None of your rclone remotes can make links to files.",
                       @"OK", nil, nil);
+      GSSharingServiceFinish(service, items, GSSharingRcloneNothingToUpload());
       return;
     }
   remote = [remotes objectAtIndex: 0];
@@ -380,11 +415,12 @@ GSSharingRcloneAsk(NSString *title, NSString *message, NSControl *control,
                       [[file path] lastPathComponent]],
             popup, @"Upload") == NO)
         {
+          GSSharingServiceFinish(service, items, GSSharingCancelledError());
           return;
         }
       remote = [remotes objectAtIndex: [popup indexOfSelectedItem]];
     }
-  [self uploadFile: [file path] to: remote];
+  [self uploadFile: [file path] to: remote service: service items: items];
 }
 
 @end

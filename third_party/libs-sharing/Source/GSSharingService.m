@@ -339,6 +339,8 @@ GSSharingDisplayNameOfItem(id item)
     {
       [delegate sharingService: self willShareItems: items];
     }
+  state->performing = YES;
+  state->performDefers = NO;
 #ifdef GSSHARING_HAS_BLOCKS
   if (state->handler != nil)
     {
@@ -352,6 +354,14 @@ GSSharingDisplayNameOfItem(id item)
                           withObject: items
                           withObject: self];
     }
+  state->performing = NO;
+  /* A job that reports itself has, or will. Another job ending meanwhile
+     (an upload, while this one's panel ran) doesn't stand for this one. */
+  if (state->performDefers)
+    {
+      return;
+    }
+  delegate = state->delegate;
   if ([delegate respondsToSelector:
          @selector(sharingService:didShareItems:)])
     {
@@ -360,6 +370,59 @@ GSSharingDisplayNameOfItem(id item)
 }
 
 @end
+
+
+void
+GSSharingServiceWillFinishLater(NSSharingService *service)
+{
+  GSSharingServiceState *state = GSSharingStateForService(service, YES);
+
+  if (state->performing)
+    {
+      state->performDefers = YES;
+    }
+  state->pendingJobs++;
+  /* Kept until the job reports: the sheet that offered it may be gone. */
+  RETAIN(service);
+}
+
+void
+GSSharingServiceFinish(NSSharingService *service, NSArray *items,
+                       NSError *error)
+{
+  GSSharingServiceState *state = GSSharingStateForService(service, NO);
+  id delegate;
+
+  if (state == nil || state->pendingJobs == 0)
+    {
+      return;
+    }
+  state->pendingJobs--;
+  delegate = state->delegate;
+  if (error == nil)
+    {
+      if ([delegate respondsToSelector:
+             @selector(sharingService:didShareItems:)])
+        {
+          [delegate sharingService: service didShareItems: items];
+        }
+    }
+  else if ([delegate respondsToSelector:
+              @selector(sharingService:didFailToShareItems:error:)])
+    {
+      [delegate sharingService: service didFailToShareItems: items
+                         error: error];
+    }
+  AUTORELEASE(service);
+}
+
+NSError *
+GSSharingCancelledError(void)
+{
+  return [NSError errorWithDomain: NSCocoaErrorDomain
+                             code: NSUserCancelledError
+                         userInfo: nil];
+}
 
 
 /* NSSharingServicePicker's methods. */
