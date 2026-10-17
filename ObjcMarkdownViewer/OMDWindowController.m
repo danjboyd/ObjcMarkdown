@@ -4062,21 +4062,33 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
                         [htmlURL absoluteString],
                         nil]];
 
-    NSPipe *stdoutPipe = [NSPipe pipe];
-    NSPipe *stderrPipe = [NSPipe pipe];
-    [task setStandardOutput:stdoutPipe];
-    [task setStandardError:stderrPipe];
+    // Not pipes: nothing reads them, and Edge logs a few KB to stderr, so
+    // it blocked on a full pipe while the app waited for it to exit.
+    [task setStandardOutput:[NSFileHandle fileHandleWithNullDevice]];
+    [task setStandardError:[NSFileHandle fileHandleWithNullDevice]];
 
     BOOL launched = YES;
+    BOOL finished = NO;
     @try {
         [task launch];
-        [task waitUntilExit];
+        // Edge takes a few seconds; one that hangs mustn't take the app
+        // with it.
+        NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:90.0];
+        while ([task isRunning] && [deadline timeIntervalSinceNow] > 0) {
+            [NSThread sleepForTimeInterval:0.1];
+        }
+        finished = ![task isRunning];
+        if (!finished) {
+            OMDLogPrintDiagnostics(@"export PDF: the headless browser didn't finish in 90 s; stopping it");
+            [task terminate];
+        }
     } @catch (NSException *exception) {
         launched = NO;
         (void)exception;
     }
 
     return (launched &&
+            finished &&
             [task terminationStatus] == 0 &&
             [[NSFileManager defaultManager] fileExistsAtPath:pdfPath]);
 }
