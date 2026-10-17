@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #import "OMDSharePresenter.h"
+#import "OMDShareChecks.h"
 
 #if !defined(GNUSTEP)
 
@@ -20,6 +21,9 @@ static NSString * const OMDAppleMailBundleIdentifier = @"com.apple.mail";
     NSSharingServicePicker *_picker;
     NSSharingService *_service;
     OMDShareItem *(^_toolbarItemProvider)(void);
+    // While the confirm sheet is up: its .zip button, which Selection only
+    // turns off (not retained; the alert holds it).
+    NSButton *_bundleButton;
 }
 @end
 
@@ -124,6 +128,102 @@ static NSArray *OMDPickerItems(OMDShareItem *item)
         return NO;
     }
     return [self composeMailWithItems:[NSArray arrayWithObject:[item renderedText]] title:[item title]];
+}
+
+// Before sharing: what the reader won't get, with PDF or the .zip as
+// alternatives, and the selection when text is selected. A sheet on the
+// window. Sharing the whole document is the default: a stray selection
+// shouldn't quietly cut the share short. Without warnings, the selection is
+// its own button; with them, a Selection only checkbox (off).
+- (void)confirmShareWithWarnings:(NSArray *)warnings
+                          format:(OMDShareFormat)format
+                    hasSelection:(BOOL)hasSelection
+                       forWindow:(NSWindow *)window
+                      completion:(void (^)(OMDShareWarningChoice choice, BOOL selectionOnly))completion
+{
+    BOOL offersPDF = NO;
+    BOOL offersBundle = NO;
+    NSMutableArray *messages = [NSMutableArray array];
+    for (OMDShareWarning *warning in warnings) {
+        [messages addObject:[warning messageForFormat:format]];
+        offersPDF = offersPDF || ([warning suggestsPDF] && format != OMDShareFormatPDF);
+        offersBundle = offersBundle || ([warning offersBundle] && format == OMDShareFormatMarkdown);
+    }
+
+    NSAlert *alert = [[[NSAlert alloc] init] autorelease];
+    // Each button's choice, and whether it shares the selection, in button
+    // order (NSAlertFirstButtonReturn onwards).
+    NSMutableArray *choices = [NSMutableArray array];
+    NSMutableArray *selections = [NSMutableArray array];
+    NSButton *selectionOnly = nil;
+    if ([messages count] == 0) {
+        [alert setMessageText:@"Share the whole document or the selection?"];
+        [alert setInformativeText:@"Part of the document is selected."];
+        [alert addButtonWithTitle:@"Share Document"];
+        [choices addObject:[NSNumber numberWithInteger:OMDShareWarningChoiceContinue]];
+        [selections addObject:[NSNumber numberWithBool:NO]];
+        [alert addButtonWithTitle:@"Cancel"];
+        [choices addObject:[NSNumber numberWithInteger:OMDShareWarningChoiceCancel]];
+        [selections addObject:[NSNumber numberWithBool:NO]];
+        [alert addButtonWithTitle:@"Share Selection"];
+        [choices addObject:[NSNumber numberWithInteger:OMDShareWarningChoiceContinue]];
+        [selections addObject:[NSNumber numberWithBool:YES]];
+    } else {
+        [alert setMessageText:@"The reader may not get all of this document."];
+        [alert setInformativeText:[messages componentsJoinedByString:@"\n"]];
+        [alert addButtonWithTitle:@"Share"];
+        [choices addObject:[NSNumber numberWithInteger:OMDShareWarningChoiceContinue]];
+        [alert addButtonWithTitle:@"Cancel"];
+        [choices addObject:[NSNumber numberWithInteger:OMDShareWarningChoiceCancel]];
+        if (offersPDF) {
+            [alert addButtonWithTitle:@"Share as PDF"];
+            [choices addObject:[NSNumber numberWithInteger:OMDShareWarningChoicePDF]];
+        }
+        if (offersBundle) {
+            _bundleButton = [alert addButtonWithTitle:@"Share as .zip with Images"];
+            [choices addObject:[NSNumber numberWithInteger:OMDShareWarningChoiceBundle]];
+        }
+        if (hasSelection) {
+            selectionOnly = [[[NSButton alloc] initWithFrame:NSZeroRect] autorelease];
+            [selectionOnly setButtonType:NSSwitchButton];
+            [selectionOnly setTitle:@"Selection only"];
+            [selectionOnly setState:NSOffState];
+            [selectionOnly setTarget:self];
+            [selectionOnly setAction:@selector(selectionOnlyChanged:)];
+            [selectionOnly sizeToFit];
+            [alert setAccessoryView:selectionOnly];
+        }
+    }
+
+    void (^done)(OMDShareWarningChoice, BOOL) = Block_copy(completion);
+    void (^handler)(NSModalResponse) = ^(NSModalResponse response) {
+        NSInteger index = response - NSAlertFirstButtonReturn;
+        OMDShareWarningChoice choice = OMDShareWarningChoiceCancel;
+        BOOL onlySelection = NO;
+        if (index >= 0 && (NSUInteger)index < [choices count]) {
+            choice = (OMDShareWarningChoice)[[choices objectAtIndex:index] integerValue];
+            onlySelection = ((NSUInteger)index < [selections count])
+                ? [[selections objectAtIndex:index] boolValue]
+                : (selectionOnly != nil && [selectionOnly state] == NSOnState);
+        }
+        // The .zip is of the whole document.
+        if (choice == OMDShareWarningChoiceBundle) {
+            onlySelection = NO;
+        }
+        _bundleButton = nil;
+        done(choice, onlySelection);
+        Block_release(done);
+    };
+    if (window != nil) {
+        [alert beginSheetModalForWindow:window completionHandler:handler];
+    } else {
+        handler([alert runModal]);
+    }
+}
+
+- (void)selectionOnlyChanged:(id)sender
+{
+    [_bundleButton setEnabled:([sender state] != NSOnState)];
 }
 
 - (NSToolbarItem *)shareToolbarItemWithIdentifier:(NSString *)identifier
