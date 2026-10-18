@@ -777,6 +777,36 @@ static BOOL OMDMathToolchainAvailable(void)
     XCTAssertTrue([text rangeOfString:@"D_{nom,yr} ="].location == NSNotFound);
 }
 
+- (void)testDisplayMathWithALargeSVGRenders
+{
+    if (!OMDMathToolchainAvailable()) {
+        return;
+    }
+
+    /* dvisvgm writes the SVG to stdout. Eighteen rows of 96 letters, under
+       the 2048-character formula limit, make about 160 KB of SVG, more than
+       a pipe holds, so it renders only if the output is read while dvisvgm
+       runs. */
+    NSString *letters = @"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRST";
+    NSMutableArray *rows = [NSMutableArray array];
+    for (NSUInteger i = 0; i < 18; i++) {
+        [rows addObject:letters];
+    }
+    NSString *markdown = [NSString stringWithFormat:@"$$\n\\begin{array}{l}\n%@\n\\end{array}\n$$\n",
+                          [rows componentsJoinedByString:@" \\\\\n"]];
+
+    OMMarkdownParsingOptions *options = [OMMarkdownParsingOptions defaultOptions];
+    [options setMathRenderingPolicy:OMMarkdownMathRenderingPolicyExternalTools];
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] initWithTheme:nil
+                                                                parsingOptions:options] autorelease];
+    NSDate *start = [NSDate date];
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
+    XCTAssertNotNil(rendered);
+    XCTAssertTrue([rendered containsAttachments]);
+    XCTAssertTrue([[rendered string] rangeOfString:@"begin{array}"].location == NSNotFound);
+    XCTAssertTrue(-[start timeIntervalSinceNow] < 8.0, @"took %.1f s", -[start timeIntervalSinceNow]);
+}
+
 - (void)testDisplayMathBlockSurvivesSetextHeadingInterpretation
 {
     if (!OMDMathToolchainAvailable()) {
