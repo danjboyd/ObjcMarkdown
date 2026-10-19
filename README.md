@@ -47,6 +47,10 @@ On Linux, Share opens a share sheet: pick the format, then email it, copy it, sa
 
 ![The Linux share sheet under Adwaita: PDF, Word, Markdown or In the Message, then Email, Copy, Save a Copy, Show in Folder, Open With and an rclone remote](docs/screenshots/adwaita-share.png)
 
+On macOS, Share opens the Mac's own share menu with the exported file: AirDrop, Mail, Messages and your apps' share extensions, plus a link entry for each rclone remote.
+
+![The macOS share menu: the exported PDF, AirDrop, Mail, Messages and other services, and two rclone link entries](docs/screenshots/macos-share.png)
+
 ## Rendering
 
 The renderer parses with GitHub's [cmark-gfm](https://github.com/github/cmark-gfm), vendored and compiled in, so the app, the editor's highlighting and the scroll sync agree on the document's structure. Try it on [docs/showcase.md](docs/showcase.md).
