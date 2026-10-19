@@ -6,7 +6,7 @@
 
 ## One App, Any Theme
 
-MarkdownViewer uses only standard controls and system colours, and lets the GNUstep theme decide how they look. The same build looks like a GNOME app under [Adwaita](https://github.com/danjboyd/plugins-themes-Adwaita), with its header bar, GNOME's file chooser and dark mode, and like a classic GNUstep app under GNUstep's own theme. On Windows it will look like a WinUI app under WinUITheme; screenshots will follow when that theme is ready.
+MarkdownViewer uses only standard controls and system colours, and lets the GNUstep theme decide how they look. The same build looks like a GNOME app under [Adwaita](https://github.com/danjboyd/plugins-themes-Adwaita), with its header bar, GNOME's file chooser and dark mode, and like a classic GNUstep app under GNUstep's own theme. On Windows it looks like a WinUI app under [WinUITheme](https://github.com/danjboyd/plugins-themes-winuitheme), which the MSI installs.
 
 | Adwaita, dark | GNUstep theme |
 |:---:|:---:|
@@ -15,6 +15,10 @@ MarkdownViewer uses only standard controls and system colours, and lets the GNUs
 On macOS the same code builds natively against Cocoa, so macOS draws it as a Mac app: its own controls and menu bar, SF Symbols in the toolbar, and the system's light or dark appearance, followed as it changes.
 
 ![MarkdownViewer on macOS in Read mode: explorer, rendered document and outline](docs/screenshots/macos-read.png)
+
+On Windows, WinUITheme draws it as a Windows 11 app, with window tabs in the title bar.
+
+![MarkdownViewer on Windows under WinUITheme in Read mode: explorer, rendered document and outline](docs/screenshots/windows-read.png)
 
 ## Read, Edit, Split
 
@@ -50,6 +54,10 @@ On Linux, Share opens a share sheet: pick the format, then email it, copy it, sa
 On macOS, Share opens the Mac's own share menu with the exported file: AirDrop, Mail, Messages and your apps' share extensions, plus a link entry for each rclone remote.
 
 ![The macOS share menu: the exported PDF, AirDrop, Mail, Messages and other services, and two rclone link entries](docs/screenshots/macos-share.png)
+
+On Windows 10 and 11, Share opens the Windows share sheet. Where Windows has none (Windows Server, shown here), Markdown Viewer's own sheet opens instead.
+
+![The share sheet on Windows Server under WinUITheme: PDF, Word, Markdown or In the Message, then Email, Copy, Save a Copy, Show in Folder, Open With and an rclone remote](docs/screenshots/windows-share.png)
 
 ## Rendering
 
