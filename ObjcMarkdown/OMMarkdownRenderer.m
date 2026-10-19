@@ -380,6 +380,41 @@ static void OMRemoveAttributeWhereSet(NSMutableAttributedString *output, NSStrin
     }
 }
 
+// GNUstep 0.32's typesetter ignores paragraph spacing; libs-gui after it
+// (90f54cd0, "applies paragraph spacing after a paragraph") honours it.
+// Block gaps are sized blank lines (OMSizeBlockGaps), so spacing set on a
+// paragraph only added to them, once per line in a code block, and the
+// packages (built with the newer libs-gui) laid text out about 1.6 times
+// looser than 0.32 (#245). Drop it, so both look as the gaps intend.
+#if defined(GNUSTEP)
+static void OMDropParagraphSpacing(NSMutableAttributedString *output)
+{
+    NSUInteger length = [output length];
+    NSMutableArray *ranges = [NSMutableArray array];
+    NSMutableArray *styles = [NSMutableArray array];
+    NSUInteger index = 0;
+    while (index < length) {
+        NSRange effective;
+        NSParagraphStyle *style = [output attribute:NSParagraphStyleAttributeName
+                                            atIndex:index
+                                     effectiveRange:&effective];
+        if (style != nil && [style paragraphSpacing] > 0.0) {
+            NSMutableParagraphStyle *flat = [[style mutableCopy] autorelease];
+            [flat setParagraphSpacing:0.0];
+            [ranges addObject:[NSValue valueWithRange:effective]];
+            [styles addObject:flat];
+        }
+        index = NSMaxRange(effective);
+    }
+    NSUInteger i = 0;
+    for (i = 0; i < [ranges count]; i++) {
+        [output addAttribute:NSParagraphStyleAttributeName
+                       value:[styles objectAtIndex:i]
+                       range:[[ranges objectAtIndex:i] rangeValue]];
+    }
+}
+#endif
+
 static void OMSizeBlockGaps(NSMutableAttributedString *output,
                             NSArray *codeRanges,
                             CGFloat baseSize,
@@ -1380,6 +1415,9 @@ void OMPerformOnMainThread(void (^block)(void))
                     codeRanges,
                     (self.theme.baseFont != nil ? [self.theme.baseFont pointSize] : 14.0) * scale,
                     scale);
+#if defined(GNUSTEP)
+    OMDropParagraphSpacing(output);
+#endif
     OMRemoveAttributeWhereSet(output, OMHardLineBreakAttributeName);
     OMRemoveAttributeWhereSet(output, OMHTMLStyleStackAttributeName);
     OMResolvePendingRenderedObjects(output, blockAnchors, markdown);
