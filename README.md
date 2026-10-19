@@ -53,13 +53,13 @@ The renderer parses with GitHub's [cmark-gfm](https://github.com/github/cmark-gf
 
 | Tables and code | Math and diagrams |
 |:---:|:---:|
-| ![A table and syntax-highlighted Objective-C and Python](docs/screenshots/closeup-tables-code.png) | ![Inline and display math, a Mermaid flowchart and an ER diagram](docs/screenshots/closeup-math-diagrams.png) |
+| ![A table and syntax-highlighted Objective-C and Python](docs/screenshots/closeup-tables-code.png) | ![Inline and display math as styled text, a Mermaid flowchart and an ER diagram](docs/screenshots/closeup-math-diagrams.png) |
 
 - CommonMark: headings, emphasis, links, images, blockquotes, lists, code blocks, thematic breaks
 - GitHub-flavored Markdown: tables, task lists, strikethrough, autolinks and footnotes
 - **Tables laid out as text**: selectable and searchable, with links and cells that wrap to fit (or drawn as an image that may run wider than the view, via `allowTableHorizontalOverflow`)
 - **Mermaid** `flowchart` (with subgraphs, `classDef` and `style`) and `erDiagram` blocks drawn as diagrams, with the source one click away; other Mermaid types show their source with a note
-- **Math**: inline and display math as styled text, or typeset through LaTeX when a TeX toolchain is installed
+- **Math**: inline and display math as styled text, or typeset through LaTeX: on Windows (the MSI bundles TinyTeX) and wherever the app finds a TeX toolchain. The Linux packages and macOS currently show math as styled text even with one installed ([#246](https://github.com/danjboyd/ObjcMarkdown/issues/246), [#244](https://github.com/danjboyd/ObjcMarkdown/issues/244))
 - **Syntax highlighting** for code blocks in Objective-C, C and C++, Swift, Python, JavaScript and TypeScript, Go, Rust, Java, Kotlin, C#, PHP, Ruby, SQL, JSON, YAML, TOML, HTML and XML
 - **HTML as GitHub READMEs use it**: centred paragraphs and headings, images with a width, `<br>`, `<kbd>`, `<sup>`/`<sub>`, `<details>`/`<summary>`, lists, rules and simple tables; scripts, styles and embedded content are dropped (`OMMarkdownHTMLPolicyRenderSafeSubset`, the default; HTML can also be shown as text or ignored)
 - Relative links and images resolved against the document's location
