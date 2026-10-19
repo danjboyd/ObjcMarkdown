@@ -23,6 +23,7 @@ On **Windows** Share opens the Windows share sheet (Windows 10 and 11). Where Wi
 - Preferences > Menus: a menu bar or a menu button, for this app only (#185).
 - Linux packages bundle Adwaita 0.1.0-alpha15 (b2d4326).
 - Linux: files drag out of the app and copied files paste into file managers (GNUstep fixes the packages carry until they're upstream).
+- Vim key bindings (Preferences > Editor, off by default) behave much more like Vim (#165): `.` repeats changes and inserts; `A`, `I`, `X`, `J`, `Y`, `cc`, `x`, `dw`, `3G` and the linewise `dj`, `dk`, `dG`, `dgg` do what Vim does; new are `f F t T ; ,`, `W B E`, `{ }`, `%`, `+ -`, `r`, `~`, `s S`, text objects such as `ci"` and `da(`, registers `"a` to `"z` and `"_`, and more Visual mode commands.
 
 **Fixed since 0.2.2**
 - Linux: Alt+F4 (or the window's close in the window manager) asks to save unsaved edits instead of quitting (#158).
@@ -41,19 +42,24 @@ On **Windows** Share opens the Windows share sheet (Windows 10 and 11). Where Wi
 - rclone links haven't been made with a real remote yet, only a stand-in (#198).
 - Links through GNOME Online Accounts aren't there yet (#197); use rclone.
 - Linux Flatpak: Share > Email to a mail app the email portal doesn't know falls back to a draft and an "attach this file" notice.
+- Linux Flatpak: no rclone links (the sandbox doesn't run rclone); the AppImage has them.
 
 ---
 
 ## Before this ships (checklist)
 
 - [x] Dan: version 0.2.3, with Share (2026-10-17).
-- [ ] Dan: OK to tag v0.2.3-rc4 from main once the merges below are in; final tag after the checks.
-- [ ] macOS by-eye checklist on #170 (comment of 2026-10-17), and #177.
+- [x] Dan: OK to tag v0.2.3-rc4 from main (c18b765, 2026-10-17).
+- [x] rc4 macOS: NO-GO. The Share toolbar item exported a PDF whenever AppKit asked for its items: alerts at launch, nested exports (#236). Fixed by #237: it exports only when a share loads the file. Share is new in 0.2.3 and #236 never shipped, so it isn't listed under Fixed.
+- [x] v0.2.3-rc5 tagged on main 79e1c27 with Dan's go: rc4 + #237 + the Vim fidelity pass (#165, TextViewVimKit 571902f).
+- [x] rc5 Linux AppImage + Flatpak smoke, including Vim on and off: PASS (#170 comment 6274652640). rc4 Linux AppImage + Flatpak PASS (#170 comment 6245342156).
+- [ ] rc5 macOS dmg round: GO from Markdown Viewer macOS. Also #177.
+- [ ] rc5 Windows MSI round on Server 2022: GO from Markdown Viewer Windows.
+- [ ] Dan: go for v0.2.3 final, tagged on the tested commit (79e1c27) as the rc tags were (annotated "ObjcMarkdown 0.2.3").
 - [x] Windows check of Share on CI MSIs on Server 2022 (#198 comment 6230285785): rclone and built-ins pass; WinUITheme 906e462.
 - [x] **Must-merge: #233** (merged d597637) (#232: Share/Export as PDF and Print can hang the app on Windows; headless Edge blocked on an unread stderr pipe). Green, reviewed.
 - [x] Linux check of Share on the CI AppImage of main (#170 comment 6229907288). Flatpak built green, not checked by eye again.
-- [ ] Merge #225 + libs-sharing#4 (rclone remotes kept during a refresh; green on all three). Also #231 (math symbols) and #234 (TeX tools write to files), both green; they merge cleanly together. libs-sharing#5 optional (GNUstep only; review asked for a pending-job count).
-- [ ] #226 (Windows: PDF/Print without Pandoc, #169): in (Dan marked it ready 2026-10-17); merge.
+- [x] Merge #225 + libs-sharing#4 (rclone remotes kept during a refresh; green on all three). Also #231 (math symbols) and #234 (TeX tools write to files), both green; they merge cleanly together. libs-sharing#5 optional (GNUstep only; review asked for a pending-job count).
+- [x] #226 (Windows: PDF/Print without Pandoc, #169): in (Dan marked it ready 2026-10-17); merge.
 - [ ] #198: one real rclone link with Dan's own remote (optional for the release; the stand-in checks pass).
 - [ ] Release body: add the macOS/Windows paragraphs and the bundled theme commits.
-- [ ] rc4 checks on the CI packages: Linux AppImage + Flatpak, Windows MSI, macOS dmg.
