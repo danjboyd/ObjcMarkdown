@@ -697,12 +697,16 @@ static OMDShareFormat OMDShareFormatForSheetChoice(NSInteger choice)
 - (NSToolbarItem *)toolbarItemWithIdentifier:(NSString *)identifier target:(id)target
 {
     NSToolbarItem *item = nil;
-    if ([_presenter respondsToSelector:@selector(shareToolbarItemWithIdentifier:itemProvider:)]) {
+    if ([_presenter respondsToSelector:@selector(shareToolbarItemWithIdentifier:canShare:itemProvider:)]) {
         // __block: under manual retain counting a copied block doesn't
         // retain it, so the presenter keeping the block doesn't keep this
         // controller alive (it outlives every click on the item).
         __block OMDShareController *controller = self;
+        __block id<OMDShareSource> source = _source;
         item = [_presenter shareToolbarItemWithIdentifier:identifier
+                                                 canShare:^BOOL (void) {
+            return [source shareSourceText] != nil;
+        }
                                              itemProvider:^OMDShareItem *(void) {
             return [controller exportInFormat:[OMDShareController lastFormat]];
         }];
