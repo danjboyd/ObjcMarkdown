@@ -777,6 +777,42 @@ static BOOL OMDMathToolchainAvailable(void)
     XCTAssertTrue([text rangeOfString:@"D_{nom,yr} ="].location == NSNotFound);
 }
 
+- (void)testMathRendersWithoutAnSVGReader
+{
+    if (!OMDMathToolchainAvailable()) {
+        return;
+    }
+    /* The Linux packages' GNUstep can't read SVG (#246); the renderer then
+       draws dvisvgm's paths itself. OMMathUseBuiltinSVGReader forces that
+       here. The formula is unique so no cached image stands in for it. */
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    [defaults setBool:YES forKey:@"OMMathUseBuiltinSVGReader"];
+    OMMarkdownParsingOptions *options = [OMMarkdownParsingOptions defaultOptions];
+    [options setMathRenderingPolicy:OMMarkdownMathRenderingPolicyExternalTools];
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] initWithTheme:nil
+                                                                parsingOptions:options] autorelease];
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:
+        @"$$\\int_{-\\infty}^{\\infty} e^{-x^2}\\,dx = \\sqrt{\\pi} + \\frac{246}{1}$$"];
+    [defaults removeObjectForKey:@"OMMathUseBuiltinSVGReader"];
+    NSImage *image = nil;
+    NSUInteger index = 0;
+    while (image == nil && index < [rendered length]) {
+        NSRange effective;
+        NSTextAttachment *attachment = [rendered attribute:NSAttachmentAttributeName
+                                                   atIndex:index
+                                            effectiveRange:&effective];
+        image = [(id)[attachment attachmentCell] image];
+        index = NSMaxRange(effective);
+    }
+    XCTAssertNotNil(image);
+    XCTAssertTrue([image size].width > 10.0 && [image size].height > 5.0);
+    BOOL drawnFromPaths = NO;
+    for (NSImageRep *rep in [image representations]) {
+        drawnFromPaths = drawnFromPaths || [NSStringFromClass([rep class]) isEqualToString:@"OMMathSVGImageRep"];
+    }
+    XCTAssertTrue(drawnFromPaths);
+}
+
 - (void)testDisplayMathWithALargeSVGRenders
 {
     if (!OMDMathToolchainAvailable()) {

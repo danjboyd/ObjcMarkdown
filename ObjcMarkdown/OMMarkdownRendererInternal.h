@@ -189,6 +189,12 @@ BOOL OMDollarIsEscaped(NSString *text, NSUInteger location);
 NSString *OMDviPngExecutablePath(void);
 NSString *OMExecutablePathNamed(NSString *name);
 NSString *OMLaTeXExecutablePath(void);
+// Typeset math from dvisvgm's SVG without an SVG reader (OMMarkdownRendererMathSVG.m):
+// an image that draws the SVG's filled paths, or nil if it isn't that subset.
+NSImage *OMMathImageFromSVGData(NSData *svgData);
+// One SVG path's data as a bezier path, in SVG user units.
+NSBezierPath *OMMathSVGPathFromData(NSString *data);
+
 NSAttributedString *OMMathAttachmentAttributedString(NSString *formula,
                                                      OMTheme *theme,
                                                      NSMutableDictionary *attributes,

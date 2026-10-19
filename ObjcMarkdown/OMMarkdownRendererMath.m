@@ -1929,7 +1929,18 @@ NSAttributedString *OMMathAttachmentAttributedString(NSString *formula,
 
         if (baseImage == nil) {
             NSTimeInterval decodeStart = OMNow();
-            NSImage *decodedImage = [[[NSImage alloc] initWithData:OMMathSVGDataWithInk(svgData, inkHex)] autorelease];
+            NSData *inkedData = OMMathSVGDataWithInk(svgData, inkHex);
+            // GNUstep reads SVG only with libs-gui built with ImageMagick;
+            // without (the Linux packages, #246) the paths are drawn here.
+            // OMMathUseBuiltinSVGReader (a default) forces it, for checks
+            // on a GNUstep that has an SVG reader.
+            BOOL builtinReader = [[NSUserDefaults standardUserDefaults] boolForKey:@"OMMathUseBuiltinSVGReader"];
+            NSImage *decodedImage = (!builtinReader && [NSImageRep imageRepClassForData:inkedData] != nil)
+                ? [[[NSImage alloc] initWithData:inkedData] autorelease]
+                : nil;
+            if (decodedImage == nil) {
+                decodedImage = OMMathImageFromSVGData(inkedData);
+            }
             if (stats != NULL) {
                 stats->svgDecodeSeconds += (OMNow() - decodeStart);
             }
