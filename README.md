@@ -39,9 +39,13 @@ Read for the rendered document, Edit for the Markdown source, and Split for both
 - **Import and export**: print or export to PDF, and, with `pandoc` installed, import and export `DOCX`, `RTF`, `ODT` and `HTML`
 - **Share**: one command (File > Share, or the toolbar's Share button) exports the open document, unsaved edits included, as PDF, Word, Markdown or HTML and hands it on: email with the file attached or the document as the message, the system's share menu on macOS and the share sheet on Windows 10 and 11, Open With, Show in Folder, Copy File, or a file you drag out. Copy Rendered pastes the formatted document into Teams, Outlook or Mail, and Copy for Slack into Slack. Before sending it warns about images and links only on your computer (offering a PDF or a `.zip` with the images), can share just the selection, and with [rclone](https://rclone.org) set up it puts a link to an uploaded copy on the clipboard and says who can open it
 - **Copy buttons** on code blocks and diagrams
-- **Preferences** for the theme, layout density, editor and explorer
+- **Preferences** for the theme, layout density, menus (a menu bar or a menu button), editor and explorer
 
 ![The Preferences window under Adwaita](docs/screenshots/adwaita-preferences.png)
+
+On Linux, Share opens a share sheet: pick the format, then email it, copy it, save a copy, show it in its folder, open it in another app or, with rclone, upload it and copy a link.
+
+![The Linux share sheet under Adwaita: PDF, Word, Markdown or In the Message, then Email, Copy, Save a Copy, Show in Folder, Open With and an rclone remote](docs/screenshots/adwaita-share.png)
 
 ## Rendering
 
