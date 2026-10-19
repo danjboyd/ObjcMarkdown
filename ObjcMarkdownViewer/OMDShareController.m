@@ -41,6 +41,7 @@
     [_spinner release];
     [_selectionCheckbox release];
     [_warningsView release];
+    [_sheetWarnings release];
 #endif
     [OMDShareNotice dismissNoticeForWindow:_window];
     [_exporter release];
@@ -239,7 +240,14 @@ static OMDShareFormat OMDShareFormatForSheetChoice(NSInteger choice)
 - (CGFloat)layoutWarningsForChoice:(NSInteger)choice inView:(NSView *)warnings width:(CGFloat)width
 {
     OMDShareFormat format = OMDShareFormatForSheetChoice(choice);
-    NSArray *found = [self warningsForFormat:format];
+    // The document is checked once per sheet, not once per choice: each
+    // check parses it, and a long document would make Share slow to open.
+    if (_sheetWarnings == nil) {
+        NSString *markdown = [self sharedMarkdown];
+        _sheetWarnings = [(markdown != nil ? OMDShareWarnings(markdown, [_source shareResourceDirectory])
+                                           : [NSArray array]) retain];
+    }
+    NSArray *found = OMDShareWarningsForFormat(_sheetWarnings, format);
     BOOL offerPDF = NO;
     BOOL offerBundle = NO;
     NSMutableArray *labels = [NSMutableArray array];
@@ -414,6 +422,8 @@ static OMDShareFormat OMDShareFormatForSheetChoice(NSInteger choice)
     _selectionOnly = NO;
     _sheetBundled = NO;
     _warningsReserve = -1.0;
+    [_sheetWarnings release];
+    _sheetWarnings = nil;
     NSArray *items = inBackground ? [self placeholderItemsForChoice:choice]
                                   : [self sheetItemsForChoice:choice];
     if (items == nil) {
@@ -499,8 +509,10 @@ static OMDShareFormat OMDShareFormatForSheetChoice(NSInteger choice)
     BOOL wanted = ([(NSButton *)sender state] == NSOnState);
     BOOL was = _selectionOnly;
     _selectionOnly = wanted;
-    // The selection has its own warnings: measure again.
+    // The selection has its own warnings: check and measure again.
     _warningsReserve = -1.0;
+    [_sheetWarnings release];
+    _sheetWarnings = nil;
     if (![self switchSheetToChoice:_sheetChoice]) {
         _selectionOnly = was;
         [(NSButton *)sender setState:(was ? NSOnState : NSOffState)];
