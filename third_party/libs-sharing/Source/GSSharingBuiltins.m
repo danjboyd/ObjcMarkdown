@@ -1079,6 +1079,13 @@ GSSharingEmailDraftWithNotice(NSURL *draft, NSURL *file)
   panel = [NSSavePanel savePanel];
   [panel setTitle: @"Save a Copy"];
   [panel setNameFieldStringValue: [[file path] lastPathComponent]];
+  /* The copy keeps the file's type: a name typed without the extension
+     gets it, as with the app's own Export (#24). */
+  if ([[[file path] pathExtension] length] > 0)
+    {
+      [panel setAllowedFileTypes:
+        [NSArray arrayWithObject: [[file path] pathExtension]]];
+    }
   [panel setCanCreateDirectories: YES];
   [panel setDirectory: GSSharingSaveCopyDirectory(service, file)];
   if ([panel runModal] != NSFileHandlingPanelOKButton)
@@ -1128,10 +1135,12 @@ GSSharingEmailDraftWithNotice(NSURL *draft, NSURL *file)
   {
     NSTask *task = AUTORELEASE([NSTask new]);
 
-    /* Explorer exits with 1 even when it worked. */
+    /* Explorer exits with 1 even when it worked. Its /select takes only
+       C:\... (#23). */
     [task setLaunchPath: @"explorer.exe"];
     [task setArguments: [NSArray arrayWithObject:
-      [NSString stringWithFormat: @"/select,%@", path]]];
+      [NSString stringWithFormat: @"/select,%@",
+        [path stringByReplacingOccurrencesOfString: @"/" withString: @"\\"]]]];
     NS_DURING
       {
         [task launch];
