@@ -23,6 +23,7 @@ On **Windows** Share opens the Windows share sheet (Windows 10 and 11). Where Wi
 - Preferences > Menus: a menu bar or a menu button, for this app only (#185).
 - Linux packages bundle Adwaita 0.1.0-alpha15 (b2d4326).
 - Linux: files drag out of the app and copied files paste into file managers (GNUstep fixes the packages carry until they're upstream).
+- Vim key bindings (Preferences > Editor, off by default) behave much more like Vim (#165): `.` repeats changes and inserts; `A`, `I`, `X`, `J`, `Y`, `cc`, `x`, `dw`, `3G` and the linewise `dj`, `dk`, `dG`, `dgg` do what Vim does; new are `f F t T ; ,`, `W B E`, `{ }`, `%`, `+ -`, `r`, `~`, `s S`, text objects such as `ci"` and `da(`, registers `"a` to `"z` and `"_`, and more Visual mode commands.
 
 **Fixed since 0.2.2**
 - Linux: Alt+F4 (or the window's close in the window manager) asks to save unsaved edits instead of quitting (#158).
@@ -41,19 +42,45 @@ On **Windows** Share opens the Windows share sheet (Windows 10 and 11). Where Wi
 - rclone links haven't been made with a real remote yet, only a stand-in (#198).
 - Links through GNOME Online Accounts aren't there yet (#197); use rclone.
 - Linux Flatpak: Share > Email to a mail app the email portal doesn't know falls back to a draft and an "attach this file" notice.
+- Linux Flatpak: no rclone links (the sandbox doesn't run rclone); the AppImage has them.
 
 ---
 
 ## Before this ships (checklist)
 
 - [x] Dan: version 0.2.3, with Share (2026-10-17).
-- [ ] Dan: OK to tag v0.2.3-rc4 from main once the merges below are in; final tag after the checks.
-- [ ] macOS by-eye checklist on #170 (comment of 2026-10-17), and #177.
+- [x] Dan: OK to tag v0.2.3-rc4 from main (c18b765, 2026-10-17).
+- [x] rc4 macOS: NO-GO. The Share toolbar item exported a PDF whenever AppKit asked for its items: alerts at launch, nested exports (#236). Fixed by #237: it exports only when a share loads the file. Share is new in 0.2.3 and #236 never shipped, so it isn't listed under Fixed.
+- [x] v0.2.3-rc5 tagged on main 79e1c27 with Dan's go: rc4 + #237 + the Vim fidelity pass (#165, TextViewVimKit 571902f).
+- [x] rc5 Linux AppImage + Flatpak smoke, including Vim on and off: PASS (#170 comment 6274652640). rc4 Linux AppImage + Flatpak PASS (#170 comment 6245342156).
+- [ ] rc5 macOS dmg round: GO from Markdown Viewer macOS. Also #177.
+- [ ] rc5 Windows MSI round on Server 2022: GO from Markdown Viewer Windows.
+- [ ] Dan: go for v0.2.3 final, tagged on the tested commit (79e1c27) as the rc tags were (annotated "ObjcMarkdown 0.2.3").
 - [x] Windows check of Share on CI MSIs on Server 2022 (#198 comment 6230285785): rclone and built-ins pass; WinUITheme 906e462.
 - [x] **Must-merge: #233** (merged d597637) (#232: Share/Export as PDF and Print can hang the app on Windows; headless Edge blocked on an unread stderr pipe). Green, reviewed.
 - [x] Linux check of Share on the CI AppImage of main (#170 comment 6229907288). Flatpak built green, not checked by eye again.
-- [ ] Merge #225 + libs-sharing#4 (rclone remotes kept during a refresh; green on all three). Also #231 (math symbols) and #234 (TeX tools write to files), both green; they merge cleanly together. libs-sharing#5 optional (GNUstep only; review asked for a pending-job count).
-- [ ] #226 (Windows: PDF/Print without Pandoc, #169): in (Dan marked it ready 2026-10-17); merge.
+- [x] Merge #225 + libs-sharing#4 (rclone remotes kept during a refresh; green on all three). Also #231 (math symbols) and #234 (TeX tools write to files), both green; they merge cleanly together. libs-sharing#5 optional (GNUstep only; review asked for a pending-job count).
+- [x] #226 (Windows: PDF/Print without Pandoc, #169): in (Dan marked it ready 2026-10-17); merge.
 - [ ] #198: one real rclone link with Dan's own remote (optional for the release; the stand-in checks pass).
 - [ ] Release body: add the macOS/Windows paragraphs and the bundled theme commits.
-- [ ] rc4 checks on the CI packages: Linux AppImage + Flatpak, Windows MSI, macOS dmg.
+
+## Tagging the final (one step once Windows says GO)
+
+**Commit:** `79e1c27` (main; the rc5 commit every platform tested). Tag the final on that same commit, as 0.2.2 was (`v0.2.2` and `v0.2.2-rc3` are both `d260007`). If the README screenshots PR merges first and Dan wants the tag's tree to have it, tag that merge commit instead, but only if `git diff --stat 79e1c27 <merge>` touches nothing but `README.md` and `docs/`. The packages would then be rebuilt from it, so smoke-test the AppImage once.
+
+**Tag** (Dan's go; annotated like the rc tags):
+
+```sh
+git fetch origin && git tag -a v0.2.3 -m "ObjcMarkdown 0.2.3" 79e1c27 && git push origin v0.2.3
+```
+
+**After the tag** (all five tag workflows: linux-appimage, linux-flatpak, macos, windows-packaging, ci-image):
+- [ ] All five runs on `v0.2.3` are green (`gh run list -R danjboyd/ObjcMarkdown --branch v0.2.3`).
+- [ ] Release `v0.2.3`: **not a draft, not a pre-release, Latest**, 13 assets like rc5 (AppImage + zsync + debug + diagnostics + metadata + feed, Flatpak, dmg, MSI, portable zip, Windows diagnostics + metadata + feed).
+- [ ] gh-pages has three new "Publish … stable update feed" commits (linux, windows, macos) after the tag. `updates/linux/stable.json` and `updates/windows/stable.json` name 0.2.3, and `updates/macos/appcast.xml` has `shortVersionString` 0.2.3. These steps are skipped for tags with "-", so this is the first time 0.2.3 reaches the feeds.
+- [ ] The same-SHA trap. It bit ScreenshotTool v0.3.0 (2026-10-19): its final was tagged on the rc's commit, GitHub Pages didn't redeploy for a commit it had already deployed, the feeds stayed stale, and its release stayed a draft (run 39302299075). ScreenshotTool recovered by landing a commit on main, dispatching its feed redeploy, and running `gh release edit v0.3.0 --draft=false`.
+  - Here it should not bite: ObjcMarkdown's feeds skip "-" tags, so no rc ever published from `79e1c27`, and each publish pushes a new gh-pages commit (`packaging/ci/publish-update-feed.sh`). 0.2.2 on rc3's `d260007` published fine (2026-10-14).
+  - Still verify. If a feed is stale or the release isn't published, don't re-tag. Rerun the failed "Publish … Stable Update Feed" job (`gh run rerun <id> --failed`); it pushes a fresh gh-pages commit and Pages redeploys. Then `gh release edit v0.2.3 --draft=false --prerelease=false --latest` if needed, and check the boxes above again.
+- [ ] Release body: the user-facing notes above (from **New: Share** through **Known issues**) above the workflow's platform notes, with the bundled theme commits (Linux Adwaita b2d4326, Windows WinUITheme 906e462).
+- [ ] An installed 0.2.2 sees the update: a Linux AppImage on a private display, Check for Updates offers 0.2.3. Windows and macOS sessions do the same on their builds.
+- [ ] Then: README "Windows screenshots will follow" follow-up PR; merge #248 (share sheet, 0.2.4); close the 0.2.3 milestone (Dan).
