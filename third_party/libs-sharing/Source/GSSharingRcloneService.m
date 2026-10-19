@@ -109,9 +109,17 @@ GSSharingRcloneServicesForItems(NSArray *items)
   e = [remotes objectEnumerator];
   while ((remote = [e nextObject]) != nil)
     {
-      [services addObject: GSSharingRcloneMakeService(
+      /* The tile says what it does, "Link on Personal"; its tooltip (the
+         title) says how (#13). */
+      NSSharingService *service = GSSharingRcloneMakeService(
         [GSSharingRclonePrefix stringByAppendingString: [remote name]],
-        [remote name], @selector(upload:service:))];
+        [NSString stringWithFormat:
+          @"Upload a copy to %@ and copy a link to it", [remote displayName]],
+        @selector(upload:service:));
+
+      [service setMenuItemTitle:
+        [NSString stringWithFormat: @"Link on %@", [remote name]]];
+      [services addObject: service];
     }
   return services;
 }

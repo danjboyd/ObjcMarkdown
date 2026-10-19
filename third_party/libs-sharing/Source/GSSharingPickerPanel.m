@@ -16,7 +16,11 @@
 static const CGFloat GSSharingMargin = 16.0;
 static const CGFloat GSSharingIconSize = 48.0;
 static const CGFloat GSSharingButtonWidth = 112.0;
+/* The widest a tile grows so a title stays on one line (#21). */
+static const CGFloat GSSharingButtonMaxWidth = 136.0;
 static const CGFloat GSSharingButtonHeight = 72.0;
+/* Room kept between a tile's title and the edges the button cell draws in. */
+static const CGFloat GSSharingButtonTitlePadding = 2.0;
 static const CGFloat GSSharingButtonGap = 8.0;
 static const NSUInteger GSSharingColumns = 4;
 
@@ -55,6 +59,30 @@ static const NSUInteger GSSharingColumns = 4;
   return NSDragOperationCopy;
 }
 
+/* A symbolic image (the file and text icons) is drawn by a borderless
+   button cell, which themes tint as they tint the tiles' images; an image
+   view isn't tinted, so in a dark theme the icon was dark on dark. A
+   picture (a screenshot, a photo) is drawn as it is. */
+- (void) drawRect: (NSRect)rect
+{
+  NSImage *image = [self image];
+  NSString *name = [image name];
+  NSButtonCell *cell;
+
+  if (image == nil
+    || ([name hasSuffix: @"-symbolic"] == NO && [name hasSuffix: @"Template"] == NO))
+    {
+      [super drawRect: rect];
+      return;
+    }
+  cell = [[NSButtonCell alloc] initImageCell: image];
+  [cell setBordered: NO];
+  [cell setImagePosition: NSImageOnly];
+  [cell setHighlightsBy: NSNoCellMask];
+  [cell drawWithFrame: [self bounds] inView: self];
+  RELEASE(cell);
+}
+
 @end
 
 /* Escape closes the panel; it can be key though it is a utility panel. */
@@ -88,8 +116,129 @@ GSSharingLabel(NSRect frame, NSFont *font, NSColor *color)
   return label;
 }
 
-/* "Q3 Plan.pdf", "63 KB" for a file; a count for several items. */
+static CGFloat
+GSSharingWidthOfString(NSString *string, NSFont *font)
+{
+  NSDictionary *attributes = [NSDictionary dictionaryWithObject: font
+                                                         forKey: NSFontAttributeName];
+
+  return [string sizeWithAttributes: attributes].width;
+}
+
+/* "..." as one character; sources stay ASCII. */
 static NSString *
+GSSharingEllipsis(void)
+{
+  return [NSString stringWithFormat: @"%C", (unichar)0x2026];
+}
+
+/* string with its middle replaced by an ellipsis to fit width, cut between
+   composed characters. */
+static NSString *
+GSSharingTruncateMiddle(NSString *string, NSFont *font, CGFloat width)
+{
+  NSUInteger length = [string length];
+  NSUInteger low = 0;
+  NSUInteger high = length;
+  NSString *best = GSSharingEllipsis();
+
+  if (GSSharingWidthOfString(string, font) <= width)
+    {
+      return string;
+    }
+  /* The most characters kept, half from each end, that fit. */
+  while (low < high)
+    {
+      NSUInteger kept = (low + high + 1) / 2;
+      NSRange head = [string rangeOfComposedCharacterSequencesForRange:
+                               NSMakeRange(0, (kept + 1) / 2)];
+      NSRange tail = [string rangeOfComposedCharacterSequencesForRange:
+                               NSMakeRange(length - kept / 2, kept / 2)];
+      NSString *candidate;
+
+      if (NSMaxRange(head) > tail.location)
+        {
+          high = kept - 1;
+          continue;
+        }
+      candidate = [NSString stringWithFormat: @"%@%@%@",
+                            [string substringWithRange: head],
+                            GSSharingEllipsis(),
+                            [string substringWithRange: tail]];
+      if (GSSharingWidthOfString(candidate, font) <= width)
+        {
+          best = candidate;
+          low = kept;
+        }
+      else
+        {
+          high = kept - 1;
+        }
+    }
+  return best;
+}
+
+NSString *
+GSSharingTileTitle(NSString *title, NSFont *font, CGFloat width)
+{
+  NSArray *words;
+  NSUInteger count;
+  NSUInteger fitting = 0;
+  NSString *rest;
+
+  if (title == nil || GSSharingWidthOfString(title, font) <= width)
+    {
+      return title;
+    }
+  /* The most words that fit on the first line; the rest go on the second. */
+  words = [title componentsSeparatedByString: @" "];
+  count = [words count];
+  while (fitting + 1 < count
+    && GSSharingWidthOfString([[words subarrayWithRange: NSMakeRange(0, fitting + 1)]
+                                componentsJoinedByString: @" "], font) <= width)
+    {
+      fitting++;
+    }
+  /* A line doesn't end with a lone dash: "Send to Test" over "- home",
+     not "Send to Test -" over "home". */
+  if (fitting > 1 && fitting < count)
+    {
+      NSString *last = [words objectAtIndex: fitting - 1];
+
+      if ([last length] == 1
+        && ([last characterAtIndex: 0] == '-'
+          || [last characterAtIndex: 0] == 0x2013
+          || [last characterAtIndex: 0] == 0x2014))
+        {
+          fitting--;
+        }
+    }
+  if (fitting == 0)
+    {
+      return GSSharingTruncateMiddle(title, font, width);
+    }
+  rest = [[words subarrayWithRange: NSMakeRange(fitting, count - fitting)]
+           componentsJoinedByString: @" "];
+  return [NSString stringWithFormat: @"%@\n%@",
+                   [[words subarrayWithRange: NSMakeRange(0, fitting)]
+                     componentsJoinedByString: @" "],
+                   GSSharingTruncateMiddle(rest, font, width)];
+}
+
+/* A service's tile: a square button with its image above its title. */
+static NSButton *
+GSSharingServiceButton(NSRect frame)
+{
+  NSButton *button = AUTORELEASE([[NSButton alloc] initWithFrame: frame]);
+
+  [button setButtonType: NSMomentaryPushInButton];
+  [button setBezelStyle: NSRegularSquareBezelStyle];
+  [button setImagePosition: NSImageAbove];
+  return button;
+}
+
+/* "Q3 Plan.pdf", "63 KB" for a file; a count for several items. */
+NSString *
 GSSharingDetailOfItems(NSArray *items)
 {
   id item;
@@ -125,10 +274,24 @@ GSSharingDetailOfItems(NSArray *items)
     }
   if (kind == GSSharingItemText || kind == GSSharingItemRichText)
     {
-      NSUInteger length = [item length];
+      /* Words, not characters: an app's text is often markup (Markdown,
+         HTML), whose length means nothing to the reader (#18). */
+      NSString *text = (kind == GSSharingItemText ? item : [item string]);
+      NSScanner *scanner = [NSScanner scannerWithString: text];
+      NSCharacterSet *space = [NSCharacterSet whitespaceAndNewlineCharacterSet];
+      NSUInteger words = 0;
 
-      return [NSString stringWithFormat: @"Text, %lu characters",
-                       (unsigned long)length];
+      [scanner setCharactersToBeSkipped: space];
+      while ([scanner scanUpToCharactersFromSet: space intoString: NULL])
+        {
+          words++;
+        }
+      if (words == 1)
+        {
+          return @"Text, 1 word";
+        }
+      return [NSString stringWithFormat: @"Text, about %lu words",
+                       (unsigned long)words];
     }
   if (kind == GSSharingItemImage)
     {
@@ -244,24 +407,78 @@ GSSharingDetailOfItems(NSArray *items)
 }
 
 /* The services, as buttons with their images above their titles, in rows
-   of four. Returns the height they take. */
-- (CGFloat) layoutServicesInWidth: (CGFloat)width
+   of up to four (_columns). Returns the height they take; the services
+   view is as wide as its tiles. */
+- (CGFloat) layoutServices
 {
   NSArray *subviews = [[[_servicesView subviews] copy] autorelease];
   NSUInteger count;
   NSUInteger rows;
   NSUInteger i;
   CGFloat height;
+  CGFloat width;
+  CGFloat buttonHeight = GSSharingButtonHeight;
+  NSButton *probe;
+  NSFont *font;
+  CGFloat titleWidth;
+  NSMutableArray *titles = [NSMutableArray array];
 
   [subviews makeObjectsPerformSelector: @selector(removeFromSuperview)];
   ASSIGN(_services, [self services]);
   count = [_services count];
-  rows = (count + GSSharingColumns - 1) / GSSharingColumns;
+  /* Titles are fitted with the font the theme gives a tile's cell, to the
+     width the cell draws in. */
+  probe = GSSharingServiceButton(NSMakeRect(0, 0, GSSharingButtonWidth,
+                                            GSSharingButtonHeight));
+  font = [[probe cell] font];
+  titleWidth = NSWidth([[probe cell] drawingRectForBounds: [probe bounds]])
+    - 2 * GSSharingButtonTitlePadding;
+  /* Tiles grow, up to GSSharingButtonMaxWidth, before a title wraps: a
+     theme with wide insets (WinUITheme leaves 90 pt of a 112 pt tile)
+     otherwise put "Show in Folder" on two lines and made every tile taller
+     (#21). They don't narrow while the sheet shows. */
+  {
+    CGFloat insets = GSSharingButtonWidth - titleWidth;
+    CGFloat widest = 0.0;
+
+    for (i = 0; i < count; i++)
+      {
+        NSString *title = [[_services objectAtIndex: i] menuItemTitle];
+
+        CGFloat titleSize = (title != nil ? GSSharingWidthOfString(title, font) : 0.0);
+
+        /* A title too long even for the widest tile wraps anyway: it
+           doesn't widen the others. */
+        if (titleSize + insets <= GSSharingButtonMaxWidth)
+          {
+            widest = MAX(widest, titleSize);
+          }
+      }
+    _tileWidth = MAX(_tileWidth, MIN(MAX(GSSharingButtonWidth, ceil(widest + insets)),
+                                     GSSharingButtonMaxWidth));
+    titleWidth = _tileWidth - insets;
+  }
+  /* Every tile is a line taller when a title takes two. */
+  for (i = 0; i < count; i++)
+    {
+      NSString *title = GSSharingTileTitle([[_services objectAtIndex: i] menuItemTitle],
+                                           font, titleWidth);
+
+      [titles addObject: (title != nil ? title : @"")];
+      if ([title rangeOfString: @"\n"].location != NSNotFound)
+        {
+          buttonHeight = GSSharingButtonHeight + ceil([font defaultLineHeightForFont]);
+        }
+    }
+  _columns = MAX(MIN(count, GSSharingColumns), 1);
+  rows = (count + _columns - 1) / _columns;
   if (rows == 0)
     {
       rows = 1;
     }
-  height = rows * GSSharingButtonHeight + (rows - 1) * GSSharingButtonGap;
+  height = rows * buttonHeight + (rows - 1) * GSSharingButtonGap;
+  width = (count == 0 ? 3 * _tileWidth + 2 * GSSharingButtonGap
+           : _columns * _tileWidth + (_columns - 1) * GSSharingButtonGap);
   [_servicesView setFrameSize: NSMakeSize(width, height)];
   if (count == 0)
     {
@@ -275,19 +492,19 @@ GSSharingDetailOfItems(NSArray *items)
   for (i = 0; i < count; i++)
     {
       NSSharingService *service = [_services objectAtIndex: i];
-      NSUInteger row = i / GSSharingColumns;
-      NSUInteger column = i % GSSharingColumns;
-      NSRect frame = NSMakeRect(column * (GSSharingButtonWidth + GSSharingButtonGap),
-                                height - (row + 1) * GSSharingButtonHeight
+      NSUInteger row = i / _columns;
+      NSUInteger column = i % _columns;
+      NSRect frame = NSMakeRect(column * (_tileWidth + GSSharingButtonGap),
+                                height - (row + 1) * buttonHeight
                                 - row * GSSharingButtonGap,
-                                GSSharingButtonWidth, GSSharingButtonHeight);
-      NSButton *button = AUTORELEASE([[NSButton alloc] initWithFrame: frame]);
+                                _tileWidth, buttonHeight);
+      NSButton *button = GSSharingServiceButton(frame);
+      NSImage *image = [service image];
 
-      [button setButtonType: NSMomentaryPushInButton];
-      [button setBezelStyle: NSRegularSquareBezelStyle];
-      [button setTitle: [service menuItemTitle]];
-      [button setImage: [service image]];
-      [button setImagePosition: NSImageAbove];
+      [button setTitle: [titles objectAtIndex: i]];
+      /* A service without an image (an app's own) gets the share symbol,
+         so its tile is laid out as the others are. */
+      [button setImage: (image != nil ? image : GSSharingImageNamed(@"GSSharing-share"))];
       [button setTag: i];
       [button setTarget: self];
       [button setAction: @selector(serviceClicked:)];
@@ -306,14 +523,23 @@ GSSharingDetailOfItems(NSArray *items)
 {
   NSView *content = [_panel contentView];
   NSView *accessory = [_picker accessoryView];
-  CGFloat width = GSSharingColumns * GSSharingButtonWidth
-    + (GSSharingColumns - 1) * GSSharingButtonGap;
-  CGFloat servicesHeight = [self layoutServicesInWidth: width];
+  CGFloat servicesHeight = [self layoutServices];
+  CGFloat gridWidth = _columns * _tileWidth
+    + (_columns - 1) * GSSharingButtonGap;
+  /* As wide as the tiles or the accessory, and at least three tiles, for
+     the name above them (#17); the tiles start at the left margin, under
+     the accessory's text. It doesn't narrow while the sheet shows, so it
+     doesn't jump as the items change. */
+  CGFloat width = MAX(MAX(gridWidth, 3 * _tileWidth + 2 * GSSharingButtonGap),
+                      accessory != nil ? NSWidth([accessory frame]) : 0.0);
   CGFloat accessoryHeight = accessory != nil ? NSHeight([accessory frame]) + 12.0 : 0.0;
   CGFloat height = GSSharingMargin + GSSharingIconSize + 16.0
     + accessoryHeight + servicesHeight + GSSharingMargin;
   CGFloat y = height - GSSharingMargin - GSSharingIconSize;
   NSRect frame = [_panel frame];
+
+  width = MAX(width, _width);
+  _width = width;
   NSRect contentRect = NSMakeRect(0, 0, width + 2 * GSSharingMargin, height);
   NSRect newFrame = [_panel frameRectForContentRect: contentRect];
 
@@ -333,8 +559,7 @@ GSSharingDetailOfItems(NSArray *items)
       NSRect a = [accessory frame];
 
       y -= NSHeight(a);
-      [accessory setFrameOrigin:
-        NSMakePoint(GSSharingMargin + floor((width - NSWidth(a)) / 2.0), y)];
+      [accessory setFrameOrigin: NSMakePoint(GSSharingMargin, y)];
       if ([accessory superview] != content)
         {
           [content addSubview: accessory];
@@ -411,7 +636,40 @@ GSSharingDetailOfItems(NSArray *items)
     {
       [_panel center];
     }
+  _parentWindow = window;
+  _shownAt = [NSDate timeIntervalSinceReferenceDate];
+  [[NSNotificationCenter defaultCenter]
+    addObserver: self
+       selector: @selector(panelDidResignKey:)
+           name: NSWindowDidResignKeyNotification
+         object: _panel];
   [_panel makeKeyAndOrderFront: nil];
+}
+
+/* Like a popover, the sheet closes when the user goes back to the window
+   it was shown for (#14): its contents were made when it opened, and
+   would be stale after more editing. Not while a service it started runs
+   its dialog, nor just after it (re)opens, while the window manager is
+   still moving focus. Another window (an alert, another app) leaves it. */
+- (void) panelDidResignKey: (NSNotification *)notification
+{
+  if (_closed || _performing
+    || [NSDate timeIntervalSinceReferenceDate] - _shownAt < 0.75)
+    {
+      return;
+    }
+  [self performSelector: @selector(closeIfParentIsKey:)
+             withObject: nil
+             afterDelay: 0.1];
+}
+
+- (void) closeIfParentIsKey: (id)sender
+{
+  if (_closed == NO && _performing == NO && _parentWindow != nil
+    && [NSApp keyWindow] == _parentWindow && [_panel isKeyWindow] == NO)
+    {
+      [self closeWithoutChoice];
+    }
 }
 
 - (void) pickerItemsDidChange
@@ -434,6 +692,9 @@ GSSharingDetailOfItems(NSArray *items)
     }
   _closed = YES;
   RETAIN(self);
+  /* A tooltip showing would stay on screen after the panel (#10). */
+  [_icon removeAllToolTips];
+  [[_servicesView subviews] makeObjectsPerformSelector: @selector(removeAllToolTips)];
   [_panel orderOut: nil];
   if ([delegate respondsToSelector:
          @selector(sharingServicePicker:didChooseSharingService:)])
@@ -442,6 +703,33 @@ GSSharingDetailOfItems(NSArray *items)
     }
   GSSharingPickerDidFinish(_picker);
   AUTORELEASE(self);
+}
+
+- (void) serviceDidFinish: (NSNotification *)notification
+{
+  NSError *error = [[notification userInfo] objectForKey: @"error"];
+
+  if ([[error domain] isEqual: NSCocoaErrorDomain]
+    && [error code] == NSUserCancelledError)
+    {
+      _cancelled = YES;
+    }
+}
+
+- (void) reopen
+{
+  GSSharingPickerState *state = GSSharingStateForPicker(_picker, NO);
+
+  /* Not if the app has shown another sheet or closed this one since. */
+  if (_closed == NO || state == nil || state->panel != self)
+    {
+      return;
+    }
+  GSSharingPickerKeepShowing(_picker);
+  _closed = NO;
+  [self pickerItemsDidChange];
+  _shownAt = [NSDate timeIntervalSinceReferenceDate];
+  [_panel makeKeyAndOrderFront: nil];
 }
 
 - (void) closeWithoutChoice
@@ -478,8 +766,32 @@ GSSharingDetailOfItems(NSArray *items)
           [service setDelegate: serviceDelegate];
         }
     }
+  /* Save a Copy opens where the app says (#15). */
+  ASSIGNCOPY(GSSharingStateForService(service, YES)->saveDirectory,
+             [_picker saveDirectory]);
+  /* A dialog the service runs while performing (Save a Copy, Open With)
+     and the user cancels brings the sheet back, rather than leaving
+     nothing (#16). A cancel reported later (an upload stopped) doesn't. */
+  _cancelled = NO;
+  _performing = YES;
+  [[NSNotificationCenter defaultCenter]
+    addObserver: self
+       selector: @selector(serviceDidFinish:)
+           name: GSSharingServiceDidFinishNotification
+         object: service];
+  RETAIN(self);
   [self finishWithService: service];
   [service performWithItems: items];
+  [[NSNotificationCenter defaultCenter]
+    removeObserver: self
+              name: GSSharingServiceDidFinishNotification
+            object: service];
+  _performing = NO;
+  if (_cancelled)
+    {
+      [self reopen];
+    }
+  RELEASE(self);
   RELEASE(items);
 }
 

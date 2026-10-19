@@ -40,6 +40,9 @@
      each holding a retain of the service. Jobs that overlap (an upload
      started again before the first ends) report in the order they finish. */
   unsigned pendingJobs;
+  /* Where Save a Copy opens: the picker's saveDirectory, given by the
+     sheet when it performs the service. */
+  NSString *saveDirectory;
 }
 @end
 
@@ -53,12 +56,16 @@
   BOOL servicesDisabled;
   id panel;             /* the GSSharingPickerPanel showing, or nil */
   BOOL keptWhileShowing; /* the picker retains itself while its sheet shows */
+  NSString *saveDirectory;
 }
 @end
 
 /* The picker's sheet has finished (a service chosen, or none): the picker
    lets go of itself, as AppKit's does once its sheet is gone. */
 void GSSharingPickerDidFinish(NSSharingServicePicker *picker);
+/* Its sheet shows again (after a cancelled dialog): it keeps itself
+   again until the sheet finishes. */
+void GSSharingPickerKeepShowing(NSSharingServicePicker *picker);
 
 /* Kinds of item a service can take. */
 enum {
@@ -101,6 +108,11 @@ void GSSharingServiceWillFinishLater(NSSharingService *service);
 void GSSharingServiceFinish(NSSharingService *service, NSArray *items,
                             NSError *error);
 
+/* Posted by GSSharingServiceFinish, object the service, userInfo
+   {"error": the error} when it failed: the sheet learns a dialog it opened
+   was cancelled, and comes back (#16). */
+extern NSString * const GSSharingServiceDidFinishNotification;
+
 /* The error a service reports when the user cancels it (AppKit's:
    NSCocoaErrorDomain, NSUserCancelledError). */
 NSError *GSSharingCancelledError(void);
@@ -127,6 +139,17 @@ BOOL GSSharingIsImageFile(id item);
 
 /* The file name of an item, for titles and previews. */
 NSString *GSSharingDisplayNameOfItem(id item);
+
+/* A service's title as a tile shows it in width with font: as it is if it
+   fits, else on two lines broken between words ("Send to Server" over
+   "- home"), a line that still doesn't fit losing its middle to an
+   ellipsis. Worked out here, not left to the button cell, as themes draw
+   titles their own way (GSSharingPickerPanel.m). */
+/* The sheet's line under the name: a file's size, "Text, about 40 words",
+   an image's size, or a count of items. */
+NSString *GSSharingDetailOfItems(NSArray *items);
+
+NSString *GSSharingTileTitle(NSString *title, NSFont *font, CGFloat width);
 
 #if defined(_WIN32)
 /* Windows (GSSharingWin32.m): the clipboard in the formats other Windows

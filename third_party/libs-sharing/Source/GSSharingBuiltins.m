@@ -91,6 +91,48 @@ GSSharingImageNamed(NSString *name)
 
 /* Small helpers. */
 
+/* Where a copy was last saved (#15). */
+static NSString * const GSSharingSaveCopyDirectoryKey = @"GSSharingSaveCopyDirectory";
+
+static BOOL
+GSSharingIsDirectory(NSString *path)
+{
+  BOOL isDirectory = NO;
+
+  return path != nil
+    && [[NSFileManager defaultManager] fileExistsAtPath: path isDirectory: &isDirectory]
+    && isDirectory;
+}
+
+/* The folder Save a Copy opens in: the app's (the picker's saveDirectory),
+   else where a copy was last saved, else the file's own unless it is a
+   temporary one (an export), else home. */
+static NSString *
+GSSharingSaveCopyDirectory(NSSharingService *service, NSURL *file)
+{
+  NSString *suggested = GSSharingStateForService(service, YES)->saveDirectory;
+  NSString *last = [[NSUserDefaults standardUserDefaults]
+                     stringForKey: GSSharingSaveCopyDirectoryKey];
+  NSString *own = [[[file path] stringByDeletingLastPathComponent]
+                    stringByStandardizingPath];
+  NSString *temporary = [NSTemporaryDirectory() stringByStandardizingPath];
+
+  if (GSSharingIsDirectory(suggested))
+    {
+      return suggested;
+    }
+  if (GSSharingIsDirectory(last))
+    {
+      return last;
+    }
+  if (GSSharingIsDirectory(own) && [own hasPrefix: temporary] == NO
+    && [own isEqual: @"/tmp"] == NO && [own hasPrefix: @"/tmp/"] == NO)
+    {
+      return own;
+    }
+  return NSHomeDirectory();
+}
+
 static NSArray *
 GSSharingFilesOfItems(NSArray *items)
 {
@@ -1038,7 +1080,7 @@ GSSharingEmailDraftWithNotice(NSURL *draft, NSURL *file)
   [panel setTitle: @"Save a Copy"];
   [panel setNameFieldStringValue: [[file path] lastPathComponent]];
   [panel setCanCreateDirectories: YES];
-  [panel setDirectory: NSHomeDirectory()];
+  [panel setDirectory: GSSharingSaveCopyDirectory(service, file)];
   if ([panel runModal] != NSFileHandlingPanelOKButton)
     {
       GSSharingServiceFinish(service, items, GSSharingCancelledError());
@@ -1063,6 +1105,9 @@ GSSharingEmailDraftWithNotice(NSURL *draft, NSURL *file)
                                                 userInfo: nil]));
       return;
     }
+  [[NSUserDefaults standardUserDefaults]
+    setObject: [destination stringByDeletingLastPathComponent]
+       forKey: GSSharingSaveCopyDirectoryKey];
   GSSharingServiceFinish(service, items, nil);
 }
 

@@ -13,8 +13,10 @@
 /* A small panel by the view's window: what is shared (its icon, which
    drags the file, its name and size), the app's accessory view, and the
    services as buttons with their images. Standard controls only, so the
-   theme draws it. Choosing a service closes the panel and performs it;
-   Escape or the close button closes it without a choice. */
+   theme draws it. Choosing a service closes the panel and performs it
+   (the panel comes back if the service's own dialog is cancelled);
+   Escape, the close button or going back to the window it was shown
+   for closes it without a choice. */
 @interface GSSharingPickerPanel : NSObject
 {
   NSSharingServicePicker *_picker;   /* not retained: it owns us */
@@ -24,7 +26,14 @@
   NSTextField *_detailLabel;
   NSView *_servicesView;
   NSArray *_services;
+  NSUInteger _columns;  /* tiles in a row: up to four */
+  CGFloat _tileWidth;   /* a tile's width: grows for a long title, up to a cap */
+  CGFloat _width;       /* the content's width so far: it doesn't narrow */
   BOOL _closed;
+  BOOL _performing;     /* a chosen service is running its own dialog */
+  BOOL _cancelled;      /* and it was cancelled: the sheet comes back */
+  NSWindow *_parentWindow;  /* not retained: the window it was shown for */
+  NSTimeInterval _shownAt;
 }
 
 - (id) initWithPicker: (NSSharingServicePicker *)picker;
@@ -37,6 +46,8 @@
 - (void) closeWithoutChoice;
 /* The services the panel lists for the picker's items. */
 - (NSArray *) services;
+/* The sheet shows again after a service's dialog was cancelled. */
+- (void) reopen;
 
 @end
 
