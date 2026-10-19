@@ -3868,6 +3868,12 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
     [operation setShowsProgressPanel:YES];
     ok = [operation runOperation];
     [self logPrintDiagnosticsForOperation:operation printInfo:printInfo stage:@"after runOperation"];
+    // -runOperation also returns NO when the print panel is cancelled,
+    // which sets the job's disposition to cancel: not a failure (#239).
+    if (!ok && [[[operation printInfo] jobDisposition] isEqualToString:NSPrintCancelJob]) {
+        [printView release];
+        return;
+    }
 #endif
     [printView release];
 
