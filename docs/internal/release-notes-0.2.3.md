@@ -63,3 +63,22 @@ On **Windows** Share opens the Windows share sheet (Windows 10 and 11). Where Wi
 - [x] #226 (Windows: PDF/Print without Pandoc, #169): in (Dan marked it ready 2026-10-17); merge.
 - [ ] #198: one real rclone link with Dan's own remote (optional for the release; the stand-in checks pass).
 - [ ] Release body: add the macOS/Windows paragraphs and the bundled theme commits.
+
+## Tagging the final (one step once Windows says GO)
+
+**Commit:** `79e1c27` (main; the rc5 commit every platform tested). Tag the final on that same commit, as 0.2.2 was (`v0.2.2` and `v0.2.2-rc3` are both `d260007`). If the README screenshots PR merges first and Dan wants the tag's tree to have it, tag that merge commit instead, but only if `git diff --stat 79e1c27 <merge>` touches nothing but `README.md` and `docs/`. The packages would then be rebuilt from it, so smoke-test the AppImage once.
+
+**Tag** (Dan's go; annotated like the rc tags):
+
+```sh
+git fetch origin && git tag -a v0.2.3 -m "ObjcMarkdown 0.2.3" 79e1c27 && git push origin v0.2.3
+```
+
+**After the tag** (all five tag workflows: linux-appimage, linux-flatpak, macos, windows-packaging, ci-image):
+- [ ] All five runs on `v0.2.3` are green (`gh run list -R danjboyd/ObjcMarkdown --branch v0.2.3`).
+- [ ] Release `v0.2.3`: **not a draft, not a pre-release, Latest**, 13 assets like rc5 (AppImage + zsync + debug + diagnostics + metadata + feed, Flatpak, dmg, MSI, portable zip, Windows diagnostics + metadata + feed).
+- [ ] gh-pages has three new "Publish … stable update feed" commits (linux, windows, macos) after the tag. `updates/linux/stable.json` and `updates/windows/stable.json` name 0.2.3, and `updates/macos/appcast.xml` has `shortVersionString` 0.2.3. These steps are skipped for tags with "-", so this is the first time 0.2.3 reaches the feeds.
+- [ ] The same-SHA trap: a tag on a commit that already has runs (here rc5's) must still get its own tag-triggered runs and publish jobs. 0.2.2 did (final on rc3's `d260007`: release Latest, feeds published 2026-10-14). If a publish job is missing or skipped, the release can stay a draft or pre-release and the feeds stale. Don't re-tag: re-run the run's failed or skipped jobs (`gh run rerun <id> --failed`), or dispatch the workflow on the tag, then check the boxes above again.
+- [ ] Release body: the user-facing notes above (from **New: Share** through **Known issues**) above the workflow's platform notes, with the bundled theme commits (Linux Adwaita b2d4326, Windows WinUITheme 906e462).
+- [ ] An installed 0.2.2 sees the update: a Linux AppImage on a private display, Check for Updates offers 0.2.3. Windows and macOS sessions do the same on their builds.
+- [ ] Then: README "Windows screenshots will follow" follow-up PR; merge #248 (share sheet, 0.2.4); close the 0.2.3 milestone (Dan).
