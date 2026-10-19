@@ -30,6 +30,9 @@
     BOOL _selectionOnly;
     // Whether the sheet shows the Markdown's .zip with its images.
     BOOL _sheetBundled;
+    // The warnings area's height while the sheet shows: the tallest any
+    // choice needs, so the tiles don't move (#242); < 0 to measure again.
+    CGFloat _warningsReserve;
     // Each background export's number: a result for an earlier one (the
     // format was switched again, or the sheet closed) is dropped.
     NSUInteger _exportGeneration;
