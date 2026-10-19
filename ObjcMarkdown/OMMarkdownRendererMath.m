@@ -783,6 +783,43 @@ static NSString *OMWindowsKnownExecutablePathNamed(NSString *name)
 }
 #endif
 
+NSArray *OMExecutableSearchDirectories(NSString *pathValue)
+{
+    NSMutableArray *directories = [NSMutableArray array];
+    if (pathValue != nil && [pathValue length] > 0) {
+#if defined(_WIN32)
+        NSString *separator = ([pathValue rangeOfString:@";"].location != NSNotFound) ? @";" : @":";
+#else
+        NSString *separator = @":";
+#endif
+        for (NSString *searchPath in [pathValue componentsSeparatedByString:separator]) {
+            if ([searchPath length] > 0 && ![directories containsObject:searchPath]) {
+                [directories addObject:searchPath];
+            }
+        }
+    }
+
+#if defined(__APPLE__)
+    // Apps opened from the Finder or the Dock get launchd's minimal PATH,
+    // without MacTeX's directory or where Homebrew and MacPorts put TeX
+    // Live and tree-sitter (#244).
+    NSArray *fallbacks = [NSArray arrayWithObjects:@"/Library/TeX/texbin",
+                                                   @"/opt/homebrew/bin",
+                                                   @"/usr/local/bin",
+                                                   @"/opt/local/bin",
+                                                   @"/usr/bin",
+                                                   nil];
+#else
+    NSArray *fallbacks = [NSArray arrayWithObject:@"/usr/bin"];
+#endif
+    for (NSString *fallback in fallbacks) {
+        if (![directories containsObject:fallback]) {
+            [directories addObject:fallback];
+        }
+    }
+    return directories;
+}
+
 NSString *OMExecutablePathNamed(NSString *name)
 {
     if (name == nil || [name length] == 0) {
@@ -806,26 +843,12 @@ NSString *OMExecutablePathNamed(NSString *name)
     }
 #endif
 
-    NSDictionary *environment = [[NSProcessInfo processInfo] environment];
-    NSString *pathValue = [environment objectForKey:@"PATH"];
-    if (pathValue != nil && [pathValue length] > 0) {
-#if defined(_WIN32)
-        NSString *separator = ([pathValue rangeOfString:@";"].location != NSNotFound) ? @";" : @":";
-#else
-        NSString *separator = @":";
-#endif
-        NSArray *searchPaths = [pathValue componentsSeparatedByString:separator];
-        for (NSString *searchPath in searchPaths) {
-            NSString *resolved = OMExecutablePathInDirectory(searchPath, name, fileManager);
-            if (resolved != nil) {
-                return resolved;
-            }
+    NSString *pathValue = [[[NSProcessInfo processInfo] environment] objectForKey:@"PATH"];
+    for (NSString *searchPath in OMExecutableSearchDirectories(pathValue)) {
+        NSString *resolved = OMExecutablePathInDirectory(searchPath, name, fileManager);
+        if (resolved != nil) {
+            return resolved;
         }
-    }
-
-    NSString *fallback = OMExecutablePathInDirectory(@"/usr/bin", name, fileManager);
-    if (fallback != nil) {
-        return fallback;
     }
     return nil;
 }

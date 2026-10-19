@@ -25,6 +25,12 @@ OM_EXPORT BOOL OMMarkdownTextContainsMath(NSString *raw);
 // can't draw), for readers that show TeX as it is: mail, chats.
 OM_EXPORT NSString *OMMarkdownWithReadableMath(NSString *markdown);
 
+// Where the renderer looks for its external tools (latex, dvisvgm,
+// tree-sitter), in order: the directories of pathValue (a PATH), then where
+// the platform's installers put them, which an app opened from the Finder
+// has no PATH to (macOS: MacTeX, Homebrew, MacPorts).
+OM_EXPORT NSArray *OMExecutableSearchDirectories(NSString *pathValue);
+
 // Keys in the dictionaries returned by -headings.
 OM_EXPORT NSString * const OMMarkdownRendererHeadingLevelKey;       // NSNumber, 1-6
 OM_EXPORT NSString * const OMMarkdownRendererHeadingTitleKey;       // NSString, plain text
