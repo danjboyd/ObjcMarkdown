@@ -1171,11 +1171,21 @@ GSSharingEmailDraftWithNotice(NSURL *draft, NSURL *file)
 #if defined(_WIN32)
   {
     NSUInteger length = [path length];
-    unichar *wide = malloc((length + 1) * sizeof(unichar));
+    unichar *wide;
     OPENASINFO info;
+    NSWindow *window = [NSApp mainWindow];
+    HWND owner = NULL;
+    HRESULT result;
 
+    /* It reports a dismissed chooser as cancelled (the sheet comes back,
+       #16), and a chooser Windows wouldn't show. */
+    GSSharingServiceWillFinishLater(service);
+    wide = malloc((length + 1) * sizeof(unichar));
     if (wide == NULL)
       {
+        GSSharingServiceFinish(service, items,
+          [NSError errorWithDomain: NSCocoaErrorDomain
+                              code: NSFileReadUnknownError userInfo: nil]);
         return;
       }
     [path getCharacters: wide range: NSMakeRange(0, length)];
@@ -1183,8 +1193,74 @@ GSSharingEmailDraftWithNotice(NSURL *draft, NSURL *file)
     memset(&info, 0, sizeof(info));
     info.pcszFile = (const wchar_t *)wide;
     info.oaifInFlags = OAIF_ALLOW_REGISTRATION | OAIF_EXEC;
-    SHOpenWithDialog(NULL, &info);
+    /* The document window owns the chooser (#23). */
+    if (window == nil)
+      {
+        window = [NSApp keyWindow];
+      }
+    if (window != nil)
+      {
+        owner = (HWND)(intptr_t)[window windowNumber];
+      }
+    /* UAT ONLY (#23): GSSHARING_OPENWITH_MODE=null|pump, logged to %TEMP%. */
+    {
+      const char *mode = getenv("GSSHARING_OPENWITH_MODE");
+      HWND before;
+      DWORD started;
+      NSString *line;
+      NSString *logPath = [NSTemporaryDirectory()
+        stringByAppendingPathComponent: @"gssharing-openwith.log"];
+      NSFileHandle *log;
+
+      if (mode != NULL && strcmp(mode, "null") == 0)
+        {
+          owner = NULL;
+        }
+      if (mode != NULL && strcmp(mode, "pump") == 0)
+        {
+          [[NSRunLoop currentRunLoop] runUntilDate:
+            [NSDate dateWithTimeIntervalSinceNow: 0.3]];
+        }
+      before = GetForegroundWindow();
+      started = GetTickCount();
+      result = SHOpenWithDialog(owner, &info);
+      line = [NSString stringWithFormat:
+        @"mode=%s main=%p key=%p owner=%p fg-before=%p fg-after=%p hr=0x%08lx ms=%lu\n",
+        (mode != NULL ? mode : "default"), (void *)[NSApp mainWindow],
+        (void *)[NSApp keyWindow], (void *)owner, (void *)before,
+        (void *)GetForegroundWindow(), (unsigned long)result,
+        (unsigned long)(GetTickCount() - started)];
+      if ([[NSFileManager defaultManager] fileExistsAtPath: logPath] == NO)
+        {
+          [[NSFileManager defaultManager] createFileAtPath: logPath
+                                                  contents: nil
+                                                attributes: nil];
+        }
+      log = [NSFileHandle fileHandleForWritingAtPath: logPath];
+      [log seekToEndOfFile];
+      [log writeData: [line dataUsingEncoding: NSUTF8StringEncoding]];
+      [log closeFile];
+    }
     free(wide);
+    if (SUCCEEDED(result))
+      {
+        GSSharingServiceFinish(service, items, nil);
+      }
+    else if (result == HRESULT_FROM_WIN32(ERROR_CANCELLED))
+      {
+        GSSharingServiceFinish(service, items, GSSharingCancelledError());
+      }
+    else
+      {
+        NSLog(@"Open With: SHOpenWithDialog failed for %@ (HRESULT 0x%08lx)",
+              path, (unsigned long)result);
+        [GSSharingNotice showMessage: @"Windows didn't show its list of apps."
+                              detail: @"Show the file in its folder and open it from there."
+                                file: [NSURL fileURLWithPath: path]];
+        GSSharingServiceFinish(service, items,
+          [NSError errorWithDomain: NSCocoaErrorDomain
+                              code: NSFeatureUnsupportedError userInfo: nil]);
+      }
   }
 #elif defined(GSSHARING_HAVE_GIO)
   /* The desktop's own chooser through the portal (sandboxed or not); its
