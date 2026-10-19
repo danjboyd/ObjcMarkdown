@@ -27,6 +27,7 @@
   NSView *_servicesView;
   NSArray *_services;
   NSUInteger _columns;  /* tiles in a row: up to four */
+  CGFloat _tileWidth;   /* a tile's width: grows for a long title, up to a cap */
   CGFloat _width;       /* the content's width so far: it doesn't narrow */
   BOOL _closed;
   BOOL _performing;     /* a chosen service is running its own dialog */

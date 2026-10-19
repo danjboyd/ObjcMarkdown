@@ -16,6 +16,8 @@
 static const CGFloat GSSharingMargin = 16.0;
 static const CGFloat GSSharingIconSize = 48.0;
 static const CGFloat GSSharingButtonWidth = 112.0;
+/* The widest a tile grows so a title stays on one line (#21). */
+static const CGFloat GSSharingButtonMaxWidth = 136.0;
 static const CGFloat GSSharingButtonHeight = 72.0;
 /* Room kept between a tile's title and the edges the button cell draws in. */
 static const CGFloat GSSharingButtonTitlePadding = 2.0;
@@ -196,6 +198,20 @@ GSSharingTileTitle(NSString *title, NSFont *font, CGFloat width)
                                 componentsJoinedByString: @" "], font) <= width)
     {
       fitting++;
+    }
+  /* A line doesn't end with a lone dash: "Send to Test" over "- home",
+     not "Send to Test -" over "home". */
+  if (fitting > 1 && fitting < count)
+    {
+      NSString *last = [words objectAtIndex: fitting - 1];
+
+      if ([last length] == 1
+        && ([last characterAtIndex: 0] == '-'
+          || [last characterAtIndex: 0] == 0x2013
+          || [last characterAtIndex: 0] == 0x2014))
+        {
+          fitting--;
+        }
     }
   if (fitting == 0)
     {
@@ -417,6 +433,31 @@ GSSharingDetailOfItems(NSArray *items)
   font = [[probe cell] font];
   titleWidth = NSWidth([[probe cell] drawingRectForBounds: [probe bounds]])
     - 2 * GSSharingButtonTitlePadding;
+  /* Tiles grow, up to GSSharingButtonMaxWidth, before a title wraps: a
+     theme with wide insets (WinUITheme leaves 90 pt of a 112 pt tile)
+     otherwise put "Show in Folder" on two lines and made every tile taller
+     (#21). They don't narrow while the sheet shows. */
+  {
+    CGFloat insets = GSSharingButtonWidth - titleWidth;
+    CGFloat widest = 0.0;
+
+    for (i = 0; i < count; i++)
+      {
+        NSString *title = [[_services objectAtIndex: i] menuItemTitle];
+
+        CGFloat titleSize = (title != nil ? GSSharingWidthOfString(title, font) : 0.0);
+
+        /* A title too long even for the widest tile wraps anyway: it
+           doesn't widen the others. */
+        if (titleSize + insets <= GSSharingButtonMaxWidth)
+          {
+            widest = MAX(widest, titleSize);
+          }
+      }
+    _tileWidth = MAX(_tileWidth, MIN(MAX(GSSharingButtonWidth, ceil(widest + insets)),
+                                     GSSharingButtonMaxWidth));
+    titleWidth = _tileWidth - insets;
+  }
   /* Every tile is a line taller when a title takes two. */
   for (i = 0; i < count; i++)
     {
@@ -436,8 +477,8 @@ GSSharingDetailOfItems(NSArray *items)
       rows = 1;
     }
   height = rows * buttonHeight + (rows - 1) * GSSharingButtonGap;
-  width = (count == 0 ? 3 * GSSharingButtonWidth + 2 * GSSharingButtonGap
-           : _columns * GSSharingButtonWidth + (_columns - 1) * GSSharingButtonGap);
+  width = (count == 0 ? 3 * _tileWidth + 2 * GSSharingButtonGap
+           : _columns * _tileWidth + (_columns - 1) * GSSharingButtonGap);
   [_servicesView setFrameSize: NSMakeSize(width, height)];
   if (count == 0)
     {
@@ -453,10 +494,10 @@ GSSharingDetailOfItems(NSArray *items)
       NSSharingService *service = [_services objectAtIndex: i];
       NSUInteger row = i / _columns;
       NSUInteger column = i % _columns;
-      NSRect frame = NSMakeRect(column * (GSSharingButtonWidth + GSSharingButtonGap),
+      NSRect frame = NSMakeRect(column * (_tileWidth + GSSharingButtonGap),
                                 height - (row + 1) * buttonHeight
                                 - row * GSSharingButtonGap,
-                                GSSharingButtonWidth, buttonHeight);
+                                _tileWidth, buttonHeight);
       NSButton *button = GSSharingServiceButton(frame);
       NSImage *image = [service image];
 
@@ -483,13 +524,13 @@ GSSharingDetailOfItems(NSArray *items)
   NSView *content = [_panel contentView];
   NSView *accessory = [_picker accessoryView];
   CGFloat servicesHeight = [self layoutServices];
-  CGFloat gridWidth = _columns * GSSharingButtonWidth
+  CGFloat gridWidth = _columns * _tileWidth
     + (_columns - 1) * GSSharingButtonGap;
   /* As wide as the tiles or the accessory, and at least three tiles, for
      the name above them (#17); the tiles start at the left margin, under
      the accessory's text. It doesn't narrow while the sheet shows, so it
      doesn't jump as the items change. */
-  CGFloat width = MAX(MAX(gridWidth, 3 * GSSharingButtonWidth + 2 * GSSharingButtonGap),
+  CGFloat width = MAX(MAX(gridWidth, 3 * _tileWidth + 2 * GSSharingButtonGap),
                       accessory != nil ? NSWidth([accessory frame]) : 0.0);
   CGFloat accessoryHeight = accessory != nil ? NSHeight([accessory frame]) + 12.0 : 0.0;
   CGFloat height = GSSharingMargin + GSSharingIconSize + 16.0
