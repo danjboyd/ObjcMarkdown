@@ -1170,7 +1170,11 @@ GSSharingEmailDraftWithNotice(NSURL *draft, NSURL *file)
     }
 #if defined(_WIN32)
   {
-    NSUInteger length = [path length];
+    /* SHOpenWithDialog rejects C:/... (E_INVALIDARG), the form GNUstep's
+       paths have, and shows nothing (#23). */
+    NSString *windowsPath = [path stringByReplacingOccurrencesOfString: @"/"
+                                                            withString: @"\\"];
+    NSUInteger length = [windowsPath length];
     unichar *wide;
     OPENASINFO info;
     NSWindow *window = [NSApp mainWindow];
@@ -1188,7 +1192,7 @@ GSSharingEmailDraftWithNotice(NSURL *draft, NSURL *file)
                               code: NSFileReadUnknownError userInfo: nil]);
         return;
       }
-    [path getCharacters: wide range: NSMakeRange(0, length)];
+    [windowsPath getCharacters: wide range: NSMakeRange(0, length)];
     wide[length] = 0;
     memset(&info, 0, sizeof(info));
     info.pcszFile = (const wchar_t *)wide;
@@ -1202,45 +1206,7 @@ GSSharingEmailDraftWithNotice(NSURL *draft, NSURL *file)
       {
         owner = (HWND)(intptr_t)[window windowNumber];
       }
-    /* UAT ONLY (#23): GSSHARING_OPENWITH_MODE=null|pump, logged to %TEMP%. */
-    {
-      const char *mode = getenv("GSSHARING_OPENWITH_MODE");
-      HWND before;
-      DWORD started;
-      NSString *line;
-      NSString *logPath = [NSTemporaryDirectory()
-        stringByAppendingPathComponent: @"gssharing-openwith.log"];
-      NSFileHandle *log;
-
-      if (mode != NULL && strcmp(mode, "null") == 0)
-        {
-          owner = NULL;
-        }
-      if (mode != NULL && strcmp(mode, "pump") == 0)
-        {
-          [[NSRunLoop currentRunLoop] runUntilDate:
-            [NSDate dateWithTimeIntervalSinceNow: 0.3]];
-        }
-      before = GetForegroundWindow();
-      started = GetTickCount();
-      result = SHOpenWithDialog(owner, &info);
-      line = [NSString stringWithFormat:
-        @"mode=%s main=%p key=%p owner=%p fg-before=%p fg-after=%p hr=0x%08lx ms=%lu\n",
-        (mode != NULL ? mode : "default"), (void *)[NSApp mainWindow],
-        (void *)[NSApp keyWindow], (void *)owner, (void *)before,
-        (void *)GetForegroundWindow(), (unsigned long)result,
-        (unsigned long)(GetTickCount() - started)];
-      if ([[NSFileManager defaultManager] fileExistsAtPath: logPath] == NO)
-        {
-          [[NSFileManager defaultManager] createFileAtPath: logPath
-                                                  contents: nil
-                                                attributes: nil];
-        }
-      log = [NSFileHandle fileHandleForWritingAtPath: logPath];
-      [log seekToEndOfFile];
-      [log writeData: [line dataUsingEncoding: NSUTF8StringEncoding]];
-      [log closeFile];
-    }
+    result = SHOpenWithDialog(owner, &info);
     free(wide);
     if (SUCCEEDED(result))
       {
@@ -1253,7 +1219,7 @@ GSSharingEmailDraftWithNotice(NSURL *draft, NSURL *file)
     else
       {
         NSLog(@"Open With: SHOpenWithDialog failed for %@ (HRESULT 0x%08lx)",
-              path, (unsigned long)result);
+              windowsPath, (unsigned long)result);
         [GSSharingNotice showMessage: @"Windows didn't show its list of apps."
                               detail: @"Show the file in its folder and open it from there."
                                 file: [NSURL fileURLWithPath: path]];
