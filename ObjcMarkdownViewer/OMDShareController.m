@@ -428,11 +428,8 @@ static OMDShareFormat OMDShareFormatForSheetChoice(NSInteger choice)
     _picker = [[NSSharingServicePicker alloc] initWithItems:items];
     [(NSSharingServicePicker *)_picker setDelegate:self];
     // Save a Copy opens in the document's folder, not the exports' temporary
-    // one (libs-sharing#15; older copies of the library don't have it).
-    NSString *directory = [_source shareResourceDirectory];
-    if (directory != nil && [_picker respondsToSelector:@selector(setSaveDirectory:)]) {
-        [_picker performSelector:@selector(setSaveDirectory:) withObject:directory];
-    }
+    // one (libs-sharing#15).
+    [(NSSharingServicePicker *)_picker setSaveDirectory:[_source shareResourceDirectory]];
     [self updateSheetAccessory];
     [(NSSharingServicePicker *)_picker setAccessoryView:[self sheetAccessoryView]];
     NSRect rect;

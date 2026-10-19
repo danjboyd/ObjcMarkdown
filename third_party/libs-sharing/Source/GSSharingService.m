@@ -53,6 +53,7 @@ static NSMapTable *pickerStates = nil;
   RELEASE(recipients);
   RELEASE(handler);
   RELEASE(target);
+  RELEASE(saveDirectory);
   [super dealloc];
 }
 @end
@@ -63,6 +64,7 @@ static NSMapTable *pickerStates = nil;
   RELEASE(items);
   RELEASE(accessoryView);
   RELEASE(panel);
+  RELEASE(saveDirectory);
   [super dealloc];
 }
 @end
@@ -386,6 +388,9 @@ GSSharingServiceWillFinishLater(NSSharingService *service)
   RETAIN(service);
 }
 
+NSString * const GSSharingServiceDidFinishNotification
+  = @"GSSharingServiceDidFinishNotification";
+
 void
 GSSharingServiceFinish(NSSharingService *service, NSArray *items,
                        NSError *error)
@@ -413,6 +418,12 @@ GSSharingServiceFinish(NSSharingService *service, NSArray *items,
       [delegate sharingService: service didFailToShareItems: items
                          error: error];
     }
+  [[NSNotificationCenter defaultCenter]
+    postNotificationName: GSSharingServiceDidFinishNotification
+                  object: service
+                userInfo: (error != nil
+                           ? [NSDictionary dictionaryWithObject: error forKey: @"error"]
+                           : nil)];
   AUTORELEASE(service);
 }
 
@@ -488,6 +499,16 @@ GSSharingCancelledError(void)
   [(GSSharingPickerPanel *)state->panel pickerItemsDidChange];
 }
 
+- (NSString *) saveDirectory
+{
+  return GSSharingStateForPicker(self, YES)->saveDirectory;
+}
+
+- (void) setSaveDirectory: (NSString *)path
+{
+  ASSIGNCOPY(GSSharingStateForPicker(self, YES)->saveDirectory, path);
+}
+
 - (void) showRelativeToRect: (NSRect)rect
                      ofView: (NSView *)view
               preferredEdge: (NSRectEdge)preferredEdge
@@ -519,6 +540,18 @@ GSSharingCancelledError(void)
 
 @end
 
+
+void
+GSSharingPickerKeepShowing(NSSharingServicePicker *picker)
+{
+  GSSharingPickerState *state = GSSharingStateForPicker(picker, YES);
+
+  if (state->keptWhileShowing == NO)
+    {
+      state->keptWhileShowing = YES;
+      RETAIN(picker);
+    }
+}
 
 void
 GSSharingPickerDidFinish(NSSharingServicePicker *picker)
