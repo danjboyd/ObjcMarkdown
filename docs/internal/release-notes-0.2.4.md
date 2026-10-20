@@ -42,18 +42,22 @@ Changes are counted from v0.2.3 (79e1c27).
 | #249 | macOS TeX paths (#244) | green |
 | #250 | macOS source editor quotes (#238) | green; macOS hand check first |
 | #251 | Print cancel isn't a failure (#239) | green; macOS hand check first |
-| (to open) | WinUITheme alpha8 906e462 -> alpha10 | branch `winuitheme-alpha10` ready; waits for the tag and SHA |
+| (to open) | WinUITheme alpha8 906e462 -> alpha10 | branch `winuitheme-alpha10` ready; waits for the tag and SHA (after Dan merges theme #166) |
+| #259 | gnustep-packager shared workflow 82090aa -> v0.1.1 | CI running; the rc builds test it |
+| (maybe) | #252 Windows italics and footnote back-link | in only if a small, Windows-verified PR lands before rc1 |
 
-**Out** (later): #243 (a caution symbol for the warnings), #241, #252, #253,
+**Out** (later): #243 (a caution symbol for the warnings), #241, #253, #252 unless it lands in time,
 #213, libs-sharing#26, libs-sharing#11.
 
-**Merge order for Dan.** Trial merges on b1d6061 in this order have no
+**Merge order for Dan.** Trial merges of 1 to 4 on b1d6061 have no
 conflicts.
 1. #257
 2. #249
 3. #250, after macOS's hand check
 4. #251, after macOS's hand check
 5. The WinUITheme bump, after its CI MSI builds green
+6. #259 (packager v0.1.1)
+7. #252, if it's ready
 
 ## Checklist
 
