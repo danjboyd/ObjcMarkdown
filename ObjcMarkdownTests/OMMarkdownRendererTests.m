@@ -782,6 +782,31 @@ static BOOL OMDMathToolchainAvailable(void)
     }
 }
 
+- (void)testToolSearchFollowsPATHThenThePlatformsInstallDirectories
+{
+    NSArray *directories = OMExecutableSearchDirectories(@"/opt/tools/bin:/usr/bin::/opt/tools/bin");
+    XCTAssertEqualObjects([directories objectAtIndex:0], @"/opt/tools/bin");
+    XCTAssertEqualObjects([directories objectAtIndex:1], @"/usr/bin");
+    XCTAssertEqual([directories indexOfObject:@"/opt/tools/bin" inRange:NSMakeRange(1, [directories count] - 1)],
+                   (NSUInteger)NSNotFound);
+    XCTAssertTrue([OMExecutableSearchDirectories(nil) containsObject:@"/usr/bin"]);
+}
+
+#if defined(__APPLE__)
+// Opened from the Finder, the app's PATH is launchd's, without MacTeX or
+// Homebrew; math via LaTeX must find them anyway (#244).
+- (void)testFromTheFinderToolSearchFindsMacTeXHomebrewAndMacPorts
+{
+    NSArray *directories = OMExecutableSearchDirectories(@"/usr/bin:/bin:/usr/sbin:/sbin");
+    XCTAssertTrue([directories containsObject:@"/Library/TeX/texbin"]);
+    XCTAssertTrue([directories containsObject:@"/opt/homebrew/bin"]);
+    XCTAssertTrue([directories containsObject:@"/usr/local/bin"]);
+    XCTAssertTrue([directories containsObject:@"/opt/local/bin"]);
+    XCTAssertEqualObjects([directories subarrayWithRange:NSMakeRange(0, 4)],
+                          ([NSArray arrayWithObjects:@"/usr/bin", @"/bin", @"/usr/sbin", @"/sbin", nil]));
+}
+#endif
+
 - (void)testDisplayMathCasesBlockRendersWithExternalTools
 {
     if (!OMDMathToolchainAvailable()) {
