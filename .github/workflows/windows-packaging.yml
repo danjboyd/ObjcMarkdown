@@ -33,13 +33,11 @@ jobs:
 
   build-msi:
     needs: resolve-version
-    uses: danjboyd/gnustep-packager/.github/workflows/package-gnustep-app.yml@82090aa23be03bf2181948d4a5a64b6b96c41298
+    uses: danjboyd/gnustep-packager/.github/workflows/package-gnustep-app.yml@v0.1.1
     with:
       manifest-path: packaging/manifests/windows-msi.manifest.json
       backend: msi
       package-version: ${{ needs.resolve-version.outputs.package_version }}
-      packager-repository: danjboyd/gnustep-packager
-      packager-ref: 82090aa23be03bf2181948d4a5a64b6b96c41298
       # VERSION from the tag before the build (Git Bash on the runner), so
       # the app's About and Info-gnustep.plist match the MSI (#119).
       preflight-shell: bash
