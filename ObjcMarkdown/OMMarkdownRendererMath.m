@@ -1740,6 +1740,12 @@ static NSString *OMMathInkHexForTheme(OMTheme *theme)
 
 // dvisvgm leaves glyph fills unset (black); a fill on the root recolours them.
 #if !defined(_WIN32)
+// Whether the platform's image reps read SVG: GNUstep's do only with
+// ImageMagick. Found out by trying, once: GNUstep can't say beforehand
+// (+imageFileTypes is empty, and -imageRepClassForData: claims the data
+// then fails to read it, logging TIFF errors).
+static BOOL OMMathSVGReaderFailed = NO;
+
 // Only the non-Windows path uses it.
 static NSData *OMMathSVGDataWithInk(NSData *svgData, NSString *inkHex)
 {
@@ -1929,7 +1935,21 @@ NSAttributedString *OMMathAttachmentAttributedString(NSString *formula,
 
         if (baseImage == nil) {
             NSTimeInterval decodeStart = OMNow();
-            NSImage *decodedImage = [[[NSImage alloc] initWithData:OMMathSVGDataWithInk(svgData, inkHex)] autorelease];
+            NSData *inkedData = OMMathSVGDataWithInk(svgData, inkHex);
+            // GNUstep reads SVG only with libs-gui built with ImageMagick;
+            // without (the Linux packages, #246) the paths are drawn here.
+            // OMMathUseBuiltinSVGReader (a default) forces it, for checks
+            // on a GNUstep that has an SVG reader.
+            BOOL builtinReader = [[NSUserDefaults standardUserDefaults] boolForKey:@"OMMathUseBuiltinSVGReader"];
+            NSImage *decodedImage = (!builtinReader && !OMMathSVGReaderFailed)
+                ? [[[NSImage alloc] initWithData:inkedData] autorelease]
+                : nil;
+            if (decodedImage == nil && !builtinReader) {
+                OMMathSVGReaderFailed = YES;
+            }
+            if (decodedImage == nil) {
+                decodedImage = OMMathImageFromSVGData(inkedData);
+            }
             if (stats != NULL) {
                 stats->svgDecodeSeconds += (OMNow() - decodeStart);
             }
