@@ -39,9 +39,9 @@ Changes are counted from v0.2.3 (79e1c27).
 | #254 | #245 paragraph spacing on GNUstep | merged 1f597b8 |
 | #255 | #246 built-in math SVG renderer | merged b1d6061 |
 | #257 | vendor libs-sharing ff493df (#23, #24) | green; Linux by-eye check passed |
-| #249 | macOS TeX paths (#244) | green |
-| #250 | macOS source editor quotes (#238) | green; macOS hand check first |
-| #251 | Print cancel isn't a failure (#239) | green; macOS hand check first |
+| #249 | macOS TeX paths (#244) | green; draft |
+| #250 | macOS source editor quotes (#238) | green; macOS hand check passed (macOS 26.5); draft |
+| #251 | Print cancel isn't a failure (#239) | green; macOS hand check passed (macOS 26.5); draft |
 | #260 | WinUITheme alpha8 906e462 -> alpha10 958c38f | CI running |
 | #259 | gnustep-packager shared workflow 82090aa -> v0.1.1 | CI running; the rc builds test it |
 | (maybe) | #252 Windows italics and footnote back-link | in only if a small, Windows-verified PR lands before rc1 |
@@ -53,11 +53,13 @@ Changes are counted from v0.2.3 (79e1c27).
 conflicts.
 1. #257
 2. #249
-3. #250, after macOS's hand check
-4. #251, after macOS's hand check
-5. The WinUITheme bump, after its CI MSI builds green
+3. #250
+4. #251
+5. #260 (WinUITheme alpha10), after its CI MSI builds green
 6. #259 (packager v0.1.1)
 7. #252, if it's ready
+
+#249, #250 and #251 are drafts: mark them ready (`gh pr ready`) before merging.
 
 ## Checklist
 
