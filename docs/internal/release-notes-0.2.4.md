@@ -47,7 +47,7 @@ Changes are counted from v0.2.3 (79e1c27).
 | (maybe) | #252 Windows italics and footnote back-link | in only if a small, Windows-verified PR lands before rc1 |
 
 **Out** (later): #243 (a caution symbol for the warnings), #241, #253, #252 unless it lands in time,
-#213, libs-sharing#26, libs-sharing#11.
+#213, #261 (macOS printed PDF named "Untitled"), libs-sharing#26, libs-sharing#11.
 
 **Merge order for Dan.** Trial merges of 1 to 4 on b1d6061 have no
 conflicts.
