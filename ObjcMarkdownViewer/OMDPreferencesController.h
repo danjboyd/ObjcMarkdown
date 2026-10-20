@@ -26,7 +26,6 @@
 - (BOOL)isSourceHighlightHighContrastEnabled;
 - (BOOL)isSourceSyntaxHighlightingEnabled;
 - (BOOL)isSourceVimKeyBindingsEnabled;
-- (BOOL)isTreeSitterAvailable;
 - (BOOL)isWordSelectionModifierShimEnabled;
 - (CGFloat)scrollSpeedPreference;
 - (void)setAllowRemoteImagesPreference:(BOOL)allow;
@@ -77,7 +76,6 @@
     NSTextField *_preferencesSourceFontField;
     NSButton *_preferencesSourceFontButton;
     NSButton *_preferencesRendererSyntaxHighlightingButton;
-    NSTextField *_preferencesRendererSyntaxHighlightingNoteLabel;
     NSTextField *_preferencesExplorerLocalRootField;
     NSTextField *_preferencesExplorerMaxFileSizeField;
     NSTextField *_preferencesExplorerListFontSizeField;
