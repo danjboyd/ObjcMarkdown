@@ -72,7 +72,7 @@ conflicts.
 - [x] `v0.2.4-rc1` tagged on 46b3635 with Dan's go (2026-10-20); 5 tag workflows green, 13 assets, pre-release.
 - [ ] rc1 rounds on the CI packages, not dev builds:
   - Linux: AppImage and Flatpak, isolated. Bundled Adwaita b2d4326. PASS (https://github.com/danjboyd/ObjcMarkdown/pull/258#issuecomment-6297980057).
-  - macOS: the dmg.
+  - macOS: the dmg. GO (build 314, 2026-10-20): codesign, appcast signature, rc kept off the stable appcast, Sparkle 0.2.3 -> rc1, #250, #251, #249 fallback, #263, Share, relaunch.
   - Windows: the MSI on Server 2022. Record the bundled WinUITheme commit.
 - [ ] Dan: go for v0.2.4 final, on the rc commit. Then the post-tag checks from the 0.2.3 checklist:
   - five green runs;
