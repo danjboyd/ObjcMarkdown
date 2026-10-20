@@ -613,6 +613,18 @@ static void OMAppendListMarker(NSMutableAttributedString *output,
 // itself.
 static void OMApplyTextFallbackFonts(NSMutableAttributedString *output, NSUInteger start)
 {
+    // Where there's Symbola, emoji are OMApplyEmojiFont's: it draws them
+    // all in that one font. Without it (Windows) they fall back here.
+    // Characters no fallback font has are remembered, so a long text in a
+    // script none of them covers costs one lookup per character.
+    static BOOL looked = NO;
+    static NSCharacterSet *emoji = nil;
+    static NSMutableIndexSet *unavailable = nil;
+    if (!looked) {
+        looked = YES;
+        emoji = [NSFont fontWithName:@"Symbola" size:12.0] != nil ? [OMEmojiCharacterSet() retain] : nil;
+        unavailable = [[NSMutableIndexSet alloc] init];
+    }
     NSString *string = [output string];
     NSUInteger length = [output length];
     NSUInteger index = start;
@@ -620,16 +632,25 @@ static void OMApplyTextFallbackFonts(NSMutableAttributedString *output, NSUInteg
         NSRange run;
         NSFont *font = [output attribute:NSFontAttributeName atIndex:index effectiveRange:&run];
         NSUInteger end = MIN(NSMaxRange(run), length);
-        NSCharacterSet *covered = [font coveredCharacterSet];
-        BOOL italic = font != nil
-            && ([[NSFontManager sharedFontManager] traitsOfFont:font] & NSItalicFontMask) != 0;
-        // A run of one script mostly needs one font, or none has it.
+        NSCharacterSet *covered = nil;
+        BOOL italic = NO;
+        // A run of one script mostly needs one font.
         NSFont *last = nil;
-        unichar lastMissing = 0;
-        for (; covered != nil && index < end; index++) {
+        for (; font != nil && index < end; index++) {
             unichar character = [string characterAtIndex:index];
             if (character < 0x80 || (character >= 0xD800 && character <= 0xDFFF)
-                || character == NSAttachmentCharacter || character == lastMissing || [covered characterIsMember:character]) {
+                || character == NSAttachmentCharacter || [emoji characterIsMember:character]
+                || [unavailable containsIndex:character]) {
+                continue;
+            }
+            if (covered == nil) {
+                covered = [font coveredCharacterSet];
+                italic = ([[NSFontManager sharedFontManager] traitsOfFont:font] & NSItalicFontMask) != 0;
+                if (covered == nil) {
+                    break;
+                }
+            }
+            if ([covered characterIsMember:character]) {
                 continue;
             }
             NSFont *fallback = nil;
@@ -645,7 +666,7 @@ static void OMApplyTextFallbackFonts(NSMutableAttributedString *output, NSUInteg
                 }
             }
             if (fallback == nil) {
-                lastMissing = character;
+                [unavailable addIndex:character];
                 continue;
             }
             last = fallback;
