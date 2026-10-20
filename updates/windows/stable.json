@@ -1,14 +1,14 @@
 {
   "formatVersion": 1,
   "provider": "github-release-feed",
-  "generatedAt": "2026-10-19T23:27:53.5864621+00:00",
+  "generatedAt": "2026-10-20T20:02:46.1870594+00:00",
   "channel": "stable",
   "feedUrl": "https://danjboyd.github.io/ObjcMarkdown/updates/windows/stable.json",
   "package": {
     "id": "org.objcmarkdown.MarkdownViewer",
     "name": "ObjcMarkdown",
     "displayName": "Markdown Viewer",
-    "version": "0.2.3",
+    "version": "0.2.4",
     "manufacturer": "ObjcMarkdown"
   },
   "source": {
@@ -19,21 +19,21 @@
   },
   "releases": [
     {
-      "version": "0.2.3",
-      "tag": "v0.2.3",
-      "releaseNotesUrl": "https://github.com/danjboyd/ObjcMarkdown/releases/tag/v0.2.3",
+      "version": "0.2.4",
+      "tag": "v0.2.4",
+      "releaseNotesUrl": "https://github.com/danjboyd/ObjcMarkdown/releases/tag/v0.2.4",
       "assets": [
         {
           "backend": "msi",
           "platform": "windows-x64",
           "kind": "msi",
-          "name": "ObjcMarkdown-0.2.3-win64.msi",
-          "url": "https://github.com/danjboyd/ObjcMarkdown/releases/download/v0.2.3/ObjcMarkdown-0.2.3-win64.msi",
-          "sha256": "c246a434f18a520b6d3e490617a7db87893d766b0c5039b54d001eb5d69b617f",
-          "sizeBytes": 56353455,
+          "name": "ObjcMarkdown-0.2.4-win64.msi",
+          "url": "https://github.com/danjboyd/ObjcMarkdown/releases/download/v0.2.4/ObjcMarkdown-0.2.4-win64.msi",
+          "sha256": "72347e2a7fbfd680638d29bc074bc8c8f7e99b5b7f88ecf46ee72b3065e5b8a7",
+          "sizeBytes": 56373935,
           "installScope": "perUser",
-          "msiVersion": "0.2.3.0",
-          "edSignature": "RG+YnZgYk6oDtkFTBP+UwOiFJ2xDfeU9+Mlp/Vt5OxM0WmTENw/4HKXM/jQjMxFt8o8PCQWmbX947Tc/w2OBCQ=="
+          "msiVersion": "0.2.4.0",
+          "edSignature": "rr9n9cSVRnyfByh/3m4fggOaqneBert/KUf1sF9RTx180h2euo7q0yKG9SPYkXlAohZh8S7D0bR7A9Yftf4hAQ=="
         }
       ]
     }
