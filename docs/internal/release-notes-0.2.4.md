@@ -1,0 +1,73 @@
+# Release notes: 0.2.4
+
+A fix release after 0.2.3. Linux leads it; ReleaseCoordinator coordinates.
+Changes are counted from v0.2.3 (79e1c27).
+
+---
+
+**Fixed since 0.2.3**
+- Share sheet:
+  - Tiles stay where they are when you switch formats (#242).
+  - Long titles fit on their tile.
+  - Save a Copy opens in the document's folder, and keeps the file's type when you type a name without an extension (libs-sharing#24).
+  - Windows: Open With shows the app chooser (libs-sharing#23).
+- Linux packages:
+  - Lists, quotes and code are spaced as in 0.2.2, not about 1.6x looser (#245).
+  - LaTeX math shows as math, not as TeX text (#246).
+- macOS:
+  - Math via LaTeX finds MacTeX, Homebrew and MacPorts TeX when the app is opened from the Finder (#244).
+  - The source editor keeps quotes and dashes as typed (#238).
+  - Cancelling Print no longer says "Print failed" (#239).
+- Windows: a window whose toolbar shares the menu bar's row no longer gets 32 px shorter at every launch. The MSI bundles WinUITheme 0.1.0-alpha10 (<sha>) (plugins-themes-winuitheme#155).
+
+**Known issues**
+- Windows: files can't be dragged out of the app yet (#213); use Copy File.
+- Windows preview: emphasis isn't italic, and the footnote back-link draws as ? (#252). Code blocks aren't highlighted (#253).
+- Windows 11: pressing Esc in Open With's chooser closes the share sheet instead of bringing it back (libs-sharing#26).
+- Linux: math drawn without ImageMagick has slightly thinner lines than a dev build's.
+- Carried over from 0.2.3: #164, #82, #177, #198, #197, and the Flatpak email and rclone notes.
+
+---
+
+## Plan
+
+**In**
+
+| PR | What | State |
+|---|---|---|
+| #248 | Share sheet audit fixes, libs-sharing 6f15162 | merged 5ac521a |
+| #254 | #245 paragraph spacing on GNUstep | merged 1f597b8 |
+| #255 | #246 built-in math SVG renderer | merged b1d6061 |
+| #257 | vendor libs-sharing ff493df (#23, #24) | green; Linux by-eye check passed |
+| #249 | macOS TeX paths (#244) | green |
+| #250 | macOS source editor quotes (#238) | green; macOS hand check first |
+| #251 | Print cancel isn't a failure (#239) | green; macOS hand check first |
+| (to open) | WinUITheme alpha8 906e462 -> alpha10 | branch `winuitheme-alpha10` ready; waits for the tag and SHA |
+
+**Out** (later): #243 (a caution symbol for the warnings), #241, #252, #253,
+#213, libs-sharing#26, libs-sharing#11.
+
+**Merge order for Dan.** Trial merges on b1d6061 in this order have no
+conflicts.
+1. #257
+2. #249
+3. #250, after macOS's hand check
+4. #251, after macOS's hand check
+5. The WinUITheme bump, after its CI MSI builds green
+
+## Checklist
+
+- [ ] Dan merges the queue above.
+- [ ] WinUITheme 0.1.0-alpha10 is published. Set its SHA in `packaging/manifests/windows-msi.manifest.json` and in these notes.
+- [ ] Dan: tag `v0.2.4-rc1` on main's head, annotated "ObjcMarkdown 0.2.4-rc1".
+- [ ] rc1 rounds on the CI packages, not dev builds:
+  - Linux: AppImage and Flatpak, isolated. Bundled Adwaita b2d4326.
+  - macOS: the dmg.
+  - Windows: the MSI on Server 2022. Record the bundled WinUITheme commit.
+- [ ] Dan: go for v0.2.4 final, on the rc commit. Then the post-tag checks from the 0.2.3 checklist:
+  - five green runs;
+  - 13 assets, Latest;
+  - three feed commits on gh-pages naming 0.2.4;
+  - the same-SHA trap check;
+  - the release body from these notes;
+  - an installed 0.2.3 offered 0.2.4.
