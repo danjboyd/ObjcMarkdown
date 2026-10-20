@@ -28,6 +28,11 @@ Changes are counted from v0.2.3 (79e1c27).
 - Windows: files can't be dragged out of the app yet (#213); use Copy File.
 - Windows 11: pressing Esc in Open With's chooser closes the share sheet instead of bringing it back (libs-sharing#26).
 - Linux: math drawn without ImageMagick has slightly thinner lines than a dev build's.
+- Emoji shortcodes whose emoji is outside the BMP (`:rocket:`, `:tada:`) stay as typed on every platform. Windows: such emoji (🎉), and emoji typed in the editor, draw as "?" (#267).
+- Windows: inline math draws faint in light mode, and math images are black-on-white boxes in dark mode.
+- Windows: Show in Folder after a share selects the temporary copy (…\Temp\MarkdownViewer-share\…), not the document's folder (#265).
+- Windows: after an update restarts the app, the window opens empty instead of reopening the document (#266).
+- macOS: code blocks have tall line spacing.
 - Carried over from 0.2.3: #164, #82, #177, #198, #197, and the Flatpak email and rclone notes.
 
 ---
@@ -70,10 +75,10 @@ conflicts.
 - [x] Dan's go (2026-10-20): merge the queue, then tag rc1; wait for #263, #262 and #264 first.
 - [x] WinUITheme 0.1.0-alpha10 is published (958c38f, 2026-10-20); bump in #260.
 - [x] `v0.2.4-rc1` tagged on 46b3635 with Dan's go (2026-10-20); 5 tag workflows green, 13 assets, pre-release.
-- [ ] rc1 rounds on the CI packages, not dev builds:
+- [x] rc1 rounds on the CI packages, not dev builds:
   - Linux: AppImage and Flatpak, isolated. Bundled Adwaita b2d4326. PASS (https://github.com/danjboyd/ObjcMarkdown/pull/258#issuecomment-6297980057).
   - macOS: the dmg. GO (build 314, 2026-10-20): codesign, appcast signature, rc kept off the stable appcast, Sparkle 0.2.3 -> rc1, #250, #251, #249 fallback, #263, Share, relaunch.
-  - Windows: the MSI on Server 2022. Record the bundled WinUITheme commit.
+  - Windows: the MSI on Server 2022. GO (Markdown Viewer Windows, 2026-10-20; WinUITheme alpha10 958c38f): update 0.2.3 -> rc1, #262, #263, Share (#257), plugins-themes-winuitheme#166 and #155, 100/125/150%, vim, math, #264 shows no slowdown.
 - [ ] Dan: go for v0.2.4 final, on the rc commit. Then the post-tag checks from the 0.2.3 checklist:
   - five green runs;
   - 13 assets, Latest;
