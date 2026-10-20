@@ -1,14 +1,14 @@
 {
   "formatVersion": 1,
   "provider": "github-release-feed",
-  "generatedAt": "2026-10-19T23:05:08.4152464+00:00",
+  "generatedAt": "2026-10-20T19:50:41.2570537+00:00",
   "channel": "stable",
   "feedUrl": "https://danjboyd.github.io/ObjcMarkdown/updates/linux/stable.json",
   "package": {
     "id": "org.objcmarkdown.MarkdownViewer",
     "name": "ObjcMarkdown",
     "displayName": "Markdown Viewer",
-    "version": "0.2.3",
+    "version": "0.2.4",
     "manufacturer": "ObjcMarkdown"
   },
   "source": {
@@ -19,26 +19,26 @@
   },
   "releases": [
     {
-      "version": "0.2.3",
-      "tag": "v0.2.3",
-      "releaseNotesUrl": "https://github.com/danjboyd/ObjcMarkdown/releases/tag/v0.2.3",
+      "version": "0.2.4",
+      "tag": "v0.2.4",
+      "releaseNotesUrl": "https://github.com/danjboyd/ObjcMarkdown/releases/tag/v0.2.4",
       "assets": [
         {
           "backend": "appimage",
           "platform": "linux-x64",
           "kind": "appimage",
-          "name": "ObjcMarkdown-0.2.3-linux-x86_64.AppImage",
-          "url": "https://github.com/danjboyd/ObjcMarkdown/releases/download/v0.2.3/ObjcMarkdown-0.2.3-linux-x86_64.AppImage",
-          "sha256": "a9d64916043d7bbf1847d13ad1674ceaa1388a2d6afc194d8fdfadd00eef8d65",
-          "sizeBytes": 68315640,
+          "name": "ObjcMarkdown-0.2.4-linux-x86_64.AppImage",
+          "url": "https://github.com/danjboyd/ObjcMarkdown/releases/download/v0.2.4/ObjcMarkdown-0.2.4-linux-x86_64.AppImage",
+          "sha256": "5c37b113a7228e06b5d97409d94b5e3809e4ef0691da4c1184cb8cde982af5ae",
+          "sizeBytes": 68332024,
           "updateInformation": "gh-releases-zsync|danjboyd|ObjcMarkdown|latest|ObjcMarkdown-*-linux-x86_64.AppImage.zsync",
           "zsync": {
-            "name": "ObjcMarkdown-0.2.3-linux-x86_64.AppImage.zsync",
-            "url": "https://github.com/danjboyd/ObjcMarkdown/releases/download/v0.2.3/ObjcMarkdown-0.2.3-linux-x86_64.AppImage.zsync",
-            "sha256": "acc28f2565666e870b9a6a251f6fc681f2e745970f449e7f8ff3c13bc31cad2f",
-            "sizeBytes": 233757
+            "name": "ObjcMarkdown-0.2.4-linux-x86_64.AppImage.zsync",
+            "url": "https://github.com/danjboyd/ObjcMarkdown/releases/download/v0.2.4/ObjcMarkdown-0.2.4-linux-x86_64.AppImage.zsync",
+            "sha256": "875e76673c2c7bd41308b39af2e633ce2bc99171cd0032f8dded01e42e78fdde",
+            "sizeBytes": 233813
           },
-          "edSignature": "43M6xRjuzt2VL3WPRgmJN0PRm3o+dJtGYVaDeZim9MVie9T/ILOOFK3u9uKtYmMnhf7up3gmpLTWkiSbV9ORDA=="
+          "edSignature": "FCeT5ZNVwJBa5M0oP3CLUDtTMm40Z/h1uhuk38ekoVIRh7aSXo2pHmEclUDGs17OdWmcVkpNo4Q0RcjNf2/lDA=="
         }
       ]
     }
