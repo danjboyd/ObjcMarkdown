@@ -68,7 +68,6 @@ OM_EXPORT NSString * const OMMarkdownRendererDiagramSourceKey;
 - (NSAttributedString *)attributedStringFromMarkdown:(NSString *)markdown;
 - (instancetype)initWithTheme:(OMTheme *)theme;
 - (instancetype)initWithTheme:(OMTheme *)theme parsingOptions:(OMMarkdownParsingOptions *)parsingOptions;
-+ (BOOL)isTreeSitterAvailable;
 // Resolved local image dependencies, including files that do not yet exist.
 + (NSArray *)localImageURLsInMarkdown:(NSString *)markdown baseURL:(NSURL *)baseURL;
 // Drops every cached render of formula, so the next render runs LaTeX again.

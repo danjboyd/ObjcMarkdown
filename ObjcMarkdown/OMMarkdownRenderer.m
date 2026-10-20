@@ -188,58 +188,13 @@ BOOL OMURLUsesAllowedLinkScheme(NSURL *url)
     return OMURLUsesAllowedScheme(url, OMAllowedLinkSchemes());
 }
 
-static BOOL OMTreeSitterRuntimeAvailable(void)
-{
-    static dispatch_once_t onceToken;
-    static BOOL available = NO;
-    dispatch_once(&onceToken, ^{
-        available = NO;
-
-        const char *libraryCandidates[] = {
-            "libtree-sitter.so",
-            "libtree-sitter.so.0",
-            "libtree-sitter.so.0.22",
-            "libtree-sitter.dylib",
-#if defined(_WIN32)
-            "tree-sitter.dll",
-            "libtree-sitter.dll",
-#endif
-            NULL
-        };
-        const char **cursor = libraryCandidates;
-        for (; *cursor != NULL; cursor++) {
-#if defined(_WIN32)
-            HMODULE handle = LoadLibraryA(*cursor);
-            if (handle != NULL) {
-                available = YES;
-                FreeLibrary(handle);
-                break;
-            }
-#else
-            void *handle = dlopen(*cursor, RTLD_LAZY | RTLD_LOCAL);
-            if (handle != NULL) {
-                available = YES;
-                dlclose(handle);
-                break;
-            }
-#endif
-        }
-
-        if (!available) {
-            available = (OMExecutablePathNamed(@"tree-sitter") != nil);
-        }
-
-    });
-    return available;
-}
-
 BOOL OMShouldApplyCodeSyntaxHighlighting(const OMRenderContext *renderContext)
 {
     OMMarkdownParsingOptions *options = OMRenderContextParsingOptions(renderContext);
     if (options != nil && ![options codeSyntaxHighlightingEnabled]) {
         return NO;
     }
-    return OMTreeSitterRuntimeAvailable();
+    return YES;
 }
 
 static OMMarkdownHTMLPolicy OMHTMLPolicyForBlockNode(const OMRenderContext *renderContext,
@@ -1235,11 +1190,6 @@ void OMPerformOnMainThread(void (^block)(void))
 @synthesize codeBlockRanges = _codeBlockRanges;
 @synthesize blockquoteRanges = _blockquoteRanges;
 @synthesize blockAnchors = _blockAnchors;
-
-+ (BOOL)isTreeSitterAvailable
-{
-    return OMTreeSitterRuntimeAvailable();
-}
 
 - (instancetype)init
 {

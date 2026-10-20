@@ -686,7 +686,6 @@ static CGFloat OMDClampedScrollSpeed(CGFloat value)
 - (void)toggleSourceHighlightHighContrast:(id)sender;
 - (NSColor *)sourceHighlightAccentColor;
 - (void)setSourceHighlightAccentColor:(NSColor *)color;
-- (BOOL)isTreeSitterAvailable;
 - (BOOL)isRendererSyntaxHighlightingPreferenceEnabled;
 - (BOOL)isRendererSyntaxHighlightingEnabled;
 - (void)setRendererSyntaxHighlightingPreferenceEnabled:(BOOL)enabled;
@@ -1356,9 +1355,6 @@ static NSMutableArray *OMDSecondaryWindows(void)
     id rendererSyntaxHighlighting = [defaults objectForKey:OMDRendererSyntaxHighlightingDefaultsKey];
     if ([rendererSyntaxHighlighting respondsToSelector:@selector(boolValue)]) {
         rendererSyntaxHighlightingEnabled = [rendererSyntaxHighlighting boolValue];
-    }
-    if (![OMMarkdownRenderer isTreeSitterAvailable]) {
-        rendererSyntaxHighlightingEnabled = NO;
     }
     [options setCodeSyntaxHighlightingEnabled:rendererSyntaxHighlightingEnabled];
     [_renderer setParsingOptions:options];
@@ -2088,7 +2084,7 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
 
     if (action == @selector(toggleRendererSyntaxHighlighting:)) {
         [menuItem setState:([self isRendererSyntaxHighlightingEnabled] ? NSOnState : NSOffState)];
-        return _renderer != nil && [self isTreeSitterAvailable];
+        return _renderer != nil;
     }
 
     if (action == @selector(shareDocument:)) {
@@ -7339,11 +7335,6 @@ static CGFloat OMDOutlinePanelWidth(NSRect bounds)
     [_preferencesController syncPreferencesPanelFromSettings];
 }
 
-- (BOOL)isTreeSitterAvailable
-{
-    return [OMMarkdownRenderer isTreeSitterAvailable];
-}
-
 - (BOOL)isRendererSyntaxHighlightingPreferenceEnabled
 {
     id value = [[NSUserDefaults standardUserDefaults] objectForKey:OMDRendererSyntaxHighlightingDefaultsKey];
@@ -7355,9 +7346,6 @@ static CGFloat OMDOutlinePanelWidth(NSRect bounds)
 
 - (BOOL)isRendererSyntaxHighlightingEnabled
 {
-    if (![self isTreeSitterAvailable]) {
-        return NO;
-    }
     return [self isRendererSyntaxHighlightingPreferenceEnabled];
 }
 
@@ -7370,7 +7358,7 @@ static CGFloat OMDOutlinePanelWidth(NSRect bounds)
         OMMarkdownParsingOptions *existing = [_renderer parsingOptions];
         OMMarkdownParsingOptions *options = existing != nil ? [[existing copy] autorelease]
                                                             : [OMMarkdownParsingOptions defaultOptions];
-        [options setCodeSyntaxHighlightingEnabled:(enabled && [self isTreeSitterAvailable])];
+        [options setCodeSyntaxHighlightingEnabled:enabled];
         [self applyParsingOptionsAndRender:options];
     } else {
         [_preferencesController syncPreferencesPanelFromSettings];

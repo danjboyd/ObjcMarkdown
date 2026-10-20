@@ -1376,13 +1376,8 @@ static BOOL OMDMathToolchainAvailable(void)
     XCTAssertNotNil(plainColor);
     XCTAssertNotNil(keywordColor);
     XCTAssertNotNil(commentColor);
-    if ([OMMarkdownRenderer isTreeSitterAvailable]) {
-        XCTAssertFalse([plainColor isEqual:keywordColor]);
-        XCTAssertFalse([keywordColor isEqual:commentColor]);
-    } else {
-        XCTAssertTrue([plainColor isEqual:keywordColor]);
-        XCTAssertTrue([keywordColor isEqual:commentColor]);
-    }
+    XCTAssertFalse([plainColor isEqual:keywordColor]);
+    XCTAssertFalse([keywordColor isEqual:commentColor]);
 }
 
 - (void)testCodeBlockSyntaxHighlightingCanBeDisabledByParsingOption
@@ -1449,10 +1444,8 @@ static BOOL OMDMathToolchainAvailable(void)
     XCTAssertNotNil(keywordColor);
     XCTAssertNotNil(plainColor);
     XCTAssertNotNil(commentColor);
-    if ([OMMarkdownRenderer isTreeSitterAvailable]) {
-        XCTAssertFalse([keywordColor isEqual:plainColor]);
-        XCTAssertFalse([keywordColor isEqual:commentColor]);
-    }
+    XCTAssertFalse([keywordColor isEqual:plainColor]);
+    XCTAssertFalse([keywordColor isEqual:commentColor]);
 }
 
 - (void)testYAMLCodeBlockSyntaxHighlightingAppliesDistinctTokenColors
@@ -1481,10 +1474,8 @@ static BOOL OMDMathToolchainAvailable(void)
     XCTAssertNotNil(keyColor);
     XCTAssertNotNil(plainColor);
     XCTAssertNotNil(commentColor);
-    if ([OMMarkdownRenderer isTreeSitterAvailable]) {
-        XCTAssertFalse([keyColor isEqual:plainColor]);
-        XCTAssertFalse([keyColor isEqual:commentColor]);
-    }
+    XCTAssertFalse([keyColor isEqual:plainColor]);
+    XCTAssertFalse([keyColor isEqual:commentColor]);
 }
 
 - (void)testMathPolicyTransitionsBetweenStyledAndDisabled
