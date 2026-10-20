@@ -352,6 +352,27 @@ static BOOL OMDMathToolchainAvailable(void)
     XCTAssertTrue([[rendered string] rangeOfString:@"Intro text"].location != NSNotFound);
 }
 
+- (void)testNoParagraphSpacingInCodeBlocksAndListsOnGNUstep
+{
+#if defined(GNUSTEP)
+    // libs-gui after 0.32 honours paragraph spacing; blank lines already space
+    // the blocks, so none is set, or code lines and list items spread (#245).
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:
+        @"1. one\n2. two\n\n```c\nint a;\nint b;\n```\n\nafter\n"];
+    NSUInteger length = [rendered length];
+    NSUInteger index = 0;
+    while (index < length) {
+        NSRange effective;
+        NSParagraphStyle *style = [rendered attribute:NSParagraphStyleAttributeName
+                                              atIndex:index
+                                       effectiveRange:&effective];
+        XCTAssertEqualWithAccuracy([style paragraphSpacing], 0.0, 0.01);
+        index = NSMaxRange(effective);
+    }
+#endif
+}
+
 - (void)testHardBreakDoesNotAddParagraphSpacing
 {
     OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
@@ -366,7 +387,12 @@ static BOOL OMDMathToolchainAvailable(void)
     NSParagraphStyle *firstStyle = [rendered attribute:NSParagraphStyleAttributeName atIndex:first.location effectiveRange:NULL];
     NSParagraphStyle *secondStyle = [rendered attribute:NSParagraphStyleAttributeName atIndex:second.location effectiveRange:NULL];
     XCTAssertEqualWithAccuracy([firstStyle paragraphSpacing], 0.0, 0.01);
+#if defined(GNUSTEP)
+    // Paragraph spacing is dropped on GNUstep: blank lines space the blocks (#245).
+    XCTAssertEqualWithAccuracy([secondStyle paragraphSpacing], 0.0, 0.01);
+#else
     XCTAssertTrue([secondStyle paragraphSpacing] > 0.0);
+#endif
     XCTAssertNil([rendered attribute:@"OMHardLineBreak" atIndex:NSMaxRange(first) effectiveRange:NULL]);
 }
 
