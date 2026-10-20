@@ -6,7 +6,7 @@
 
 ## One App, Any Theme
 
-MarkdownViewer uses only standard controls and system colours, and lets the GNUstep theme decide how they look. The same build looks like a GNOME app under [Adwaita](https://github.com/danjboyd/plugins-themes-Adwaita), with its header bar, GNOME's file chooser and dark mode, and like a classic GNUstep app under GNUstep's own theme. On Windows it will look like a WinUI app under WinUITheme; screenshots will follow when that theme is ready.
+MarkdownViewer uses only standard controls and system colours, and lets the GNUstep theme decide how they look. The same build looks like a GNOME app under [Adwaita](https://github.com/danjboyd/plugins-themes-Adwaita), with its header bar, GNOME's file chooser and dark mode, and like a classic GNUstep app under GNUstep's own theme. On Windows it looks like a WinUI app under [WinUITheme](https://github.com/danjboyd/plugins-themes-winuitheme), which the MSI installs.
 
 | Adwaita, dark | GNUstep theme |
 |:---:|:---:|
@@ -15,6 +15,10 @@ MarkdownViewer uses only standard controls and system colours, and lets the GNUs
 On macOS the same code builds natively against Cocoa, so macOS draws it as a Mac app: its own controls and menu bar, SF Symbols in the toolbar, and the system's light or dark appearance, followed as it changes.
 
 ![MarkdownViewer on macOS in Read mode: explorer, rendered document and outline](docs/screenshots/macos-read.png)
+
+On Windows, WinUITheme draws it as a Windows 11 app, with window tabs in the title bar.
+
+![MarkdownViewer on Windows under WinUITheme in Read mode: explorer, rendered document and outline](docs/screenshots/windows-read.png)
 
 ## Read, Edit, Split
 
@@ -39,9 +43,21 @@ Read for the rendered document, Edit for the Markdown source, and Split for both
 - **Import and export**: print or export to PDF, and, with `pandoc` installed, import and export `DOCX`, `RTF`, `ODT` and `HTML`
 - **Share**: one command (File > Share, or the toolbar's Share button) exports the open document, unsaved edits included, as PDF, Word, Markdown or HTML and hands it on: email with the file attached or the document as the message, the system's share menu on macOS and the share sheet on Windows 10 and 11, Open With, Show in Folder, Copy File, or a file you drag out. Copy Rendered pastes the formatted document into Teams, Outlook or Mail, and Copy for Slack into Slack. Before sending it warns about images and links only on your computer (offering a PDF or a `.zip` with the images), can share just the selection, and with [rclone](https://rclone.org) set up it puts a link to an uploaded copy on the clipboard and says who can open it
 - **Copy buttons** on code blocks and diagrams
-- **Preferences** for the theme, layout density, editor and explorer
+- **Preferences** for the theme, layout density, menus (a menu bar or a menu button), editor and explorer
 
 ![The Preferences window under Adwaita](docs/screenshots/adwaita-preferences.png)
+
+On Linux, Share opens a share sheet: pick the format, then email it, copy it, save a copy, show it in its folder, open it in another app or, with rclone, upload it and copy a link.
+
+![The Linux share sheet under Adwaita: PDF, Word, Markdown or In the Message, then Email, Copy, Save a Copy, Show in Folder, Open With and an rclone remote](docs/screenshots/adwaita-share.png)
+
+On macOS, Share opens the Mac's own share menu with the exported file: AirDrop, Mail, Messages and your apps' share extensions, plus a link entry for each rclone remote.
+
+![The macOS share menu: the exported PDF, AirDrop, Mail, Messages and other services, and two rclone link entries](docs/screenshots/macos-share.png)
+
+On Windows 10 and 11, Share opens the Windows share sheet. Where Windows has none (Windows Server, shown here), Markdown Viewer's own sheet opens instead.
+
+![The share sheet on Windows Server under WinUITheme: PDF, Word, Markdown or In the Message, then Email, Copy, Save a Copy, Show in Folder, Open With and an rclone remote](docs/screenshots/windows-share.png)
 
 ## Rendering
 
@@ -49,13 +65,13 @@ The renderer parses with GitHub's [cmark-gfm](https://github.com/github/cmark-gf
 
 | Tables and code | Math and diagrams |
 |:---:|:---:|
-| ![A table and syntax-highlighted Objective-C and Python](docs/screenshots/closeup-tables-code.png) | ![Inline and display math, a Mermaid flowchart and an ER diagram](docs/screenshots/closeup-math-diagrams.png) |
+| ![A table and syntax-highlighted Objective-C and Python](docs/screenshots/closeup-tables-code.png) | ![Inline and display math as styled text, a Mermaid flowchart and an ER diagram](docs/screenshots/closeup-math-diagrams.png) |
 
 - CommonMark: headings, emphasis, links, images, blockquotes, lists, code blocks, thematic breaks
 - GitHub-flavored Markdown: tables, task lists, strikethrough, autolinks and footnotes
 - **Tables laid out as text**: selectable and searchable, with links and cells that wrap to fit (or drawn as an image that may run wider than the view, via `allowTableHorizontalOverflow`)
 - **Mermaid** `flowchart` (with subgraphs, `classDef` and `style`) and `erDiagram` blocks drawn as diagrams, with the source one click away; other Mermaid types show their source with a note
-- **Math**: inline and display math as styled text, or typeset through LaTeX when a TeX toolchain is installed
+- **Math**: inline and display math as styled text, or typeset through LaTeX: on Windows (the MSI bundles TinyTeX) and wherever the app finds a TeX toolchain. The Linux packages and macOS currently show math as styled text even with one installed ([#246](https://github.com/danjboyd/ObjcMarkdown/issues/246), [#244](https://github.com/danjboyd/ObjcMarkdown/issues/244))
 - **Syntax highlighting** for code blocks in Objective-C, C and C++, Swift, Python, JavaScript and TypeScript, Go, Rust, Java, Kotlin, C#, PHP, Ruby, SQL, JSON, YAML, TOML, HTML and XML
 - **HTML as GitHub READMEs use it**: centred paragraphs and headings, images with a width, `<br>`, `<kbd>`, `<sup>`/`<sub>`, `<details>`/`<summary>`, lists, rules and simple tables; scripts, styles and embedded content are dropped (`OMMarkdownHTMLPolicyRenderSafeSubset`, the default; HTML can also be shown as text or ignored)
 - Relative links and images resolved against the document's location
