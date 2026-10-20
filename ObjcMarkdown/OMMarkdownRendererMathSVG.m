@@ -341,7 +341,7 @@ static NSAffineTransform *OMSVGTransform(NSString *value)
 
 // Reads the subset: glyph paths in <defs>, drawn by <use>, plus <rect> rules
 // and plain <path>s, under <g> transforms.
-@interface OMMathSVGReader : NSObject
+@interface OMMathSVGReader : NSObject <NSXMLParserDelegate>
 {
 @public
     NSMutableDictionary *definitions;  // id -> NSBezierPath
