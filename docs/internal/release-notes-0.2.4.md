@@ -18,7 +18,7 @@ Changes are counted from v0.2.3 (79e1c27).
   - Math via LaTeX finds MacTeX, Homebrew and MacPorts TeX when the app is opened from the Finder (#244).
   - The source editor keeps quotes and dashes as typed (#238).
   - Cancelling Print no longer says "Print failed" (#239).
-- Windows: a window whose toolbar shares the menu bar's row no longer gets 32 px shorter at every launch. The MSI bundles WinUITheme 0.1.0-alpha10 (<sha>) (plugins-themes-winuitheme#155).
+- Windows: a window whose toolbar shares the menu bar's row no longer gets 32 px shorter at every launch. Switching tabs no longer moves a snapped window, and Save As asks before replacing a file. The MSI bundles WinUITheme 0.1.0-alpha10 (958c38f) (plugins-themes-winuitheme#155, #153, #166).
 
 **Known issues**
 - Windows: files can't be dragged out of the app yet (#213); use Copy File.
@@ -42,7 +42,7 @@ Changes are counted from v0.2.3 (79e1c27).
 | #249 | macOS TeX paths (#244) | green |
 | #250 | macOS source editor quotes (#238) | green; macOS hand check first |
 | #251 | Print cancel isn't a failure (#239) | green; macOS hand check first |
-| (to open) | WinUITheme alpha8 906e462 -> alpha10 | branch `winuitheme-alpha10` ready; waits for the tag and SHA (after Dan merges theme #166) |
+| #260 | WinUITheme alpha8 906e462 -> alpha10 958c38f | CI running |
 | #259 | gnustep-packager shared workflow 82090aa -> v0.1.1 | CI running; the rc builds test it |
 | (maybe) | #252 Windows italics and footnote back-link | in only if a small, Windows-verified PR lands before rc1 |
 
@@ -62,7 +62,7 @@ conflicts.
 ## Checklist
 
 - [ ] Dan merges the queue above.
-- [ ] WinUITheme 0.1.0-alpha10 is published. Set its SHA in `packaging/manifests/windows-msi.manifest.json` and in these notes.
+- [x] WinUITheme 0.1.0-alpha10 is published (958c38f, 2026-10-20); bump in #260.
 - [ ] Dan: tag `v0.2.4-rc1` on main's head, annotated "ObjcMarkdown 0.2.4-rc1".
 - [ ] rc1 rounds on the CI packages, not dev builds:
   - Linux: AppImage and Flatpak, isolated. Bundled Adwaita b2d4326.
