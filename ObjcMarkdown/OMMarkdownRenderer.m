@@ -605,6 +605,57 @@ static void OMAppendListMarker(NSMutableAttributedString *output,
     }
 }
 
+#if defined(GNUSTEP)
+// GNUstep doesn't fall back per glyph either, so a character of the text
+// the body font lacks (the footnote back-link's U+21A9 in Segoe UI and
+// Tahoma, #252) drew as "?". Each one from start on is drawn in the list
+// markers' fallback font, slanted where the text is. macOS falls back by
+// itself.
+static void OMApplyTextFallbackFonts(NSMutableAttributedString *output, NSUInteger start)
+{
+    NSString *string = [output string];
+    NSUInteger length = [output length];
+    NSUInteger index = start;
+    while (index < length) {
+        NSRange run;
+        NSFont *font = [output attribute:NSFontAttributeName atIndex:index effectiveRange:&run];
+        NSUInteger end = MIN(NSMaxRange(run), length);
+        NSCharacterSet *covered = [font coveredCharacterSet];
+        BOOL italic = font != nil
+            && ([[NSFontManager sharedFontManager] traitsOfFont:font] & NSItalicFontMask) != 0;
+        // A run of one script mostly needs one font, or none has it.
+        NSFont *last = nil;
+        unichar lastMissing = 0;
+        for (; covered != nil && index < end; index++) {
+            unichar character = [string characterAtIndex:index];
+            if (character < 0x80 || (character >= 0xD800 && character <= 0xDFFF)
+                || character == NSAttachmentCharacter || character == lastMissing || [covered characterIsMember:character]) {
+                continue;
+            }
+            NSFont *fallback = nil;
+            if (last != nil && [[last coveredCharacterSet] characterIsMember:character]) {
+                fallback = last;
+            } else {
+                fallback = OMListMarkerFallbackFont(character, [font pointSize]);
+                if (fallback != nil && italic) {
+                    NSFont *slanted = OMFontWithTraits(fallback, NSItalicFontMask);
+                    if ([[slanted coveredCharacterSet] characterIsMember:character]) {
+                        fallback = slanted;
+                    }
+                }
+            }
+            if (fallback == nil) {
+                lastMissing = character;
+                continue;
+            }
+            last = fallback;
+            [output addAttribute:NSFontAttributeName value:fallback range:NSMakeRange(index, 1)];
+        }
+        index = end;
+    }
+}
+#endif
+
 static NSString *OMListPrefix(NSMutableArray *listStack)
 {
     NSMutableDictionary *list = OMListContext(listStack);
@@ -2239,7 +2290,13 @@ void OMRenderInlines(cmark_node *node,
                 }
                 const char *literal = cmark_node_get_literal(child);
                 NSString *text = literal != NULL ? [NSString stringWithUTF8String:literal] : @"";
+#if defined(GNUSTEP)
+                NSUInteger textStart = [output length];
+#endif
                 OMAppendTextWithMathSpans(text, theme, output, attributes, scale, renderContext);
+#if defined(GNUSTEP)
+                OMApplyTextFallbackFonts(output, textStart);
+#endif
                 break;
             }
             case CMARK_NODE_FOOTNOTE_REFERENCE: {

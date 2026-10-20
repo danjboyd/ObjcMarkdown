@@ -2847,6 +2847,64 @@ static NSRange OMFootnoteAnchorRange(NSAttributedString *rendered, NSString *anc
     XCTAssertEqualObjects([boxFonts[0] fontName], [boxFonts[1] fontName]);
 }
 
+#if defined(GNUSTEP)
+// A character of the text the body font lacks draws in a font that has it:
+// the footnote back-link's U+21A9 drew as "?" on Windows (#252), in Tahoma
+// and in Segoe UI alike.
+- (void)testTextCharactersDrawInAFontThatHasThem
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:
+        @"A note.[^1] And *an → arrow*.\n\n[^1]: The note.\n"];
+    NSString *text = [rendered string];
+    BOOL fallbackInstalled = [NSFont fontWithName:@"DejaVuSans" size:12.0] != nil ||
+                             [NSFont fontWithName:@"SegoeUISymbol" size:12.0] != nil;
+    if (!fallbackInstalled) {
+        return;
+    }
+    unichar characters[2] = { 0x21A9, 0x2192 };
+    NSUInteger i = 0;
+    for (i = 0; i < 2; i++) {
+        NSRange found = [text rangeOfString:[NSString stringWithCharacters:&characters[i] length:1]];
+        XCTAssertTrue(found.location != NSNotFound);
+        if (found.location == NSNotFound) {
+            continue;
+        }
+        NSFont *font = [rendered attribute:NSFontAttributeName atIndex:found.location effectiveRange:NULL];
+        XCTAssertTrue([[font coveredCharacterSet] characterIsMember:characters[i]],
+                      @"%04X in %@", characters[i], [font fontName]);
+    }
+    // The ASCII around them keeps the body font.
+    NSFont *body = [rendered attribute:NSFontAttributeName atIndex:0 effectiveRange:NULL];
+    XCTAssertEqualObjects([body fontName], [[[renderer theme] baseFont] fontName]);
+}
+#endif
+
+#if defined(_WIN32)
+// On Windows the default theme's Helvetica is Segoe UI: GNUstep drew
+// Tahoma for it, which has no italic face, so emphasis drew upright (#252).
+- (void)testWindowsEmphasisIsItalic
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    if ([NSFont fontWithName:@"SegoeUI" size:12.0] == nil) {
+        return;
+    }
+    XCTAssertEqualObjects([[[renderer theme] baseFont] familyName], @"Segoe UI");
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:@"Some *emphasis* and ***both***.\n"];
+    NSString *text = [rendered string];
+    NSFontManager *manager = [NSFontManager sharedFontManager];
+    NSFont *emphasis = [rendered attribute:NSFontAttributeName
+                                   atIndex:[text rangeOfString:@"emphasis"].location
+                            effectiveRange:NULL];
+    XCTAssertTrue(([manager traitsOfFont:emphasis] & NSItalicFontMask) != 0, @"%@", [emphasis fontName]);
+    NSFont *both = [rendered attribute:NSFontAttributeName
+                               atIndex:[text rangeOfString:@"both"].location
+                        effectiveRange:NULL];
+    NSFontTraitMask traits = [manager traitsOfFont:both];
+    XCTAssertTrue((traits & NSItalicFontMask) != 0 && (traits & NSBoldFontMask) != 0, @"%@", [both fontName]);
+}
+#endif
+
 // Images in table cells are scaled to their column: sized for the whole
 // text width, they ran past their cell and pushed the next cell's image
 // onto a line of its own (#83).
