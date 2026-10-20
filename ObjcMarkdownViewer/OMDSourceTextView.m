@@ -200,10 +200,23 @@ static NSUInteger OMDPositionAfterRemovingRange(NSUInteger position, NSRange rem
 
 @implementation OMDSourceTextView
 
+// The source is Markdown, kept as typed: macOS's smart quotes, dashes and
+// text replacements (on by default, system-wide) would curl the quotes of
+// code spans, link titles and HTML attributes, Vim's ci" included (#238).
+- (void)omdDisableTextSubstitutions
+{
+#if !defined(GNUSTEP)
+    [self setAutomaticQuoteSubstitutionEnabled:NO];
+    [self setAutomaticDashSubstitutionEnabled:NO];
+    [self setAutomaticTextReplacementEnabled:NO];
+#endif
+}
+
 - (instancetype)initWithFrame:(NSRect)frameRect
 {
     self = [super initWithFrame:frameRect];
     if (self != nil) {
+        [self omdDisableTextSubstitutions];
         [self omdApplySelectionStyle];
     }
     return self;
@@ -213,6 +226,7 @@ static NSUInteger OMDPositionAfterRemovingRange(NSUInteger position, NSRange rem
 {
     self = [super initWithCoder:coder];
     if (self != nil) {
+        [self omdDisableTextSubstitutions];
         [self omdApplySelectionStyle];
     }
     return self;
