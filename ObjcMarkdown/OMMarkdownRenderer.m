@@ -311,7 +311,7 @@ NSMutableParagraphStyle *OMParagraphStyleWithIndent(CGFloat firstIndent,
     NSMutableParagraphStyle *style = [[[NSMutableParagraphStyle alloc] init] autorelease];
     [style setFirstLineHeadIndent:firstIndent];
     [style setHeadIndent:headIndent];
-    [style setParagraphSpacing:spacingAfter];
+    [style setParagraphSpacing:OMParagraphSpacingAfter(spacingAfter)];
     [style setLineSpacing:lineSpacing];
     [style setLineHeightMultiple:lineHeightMultiple];
     if (fontSize > 0.0 && lineHeightMultiple > 0.0) {
@@ -385,35 +385,18 @@ static void OMRemoveAttributeWhereSet(NSMutableAttributedString *output, NSStrin
 // Block gaps are sized blank lines (OMSizeBlockGaps), so spacing set on a
 // paragraph only added to them, once per line in a code block, and the
 // packages (built with the newer libs-gui) laid text out about 1.6 times
-// looser than 0.32 (#245). Drop it, so both look as the gaps intend.
-#if defined(GNUSTEP)
-static void OMDropParagraphSpacing(NSMutableAttributedString *output)
+// looser than 0.32 (#245). On GNUstep paragraphs get none, so both look as
+// the gaps intend. It's left out where the styles are made: taking it off
+// the finished text was quadratic in its attribute runs.
+CGFloat OMParagraphSpacingAfter(CGFloat spacing)
 {
-    NSUInteger length = [output length];
-    NSMutableArray *ranges = [NSMutableArray array];
-    NSMutableArray *styles = [NSMutableArray array];
-    NSUInteger index = 0;
-    while (index < length) {
-        NSRange effective;
-        NSParagraphStyle *style = [output attribute:NSParagraphStyleAttributeName
-                                            atIndex:index
-                                     effectiveRange:&effective];
-        if (style != nil && [style paragraphSpacing] > 0.0) {
-            NSMutableParagraphStyle *flat = [[style mutableCopy] autorelease];
-            [flat setParagraphSpacing:0.0];
-            [ranges addObject:[NSValue valueWithRange:effective]];
-            [styles addObject:flat];
-        }
-        index = NSMaxRange(effective);
-    }
-    NSUInteger i = 0;
-    for (i = 0; i < [ranges count]; i++) {
-        [output addAttribute:NSParagraphStyleAttributeName
-                       value:[styles objectAtIndex:i]
-                       range:[[ranges objectAtIndex:i] rangeValue]];
-    }
-}
+#if defined(GNUSTEP)
+    (void)spacing;
+    return 0.0;
+#else
+    return spacing;
 #endif
+}
 
 static void OMSizeBlockGaps(NSMutableAttributedString *output,
                             NSArray *codeRanges,
@@ -771,7 +754,7 @@ static void OMAppendRule(NSMutableAttributedString *output,
     [style setHeadIndent:indent];
     [style setMinimumLineHeight:height];
     [style setMaximumLineHeight:height];
-    [style setParagraphSpacing:spacingAfter];
+    [style setParagraphSpacing:OMParagraphSpacingAfter(spacingAfter)];
     [ruleAttrs setObject:style forKey:NSParagraphStyleAttributeName];
     [ruleAttrs setObject:[NSFont systemFontOfSize:1.0] forKey:NSFontAttributeName];
     [ruleAttrs setObject:attachment forKey:NSAttachmentAttributeName];
@@ -1415,9 +1398,6 @@ void OMPerformOnMainThread(void (^block)(void))
                     codeRanges,
                     (self.theme.baseFont != nil ? [self.theme.baseFont pointSize] : 14.0) * scale,
                     scale);
-#if defined(GNUSTEP)
-    OMDropParagraphSpacing(output);
-#endif
     OMRemoveAttributeWhereSet(output, OMHardLineBreakAttributeName);
     OMRemoveAttributeWhereSet(output, OMHTMLStyleStackAttributeName);
     OMResolvePendingRenderedObjects(output, blockAnchors, markdown);

@@ -103,6 +103,8 @@ BOOL OMMarkerIsEscaped(NSString *text, NSUInteger location);
 NSUInteger OMMathMaximumFormulaLength(const OMRenderContext *renderContext);
 BOOL OMNativeDiagramRenderingEnabled(const OMRenderContext *renderContext);
 NSTimeInterval OMNow(void);
+// The spacing after a paragraph: none on GNUstep, where blank lines space blocks (#245).
+CGFloat OMParagraphSpacingAfter(CGFloat spacing);
 NSMutableParagraphStyle *OMParagraphStyleWithIndent(CGFloat firstIndent,
                                                     CGFloat headIndent,
                                                     CGFloat spacingAfter,

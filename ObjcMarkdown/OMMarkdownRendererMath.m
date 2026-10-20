@@ -394,7 +394,7 @@ NSDictionary *OMMathAttributes(OMTheme *theme,
         }
         [style setAlignment:NSCenterTextAlignment];
         [style setParagraphSpacingBefore:8.0 * scale];
-        [style setParagraphSpacing:8.0 * scale];
+        [style setParagraphSpacing:OMParagraphSpacingAfter(8.0 * scale)];
         [mathAttrs setObject:style forKey:NSParagraphStyleAttributeName];
         [style release];
     }
