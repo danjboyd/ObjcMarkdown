@@ -6,6 +6,8 @@ Changes are counted from v0.2.3 (79e1c27).
 ---
 
 **Fixed since 0.2.3**
+- Code blocks are highlighted again in the packages. Highlighting no longer waits for tree-sitter to be installed; the highlighter never used it (#253).
+- Linux: arrows and other symbols the text font lacks draw from a font that has them, not as "?" (#252).
 - Share sheet:
   - Tiles stay where they are when you switch formats (#242).
   - Long titles fit on their tile.
@@ -14,15 +16,16 @@ Changes are counted from v0.2.3 (79e1c27).
 - Linux packages:
   - Lists, quotes and code are spaced as in 0.2.2, not about 1.6x looser (#245).
   - LaTeX math shows as math, not as TeX text (#246).
+  - Large documents render as fast as in 0.2.3 (#264; the #245 fix had slowed them).
 - macOS:
   - Math via LaTeX finds MacTeX, Homebrew and MacPorts TeX when the app is opened from the Finder (#244).
   - The source editor keeps quotes and dashes as typed (#238).
   - Cancelling Print no longer says "Print failed" (#239).
+- Windows: emphasis is italic, and the footnote back-link draws (#252).
 - Windows: a window whose toolbar shares the menu bar's row no longer gets 32 px shorter at every launch. Switching tabs no longer moves a snapped window, and Save As asks before replacing a file. The MSI bundles WinUITheme 0.1.0-alpha10 (958c38f) (plugins-themes-winuitheme#155, #153, #166).
 
 **Known issues**
 - Windows: files can't be dragged out of the app yet (#213); use Copy File.
-- Windows preview: emphasis isn't italic, and the footnote back-link draws as ? (#252). Code blocks aren't highlighted (#253).
 - Windows 11: pressing Esc in Open With's chooser closes the share sheet instead of bringing it back (libs-sharing#26).
 - Linux: math drawn without ImageMagick has slightly thinner lines than a dev build's.
 - Carried over from 0.2.3: #164, #82, #177, #198, #197, and the Flatpak email and rclone notes.
@@ -38,15 +41,17 @@ Changes are counted from v0.2.3 (79e1c27).
 | #248 | Share sheet audit fixes, libs-sharing 6f15162 | merged 5ac521a |
 | #254 | #245 paragraph spacing on GNUstep | merged 1f597b8 |
 | #255 | #246 built-in math SVG renderer | merged b1d6061 |
-| #257 | vendor libs-sharing ff493df (#23, #24) | green; Linux by-eye check passed |
-| #249 | macOS TeX paths (#244) | green; draft |
-| #250 | macOS source editor quotes (#238) | green; macOS hand check passed (macOS 26.5); draft |
-| #251 | Print cancel isn't a failure (#239) | green; macOS hand check passed (macOS 26.5); draft |
-| #260 | WinUITheme alpha8 906e462 -> alpha10 958c38f | CI running |
-| #259 | gnustep-packager shared workflow 82090aa -> v0.1.1 | CI running; the rc builds test it |
-| (maybe) | #252 Windows italics and footnote back-link | in only if a small, Windows-verified PR lands before rc1 |
+| #257 | vendor libs-sharing ff493df (#23, #24) | merged 7fce591 |
+| #249 | macOS TeX paths (#244) | merged 53c0289 |
+| #250 | macOS source editor quotes (#238) | merged 271902f; macOS hand check passed (macOS 26.5) |
+| #251 | Print cancel isn't a failure (#239) | merged 2446a4c; macOS hand check passed (macOS 26.5) |
+| #260 | WinUITheme alpha8 906e462 -> alpha10 958c38f | merged a5f47c3; MSI log shows 958c38f |
+| #259 | gnustep-packager shared workflow 82090aa -> v0.1.1 | merged b27ad3c; packaging runs green |
+| #262 | #252 Windows italics, footnote back-link; text fallback fonts | Windows-verified on alpha8; Linux fix c725c7e (emoji keep Symbola) |
+| #263 | #253 highlighting without tree-sitter | Linux 33/33 |
+| #264 | #254's spacing pass was quadratic; spacing left out where styles are made | Linux 33/33; back to pre-#254 speed |
 
-**Out** (later): #243 (a caution symbol for the warnings), #241, #253, #252 unless it lands in time,
+**Out** (later): #243 (a caution symbol for the warnings), #241,
 #213, #261 (macOS printed PDF named "Untitled"), libs-sharing#26, libs-sharing#11.
 
 **Merge order for Dan.** Trial merges of 1 to 4 on b1d6061 have no
@@ -57,13 +62,12 @@ conflicts.
 4. #251
 5. #260 (WinUITheme alpha10), after its CI MSI builds green
 6. #259 (packager v0.1.1)
-7. #252, if it's ready
+7. #263, #262, #264 (Dan, 2026-10-20: wait for them before rc1)
 
-#249, #250 and #251 are drafts: mark them ready (`gh pr ready`) before merging.
 
 ## Checklist
 
-- [ ] Dan merges the queue above.
+- [x] Dan's go (2026-10-20): merge the queue, then tag rc1; wait for #263, #262 and #264 first.
 - [x] WinUITheme 0.1.0-alpha10 is published (958c38f, 2026-10-20); bump in #260.
 - [ ] Dan: tag `v0.2.4-rc1` on main's head, annotated "ObjcMarkdown 0.2.4-rc1".
 - [ ] rc1 rounds on the CI packages, not dev builds:
