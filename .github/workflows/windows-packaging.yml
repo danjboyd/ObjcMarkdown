@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   resolve-version:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       package_version: ${{ steps.version.outputs.package_version }}
     steps:
@@ -33,7 +33,7 @@ jobs:
 
   build-msi:
     needs: resolve-version
-    uses: danjboyd/gnustep-packager/.github/workflows/package-gnustep-app.yml@v0.1.1
+    uses: danjboyd/gnustep-packager/.github/workflows/package-gnustep-app.yml@v0.1.3
     with:
       manifest-path: packaging/manifests/windows-msi.manifest.json
       backend: msi
@@ -81,7 +81,7 @@ jobs:
     needs:
       - build-msi
       - check-imports
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     concurrency:
       group: objcmarkdown-update-feeds
       cancel-in-progress: false

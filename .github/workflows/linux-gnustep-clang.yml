@@ -15,7 +15,7 @@ jobs:
   build-and-test:
     # GitHub-hosted, in the CI image (ci/linux/Dockerfile, built by
     # ci-image.yml) pinned by digest: update the pin when the image changes.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     container:
       image: ghcr.io/danjboyd/objcmarkdown-ci@sha256:9bacf4e27f77aaff5a2a2d920ee674b5e602a16b9b4ca1fe780945a53d059c48
