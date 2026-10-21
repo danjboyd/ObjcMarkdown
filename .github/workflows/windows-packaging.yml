@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   resolve-version:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       package_version: ${{ steps.version.outputs.package_version }}
     steps:
@@ -81,7 +81,7 @@ jobs:
     needs:
       - build-msi
       - check-imports
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     concurrency:
       group: objcmarkdown-update-feeds
       cancel-in-progress: false
