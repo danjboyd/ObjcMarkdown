@@ -290,3 +290,21 @@ NSString *OMDNormalizedRelativePath(NSString *value)
     }
     return [normalized componentsJoinedByString:@"/"];
 }
+
+NSString *OMDPrintJobTitle(NSString *path, NSString *displayTitle)
+{
+    NSString *title = OMDTrimmedString(displayTitle);
+    if ([title length] == 0) {
+        title = OMDTrimmedString([path lastPathComponent]);
+    }
+    NSString *extension = [title pathExtension];
+    NSCharacterSet *notAlphanumeric = [[NSCharacterSet alphanumericCharacterSet] invertedSet];
+    // Only a real extension: "notes.md", not "README.md (GitHub)".
+    if ([extension length] > 0 && [extension length] <= 10 &&
+        [extension rangeOfCharacterFromSet:notAlphanumeric].location == NSNotFound &&
+        [[title stringByDeletingPathExtension] length] > 0) {
+        title = [title stringByDeletingPathExtension];
+    }
+    return ([title length] > 0 ? title : nil);
+}
+
