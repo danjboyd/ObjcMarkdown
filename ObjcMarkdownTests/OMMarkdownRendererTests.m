@@ -2721,14 +2721,14 @@ static NSRange OMFootnoteAnchorRange(NSAttributedString *rendered, NSString *anc
     NSAttributedString *rendered = [renderer attributedStringFromMarkdown:
         @"Careful :warning:, done :white_check_mark:, party :tada:, code `:warning:`, url https://x.org/a:b:c and :not_a_code:."];
     NSString *text = [rendered string];
-    XCTAssertTrue([text rangeOfString:@"Careful ⚠"].location != NSNotFound);
     XCTAssertTrue([text rangeOfString:@"done ✅,"].location != NSNotFound);
 #if defined(GNUSTEP)
     XCTAssertTrue([text rangeOfString:@"Careful ⚠,"].location != NSNotFound);
     XCTAssertTrue([text rangeOfString:@":tada:"].location != NSNotFound, @"emoji GNUstep can't draw stay as typed");
 #else
-    // gemoji's warning sign carries the emoji presentation selector.
-    XCTAssertTrue([text rangeOfString:@"Careful ⚠️,"].location != NSNotFound);
+    // gemoji's warning sign carries the emoji presentation selector;
+    // Foundation matches it only as the whole grapheme.
+    XCTAssertTrue([text rangeOfString:@"Careful ⚠️," options:NSLiteralSearch].location != NSNotFound);
     XCTAssertTrue([text rangeOfString:@"party \U0001F389,"].location != NSNotFound, @"macOS draws every emoji");
     XCTAssertEqualObjects([[[renderer attributedStringFromMarkdown:@":rocket: :+1:"] string]
                               stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]],
@@ -2740,6 +2740,25 @@ static NSRange OMFootnoteAnchorRange(NSAttributedString *rendered, NSString *anc
     if ([NSFont fontWithName:@"Symbola" size:12.0] != nil) {
         NSFont *font = [rendered attribute:NSFontAttributeName atIndex:[text rangeOfString:@"✅"].location effectiveRange:NULL];
         XCTAssertEqualObjects([font fontName], @"Symbola");
+    }
+}
+
+- (void)testEmojiShortcodesStayAsTypedInLinkAddresses
+{
+    // :x: is in both tables, so this runs the same on GNUstep and macOS.
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:
+        @"bare https://x.org/a:x:b angle <https://y.org/:x:/> www www.z.org/c:x:d text [no :x:](https://w.org/e:x:f)"];
+    NSString *text = [rendered string];
+    XCTAssertTrue([text rangeOfString:@"https://x.org/a:x:b"].location != NSNotFound, @"autolink text is the address");
+    XCTAssertTrue([text rangeOfString:@"https://y.org/:x:/"].location != NSNotFound);
+    XCTAssertTrue([text rangeOfString:@"www.z.org/c:x:d"].location != NSNotFound);
+    NSRange linkText = [text rangeOfString:@"no ❌"];
+    XCTAssertTrue(linkText.location != NSNotFound, @"a link's own text still converts, as on GitHub");
+    if (linkText.location != NSNotFound) {
+        id target = [rendered attribute:NSLinkAttributeName atIndex:linkText.location effectiveRange:NULL];
+        NSString *address = [target isKindOfClass:[NSURL class]] ? [target absoluteString] : target;
+        XCTAssertEqualObjects(address, @"https://w.org/e:x:f", @"the target is untouched");
     }
 }
 
