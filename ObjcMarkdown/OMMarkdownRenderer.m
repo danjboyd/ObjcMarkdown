@@ -5,6 +5,9 @@
 #import "OMMarkdownRendererInternal.h"
 #import "OMFontSupport.h"
 #include "OMEmojiShortcodes.inc"
+#if !defined(GNUSTEP)
+#include "OMEmojiShortcodesAll.inc"
+#endif
 
 NSString * const OMMarkdownRendererMathArtifactsDidWarmNotification = @"OMMarkdownRendererMathArtifactsDidWarmNotification";
 NSString * const OMMarkdownRendererRemoteImagesDidWarmNotification = @"OMMarkdownRendererRemoteImagesDidWarmNotification";
@@ -911,11 +914,19 @@ static NSDictionary *OMEmojiShortcodeTable(void)
     dispatch_once(&onceToken, ^{
         NSMutableDictionary *built = [NSMutableDictionary dictionary];
         size_t index = 0;
+#if !defined(GNUSTEP)
+        // macOS draws every emoji, so every GitHub shortcode becomes one.
+        for (; index < sizeof(OMEmojiShortcodesAll) / sizeof(OMEmojiShortcodesAll[0]); index++) {
+            [built setObject:[NSString stringWithUTF8String:OMEmojiShortcodesAll[index].emoji]
+                      forKey:[NSString stringWithUTF8String:OMEmojiShortcodesAll[index].name]];
+        }
+#else
         for (; index < sizeof(OMEmojiShortcodes) / sizeof(OMEmojiShortcodes[0]); index++) {
             unichar character = OMEmojiShortcodes[index].character;
             [built setObject:[NSString stringWithCharacters:&character length:1]
                       forKey:[NSString stringWithUTF8String:OMEmojiShortcodes[index].name]];
         }
+#endif
         table = [built copy];
     });
     return table;

@@ -2721,9 +2721,19 @@ static NSRange OMFootnoteAnchorRange(NSAttributedString *rendered, NSString *anc
     NSAttributedString *rendered = [renderer attributedStringFromMarkdown:
         @"Careful :warning:, done :white_check_mark:, party :tada:, code `:warning:`, url https://x.org/a:b:c and :not_a_code:."];
     NSString *text = [rendered string];
-    XCTAssertTrue([text rangeOfString:@"Careful ⚠,"].location != NSNotFound);
+    XCTAssertTrue([text rangeOfString:@"Careful ⚠"].location != NSNotFound);
     XCTAssertTrue([text rangeOfString:@"done ✅,"].location != NSNotFound);
+#if defined(GNUSTEP)
+    XCTAssertTrue([text rangeOfString:@"Careful ⚠,"].location != NSNotFound);
     XCTAssertTrue([text rangeOfString:@":tada:"].location != NSNotFound, @"emoji GNUstep can't draw stay as typed");
+#else
+    // gemoji's warning sign carries the emoji presentation selector.
+    XCTAssertTrue([text rangeOfString:@"Careful ⚠️,"].location != NSNotFound);
+    XCTAssertTrue([text rangeOfString:@"party \U0001F389,"].location != NSNotFound, @"macOS draws every emoji");
+    XCTAssertEqualObjects([[[renderer attributedStringFromMarkdown:@":rocket: :+1:"] string]
+                              stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]],
+                          @"\U0001F680 \U0001F44D");
+#endif
     XCTAssertTrue([text rangeOfString:@"code :warning:"].location != NSNotFound, @"code spans are left alone");
     XCTAssertTrue([text rangeOfString:@"https://x.org/a:b:c"].location != NSNotFound);
     XCTAssertTrue([text rangeOfString:@":not_a_code:"].location != NSNotFound);
