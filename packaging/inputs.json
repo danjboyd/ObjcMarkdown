@@ -6,8 +6,8 @@
       "id": "linux-adwaita-theme",
       "kind": "git",
       "repo": "https://github.com/danjboyd/plugins-themes-Adwaita.git",
-      "ref": "b2d43262cc58b8001503a8ac4b40aea5a0761159",
-      "refName": "0.1.0-alpha15",
+      "ref": "928c2cadf9ae39484af0d4de2cd1fe18b760c1c4",
+      "refName": "0.1.0-alpha16",
       "workspacePath": "../gnustep/plugins-themes-adwaita",
       "platforms": [
         "linux"
@@ -23,6 +23,7 @@
         "589cea6 gives windows tabs: it carries danjboyd/gnustep-window-tabbing (Apple's NSWindow tabbing API) and draws the tab bar as libadwaita's (plugins-themes-Adwaita#63), so documents open as window tabs (#101).",
         "83efd71 (branch markdownviewer-0.2.2-hotfix) is 589cea6 plus only the overlay-scroller fix from e84ab12 (plugins-themes-Adwaita#75): -tile no longer re-enters itself, which overflowed the stack when launching in Split or opening a window tab (#120).",
         "b2d4326 (tag 0.1.0-alpha15, main) replaces the hotfix branch: it has e84ab12 and the theme's work since 589cea6, plus gnustep-window-tabbing 3c4e62f (switching tabs shows the new tab before hiding the old, so the window no longer flickers) and a submenu's first item level with the item that opens it (the Email submenu was top-aligned).",
+        "928c2ca (tag 0.1.0-alpha16, main) releases a cell's typing attributes after drawing (they leaked on every draw) and fills the toolbar's overflow menu by each item's visibilityPriority.",
         "packaging/scripts/stage-linux-runtime.sh fetches and builds this ref; the Linux release workflow adds it to the release notes, and the package records it in metadata/docs/BundledThemes.txt."
       ]
     },
