@@ -32,10 +32,10 @@ Changes are counted from v0.2.4 (649f34e).
 | #273 | #261 print job title, macOS only (GNUstep's NSPrintOperation has no -setJobTitle:); OMDPrintJobTitle() shared for the Windows follow-up | e5dc085: drops a real extension from the job title and PDF title (Dan: "go with print.pdf"; the macOS 26.5 panel ignores NSPrintJobSavingURL); macOS 429/0; merged 5fb423d, which closed #261; the Windows follow-up is tracked separately (Markdown Viewer Windows sets it up with Dan) |
 
 **In, not merged:**
-- #164: Windows. The app's guards (line-number ruler thickness, recent-documents menu) are Markdown Viewer Windows' PR; the theme's part is plugins-themes-winuitheme#173, which needs a new WinUITheme tag and an MSI bump. Linux doesn't reproduce (1.15 draws per key).
+- #164, part A (Dan, 2026-10-21: "go with A on #164"): the app's guards for the line-number ruler's thickness and Open Recent (Markdown Viewer Windows' trace-164 PR), and plugins-themes-winuitheme#173, which needs a new WinUITheme tag (proposed alpha12) and then an MSI pin bump (Linux). #164 stays open. Linux doesn't reproduce (1.15 draws per key).
 - Windows print title (follow-up to #261, tracked separately): OMDPrintJobTitle() for the HTML <title> and the print temp file's name (Markdown Viewer Windows).
 
-**Out** (0.2.6, Dan 2026-10-21): #265, #266.
+**Out** (0.2.6, Dan 2026-10-21): #265, #266; #164's highlight-timer re-style. Upstream: libs-gui NSTextView -_updateState redisplaying the whole view (#164).
 
 **Check only:** #169 shipped in 0.2.3 (#226, 495c482). Verify it in the rc1 MSI round, then close it.
 
@@ -45,7 +45,7 @@ Changes are counted from v0.2.4 (649f34e).
 - [ ] Windows: WinUITheme alpha11 toolbar overflow checked in the MSI.
 - [x] Dan's OK to push; #268-#272 opened 2026-10-21.
 - [x] #273 (#261, macOS) merged.
-- [ ] #164 and the Windows print-title follow-up merged, or each dropped by Dan, before rc1; for #164's theme part, a WinUITheme tag with plugins-themes-winuitheme#173 and its MSI bump.
+- [ ] #164 and the Windows print-title follow-up merged, or each dropped by Dan, before rc1; for #164, the trace-164 PR, a WinUITheme tag with plugins-themes-winuitheme#173, and the MSI pin bump.
 - [ ] Packaging runs green on the merged result (AppImage, Flatpak, MSI, dmg); bundled theme commits recorded.
 - [ ] `v0.2.5-rc1` with Dan's go, then rc rounds on the CI packages.
 - [ ] Windows app-level fixes checked from the CI portable zip under a private USERPROFILE (windows-2022 OCI leases fail readiness, 2026-10-21; Dan: yes to the portable zip).
