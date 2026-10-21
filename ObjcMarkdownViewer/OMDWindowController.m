@@ -3124,15 +3124,20 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
 
 - (NSString *)recoverySnapshotPath
 {
-#if !defined(GNUSTEP)
-    // macOS keeps an app's files in ~/Library/Application Support.
+    // macOS keeps an app's files in ~/Library/Application Support; GNUstep
+    // in ~/GNUstep/Library/ApplicationSupport unless GNUstep.conf moves the
+    // user Library (as tools/dev does, so UI checks leave the real one).
     NSArray *supportDirectories = NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory, NSUserDomainMask, YES);
     if ([supportDirectories count] > 0) {
-        NSString *directory = [[[supportDirectories objectAtIndex:0] stringByAppendingPathComponent:@"MarkdownViewer"]
+#if !defined(GNUSTEP)
+        NSString *appFolder = @"MarkdownViewer";
+#else
+        NSString *appFolder = @"ObjcMarkdownViewer";
+#endif
+        NSString *directory = [[[supportDirectories objectAtIndex:0] stringByAppendingPathComponent:appFolder]
             stringByAppendingPathComponent:@"Recovery"];
         return [directory stringByAppendingPathComponent:@"autosave-recovery.plist"];
     }
-#endif
     NSString *home = NSHomeDirectory();
     if (home == nil || [home length] == 0) {
         home = NSTemporaryDirectory();
