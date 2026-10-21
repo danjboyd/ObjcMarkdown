@@ -7,7 +7,9 @@ Changes are counted from v0.2.4 (649f34e).
 
 **Fixed since 0.2.4**
 - macOS: every GitHub emoji shortcode becomes its emoji, `:rocket:` and `:tada:` included (#267).
+- A shortcode inside a bare URL stays as typed (`https://x.org/a:x:b` no longer shows an emoji in the address).
 - Toolbar: when the window is too narrow, Explorer goes into the overflow menu first, then Share, then Open and Save; Read/Edit/Split stays. The Linux packages bundle Adwaita 0.1.0-alpha16 (928c2ca) and the MSI WinUITheme 0.1.0-alpha11 (d0416a3), which both fill the overflow menu by each item's priority.
+- Print: the print job and a PDF saved from the print panel carry the document's name, not "Untitled" (#261).
 - Builds: packaged with gnustep-packager v0.1.3, on ubuntu-24.04 runners.
 
 **Known issues**
@@ -26,12 +28,12 @@ Changes are counted from v0.2.4 (649f34e).
 | #269 (on #268) | Adwaita alpha15 -> alpha16 (928c2ca); WinUITheme alpha10 -> alpha11 (d0416a3); toolbar visibilityPriority (Dan: choice A) | d368353, 34d2767, e409afb on ci-pins; Linux 34/34; Adwaita and GNUstep themes checked by eye |
 | #270 | #267 macOS-only (Dan, 2026-10-21); Linux/Windows a known issue | 9e08a29; Linux 34/34; macOS test pending |
 | #271 | UI checks keep the recovery snapshot in a private Library | ae132a9; Linux 34/34 |
+| #273 | #261 print job title: OMDPrintJobTitle() (Markdown Viewer macOS; Windows follow-up reuses it) | c3ee910; CI running |
 
 **In, not started:**
 - #265: Windows reproduces it and finds the cause; Linux writes the fix if the cause is in shared code.
 - #266: same split as #265.
 - #164: Windows (Linux doesn't reproduce: 1.15 draws per key).
-- #261: macOS.
 
 **Check only:** #169 shipped in 0.2.3 (#226, 495c482). Verify it in the rc1 MSI round, then close it.
 
@@ -40,7 +42,7 @@ Changes are counted from v0.2.4 (649f34e).
 - [ ] macOS: `make -C macos test OMD_WERROR=1` on 9e08a29.
 - [ ] Windows: WinUITheme alpha11 toolbar overflow checked in the MSI.
 - [x] Dan's OK to push; #268-#272 opened 2026-10-21.
-- [ ] #265, #266, #164 and #261 merged, or each dropped by Dan, before rc1.
+- [ ] #265, #266 and #164 merged, or each dropped by Dan, before rc1; #273 (#261) merged.
 - [ ] Packaging runs green on the merged result (AppImage, Flatpak, MSI, dmg); bundled theme commits recorded.
 - [ ] `v0.2.5-rc1` with Dan's go, then rc rounds on the CI packages.
 - [ ] Windows MSI round on the lease: the installed MSI, the updater from 0.2.4 to rc1, and #169: Export as PDF, Print and Share as PDF (then close #169).
