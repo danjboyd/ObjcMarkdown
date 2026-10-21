@@ -3835,7 +3835,8 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
     return printView;
 }
 
-// Name the job after the document, as the window does, so the print
+// Name the job after the document, as the window does (without the
+// extension, so Save as PDF suggests "print.pdf"), so the print
 // queue and a PDF saved from the print panel aren't "Untitled" (#261).
 // GNUstep's NSPrintOperation has no -setJobTitle:, so this is macOS only.
 - (void)applyPrintJobTitleToOperation:(NSPrintOperation *)operation
