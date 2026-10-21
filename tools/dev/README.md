@@ -24,6 +24,12 @@ Drive it with `xdotool` (`export DISPLAY=$(cat $OMD_UI_WORK/display)`).
   with a copy of your global domain (theme, header bar via
   `GSX11HandlesWindowDecorations NO`, `NSWindows95InterfaceStyle`) and a
   fresh MarkdownViewer domain; your own settings are never read or written.
+- The conf also gives the app its own user Library
+  (`$OMD_UI_WORK/gnustep/Library`), so the recovery snapshot of an unsaved
+  document lands there, not in `~/GNUstep/Library/ApplicationSupport`, where
+  your own MarkdownViewer would offer it back. Only Themes, Fonts, Bundles
+  and Services are linked in from the real Library. A session started before
+  this gets the new conf on its next `ui-session.sh`.
   Read them with `GNUSTEP_CONFIG_FILE=$OMD_UI_WORK/gnustep/GNUstep.conf
   defaults read MarkdownViewer`. Your installed themes are still used.
 - The app runs on the private session's D-Bus (its address is in

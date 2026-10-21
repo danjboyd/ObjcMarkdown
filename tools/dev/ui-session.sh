@@ -12,11 +12,20 @@ chmod 700 $G/run
 # app gets its own GNUstep.conf whose defaults directory is in $WORK, seeded
 # with a copy of the real global domain (theme, header bar, menu style).
 # GNUstep ignores a config file that is group- or world-writable.
+# The user Library is private too, so what the app writes there (the
+# recovery snapshot in ApplicationSupport) never reaches the real one; only
+# the real Library's installed bundles (Themes, Fonts, Bundles, Services)
+# are linked in.
 GS=$WORK/gnustep
-mkdir -p $GS/Defaults/.lck
-if [ ! -e $GS/GNUstep.conf ]; then
-  grep -v '^GNUSTEP_USER_DEFAULTS_DIR=' /etc/GNUstep/GNUstep.conf > $GS/GNUstep.conf
+mkdir -p $GS/Defaults/.lck $GS/Library/ApplicationSupport
+for name in Themes Fonts Bundles Services; do
+  [ -e "$HOME/GNUstep/Library/$name" ] && [ ! -e "$GS/Library/$name" ] && ln -s "$HOME/GNUstep/Library/$name" "$GS/Library/$name"
+done
+if ! grep -q '^GNUSTEP_USER_DIR_LIBRARY=/' $GS/GNUstep.conf 2>/dev/null; then
+  rm -f $GS/GNUstep.conf
+  grep -v -E '^GNUSTEP_USER_(DEFAULTS_DIR|DIR_LIBRARY)=' /etc/GNUstep/GNUstep.conf > $GS/GNUstep.conf
   echo "GNUSTEP_USER_DEFAULTS_DIR=$GS/Defaults" >> $GS/GNUstep.conf
+  echo "GNUSTEP_USER_DIR_LIBRARY=$GS/Library" >> $GS/GNUstep.conf
   chmod 600 $GS/GNUstep.conf
 fi
 [ -e $GS/Defaults/NSGlobalDomain.plist ] || cp "$HOME/GNUstep/Defaults/NSGlobalDomain.plist" $GS/Defaults/
