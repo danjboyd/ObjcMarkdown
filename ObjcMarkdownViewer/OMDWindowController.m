@@ -531,6 +531,7 @@ static CGFloat OMDClampedScrollSpeed(CGFloat value)
 - (BOOL)writePandocHTMLForCurrentPreviewToPath:(NSString *)path;
 - (BOOL)writeMarkdownHTMLForCurrentPreviewToPath:(NSString *)path;
 - (BOOL)writeHTMLForPrintView:(OMDTextView *)printView toPath:(NSString *)path;
+- (NSString *)exportDocumentTitle;
 - (BOOL)exportHTMLAtPath:(NSString *)htmlPath toPDFAtPath:(NSString *)pdfPath usingBrowser:(NSString *)browserPath;
 - (BOOL)exportPrintView:(OMDTextView *)printView toPDFAtPath:(NSString *)pdfPath usingBrowser:(NSString *)browserPath;
 - (NSString *)temporaryPDFPrintPath;
@@ -4027,7 +4028,7 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
         return NO;
     }
 
-    NSString *title = (_currentPath != nil ? [[_currentPath lastPathComponent] stringByDeletingPathExtension] : @"Markdown Export");
+    NSString *title = [self exportDocumentTitle];
     NSString *html = nil;
     NSRange htmlTagRange = [[fragment lowercaseString] rangeOfString:@"<html"];
     if (htmlTagRange.location != NSNotFound) {
@@ -4059,13 +4060,21 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
     if (fragment == nil) {
         return NO;
     }
-    NSString *title = (_currentPath != nil ? [[_currentPath lastPathComponent] stringByDeletingPathExtension] : @"Markdown Export");
+    NSString *title = [self exportDocumentTitle];
     NSString *html = [self styledHTMLDocumentWithBody:fragment title:title];
     NSData *htmlData = [html dataUsingEncoding:NSUTF8StringEncoding];
     if (htmlData == nil || [htmlData length] == 0) {
         return NO;
     }
     return [htmlData writeToFile:path atomically:YES];
+}
+
+// The exported page's <title>, which the PDF made from it and the print
+// job take as their name: the same as the Mac's job title (#261).
+- (NSString *)exportDocumentTitle
+{
+    NSString *title = OMDPrintJobTitle(_currentPath, _currentDisplayTitle);
+    return (title != nil ? title : @"Markdown Export");
 }
 
 - (BOOL)writeHTMLForPrintView:(OMDTextView *)printView toPath:(NSString *)path
@@ -4094,8 +4103,10 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
         }
         NSString *htmlString = [NSString stringWithFormat:
                                 @"<!doctype html><html><head><meta charset=\"utf-8\">"
+                                "<title>%@</title>"
                                 "<style>body{font-family:Segoe UI,Arial,sans-serif;margin:40px;line-height:1.45;color:#222;}pre{white-space:pre-wrap;word-wrap:break-word;font:14px/1.45 Consolas,'Courier New',monospace;}</style>"
                                 "</head><body><pre>%@</pre></body></html>",
+                                OMDHTMLEscapedString([self exportDocumentTitle]),
                                 OMDHTMLEscapedString(plainText)];
         htmlData = [htmlString dataUsingEncoding:NSUTF8StringEncoding];
         if (htmlData == nil || [htmlData length] == 0) {
@@ -4188,9 +4199,21 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
     if (temporaryDirectory == nil || [temporaryDirectory length] == 0) {
         temporaryDirectory = @"C:/Windows/Temp";
     }
-    NSString *fileName = [NSString stringWithFormat:@"ObjcMarkdown-Print-%@.pdf",
-                                                    [[NSProcessInfo processInfo] globallyUniqueString]];
-    return [temporaryDirectory stringByAppendingPathComponent:fileName];
+    // The shell's print verb names the job after the file: the document's
+    // name, in a folder of its own so prints never collide (#261).
+    NSString *folder = [temporaryDirectory stringByAppendingPathComponent:
+                        [NSString stringWithFormat:@"ObjcMarkdown-Print-%@",
+                                                   [[NSProcessInfo processInfo] globallyUniqueString]]];
+    if (![[NSFileManager defaultManager] createDirectoryAtPath:folder
+                                   withIntermediateDirectories:YES
+                                                    attributes:nil
+                                                         error:NULL]) {
+        return nil;
+    }
+    NSCharacterSet *unsafe = [NSCharacterSet characterSetWithCharactersInString:@"\\/:*?\"<>|"];
+    NSString *name = [[[self exportDocumentTitle] componentsSeparatedByCharactersInSet:unsafe]
+                      componentsJoinedByString:@"_"];
+    return [folder stringByAppendingPathComponent:[name stringByAppendingPathExtension:@"pdf"]];
 }
 
 - (BOOL)launchWindowsShellPrintForPDFAtPath:(NSString *)path
