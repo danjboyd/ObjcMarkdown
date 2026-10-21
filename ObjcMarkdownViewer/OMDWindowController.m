@@ -2157,6 +2157,26 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
         return;
     }
 
+    // GNUstep updates every menu on each key press (-performKeyEquivalent:),
+    // so leave the items alone when the list hasn't changed.
+    NSArray *recentForCheck = [[NSDocumentController sharedDocumentController] recentDocumentURLs];
+    NSMutableArray *wantedPaths = [NSMutableArray array];
+    for (NSURL *url in recentForCheck) {
+        if (url != nil && [url isFileURL] && [[url path] length] > 0) {
+            [wantedPaths addObject:[url path]];
+        }
+    }
+    NSMutableArray *shownPaths = [NSMutableArray array];
+    for (NSMenuItem *item in [menu itemArray]) {
+        if ([item action] == @selector(openRecentDocumentFromMenuItem:) &&
+            [[item representedObject] isKindOfClass:[NSString class]]) {
+            [shownPaths addObject:[item representedObject]];
+        }
+    }
+    if ([menu numberOfItems] > 0 && [shownPaths isEqualToArray:wantedPaths]) {
+        return;
+    }
+
     while ([menu numberOfItems] > 0) {
         [menu removeItemAtIndex:0];
     }
