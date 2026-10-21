@@ -5,6 +5,9 @@
 #import "OMMarkdownRendererInternal.h"
 #import "OMFontSupport.h"
 #include "OMEmojiShortcodes.inc"
+#if !defined(GNUSTEP)
+#include "OMEmojiShortcodesAll.inc"
+#endif
 
 NSString * const OMMarkdownRendererMathArtifactsDidWarmNotification = @"OMMarkdownRendererMathArtifactsDidWarmNotification";
 NSString * const OMMarkdownRendererRemoteImagesDidWarmNotification = @"OMMarkdownRendererRemoteImagesDidWarmNotification";
@@ -911,11 +914,19 @@ static NSDictionary *OMEmojiShortcodeTable(void)
     dispatch_once(&onceToken, ^{
         NSMutableDictionary *built = [NSMutableDictionary dictionary];
         size_t index = 0;
+#if !defined(GNUSTEP)
+        // macOS draws every emoji, so every GitHub shortcode becomes one.
+        for (; index < sizeof(OMEmojiShortcodesAll) / sizeof(OMEmojiShortcodesAll[0]); index++) {
+            [built setObject:[NSString stringWithUTF8String:OMEmojiShortcodesAll[index].emoji]
+                      forKey:[NSString stringWithUTF8String:OMEmojiShortcodesAll[index].name]];
+        }
+#else
         for (; index < sizeof(OMEmojiShortcodes) / sizeof(OMEmojiShortcodes[0]); index++) {
             unichar character = OMEmojiShortcodes[index].character;
             [built setObject:[NSString stringWithCharacters:&character length:1]
                       forKey:[NSString stringWithUTF8String:OMEmojiShortcodes[index].name]];
         }
+#endif
         table = [built copy];
     });
     return table;
@@ -982,6 +993,19 @@ static NSString *OMStringByReplacingEmojiShortcodes(NSString *text)
     }
     [result appendString:[text substringFromIndex:copied]];
     return result;
+}
+
+// A link's text that is (part of) its own address, as in autolinks and
+// <url>: shown as typed, so "https://x.org/a:b:c" keeps its ":b:".
+static BOOL OMTextNodeIsLinkAddress(cmark_node *textNode, NSString *text)
+{
+    cmark_node *parent = cmark_node_parent(textNode);
+    if (parent == NULL || cmark_node_get_type(parent) != CMARK_NODE_LINK || [text length] == 0) {
+        return NO;
+    }
+    const char *url = cmark_node_get_url(parent);
+    NSString *urlString = url != NULL ? [NSString stringWithUTF8String:url] : nil;
+    return urlString != nil && [urlString rangeOfString:text].location != NSNotFound;
 }
 
 static void OMAppendTextWithMathSpans(NSString *text,
@@ -2244,7 +2268,11 @@ void OMRenderInlines(cmark_node *node,
 #if defined(GNUSTEP)
                 NSUInteger textStart = [output length];
 #endif
-                OMAppendTextWithMathSpans(text, theme, output, attributes, scale, renderContext);
+                if (OMTextNodeIsLinkAddress(child, text)) {
+                    OMAppendString(output, text, attributes);
+                } else {
+                    OMAppendTextWithMathSpans(text, theme, output, attributes, scale, renderContext);
+                }
 #if defined(GNUSTEP)
                 OMApplyTextFallbackFonts(output, textStart);
 #endif

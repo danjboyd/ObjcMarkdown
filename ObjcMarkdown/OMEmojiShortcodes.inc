@@ -1,7 +1,8 @@
 // ObjcMarkdown: GitHub emoji shortcodes whose emoji is one character in the
 // Basic Multilingual Plane and has a glyph in the Symbola font. GNUstep can't
 // draw characters beyond the BMP or colour emoji fonts, so other shortcodes
-// are left as typed. Generated from github/gemoji db/emoji.json:
+// are left as typed there (macOS uses OMEmojiShortcodesAll.inc). Generated
+// from github/gemoji db/emoji.json:
 //
 //   Copyright (c) 2019 GitHub, Inc.
 //
