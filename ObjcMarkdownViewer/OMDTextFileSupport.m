@@ -290,3 +290,12 @@ NSString *OMDNormalizedRelativePath(NSString *value)
     }
     return [normalized componentsJoinedByString:@"/"];
 }
+
+NSString *OMDPrintJobTitle(NSString *path, NSString *displayTitle)
+{
+    NSString *title = OMDTrimmedString(displayTitle);
+    if ([title length] == 0) {
+        title = OMDTrimmedString([path lastPathComponent]);
+    }
+    return ([title length] > 0 ? title : nil);
+}

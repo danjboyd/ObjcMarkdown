@@ -523,6 +523,7 @@ static CGFloat OMDClampedScrollSpeed(CGFloat value)
 - (NSPrintInfo *)configuredPrintInfo;
 - (CGFloat)printableContentWidthForPrintInfo:(NSPrintInfo *)printInfo;
 - (OMDTextView *)newPrintTextViewForPrintInfo:(NSPrintInfo *)printInfo;
+- (void)applyPrintJobTitleToOperation:(NSPrintOperation *)operation;
 #if defined(_WIN32)
 - (NSString *)windowsHeadlessBrowserPath;
 - (NSString *)temporaryHTMLExportPath;
@@ -3834,6 +3835,16 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
     return printView;
 }
 
+// Name the job after the document, as the window does, so the print
+// queue and a PDF saved from the print panel aren't "Untitled" (#261).
+- (void)applyPrintJobTitleToOperation:(NSPrintOperation *)operation
+{
+    NSString *title = OMDPrintJobTitle(_currentPath, _currentDisplayTitle);
+    if (title != nil) {
+        [operation setJobTitle:title];
+    }
+}
+
 - (void)printDocument:(id)sender
 {
     (void)sender;
@@ -3859,6 +3870,7 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
     }
 #else
     NSPrintOperation *operation = [NSPrintOperation printOperationWithView:printView printInfo:printInfo];
+    [self applyPrintJobTitleToOperation:operation];
     [self logPrintDiagnosticsForOperation:operation printInfo:printInfo stage:@"before runOperation"];
     [operation setShowsPrintPanel:YES];
     [operation setShowsProgressPanel:YES];
@@ -4226,6 +4238,7 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
 
     NSPrintOperation *operation = [NSPrintOperation printOperationWithView:printView
                                                                  printInfo:printInfo];
+    [self applyPrintJobTitleToOperation:operation];
     [self logPrintDiagnosticsForOperation:operation printInfo:printInfo stage:@"before export runOperation"];
     [operation setShowsPrintPanel:NO];
     [operation setShowsProgressPanel:YES];
