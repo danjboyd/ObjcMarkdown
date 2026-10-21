@@ -167,7 +167,10 @@ static double OMDKeyLatencyMS(NSTimeInterval start, NSTimeInterval end)
     if (thickness < 30.0) {
         thickness = 30.0;
     }
-    [self setRuleThickness:thickness];
+    // Setting it retiles the scroll view, which redraws all of it.
+    if (fabs([self ruleThickness] - thickness) > 0.01) {
+        [self setRuleThickness:thickness];
+    }
     if (profiling) {
         NSTimeInterval end = OMDKeyLatencyNow();
         double totalMS = OMDKeyLatencyMS(start, end);
