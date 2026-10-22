@@ -2256,6 +2256,165 @@ static BOOL OMDMathToolchainAvailable(void)
     XCTAssertTrue([text rangeOfString:@"[ ]"].location == NSNotFound);
 }
 
+// The indexes of the boxes that carry the task item attribute, in order.
+- (NSArray *)taskBoxIndexesIn:(NSAttributedString *)rendered
+{
+    NSMutableArray *indexes = [NSMutableArray array];
+    NSUInteger index = 0;
+    while (index < [rendered length]) {
+        NSRange run = NSMakeRange(0, 0);
+        id value = [rendered attribute:OMMarkdownRendererTaskItemAttributeName
+                               atIndex:index
+                 longestEffectiveRange:&run
+                               inRange:NSMakeRange(index, [rendered length] - index)];
+        if (value != nil) {
+            NSUInteger at = 0;
+            for (at = run.location; at < NSMaxRange(run); at++) {
+                [indexes addObject:[NSNumber numberWithUnsignedInteger:at]];
+            }
+        }
+        index = NSMaxRange(run) > index ? NSMaxRange(run) : index + 1;
+    }
+    return indexes;
+}
+
+// Each item points at its own brackets in markdown, agrees with its box, and
+// the boxes and items pair up one to one.
+- (void)assertTaskItems:(NSArray *)items
+               rendered:(NSAttributedString *)rendered
+               markdown:(NSString *)markdown
+{
+    NSArray *boxes = [self taskBoxIndexesIn:rendered];
+    NSMutableSet *locations = [NSMutableSet set];
+    NSUInteger i = 0;
+    XCTAssertEqual([boxes count], [items count]);
+    for (i = 0; i < [items count] && i < [boxes count]; i++) {
+        NSDictionary *item = [items objectAtIndex:i];
+        NSUInteger location = [[item objectForKey:OMMarkdownRendererTaskItemSourceLocationKey] unsignedIntegerValue];
+        BOOL checked = [[item objectForKey:OMMarkdownRendererTaskItemCheckedKey] boolValue];
+        unichar box = [[rendered string] characterAtIndex:[[boxes objectAtIndex:i] unsignedIntegerValue]];
+        XCTAssertTrue(location >= 1 && location + 1 < [markdown length]);
+        XCTAssertEqual([markdown characterAtIndex:location - 1], (unichar)'[');
+        XCTAssertEqual([markdown characterAtIndex:location + 1], (unichar)']');
+        unichar state = [markdown characterAtIndex:location];
+        XCTAssertEqual((state == 'x' || state == 'X'), checked);
+        XCTAssertEqual(box, (unichar)(checked ? 0x2611 : 0x2610));
+        [locations addObject:[NSNumber numberWithUnsignedInteger:location]];
+    }
+    XCTAssertEqual([locations count], [items count]);
+}
+
+// Toggles item n in markdown at its reported location.
+- (NSString *)markdown:(NSString *)markdown togglingTaskItem:(NSDictionary *)item
+{
+    NSUInteger location = [[item objectForKey:OMMarkdownRendererTaskItemSourceLocationKey] unsignedIntegerValue];
+    BOOL checked = [[item objectForKey:OMMarkdownRendererTaskItemCheckedKey] boolValue];
+    return [markdown stringByReplacingCharactersInRange:NSMakeRange(location, 1)
+                                             withString:(checked ? @" " : @"x")];
+}
+
+// Each box maps back to its own "[ ]": identical items, nested and ordered
+// items. A "[ ]" in code, in text or in a quote is no item (cmark-gfm
+// finds no task items in block quotes).
+- (void)testTaskItemsMapToTheirOwnBrackets
+{
+    NSString *markdown = @"# Tasks\n"
+                         @"\n"
+                         @"- [ ] same\n"
+                         @"- [ ] same\n"
+                         @"  - [x] nested\n"
+                         @"    - [ ] deeper\n"
+                         @"\n"
+                         @"1. [X] ordered\n"
+                         @"10) [ ] ten\n"
+                         @"\n"
+                         @"> - [ ] quoted\n"
+                         @"\n"
+                         @"```\n"
+                         @"- [ ] in code\n"
+                         @"```\n"
+                         @"\n"
+                         @"    - [ ] indented code\n"
+                         @"\n"
+                         @"- plain [ ] text\n"
+                         @"- [ ]\n";
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
+    NSArray *items = [renderer taskItems];
+    NSUInteger i = 0;
+
+    XCTAssertEqual([items count], (NSUInteger)6);
+    [self assertTaskItems:items rendered:rendered markdown:markdown];
+    NSInteger lines[6] = { 3, 4, 5, 6, 8, 9 };
+    for (i = 0; i < [items count] && i < 6; i++) {
+        XCTAssertEqual([[[items objectAtIndex:i] objectForKey:OMMarkdownRendererTaskItemSourceLineKey] integerValue], lines[i]);
+    }
+
+    // Toggling the second "same" changes that item and no other.
+    NSString *toggled = [self markdown:markdown togglingTaskItem:[items objectAtIndex:1]];
+    [renderer attributedStringFromMarkdown:toggled];
+    NSArray *after = [renderer taskItems];
+    XCTAssertEqual([after count], [items count]);
+    for (i = 0; i < [after count] && i < [items count]; i++) {
+        BOOL before = [[[items objectAtIndex:i] objectForKey:OMMarkdownRendererTaskItemCheckedKey] boolValue];
+        BOOL now = [[[after objectAtIndex:i] objectForKey:OMMarkdownRendererTaskItemCheckedKey] boolValue];
+        XCTAssertEqual(now, (i == 1 ? !before : before));
+    }
+    XCTAssertTrue([toggled rangeOfString:@"- [ ] in code"].location != NSNotFound);
+    XCTAssertTrue([[rendered string] rangeOfString:@"[ ] quoted"].location != NSNotFound);
+}
+
+// Locations are UTF-16 indexes into the markdown as given: CRLF line ends, a
+// tab after the marker, text beyond the BMP before the list, front matter.
+- (void)testTaskItemLocationsWithCRLFTabsUnicodeAndFrontMatter
+{
+    NSString *markdown = @"---\r\n"
+                         @"title: été\r\n"
+                         @"---\r\n"
+                         @"Intro é \U0001F389 café\r\n"
+                         @"\r\n"
+                         @"-\t[ ] tab\r\n"
+                         @"- [x] crlf \U0001F389\r\n"
+                         @"\r\n"
+                         @"* [ ] star \u00e9\r\n"
+                         @"  + [X] plus\r\n";
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
+    NSArray *items = [renderer taskItems];
+
+    XCTAssertEqual([items count], (NSUInteger)4);
+    [self assertTaskItems:items rendered:rendered markdown:markdown];
+    NSString *toggled = markdown;
+    for (NSDictionary *item in items) {
+        toggled = [self markdown:toggled togglingTaskItem:item];
+    }
+    XCTAssertTrue([toggled rangeOfString:@"-\t[x] tab\r\n"].location != NSNotFound);
+    XCTAssertTrue([toggled rangeOfString:@"- [ ] crlf"].location != NSNotFound);
+    XCTAssertTrue([toggled rangeOfString:@"* [x] star"].location != NSNotFound);
+    XCTAssertTrue([toggled rangeOfString:@"  + [ ] plus"].location != NSNotFound);
+}
+
+// The pointing hand is only on boxes a view lets you click; a later render
+// without task items leaves none from the earlier one.
+- (void)testTaskBoxCursorOnlyWhenInteractiveAndItemsResetEachRender
+{
+    NSString *markdown = @"- [ ] one\n- [x] two\n";
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
+    NSUInteger box = [[[self taskBoxIndexesIn:rendered] objectAtIndex:0] unsignedIntegerValue];
+    XCTAssertNil([rendered attribute:NSCursorAttributeName atIndex:box effectiveRange:NULL]);
+
+    [renderer setInteractiveTaskItems:YES];
+    rendered = [renderer attributedStringFromMarkdown:markdown];
+    box = [[[self taskBoxIndexesIn:rendered] objectAtIndex:0] unsignedIntegerValue];
+    XCTAssertEqualObjects([rendered attribute:NSCursorAttributeName atIndex:box effectiveRange:NULL],
+                          [NSCursor pointingHandCursor]);
+    XCTAssertNil([rendered attribute:NSCursorAttributeName atIndex:box + 1 effectiveRange:NULL]);
+
+    [renderer attributedStringFromMarkdown:@"No tasks here.\n"];
+    XCTAssertEqual([[renderer taskItems] count], (NSUInteger)0);
+}
+
 - (void)testFootnotesRenderAsSuperscriptAndNumberedNotes
 {
     OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];

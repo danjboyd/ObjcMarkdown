@@ -17,6 +17,39 @@
           userData:(void *)userData;
 @end
 
+// Records the task box a click asked to toggle.
+@interface OMDTaskToggleRecorder : NSObject <OMDTextViewRenderedObjectDelegate>
+{
+    NSUInteger _toggledIndex;
+}
+- (NSUInteger)toggledIndex;
+@end
+
+@implementation OMDTaskToggleRecorder
+
+- (instancetype)init
+{
+    self = [super init];
+    if (self != nil) {
+        _toggledIndex = NSNotFound;
+    }
+    return self;
+}
+
+- (NSUInteger)toggledIndex
+{
+    return _toggledIndex;
+}
+
+- (BOOL)textView:(OMDTextView *)textView toggleTaskItemAtIndex:(NSUInteger)itemIndex
+{
+    (void)textView;
+    _toggledIndex = itemIndex;
+    return YES;
+}
+
+@end
+
 @interface OMDTextViewTests : XCTestCase
 @end
 
@@ -336,6 +369,102 @@
     XCTAssertNil([textView renderedObjectAtPoint:outside characterIndex:NULL]);
     NSPoint onIntro = NSMakePoint(origin.x + 4.0, origin.y + 4.0);
     XCTAssertNil([textView renderedObjectAtPoint:onIntro characterIndex:NULL]);
+}
+
+- (NSString *)taskMarkdown
+{
+    return @"- [ ] first\n- plain\n- [x] second\n\n```\n- [ ] in code\n```\n";
+}
+
+// The character index of the n-th task box, or NSNotFound.
+- (NSUInteger)indexOfTaskBox:(NSUInteger)n inTextView:(OMDTextView *)textView
+{
+    NSTextStorage *storage = [textView textStorage];
+    NSUInteger index = 0;
+    NSUInteger seen = 0;
+    for (; index < [storage length]; index++) {
+        if ([storage attribute:OMMarkdownRendererTaskItemAttributeName atIndex:index effectiveRange:NULL] != nil) {
+            if (seen == n) {
+                return index;
+            }
+            seen += 1;
+        }
+    }
+    return NSNotFound;
+}
+
+// The centre of the glyph at a character index, in view coordinates.
+- (NSPoint)centreOfCharacter:(NSUInteger)index inTextView:(OMDTextView *)textView
+{
+    NSLayoutManager *layoutManager = [textView layoutManager];
+    NSRange glyphs = [layoutManager glyphRangeForCharacterRange:NSMakeRange(index, 1) actualCharacterRange:NULL];
+    NSRect box = [layoutManager boundingRectForGlyphRange:glyphs inTextContainer:[textView textContainer]];
+    NSPoint origin = [textView textContainerOrigin];
+    return NSMakePoint(NSMidX(box) + origin.x, NSMidY(box) + origin.y);
+}
+
+// Boxes are numbered in order; a "[ ]" in code or an item's text is none.
+- (void)testTaskItemIndexesCountTheBoxes
+{
+    OMDTextView *textView = [self textViewShowingMarkdown:[self taskMarkdown]];
+    NSTextStorage *storage = [textView textStorage];
+    NSUInteger first = [self indexOfTaskBox:0 inTextView:textView];
+    NSUInteger second = [self indexOfTaskBox:1 inTextView:textView];
+    XCTAssertTrue(first != NSNotFound && second != NSNotFound);
+    XCTAssertEqual([self indexOfTaskBox:2 inTextView:textView], (NSUInteger)NSNotFound);
+    if (first == NSNotFound || second == NSNotFound) {
+        return;
+    }
+    XCTAssertEqual(OMDTaskItemIndexAtCharacterIndex(storage, first), (NSUInteger)0);
+    XCTAssertEqual(OMDTaskItemIndexAtCharacterIndex(storage, second), (NSUInteger)1);
+    XCTAssertEqual(OMDTaskItemIndexAtCharacterIndex(storage, first + 2), (NSUInteger)NSNotFound);
+    XCTAssertEqual(OMDTaskItemIndexAtCharacterIndex(storage, [storage length]), (NSUInteger)NSNotFound);
+    XCTAssertEqual(OMDTaskItemIndexAtCharacterIndex(nil, 0), (NSUInteger)NSNotFound);
+
+    // Hit testing: the box itself, not the item's text beside it.
+    XCTAssertEqual([textView taskItemIndexAtPoint:[self centreOfCharacter:second inTextView:textView]], (NSUInteger)1);
+    XCTAssertEqual([textView taskItemIndexAtPoint:[self centreOfCharacter:second + 3 inTextView:textView]],
+                   (NSUInteger)NSNotFound);
+}
+
+// A click on a box goes to the delegate with the box's number, and the
+// view's selection stays as it was.
+- (void)testClickOnTaskBoxAsksDelegateAndKeepsSelection
+{
+    OMDTextView *textView = [self textViewShowingMarkdown:[self taskMarkdown]];
+    OMDTaskToggleRecorder *recorder = [[[OMDTaskToggleRecorder alloc] init] autorelease];
+    NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0.0, 0.0, 640.0, 800.0)
+                                                   styleMask:NSBorderlessWindowMask
+                                                     backing:NSBackingStoreBuffered
+                                                       defer:YES];
+    [[window contentView] addSubview:textView];
+    [textView setDelegate:(id)recorder];
+    NSUInteger second = [self indexOfTaskBox:1 inTextView:textView];
+    XCTAssertTrue(second != NSNotFound);
+    if (second == NSNotFound) {
+        [window release];
+        return;
+    }
+    NSRange selection = NSMakeRange(second + 2, 3);
+    [textView setSelectedRange:selection];
+
+    NSPoint inWindow = [textView convertPoint:[self centreOfCharacter:second inTextView:textView] toView:nil];
+    NSEvent *click = [NSEvent mouseEventWithType:NSLeftMouseDown
+                                        location:inWindow
+                                   modifierFlags:0
+                                       timestamp:0.0
+                                    windowNumber:[window windowNumber]
+                                         context:nil
+                                     eventNumber:0
+                                      clickCount:1
+                                        pressure:1.0];
+    [textView mouseDown:click];
+    XCTAssertEqual([recorder toggledIndex], (NSUInteger)1);
+    XCTAssertTrue(NSEqualRanges([textView selectedRange], selection));
+
+    [textView setDelegate:nil];
+    [textView removeFromSuperview];
+    [window release];
 }
 
 - (void)testPartOfATableCopiesAsTabSeparatedText

@@ -81,6 +81,15 @@ static const NSTimeInterval OMDSourceSyntaxHighlightDebounceInterval = 0.08;
 static const NSTimeInterval OMDSourceSyntaxHighlightLargeDocDebounceInterval = 0.16;
 static const NSTimeInterval OMDRecoveryAutosaveDebounceInterval = 1.25;
 static const NSTimeInterval OMDExternalFileMonitorInterval = 1.50;
+// Undo names of a task box's toggle, which undo and redo recognise to save
+// the document as the toggle itself did.
+static NSString * const OMDCheckTaskActionName = @"Check Task";
+static NSString * const OMDUncheckTaskActionName = @"Uncheck Task";
+
+static BOOL OMDIsTaskToggleActionName(NSString *name)
+{
+    return [name isEqualToString:OMDCheckTaskActionName] || [name isEqualToString:OMDUncheckTaskActionName];
+}
 static const NSUInteger OMDSourceSyntaxIncrementalThreshold = 120000;
 static const NSUInteger OMDSourceSyntaxIncrementalContextChars = 12000;
 static const CGFloat OMDSourceEditorDefaultFontSize = 13.0;
@@ -598,6 +607,11 @@ static CGFloat OMDClampedScrollSpeed(CGFloat value)
 - (void)toggleBoldFormatting:(id)sender;
 - (void)toggleItalicFormatting:(id)sender;
 - (NSTextView *)activeEditingTextView;
+- (NSUndoManager *)activeUndoManager;
+- (void)finishTaskToggleWasClean:(BOOL)wasClean;
+- (void)saveAfterTaskToggleAtPath:(NSString *)path;
+- (BOOL)replaceTaskStateAtSourceLocation:(NSUInteger)location withState:(NSString *)state;
+- (void)undoTaskStateChange:(NSDictionary *)change;
 - (void)undo:(id)sender;
 - (void)redo:(id)sender;
 - (void)updateModeControlSelection;
@@ -851,6 +865,8 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [_workspaceMainContainer release];
     [_sidebarContainer release];
     [_renderer release];
+    [_previewTaskItems release];
+    [_previewTaskItemsMarkdown release];
     [_sourceTextView release];
     [_sourceScrollView release];
     [_previewScrollView release];
@@ -1318,6 +1334,8 @@ static NSMutableArray *OMDSecondaryWindows(void)
     // The preview follows the desktop's light or dark appearance; printing
     // keeps its own light renderer.
     [_renderer setTheme:[OMTheme defaultThemeForDarkAppearance:OMDSystemAppearanceIsDark()]];
+    // Clicking a task box in the preview toggles it.
+    [_renderer setInteractiveTaskItems:YES];
     OMDStartupTrace(@"setupWindow: renderer allocated");
     OMMarkdownParsingOptions *options = [OMMarkdownParsingOptions defaultOptions];
     id mathPolicyValue = [defaults objectForKey:OMDMathRenderingPolicyDefaultsKey];
@@ -2006,14 +2024,12 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
     }
 
     if (action == @selector(undo:)) {
-        NSTextView *textView = [self activeEditingTextView];
-        NSUndoManager *undoManager = (textView != nil ? [textView undoManager] : nil);
+        NSUndoManager *undoManager = [self activeUndoManager];
         return undoManager != nil && [undoManager canUndo];
     }
 
     if (action == @selector(redo:)) {
-        NSTextView *textView = [self activeEditingTextView];
-        NSUndoManager *undoManager = (textView != nil ? [textView undoManager] : nil);
+        NSUndoManager *undoManager = [self activeUndoManager];
         return undoManager != nil && [undoManager canRedo];
     }
 
@@ -4672,6 +4688,10 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
     _isProgrammaticPreviewUpdate = YES;
     OMDApplyRenderedString([_textView textStorage], rendered);
     _isProgrammaticPreviewUpdate = NO;
+    [_previewTaskItems release];
+    _previewTaskItems = [[_renderer taskItems] copy];
+    [_previewTaskItemsMarkdown release];
+    _previewTaskItemsMarkdown = [previewMarkdown copy];
     [self logPreviewStyleDiagnosticsForRenderedString:rendered];
     NSTimeInterval applyMs = perfLogging ? ((OMDNow() - applyStart) * 1000.0) : 0.0;
     [self updatePreviewDocumentGeometry];
@@ -4788,6 +4808,10 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
     NSAttributedString *empty = [[[NSAttributedString alloc] initWithString:@""] autorelease];
     [[_textView textStorage] setAttributedString:empty];
     _isProgrammaticPreviewUpdate = NO;
+    [_previewTaskItems release];
+    _previewTaskItems = nil;
+    [_previewTaskItemsMarkdown release];
+    _previewTaskItemsMarkdown = nil;
 
     if ([_textView isKindOfClass:[OMDTextView class]]) {
         OMDTextView *previewTextView = (OMDTextView *)_textView;
@@ -8859,29 +8883,48 @@ static CGFloat OMDOutlinePanelWidth(NSRect bounds)
     return nil;
 }
 
+// The editor's history. The preview has none of its own (its undo manager
+// is the window's): what it changes, through its task boxes, is in the
+// document's, so with the preview focused (Read, or Split) it is that one.
+- (NSUndoManager *)activeUndoManager
+{
+    NSTextView *textView = [self activeEditingTextView];
+    if (textView != nil && textView != _textView) {
+        return [textView undoManager];
+    }
+    if ([self isPreviewVisible] && [self hasLoadedDocument] && !_currentDocumentReadOnly) {
+        return [[self currentDocument] undoManager];
+    }
+    return nil;
+}
+
 - (void)undo:(id)sender
 {
     (void)sender;
-    NSTextView *textView = [self activeEditingTextView];
-    if (textView == nil) {
+    NSUndoManager *undoManager = [self activeUndoManager];
+    if (undoManager == nil || ![undoManager canUndo]) {
         return;
     }
-    NSUndoManager *undoManager = [textView undoManager];
-    if (undoManager != nil && [undoManager canUndo]) {
-        [undoManager undo];
+    BOOL taskToggle = OMDIsTaskToggleActionName([undoManager undoActionName]);
+    BOOL wasClean = !_sourceIsDirty;
+    [undoManager undo];
+    if (taskToggle) {
+        [self finishTaskToggleWasClean:wasClean];
     }
 }
 
 - (void)redo:(id)sender
 {
     (void)sender;
-    NSTextView *textView = [self activeEditingTextView];
-    if (textView == nil) {
+    NSUndoManager *undoManager = [self activeUndoManager];
+    if (undoManager == nil || ![undoManager canRedo]) {
         return;
     }
-    NSUndoManager *undoManager = [textView undoManager];
-    if (undoManager != nil && [undoManager canRedo]) {
-        [undoManager redo];
+    BOOL taskToggle = OMDIsTaskToggleActionName([undoManager redoActionName]);
+    BOOL wasClean = !_sourceIsDirty;
+    [undoManager redo];
+    if (taskToggle) {
+        [self finishTaskToggleWasClean:wasClean];
     }
 }
 
@@ -9123,6 +9166,150 @@ static NSRange OMDCharacterRangeForSourceLines(NSString *source, NSRange lineRan
     }
     [OMMarkdownRenderer invalidateCachedMathForFormula:[object source]];
     [_renderScheduler scheduleMathArtifactRefresh];
+}
+
+// A click on a task box in the preview (Read or Split) toggles the item's
+// "[ ]" in the source: an edit like any other, which undo reverts. A
+// document with no other unsaved changes is saved at once (Dan,
+// 2026-10-22), so a file someone else watches sees the change; one with
+// unsaved changes keeps them, and the toggle, for the user to save.
+- (BOOL)textView:(OMDTextView *)textView toggleTaskItemAtIndex:(NSUInteger)itemIndex
+{
+    if (textView != _textView || _sourceTextView == nil || ![self hasLoadedDocument] ||
+        _currentDocumentReadOnly || _currentDocumentRenderMode != OMDDocumentRenderModeMarkdown) {
+        return NO;
+    }
+    // The file changed on disk: the usual prompt, not a toggle of text that
+    // may be out of date.
+    NSUInteger revision = _sourceRevision;
+    [self refreshCurrentDocumentDiskStateAllowPrompt:NO];
+    if (_sourceRevision != revision || [self currentDocumentHasNewerDiskVersion]) {
+        [self refreshCurrentDocumentDiskStateAllowPrompt:YES];
+        return YES;
+    }
+    // The boxes map to the source only if the preview shows the editor's
+    // text as it is now; otherwise bring the preview up to date first.
+    NSString *source = [_sourceTextView string];
+    if (_previewTaskItemsMarkdown == nil || ![_previewTaskItemsMarkdown isEqualToString:source] ||
+        itemIndex >= [_previewTaskItems count]) {
+        [self renderCurrentMarkdown];
+        NSBeep();
+        return YES;
+    }
+
+    NSDictionary *item = [_previewTaskItems objectAtIndex:itemIndex];
+    NSUInteger location = [[item objectForKey:OMMarkdownRendererTaskItemSourceLocationKey] unsignedIntegerValue];
+    BOOL checked = [[item objectForKey:OMMarkdownRendererTaskItemCheckedKey] boolValue];
+    if (location == 0 || location + 1 >= [source length] ||
+        [source characterAtIndex:location - 1] != '[' || [source characterAtIndex:location + 1] != ']') {
+        NSBeep();
+        return YES;
+    }
+    BOOL wasClean = !_sourceIsDirty;
+    if ([self replaceTaskStateAtSourceLocation:location withState:(checked ? @" " : @"x")]) {
+        [self finishTaskToggleWasClean:wasClean];
+    }
+    return YES;
+}
+
+// Puts state (" " or "x") between the brackets at location and registers
+// the change back as its undo, named for what the toggle did. The edit goes
+// through the editor, so the document and preview follow as for typing; the
+// editor's own undo record is left out, because GNUstep replays that one on
+// the text storage without telling the editor's delegate, which then keeps
+// the old text.
+- (BOOL)replaceTaskStateAtSourceLocation:(NSUInteger)location withState:(NSString *)state
+{
+    NSString *source = [_sourceTextView string];
+    if (_sourceTextView == nil || location == 0 || location + 1 >= [source length] ||
+        [source characterAtIndex:location - 1] != '[' || [source characterAtIndex:location + 1] != ']') {
+        NSBeep();
+        return NO;
+    }
+    NSRange range = NSMakeRange(location, 1);
+    NSString *previous = [source substringWithRange:range];
+    NSArray *sourceSelection = [[[_sourceTextView selectedRanges] copy] autorelease];
+    NSUndoManager *undoManager = [[self currentDocument] undoManager];
+
+    [undoManager disableUndoRegistration];
+    BOOL allowed = [_sourceTextView shouldChangeTextInRange:range replacementString:state];
+    if (allowed) {
+        NSTextStorage *storage = [_sourceTextView textStorage];
+        [storage beginEditing];
+        [storage replaceCharactersInRange:range withString:state];
+        [storage endEditing];
+        [_sourceTextView didChangeText];
+    }
+    [undoManager enableUndoRegistration];
+    if (!allowed) {
+        return NO;
+    }
+    [undoManager registerUndoWithTarget:self
+                               selector:@selector(undoTaskStateChange:)
+                                 object:[NSDictionary dictionaryWithObjectsAndKeys:
+                                            [NSNumber numberWithUnsignedInteger:location], @"location",
+                                            previous, @"state",
+                                            nil]];
+    [undoManager setActionName:([state isEqualToString:@" "] ? OMDUncheckTaskActionName : OMDCheckTaskActionName)];
+    // One character for one: the editor's selection stays where it was.
+    _isProgrammaticSelectionSync = YES;
+    [_sourceTextView setSelectedRanges:sourceSelection];
+    _isProgrammaticSelectionSync = NO;
+    return YES;
+}
+
+// Undo (and, registered in turn, redo) of a task box's toggle. -undo: and
+// -redo: then show and save it (-finishTaskToggleWasClean:).
+- (void)undoTaskStateChange:(NSDictionary *)change
+{
+    NSUInteger location = [[change objectForKey:@"location"] unsignedIntegerValue];
+    NSString *state = [change objectForKey:@"state"];
+    if (![self hasLoadedDocument] || _currentDocumentReadOnly || state == nil) {
+        return;
+    }
+    [self replaceTaskStateAtSourceLocation:location withState:state];
+}
+
+// After a task box's edit, or its undo or redo: the preview shows it at once
+// (Read mode has no live preview), both panes stay where they were, and a
+// document that was clean is saved.
+- (void)finishTaskToggleWasClean:(BOOL)wasClean
+{
+    NSClipView *previewClip = [_previewScrollView contentView];
+    NSClipView *sourceClip = [_sourceScrollView contentView];
+    NSPoint previewOrigin = [previewClip bounds].origin;
+    NSPoint sourceOrigin = [sourceClip bounds].origin;
+    NSRange previewSelection = [_textView selectedRange];
+
+    if ([self isPreviewVisible]) {
+        [self renderCurrentMarkdown];
+        [previewClip scrollToPoint:previewOrigin];
+        [_previewScrollView reflectScrolledClipView:previewClip];
+        if (NSMaxRange(previewSelection) <= [[_textView textStorage] length]) {
+            [_textView setSelectedRange:previewSelection];
+        }
+    }
+    if (sourceClip != nil) {
+        [sourceClip scrollToPoint:sourceOrigin];
+        [_sourceScrollView reflectScrolledClipView:sourceClip];
+    }
+
+    // Saved on the next pass of the run loop: the change counts as unsaved
+    // only when the undo group of the event that made it closes, so a save
+    // now would be followed by the document marking itself edited again.
+    if (wasClean && [OMDTrimmedString(_currentPath) length] > 0 &&
+        ![self isImportableDocumentPath:_currentPath] && !_currentDocumentReadOnly) {
+        [self performSelector:@selector(saveAfterTaskToggleAtPath:) withObject:[[_currentPath copy] autorelease] afterDelay:0.0];
+    }
+}
+
+- (void)saveAfterTaskToggleAtPath:(NSString *)path
+{
+    // Only the document the toggle was made in, if it is still shown.
+    if (![self hasLoadedDocument] || ![path isEqualToString:_currentPath] || _currentDocumentReadOnly) {
+        return;
+    }
+    [self saveDocumentFromVimCommand];
 }
 
 - (void)refreshOutline

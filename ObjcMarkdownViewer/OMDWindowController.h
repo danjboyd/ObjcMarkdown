@@ -126,6 +126,10 @@ typedef unsigned short mode_t;
     BOOL _sourceVimForceClose;
     NSUInteger _sourceRevision;
     NSUInteger _lastRenderedSourceRevision;
+    // The preview's task items and the markdown they were rendered from: a
+    // click on a box maps to its source only while that is the editor's text.
+    NSArray *_previewTaskItems;
+    NSString *_previewTaskItemsMarkdown;
     NSTimeInterval _lastZoomSliderEventTime;
     CGFloat _lastRenderedLayoutWidth;
     NSInteger _activeLinkedScrollDriver;

@@ -62,6 +62,13 @@ typedef struct {
     NSMutableArray *headings;
     // Slugs handed out so far in this document, for GitHub's de-duplication.
     NSMutableDictionary *headingSlugCounts;
+    // The markdown as given (sourceLines are its lines), for the task items'
+    // source locations; the UTF-16 index of each line's start, filled the
+    // first time a task item needs it (see OMTaskItemSourceLocation).
+    NSString *sourceMarkdown;
+    NSMutableData *sourceLineStarts;
+    NSMutableArray *taskItems;
+    BOOL interactiveTaskItems;
     // The list contexts enclosing the block being rendered (see OMRenderList).
     NSMutableArray *listStack;
     // Hashed source lines for block IDs (see OMBlockSignatureIndex).

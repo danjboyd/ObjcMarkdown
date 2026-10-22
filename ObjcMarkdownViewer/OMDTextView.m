@@ -17,6 +17,29 @@
 }
 @end
 
+NSUInteger OMDTaskItemIndexAtCharacterIndex(NSAttributedString *text, NSUInteger characterIndex)
+{
+    if (text == nil || characterIndex >= [text length] ||
+        [text attribute:OMMarkdownRendererTaskItemAttributeName atIndex:characterIndex effectiveRange:NULL] == nil) {
+        return NSNotFound;
+    }
+    // Count the boxes before it; each box is one character.
+    NSUInteger count = 0;
+    NSUInteger index = 0;
+    while (index < characterIndex) {
+        NSRange run = NSMakeRange(index, 0);
+        id value = [text attribute:OMMarkdownRendererTaskItemAttributeName
+                           atIndex:index
+             longestEffectiveRange:&run
+                           inRange:NSMakeRange(index, characterIndex - index)];
+        if (value != nil) {
+            count += run.length;
+        }
+        index = NSMaxRange(run) > index ? NSMaxRange(run) : index + 1;
+    }
+    return count;
+}
+
 @implementation OMDTextView
 
 - (instancetype)initWithFrame:(NSRect)frameRect
@@ -33,6 +56,7 @@
 
 - (void)dealloc
 {
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
     [_documentBackgroundColor release];
     [_documentBorderColor release];
     [_codeBlockRanges release];
@@ -259,6 +283,96 @@
     }
     return object;
 }
+
+- (NSUInteger)taskItemIndexAtPoint:(NSPoint)point
+{
+    NSLayoutManager *layoutManager = [self layoutManager];
+    NSTextContainer *container = [self textContainer];
+    if (layoutManager == nil || container == nil || [[self textStorage] length] == 0) {
+        return NSNotFound;
+    }
+    NSPoint origin = [self textContainerOrigin];
+    NSPoint containerPoint = NSMakePoint(point.x - origin.x, point.y - origin.y);
+    NSUInteger glyphIndex = [layoutManager glyphIndexForPoint:containerPoint inTextContainer:container];
+    if (glyphIndex >= [layoutManager numberOfGlyphs]) {
+        return NSNotFound;
+    }
+    // The box's own glyph only, not the space or text beside it.
+    NSRect glyphRect = [layoutManager boundingRectForGlyphRange:NSMakeRange(glyphIndex, 1)
+                                                inTextContainer:container];
+    if (!NSPointInRect(containerPoint, glyphRect)) {
+        return NSNotFound;
+    }
+    return OMDTaskItemIndexAtCharacterIndex([self textStorage],
+                                            [layoutManager characterIndexForGlyphAtIndex:glyphIndex]);
+}
+
+#if defined(GNUSTEP)
+// GNUstep's NSTextView gives links a pointing hand but doesn't read
+// NSCursorAttributeName (the renderer's clickable task boxes); add those
+// the same way, over the visible text.
+- (void)resetCursorRects
+{
+    [super resetCursorRects];
+    NSLayoutManager *layoutManager = [self layoutManager];
+    NSTextContainer *container = [self textContainer];
+    NSTextStorage *storage = [self textStorage];
+    NSRect visible = [self visibleRect];
+    if (![self isSelectable] || layoutManager == nil || container == nil ||
+        [storage length] == 0 || NSIsEmptyRect(visible)) {
+        return;
+    }
+    NSPoint origin = [self textContainerOrigin];
+    NSRect inContainer = NSOffsetRect(visible, -origin.x, -origin.y);
+    NSRange glyphs = [layoutManager glyphRangeForBoundingRectWithoutAdditionalLayout:inContainer
+                                                                    inTextContainer:container];
+    NSRange characters = [layoutManager characterRangeForGlyphRange:glyphs actualGlyphRange:NULL];
+    NSUInteger index = characters.location;
+    while (index < NSMaxRange(characters)) {
+        NSRange run = NSMakeRange(index, 0);
+        NSCursor *cursor = [storage attribute:NSCursorAttributeName
+                                      atIndex:index
+                        longestEffectiveRange:&run
+                                      inRange:NSMakeRange(index, NSMaxRange(characters) - index)];
+        if ([cursor isKindOfClass:[NSCursor class]]) {
+            NSUInteger count = 0;
+            NSUInteger i = 0;
+            NSRectArray rects = [layoutManager rectArrayForCharacterRange:run
+                                             withinSelectedCharacterRange:run
+                                                          inTextContainer:container
+                                                                rectCount:&count];
+            for (i = 0; i < count; i++) {
+                [self addCursorRect:NSOffsetRect(rects[i], origin.x, origin.y) cursor:cursor];
+            }
+        }
+        index = NSMaxRange(run) > index ? NSMaxRange(run) : index + 1;
+    }
+}
+
+// The cursor rects above cover the visible text, so scrolling (the clip
+// view's bounds changing) calls for new ones. The preview's text view sits
+// in a canvas view, so the clip view is the enclosing scroll view's.
+- (void)viewDidMoveToWindow
+{
+    [super viewDidMoveToWindow];
+    NSNotificationCenter *center = [NSNotificationCenter defaultCenter];
+    [center removeObserver:self name:NSViewBoundsDidChangeNotification object:nil];
+    NSClipView *clipView = [[self enclosingScrollView] contentView];
+    if ([self window] != nil && clipView != nil) {
+        [clipView setPostsBoundsChangedNotifications:YES];
+        [center addObserver:self
+                   selector:@selector(clipViewBoundsDidChange:)
+                       name:NSViewBoundsDidChangeNotification
+                     object:clipView];
+    }
+}
+
+- (void)clipViewBoundsDidChange:(NSNotification *)notification
+{
+    (void)notification;
+    [[self window] invalidateCursorRectsForView:self];
+}
+#endif
 
 - (NSImage *)imageForRenderedObjectAtIndex:(NSUInteger)characterIndex
 {
@@ -588,6 +702,20 @@
 - (void)mouseDown:(NSEvent *)event
 {
     NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
+    // A plain click on a task box toggles it, and leaves the selection as it
+    // is; the second click of a double-click does nothing more.
+    NSUInteger modifiers = [event modifierFlags] & (NSShiftKeyMask | NSControlKeyMask |
+                                                    NSAlternateKeyMask | NSCommandKeyMask);
+    id delegate = [self delegate];
+    if (modifiers == 0 && [delegate respondsToSelector:@selector(textView:toggleTaskItemAtIndex:)]) {
+        NSUInteger taskIndex = [self taskItemIndexAtPoint:point];
+        if (taskIndex != NSNotFound) {
+            if ([event clickCount] > 1 ||
+                [(id<OMDTextViewRenderedObjectDelegate>)delegate textView:self toggleTaskItemAtIndex:taskIndex]) {
+                return;
+            }
+        }
+    }
     NSUInteger index = NSNotFound;
     OMRenderedObject *object = [self renderedObjectAtPoint:point characterIndex:&index];
     BOOL extending = ([event modifierFlags] & NSShiftKeyMask) != 0;
