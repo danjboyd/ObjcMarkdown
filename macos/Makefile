@@ -87,8 +87,16 @@ SHARING_FLAGS := $(COMMON_FLAGS) -I$(SHARING_DIR)/Headers
 QL_FLAGS := $(APP_FLAGS) -fapplication-extension
 TEST_FLAGS := $(APP_FLAGS) -F$(PLATFORM_DIR)/Developer/Library/Frameworks -DOM_SPEC_DIR=\"$(ROOT)/ObjcMarkdownTests/Spec\"
 
-LIB := $(BUILD)/libObjcMarkdown.a
-VIM_LIB := $(BUILD)/libTextViewVimKit.a
+# The libraries go with their objects, one set per ARCHS. The bundles in
+# build/ are removed when ARCHS changes, so they're linked again (an
+# ARCHS=arm64 build, then a universal one, mustn't leave an arm64-only app
+# for the dmg; make's one-second timestamps can't be trusted to see it).
+LIB := $(OBJDIR)/libObjcMarkdown.a
+VIM_LIB := $(OBJDIR)/libTextViewVimKit.a
+ARCHS_STAMP := $(BUILD)/.archs
+$(shell mkdir -p $(BUILD); [ "$$(cat $(ARCHS_STAMP) 2>/dev/null)" = "$(strip $(ARCHS))" ] || \
+	{ rm -rf $(BUILD)/MarkdownViewer.app $(BUILD)/MarkdownPreview.appex $(BUILD)/ObjcMarkdownTests.xctest; \
+	  echo "$(strip $(ARCHS))" > $(ARCHS_STAMP); })
 APP := $(BUILD)/MarkdownViewer.app
 TESTS := $(BUILD)/ObjcMarkdownTests.xctest
 APPEX := $(BUILD)/MarkdownPreview.appex
