@@ -165,7 +165,8 @@
         [item setTarget:_delegate];
         [item setAction:@selector(saveDocument:)];
         [item setImage:OMDSymbolicImageNamedForCommand(@"omd-document-save-symbolic", @"Save")];
-        [item setVisibilityPriority:NSToolbarItemVisibilityPriorityHigh];
+        // Just below Open, so a narrow window keeps Open longer (#280).
+        [item setVisibilityPriority:NSToolbarItemVisibilityPriorityHigh - 1];
         return item;
     }
 
