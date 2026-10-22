@@ -34,6 +34,7 @@ GNUSTEP_FRAMEWORKS_DIR="$GNUSTEP_SYSTEM_ROOT/Library/Frameworks"
 GNUSTEP_BUNDLE_DIR="$GNUSTEP_SYSTEM_ROOT/Library/Bundles"
 GNUSTEP_COLORPICKER_DIR="$GNUSTEP_SYSTEM_ROOT/Library/ColorPickers"
 GNUSTEP_IMAGES_DIR="$GNUSTEP_SYSTEM_ROOT/Library/Images"
+GNUSTEP_KEYBINDINGS_DIR="$GNUSTEP_SYSTEM_ROOT/Library/KeyBindings"
 GNUSTEP_THEME_DIR="$GNUSTEP_SYSTEM_ROOT/Library/Themes"
 GNUSTEP_TOOLS_DIR="$GNUSTEP_SYSTEM_ROOT/Tools"
 GNUSTEP_MAKEFILES_DIR="$GNUSTEP_SYSTEM_ROOT/Library/Makefiles"
@@ -342,6 +343,11 @@ copy_dir_contents "/usr/GNUstep/System/Library/Bundles" "$GNUSTEP_BUNDLE_DIR"
 copy_dir_contents "/usr/GNUstep/System/Library/ColorPickers" "$GNUSTEP_COLORPICKER_DIR"
 copy_dir_contents "/usr/GNUstep/System/Library/Frameworks/PreferencePanes.framework" "$GNUSTEP_FRAMEWORKS_DIR/PreferencePanes.framework"
 copy_dir_contents "/usr/GNUstep/System/Library/Images" "$GNUSTEP_IMAGES_DIR"
+# NSTextView's key bindings (DefaultKeyBindings.dict): without them the
+# arrows, Home/End, Page Up/Down and Delete do nothing but beep in every
+# text view and field; typing and Backspace still work (#288).
+require_path "/usr/GNUstep/System/Library/KeyBindings/DefaultKeyBindings.dict"
+copy_dir_contents "/usr/GNUstep/System/Library/KeyBindings" "$GNUSTEP_KEYBINDINGS_DIR"
 copy_dir_contents "/usr/GNUstep/System/Library/Makefiles" "$GNUSTEP_MAKEFILES_DIR"
 # The fallback printer's PPD (PostScript/PPD): without it Export as PDF
 # and Print fail on an assertion in GSLPRPrinter and do nothing.

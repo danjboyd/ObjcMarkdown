@@ -135,6 +135,7 @@
         "runtime/bin/libfontconfig-1.dll",
         "runtime/bin/libfreetype-6.dll",
         "runtime/lib/GNUstep/Bundles/libgnustep-back-032.bundle/libgnustep-back-032.dll",
+        "runtime/lib/GNUstep/KeyBindings/DefaultKeyBindings.dict",
         "runtime/lib/GNUstep/Themes/WinUITheme.theme/WinUITheme.dll",
         "runtime/texlive/TinyTeX/bin/windows/latex.exe",
         "runtime/texlive/TinyTeX/bin/windows/dvisvgm.exe",

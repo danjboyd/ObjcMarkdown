@@ -128,6 +128,7 @@
         "metadata/icons/markdown_icon.png",
         "metadata/smoke/sample-commonmark.md",
         "runtime/etc/GNUstep/GNUstep.conf",
+        "runtime/System/Library/KeyBindings/DefaultKeyBindings.dict",
         "runtime/System/Library/Themes/Adwaita.theme",
         "runtime/System/Tools/defaults",
         "runtime/bin/pandoc",
