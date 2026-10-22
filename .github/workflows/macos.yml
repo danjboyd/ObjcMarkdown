@@ -11,6 +11,8 @@ on:
       - main
     tags:
       - "v*"
+      # 0.2.5.1 is a Linux-only hotfix (#288): Windows and macOS stay on 0.2.5.
+      - "!v0.2.5.1"
   pull_request:
   workflow_dispatch:
     inputs:
