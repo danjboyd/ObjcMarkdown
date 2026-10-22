@@ -40,7 +40,8 @@
 
 - (NSInteger)priorityOf:(NSString *)identifier in:(OMDToolbarController *)controller
 {
-    NSToolbarItem *item = [controller toolbar:nil
+    NSToolbar *toolbar = [[[NSToolbar alloc] initWithIdentifier:@"OMDToolbarControllerTests"] autorelease];
+    NSToolbarItem *item = [controller toolbar:toolbar
                         itemForItemIdentifier:identifier
                     willBeInsertedIntoToolbar:YES];
 
