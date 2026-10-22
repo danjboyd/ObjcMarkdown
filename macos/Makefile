@@ -65,11 +65,11 @@ LIB_OBJS := $(call obj,lib,$(LIB_OBJC) $(LIB_C))
 VIM_OBJS := $(call obj,vim,$(VIM_OBJC))
 APP_OBJS := $(call obj,app,$(APP_OBJC))
 # The macOS share presenter, the share controller and their tests, on top
-# of the shared list.
+# of the shared list (which has OMDViewerImages.m since #282).
 TEST_OBJC += ObjcMarkdownTests/OMDSharePresenterMacTests.m ObjcMarkdownViewer/OMDSharePresenterMac.m \
 	ObjcMarkdownViewer/OMDShareController.m \
 	ObjcMarkdownViewer/OMDShareRcloneMac.m ObjcMarkdownViewer/OMDShareBasicPresenter.m \
-	ObjcMarkdownViewer/OMDShareNotice.m ObjcMarkdownViewer/OMDViewerImages.m
+	ObjcMarkdownViewer/OMDShareNotice.m
 TEST_OBJS := $(call obj,test,$(TEST_OBJC))
 # The Quick Look preview extension: its controller and the app's preview view.
 QL_OBJC := macos/QuickLook/OMDQuickLookPreviewController.m ObjcMarkdownViewer/OMDTextView.m ObjcMarkdownViewer/OMDTextFileSupport.m
