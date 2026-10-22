@@ -46,6 +46,16 @@ OM_EXPORT NSString * const OMMarkdownRendererFootnoteAnchorAttributeName;
 // Attribute on a GitHub alert quote ("> [!NOTE]" ...): the NSColor for its bar.
 OM_EXPORT NSString * const OMMarkdownRendererBlockquoteColorAttributeName;
 
+// Keys in the dictionaries returned by -taskItems.
+OM_EXPORT NSString * const OMMarkdownRendererTaskItemCheckedKey;         // NSNumber, BOOL
+OM_EXPORT NSString * const OMMarkdownRendererTaskItemSourceLineKey;      // NSNumber, 1-based
+// NSNumber: the index in the rendered markdown of the character between the
+// item's brackets (" ", "x" or "X"), the one to replace to toggle it.
+OM_EXPORT NSString * const OMMarkdownRendererTaskItemSourceLocationKey;
+// Attribute (@YES) on the box of each item in -taskItems: the n-th box that
+// carries it is the n-th item.
+OM_EXPORT NSString * const OMMarkdownRendererTaskItemAttributeName;
+
 // Keys in the dictionaries returned by -diagramBlocks.
 OM_EXPORT NSString * const OMMarkdownRendererDiagramRangeKey;
 OM_EXPORT NSString * const OMMarkdownRendererDiagramSourceKey;
@@ -97,5 +107,12 @@ OM_EXPORT NSString * const OMMarkdownRendererDiagramSourceKey;
 // One dictionary per heading, in document order (keys above). Repeated slugs
 // get "-1", "-2" ... as on GitHub.
 @property (nonatomic, readonly) NSArray *headings;
+// One dictionary per GitHub task item ("- [ ]", "- [x]"), in document order
+// (keys above): the items whose "[ ]" was found where the parser put the
+// item, so toggling one changes exactly its own brackets.
+@property (nonatomic, readonly) NSArray *taskItems;
+// When YES, the task boxes also show a pointing hand (NSCursorAttributeName),
+// for a view where clicking a box toggles it. NO by default.
+@property (nonatomic, assign) BOOL interactiveTaskItems;
 
 @end
