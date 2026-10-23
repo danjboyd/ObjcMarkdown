@@ -537,8 +537,14 @@
     XCTAssertNotNil(item);
     XCTAssertTrue([item isEnabled]);
     [[item target] performSelector:[item action] withObject:item];
-    XCTAssertEqual([recorder revealedRange].location, second.location + 2);
-    XCTAssertEqual([recorder revealedRange].length, (NSUInteger)0);
+    // GNUstep reveals the clicked position; AppKit's menu first selects the
+    // clicked word. Either way, the clicked paragraph's.
+    NSRange paragraph = [text rangeOfString:@"Second paragraph."];
+    NSRange revealed = [recorder revealedRange];
+    XCTAssertTrue(revealed.location != NSNotFound && revealed.location >= paragraph.location &&
+                  NSMaxRange(revealed) <= NSMaxRange(paragraph) &&
+                  revealed.location <= second.location + 2 && second.location + 2 <= NSMaxRange(revealed),
+                  @"%@", NSStringFromRange(revealed));
 
     [textView setSelectedRange:second];
     menu = [self textMenuAtCharacter:second.location + 2 inTextView:textView window:window];
