@@ -261,8 +261,25 @@ static NSString *OMDRunningAppVersion(void)
     // Opening a file that is already open (macOS may have restored its
     // window) only shows it.
 #if !defined(GNUSTEP)
+    // And a file AppKit restored, or has a window for, before this pass is
+    // left alone: restored documents are registered by now, but not
+    // opening them again costs nothing. (Taken before the loop, so the
+    // selected file, listed again last, is still shown.)
+    NSMutableSet *restored = [NSMutableSet set];
+    for (NSDocument *document in [[NSDocumentController sharedDocumentController] documents]) {
+        if ([[document fileURL] isFileURL]) {
+            [restored addObject:[[[document fileURL] path] stringByStandardizingPath]];
+        }
+    }
+    for (NSWindow *window in [NSApp windows]) {
+        if ([[window representedURL] isFileURL]) {
+            [restored addObject:[[[window representedURL] path] stringByStandardizingPath]];
+        }
+    }
     for (NSString *path in paths) {
-        [self application:NSApp openFile:path];
+        if (![restored containsObject:[path stringByStandardizingPath]]) {
+            [self application:NSApp openFile:path];
+        }
     }
 #else
     [_mainWindowController openDocumentsAtPathsInOrder:paths];
