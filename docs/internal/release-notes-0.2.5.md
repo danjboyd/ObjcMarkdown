@@ -17,7 +17,8 @@ Changes are counted from v0.2.4 (649f34e).
 **Known issues**
 - Linux and Windows: shortcodes whose emoji is outside the BMP (`:rocket:`, `:tada:`) stay as typed until GNUstep (libs-gui) can draw characters beyond the BMP (#267, kept open for the GNUstep side). Windows: such emoji (🎉), and emoji typed in the editor, draw as "?".
 - Windows: Show in Folder after a share selects the temporary copy, not the document's folder (#265). Moves to 0.2.6.
-- Windows: after an in-app update the app relaunches to an empty window instead of the documents that were open (#266, since 0.2.2). The old version's updater relaunches without arguments, so the 0.2.4 → 0.2.5 update does it too. Reopen the documents from Open Recent. Fix in 0.2.6.
+- Windows and the Linux AppImage: after an in-app update the app relaunches to an empty window instead of the documents that were open (#266, since 0.2.2). The old version's updater relaunches without arguments, so the 0.2.4 → 0.2.5 update does it too. Reopen the documents from Open Recent. Fix in 0.2.6.
+- Linux AppImage: the arrow keys, Home/End and Delete beep and do nothing in text (#288, also 0.2.4). Fixed in 0.2.5.1 (Linux only); see its notes for the by-hand fix.
 - Windows: typing in the source editor still costs about 46 ms of CPU per key (#164; the highlight timer in 0.2.6, the rest upstream in libs-gui).
 - Carried over from 0.2.4: #213, libs-sharing#26, the Linux math line weight without ImageMagick, Windows math contrast, macOS code-block line spacing, #82, #177, #198, #197, and the Flatpak email and rclone notes.
 
@@ -45,7 +46,7 @@ Changes are counted from v0.2.4 (649f34e).
 ## Checklist
 
 - [x] macOS: `make -C macos test OMD_WERROR=1` on eabbdac: 429 tests, 0 failures.
-- [ ] Windows: WinUITheme toolbar overflow (now alpha12) checked in the MSI. Not named in the Windows rc1 report.
+- [x] Windows: WinUITheme toolbar overflow (alpha12) checked on the updated 0.2.5 (Markdown Viewer Windows, 2026-10-22): at 520 px » holds Explorer, Save (greyed) and Share, and Share works.
 - [x] Dan's OK to push; #268-#272 opened 2026-10-21.
 - [x] #273 (#261, macOS) merged.
 - [x] #164 part A (#276, #278) and the Windows print-title follow-up (#277) merged before rc1.
@@ -56,10 +57,11 @@ Changes are counted from v0.2.4 (649f34e).
   - macOS: the dmg. GO: Sparkle 0.2.4 -> rc1, smoke, #261, #267, #164.
   - Windows: the MSI. GO: updater 0.2.4 -> rc1, the MSI bundles WinUITheme cad2585, #164 about 5% less CPU, #277 titles, #169 verified and closed. The relaunch after the update opens an empty window (#266, 0.2.6).
 - [x] Dan: go for v0.2.5 final (2026-10-22).
-- [ ] v0.2.5 tagged on this notes PR's merge commit, then the post-tag checks:
+- [x] v0.2.5 tagged on ba4f6ff, this notes PR's merge commit (#279), 2026-10-22, then the post-tag checks:
   - five green runs;
   - 13 assets, Latest;
-  - three feed commits on gh-pages naming 0.2.5;
-  - the same-SHA trap check;
+  - three feed commits on gh-pages naming 0.2.5 (df83713, 9183826, 143e971);
+  - the same-SHA trap check (ba4f6ff, not rc1's 5233152);
   - the release body from these notes;
-  - an installed 0.2.4 offered 0.2.5.
+  - an installed 0.2.4 offered 0.2.5: Linux AppImage PASS (bwrap, the live feed, hash matches; #279 comment), Windows PASS (Markdown Viewer Windows); macOS not reported here.
+- [x] 0.2.5.1, a Linux-only hotfix for #288, shipped 2026-10-22 (tag on 473fa0f; see release-notes-0.2.5.1.md).
