@@ -50,6 +50,38 @@
 
 @end
 
+// Records the preview range Reveal in Source asked for (#293).
+@interface OMDRevealRecorder : NSObject <OMDTextViewRenderedObjectDelegate>
+{
+    NSRange _revealedRange;
+}
+- (NSRange)revealedRange;
+@end
+
+@implementation OMDRevealRecorder
+
+- (instancetype)init
+{
+    self = [super init];
+    if (self != nil) {
+        _revealedRange = NSMakeRange(NSNotFound, 0);
+    }
+    return self;
+}
+
+- (NSRange)revealedRange
+{
+    return _revealedRange;
+}
+
+- (void)textView:(OMDTextView *)textView revealSourceOfPreviewRange:(NSRange)range
+{
+    (void)textView;
+    _revealedRange = range;
+}
+
+@end
+
 @interface OMDTextViewTests : XCTestCase
 @end
 
@@ -461,6 +493,87 @@
     [textView mouseDown:click];
     XCTAssertEqual([recorder toggledIndex], (NSUInteger)1);
     XCTAssertTrue(NSEqualRanges([textView selectedRange], selection));
+
+    [textView setDelegate:nil];
+    [textView removeFromSuperview];
+    [window release];
+}
+
+// The menu a right click at a character opens.
+- (NSMenu *)textMenuAtCharacter:(NSUInteger)index inTextView:(OMDTextView *)textView window:(NSWindow *)window
+{
+    NSPoint inWindow = [textView convertPoint:[self centreOfCharacter:index inTextView:textView] toView:nil];
+    NSEvent *click = [NSEvent mouseEventWithType:NSRightMouseDown
+                                        location:inWindow
+                                   modifierFlags:0
+                                       timestamp:0.0
+                                    windowNumber:[window windowNumber]
+                                         context:nil
+                                     eventNumber:0
+                                      clickCount:1
+                                        pressure:1.0];
+    return [textView menuForEvent:click];
+}
+
+// A right click on text offers Reveal in Source, which asks the delegate for
+// the selection when the click is in it, else for the clicked position.
+- (void)testTextMenuRevealsTheClickedTextInSource
+{
+    OMDTextView *textView = [self textViewShowingMarkdown:@"First paragraph.\n\nSecond paragraph.\n"];
+    OMDRevealRecorder *recorder = [[[OMDRevealRecorder alloc] init] autorelease];
+    NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0.0, 0.0, 640.0, 800.0)
+                                                   styleMask:NSBorderlessWindowMask
+                                                     backing:NSBackingStoreBuffered
+                                                       defer:YES];
+    [[window contentView] addSubview:textView];
+    [textView setDelegate:(id)recorder];
+    NSString *text = [[textView textStorage] string];
+    NSRange second = [text rangeOfString:@"Second"];
+    NSRange first = [text rangeOfString:@"First"];
+
+    [textView setSelectedRange:first];
+    NSMenu *menu = [self textMenuAtCharacter:second.location + 2 inTextView:textView window:window];
+    NSMenuItem *item = (NSMenuItem *)[menu itemWithTitle:@"Reveal in Source"];
+    XCTAssertNotNil(item);
+    XCTAssertTrue([item isEnabled]);
+    [[item target] performSelector:[item action] withObject:item];
+    // GNUstep reveals the clicked position; AppKit's menu first selects the
+    // clicked word. Either way, the clicked paragraph's.
+    NSRange paragraph = [text rangeOfString:@"Second paragraph."];
+    NSRange revealed = [recorder revealedRange];
+    XCTAssertTrue(revealed.location != NSNotFound && revealed.location >= paragraph.location &&
+                  NSMaxRange(revealed) <= NSMaxRange(paragraph) &&
+                  revealed.location <= second.location + 2 && second.location + 2 <= NSMaxRange(revealed),
+                  @"%@", NSStringFromRange(revealed));
+
+    [textView setSelectedRange:second];
+    menu = [self textMenuAtCharacter:second.location + 2 inTextView:textView window:window];
+    item = (NSMenuItem *)[menu itemWithTitle:@"Reveal in Source"];
+    [[item target] performSelector:[item action] withObject:item];
+    XCTAssertTrue(NSEqualRanges([recorder revealedRange], second));
+
+    [textView setDelegate:nil];
+    [textView removeFromSuperview];
+    [window release];
+}
+
+// No delegate that can reveal, or an editable view: no Reveal in Source.
+- (void)testTextMenuHasNoRevealWithoutADelegate
+{
+    OMDTextView *textView = [self textViewShowingMarkdown:@"Words.\n"];
+    NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0.0, 0.0, 640.0, 800.0)
+                                                   styleMask:NSBorderlessWindowMask
+                                                     backing:NSBackingStoreBuffered
+                                                       defer:YES];
+    [[window contentView] addSubview:textView];
+    NSMenu *menu = [self textMenuAtCharacter:1 inTextView:textView window:window];
+    XCTAssertNil([menu itemWithTitle:@"Reveal in Source"]);
+
+    OMDRevealRecorder *recorder = [[[OMDRevealRecorder alloc] init] autorelease];
+    [textView setDelegate:(id)recorder];
+    [textView setEditable:YES];
+    menu = [self textMenuAtCharacter:1 inTextView:textView window:window];
+    XCTAssertNil([menu itemWithTitle:@"Reveal in Source"]);
 
     [textView setDelegate:nil];
     [textView removeFromSuperview];

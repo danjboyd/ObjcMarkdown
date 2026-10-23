@@ -606,6 +606,7 @@ static CGFloat OMDClampedScrollSpeed(CGFloat value)
 - (void)performFormattingCommandWithTag:(NSInteger)tag;
 - (void)toggleBoldFormatting:(id)sender;
 - (void)toggleItalicFormatting:(id)sender;
+- (void)revealPreviewSelectionInSource:(id)sender;
 - (NSTextView *)activeEditingTextView;
 - (NSUndoManager *)activeUndoManager;
 - (void)finishTaskToggleWasClean:(BOOL)wasClean;
@@ -2021,6 +2022,10 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
     if (action == @selector(toggleOutline:)) {
         [menuItem setState:(_outlineVisible ? NSOnState : NSOffState)];
         return [self hasLoadedDocument];
+    }
+
+    if (action == @selector(revealPreviewSelectionInSource:)) {
+        return [self canRevealPreviewSelectionInSource];
     }
 
     if (action == @selector(undo:)) {
@@ -9132,31 +9137,86 @@ static NSRange OMDCharacterRangeForSourceLines(NSString *source, NSRange lineRan
     return NSMakeRange(NSNotFound, 0);
 }
 
-- (void)textView:(OMDTextView *)textView revealSourceOfRenderedObject:(OMRenderedObject *)object
+// Select source in the editor, showing it beside the preview: from Read
+// this document goes to Split, without changing the preferred mode (#293).
+// The exact range holds only while the preview matches the editor text;
+// otherwise the source lines (which may have moved a little) are used.
+- (void)revealSourceCharacters:(NSRange)exact lines:(NSRange)lineRange
 {
-    if (textView != _textView || _sourceTextView == nil || object == nil || ![self hasLoadedDocument]) {
+    if (_sourceTextView == nil || ![self hasLoadedDocument]) {
         return;
     }
     NSString *source = [_sourceTextView string];
     NSRange characters = NSMakeRange(NSNotFound, 0);
-    // The exact range holds only while the preview matches the editor text.
-    NSRange exact = [object sourceRange];
     if (_sourceRevision == _lastRenderedSourceRevision &&
         exact.location != NSNotFound && NSMaxRange(exact) <= [source length]) {
         characters = exact;
     } else {
-        characters = OMDCharacterRangeForSourceLines(source, [object sourceLineRange]);
+        characters = OMDCharacterRangeForSourceLines(source, lineRange);
     }
     if (characters.location == NSNotFound) {
         NSBeep();
         return;
     }
     if (_viewerMode == OMDViewerModeRead) {
-        [self setViewerMode:OMDViewerModeSplit persistPreference:YES];
+        [self setViewerMode:OMDViewerModeSplit persistPreference:NO];
     }
     [_sourceTextView setSelectedRange:characters];
     [_sourceTextView scrollRangeToVisible:characters];
     [[_sourceTextView window] makeFirstResponder:_sourceTextView];
+}
+
+- (void)textView:(OMDTextView *)textView revealSourceOfRenderedObject:(OMRenderedObject *)object
+{
+    if (textView != _textView || object == nil) {
+        return;
+    }
+    [self revealSourceCharacters:[object sourceRange] lines:[object sourceLineRange]];
+}
+
+// The source lines of the blocks a preview range touches, or {NSNotFound, 0}.
+- (NSRange)sourceLineRangeForPreviewRange:(NSRange)range
+{
+    if (_textView == nil || ![self hasLoadedDocument] || range.location == NSNotFound) {
+        return NSMakeRange(NSNotFound, 0);
+    }
+    return OMDSourceLineRangeForPreviewRange(range, [_renderer blockAnchors]);
+}
+
+- (void)textView:(OMDTextView *)textView revealSourceOfPreviewRange:(NSRange)range
+{
+    if (textView != _textView) {
+        return;
+    }
+    NSRange lines = [self sourceLineRangeForPreviewRange:range];
+    if (lines.location == NSNotFound) {
+        NSBeep();
+        return;
+    }
+    [self revealSourceCharacters:NSMakeRange(NSNotFound, 0) lines:lines];
+}
+
+// Edit > Reveal in Source: the blocks of the preview's selection, or of the
+// last click in it. In Split only while the preview has the focus.
+- (BOOL)canRevealPreviewSelectionInSource
+{
+    if (_sourceTextView == nil || _textView == nil || _viewerMode == OMDViewerModeEdit) {
+        return NO;
+    }
+    if (_viewerMode == OMDViewerModeSplit && [[_textView window] firstResponder] != _textView) {
+        return NO;
+    }
+    return [self sourceLineRangeForPreviewRange:[_textView selectedRange]].location != NSNotFound;
+}
+
+- (void)revealPreviewSelectionInSource:(id)sender
+{
+    (void)sender;
+    if (![self canRevealPreviewSelectionInSource]) {
+        NSBeep();
+        return;
+    }
+    [self textView:(OMDTextView *)_textView revealSourceOfPreviewRange:[_textView selectedRange]];
 }
 
 - (void)textView:(OMDTextView *)textView rerenderRenderedObject:(OMRenderedObject *)object
