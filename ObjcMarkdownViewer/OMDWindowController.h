@@ -150,5 +150,13 @@ typedef unsigned short mode_t;
 - (BOOL)reviewUnsavedDocumentsForAction:(NSString *)actionName;
 // Forgets the recovery snapshot: the reader has decided about every change.
 - (void)discardRecoverySnapshot;
+// The local files open in this window's tabs, in order, and the one
+// selected (nil if it isn't a local file), for reopening after an update
+// (#266).
+- (NSArray *)openLocalDocumentPaths;
+// Opens local files in order, as tabs after what is open (an open one is
+// only shown). YES if any opened.
+- (BOOL)openDocumentsAtPathsInOrder:(NSArray *)paths;
+- (NSString *)selectedLocalDocumentPath;
 
 @end
