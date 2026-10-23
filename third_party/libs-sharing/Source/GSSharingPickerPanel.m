@@ -24,6 +24,10 @@ static const CGFloat GSSharingButtonTitlePadding = 2.0;
 static const CGFloat GSSharingButtonGap = 8.0;
 static const NSUInteger GSSharingColumns = 4;
 
+/* The sheet on screen, if any: an app shows one at a time, as AppKit's
+   picker does. Not retained; it clears itself when it closes. */
+static GSSharingPickerPanel *GSSharingShowingPanel = nil;
+
 @implementation GSSharingFileDragView
 
 - (void) dealloc
@@ -328,6 +332,10 @@ GSSharingDetailOfItems(NSArray *items)
 
 - (void) dealloc
 {
+  if (GSSharingShowingPanel == self)
+    {
+      GSSharingShowingPanel = nil;
+    }
   [[NSNotificationCenter defaultCenter] removeObserver: self];
   [_panel setDelegate: nil];
   RELEASE(_panel);
@@ -637,6 +645,15 @@ GSSharingDetailOfItems(NSArray *items)
       [_panel center];
     }
   _parentWindow = window;
+  /* Each Share click makes a new picker, whose sheet would open over the
+     last one's: a click on Share while the sheet shows takes the focus
+     straight to the new sheet, so the old one never sees its window come
+     back to close for (ScreenshotTool #316). */
+  if (GSSharingShowingPanel != nil && GSSharingShowingPanel != self)
+    {
+      [GSSharingShowingPanel closeWithoutChoice];
+    }
+  GSSharingShowingPanel = self;
   _shownAt = [NSDate timeIntervalSinceReferenceDate];
   [[NSNotificationCenter defaultCenter]
     addObserver: self
@@ -691,6 +708,10 @@ GSSharingDetailOfItems(NSArray *items)
       return;
     }
   _closed = YES;
+  if (GSSharingShowingPanel == self)
+    {
+      GSSharingShowingPanel = nil;
+    }
   RETAIN(self);
   /* A tooltip showing would stay on screen after the panel (#10). */
   [_icon removeAllToolTips];
@@ -727,6 +748,11 @@ GSSharingDetailOfItems(NSArray *items)
     }
   GSSharingPickerKeepShowing(_picker);
   _closed = NO;
+  if (GSSharingShowingPanel != nil && GSSharingShowingPanel != self)
+    {
+      [GSSharingShowingPanel closeWithoutChoice];
+    }
+  GSSharingShowingPanel = self;
   [self pickerItemsDidChange];
   _shownAt = [NSDate timeIntervalSinceReferenceDate];
   [_panel makeKeyAndOrderFront: nil];
