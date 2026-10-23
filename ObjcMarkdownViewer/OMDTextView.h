@@ -12,6 +12,8 @@
 @optional
 // Show the object's Markdown source in the editor.
 - (void)textView:(OMDTextView *)textView revealSourceOfRenderedObject:(OMRenderedObject *)object;
+// Show the Markdown source of the blocks a preview range touches (#293).
+- (void)textView:(OMDTextView *)textView revealSourceOfPreviewRange:(NSRange)range;
 // Render a math object again with its caches dropped.
 - (void)textView:(OMDTextView *)textView rerenderRenderedObject:(OMRenderedObject *)object;
 // A click on a task box: toggle the itemIndex-th task item (the renderer's

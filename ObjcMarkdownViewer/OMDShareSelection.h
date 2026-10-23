@@ -11,5 +11,11 @@
 // position inside a paragraph. Nil when no block is touched.
 NSString *OMDShareMarkdownForPreviewRange(NSString *markdown, NSRange range, NSArray *blockAnchors);
 
+// The source lines (1-based location, count) of those innermost blocks, for
+// Share and for Reveal in Source (#293). An empty range in the gap between
+// two blocks takes the block before it. {NSNotFound, 0} when no block is
+// touched.
+NSRange OMDSourceLineRangeForPreviewRange(NSRange range, NSArray *blockAnchors);
+
 // Lines with the indent they all share removed (blank lines don't count).
 NSString *OMDShareDedentedLines(NSArray *lines);

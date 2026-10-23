@@ -12,6 +12,7 @@
     NSUInteger _contextObjectIndex;
     OMRenderedObject *_contextObject;
     OMTextTable *_contextTable;
+    NSRange _contextTextRange;
     // linkedObjectIndex + 1, so a zero-initialised view has no linked object.
     NSUInteger _linkedObjectIndexPlusOne;
 }
@@ -1028,22 +1029,129 @@ NSUInteger OMDTaskItemIndexAtCharacterIndex(NSAttributedString *text, NSUInteger
     [delegate textView:self revealSourceOfRenderedObject:object];
 }
 
-- (NSMenu *)menuForEvent:(NSEvent *)event
+// The character index drawn nearest a point in view coordinates, or
+// NSNotFound in an empty view.
+- (NSUInteger)characterIndexNearestPoint:(NSPoint)point
+{
+    NSLayoutManager *layoutManager = [self layoutManager];
+    NSTextContainer *container = [self textContainer];
+    if (layoutManager == nil || container == nil || [[self textStorage] length] == 0) {
+        return NSNotFound;
+    }
+    NSPoint origin = [self textContainerOrigin];
+    NSPoint containerPoint = NSMakePoint(point.x - origin.x, point.y - origin.y);
+    NSUInteger glyph = [layoutManager glyphIndexForPoint:containerPoint inTextContainer:container];
+    if (glyph >= [layoutManager numberOfGlyphs]) {
+        return NSNotFound;
+    }
+    return [layoutManager characterIndexForGlyphAtIndex:glyph];
+}
+
+// The preview range a text menu opened at index acts on: the selection if
+// the click is in it, else the click's position.
+- (NSRange)contextTextRangeAtCharacterIndex:(NSUInteger)index
+{
+    NSRange selection = [self selectedRange];
+    if (selection.length > 0 && index >= selection.location && index <= NSMaxRange(selection)) {
+        return selection;
+    }
+    return NSMakeRange(index, 0);
+}
+
+- (BOOL)offersRevealInSource
+{
+    return ![self isEditable] &&
+           [[self delegate] respondsToSelector:@selector(textView:revealSourceOfPreviewRange:)];
+}
+
+- (void)addRevealInSourceItemToMenu:(NSMenu *)menu
+{
+    if ([menu numberOfItems] > 0) {
+        [menu addItem:[NSMenuItem separatorItem]];
+    }
+    NSMenuItem *item = (NSMenuItem *)[menu addItemWithTitle:@"Reveal in Source"
+                                                     action:@selector(revealContextTextSource:)
+                                              keyEquivalent:@""];
+    [item setTarget:self];
+    [item setEnabled:YES];
+}
+
+- (void)revealContextTextSource:(id)sender
+{
+    if (![self offersRevealInSource] || _contextTextRange.location == NSNotFound) {
+        NSBeep();
+        return;
+    }
+    [(id<OMDTextViewRenderedObjectDelegate>)[self delegate] textView:self revealSourceOfPreviewRange:_contextTextRange];
+}
+
+#if defined(GNUSTEP)
+// GNUstep's menu for text (Cut, Copy, Paste) is shared by every text view and
+// its Cut and Paste mean nothing in the preview, so the preview has its own.
+- (NSMenu *)textMenuForEvent:(NSEvent *)event
+{
+    if (![self offersRevealInSource]) {
+        return nil;
+    }
+    NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
+    NSUInteger index = [self characterIndexNearestPoint:point];
+    if (index == NSNotFound) {
+        return nil;
+    }
+    _contextTextRange = [self contextTextRangeAtCharacterIndex:index];
+    NSMenu *menu = [[[NSMenu alloc] initWithTitle:@"Text"] autorelease];
+    [menu setAutoenablesItems:NO];
+    NSMenuItem *item = (NSMenuItem *)[menu addItemWithTitle:@"Copy" action:@selector(copy:) keyEquivalent:@""];
+    [item setTarget:self];
+    [item setEnabled:([self selectedRange].length > 0)];
+    [self addRevealInSourceItemToMenu:menu];
+    return menu;
+}
+#endif
+
+// The preview's own menus: for a rendered object, a table, or (GNUstep)
+// text. Nil for AppKit's or GNUstep's standard menu.
+- (NSMenu *)previewMenuForEvent:(NSEvent *)event
 {
     NSMenu *menu = [self renderedObjectMenuForEvent:event];
     if (menu == nil) {
         menu = [self textTableMenuForEvent:event];
     }
-    return menu != nil ? menu : [super menuForEvent:event];
+#if defined(GNUSTEP)
+    if (menu == nil) {
+        menu = [self textMenuForEvent:event];
+    }
+#endif
+    return menu;
+}
+
+- (NSMenu *)menuForEvent:(NSEvent *)event
+{
+    NSMenu *menu = [self previewMenuForEvent:event];
+    if (menu != nil) {
+        return menu;
+    }
+    menu = [super menuForEvent:event];
+#if !defined(GNUSTEP)
+    // AppKit's own text menu (it may select the clicked word first), with
+    // Reveal in Source after it.
+    if ([self offersRevealInSource]) {
+        NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
+        NSUInteger index = [self characterIndexNearestPoint:point];
+        if (index != NSNotFound) {
+            _contextTextRange = [self contextTextRangeAtCharacterIndex:index];
+            menu = (menu != nil) ? [[menu copy] autorelease] : [[[NSMenu alloc] initWithTitle:@"Text"] autorelease];
+            [self addRevealInSourceItemToMenu:menu];
+        }
+    }
+#endif
+    return menu;
 }
 
 // GNUstep's NSTextView builds its own menu here instead of asking menuForEvent:.
 - (void)rightMouseDown:(NSEvent *)event
 {
-    NSMenu *menu = [self renderedObjectMenuForEvent:event];
-    if (menu == nil) {
-        menu = [self textTableMenuForEvent:event];
-    }
+    NSMenu *menu = [self previewMenuForEvent:event];
     if (menu == nil) {
         [super rightMouseDown:event];
         return;
