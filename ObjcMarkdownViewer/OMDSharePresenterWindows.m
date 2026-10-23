@@ -724,7 +724,7 @@ static HWND OMDWindowHandle(NSWindow *window)
 
 - (void)showShareItemInFolder:(OMDShareItem *)item
 {
-    PIDLIST_ABSOLUTE list = ILCreateFromPathW(OMDWideString(OMDWindowsPath([item fileURL])));
+    PIDLIST_ABSOLUTE list = ILCreateFromPathW(OMDWideString(OMDWindowsPath([item folderURL])));
     HRESULT result = E_FAIL;
     if (list != NULL) {
         result = SHOpenFolderAndSelectItems(list, 0, NULL, 0);
