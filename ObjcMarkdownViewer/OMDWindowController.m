@@ -4506,6 +4506,15 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
     return [[self defaultSaveMarkdownFileName] pathExtension];
 }
 
+- (NSString *)shareDocumentPath
+{
+    if (![self isCurrentDocumentReloadableFromDisk] || _sourceIsDirty ||
+        [self currentDocumentHasNewerDiskVersion]) {
+        return nil;
+    }
+    return _currentPath;
+}
+
 - (NSString *)shareMarkdownText
 {
     NSString *markdown = [self markdownForCurrentPreview];

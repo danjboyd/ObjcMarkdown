@@ -77,6 +77,26 @@
 
 @end
 
+// The same, opened from a file and unedited (#265).
+@interface OMDShareSavedTestSource : OMDShareTestSource
+{
+@public
+    NSString *_documentPath;
+}
+@end
+
+@implementation OMDShareSavedTestSource
+
+- (void)dealloc
+{
+    [_documentPath release];
+    [super dealloc];
+}
+
+- (NSString *)shareDocumentPath { return _documentPath; }
+
+@end
+
 @interface OMDShareExporterTests : XCTestCase
 @end
 
@@ -136,6 +156,50 @@
     OMDShareExporter *exporter = [[[OMDShareExporter alloc] initWithSource:source] autorelease];
     OMDShareItem *item = [exporter shareItemForFormat:OMDShareFormatMarkdown error:NULL];
     XCTAssertEqualObjects([item fileName], @"notes.txt");
+}
+
+- (OMDShareSavedTestSource *)savedSourceAtPath:(NSString *)path
+{
+    OMDShareSavedTestSource *source = [[[OMDShareSavedTestSource alloc] init] autorelease];
+    source->_baseName = [[[path lastPathComponent] stringByDeletingPathExtension] copy];
+    source->_text = [@"# Plan\n" copy];
+    source->_extension = [@"md" copy];
+    source->_documentPath = [path copy];
+    return source;
+}
+
+- (void)testShowInFolderOfASavedDocumentsMarkdownShareSelectsTheDocument
+{
+    // Through NSURL, as the item holds it (on Windows a drive letter is added).
+    NSString *documentPath = [[NSURL fileURLWithPath:
+        [NSTemporaryDirectory() stringByAppendingPathComponent:@"Q3 Plan.md"]] path];
+    OMDShareExporter *exporter = [[[OMDShareExporter alloc] initWithSource:[self savedSourceAtPath:documentPath]] autorelease];
+    OMDShareItem *item = [exporter shareItemForFormat:OMDShareFormatMarkdown error:NULL];
+    XCTAssertEqualObjects([[item documentURL] path], documentPath);
+    XCTAssertEqualObjects([[item folderURL] path], documentPath);
+    // What is attached is still the staged copy.
+    XCTAssertTrue([[[item fileURL] path] hasPrefix:[OMDShareExporter launchTemporaryDirectory]]);
+}
+
+- (void)testShowInFolderOfAConvertedOrUnsavedShareSelectsTheCopy
+{
+    OMDShareExporter *exporter = [[[OMDShareExporter alloc] initWithSource:[self savedSourceAtPath:@"/home/u/Q3 Plan.md"]] autorelease];
+    OMDShareItem *pdf = [exporter shareItemForFormat:OMDShareFormatPDF error:NULL];
+    XCTAssertNil([pdf documentURL]);
+    XCTAssertEqualObjects([pdf folderURL], [pdf fileURL]);
+
+    // An imported document: its file isn't the Markdown shared.
+    exporter = [[[OMDShareExporter alloc] initWithSource:[self savedSourceAtPath:@"/home/u/Q3 Plan.docx"]] autorelease];
+    XCTAssertNil([[exporter shareItemForFormat:OMDShareFormatMarkdown error:NULL] documentURL]);
+
+    // Unsaved edits: the source has no document path to offer.
+    OMDShareSavedTestSource *edited = [self savedSourceAtPath:@"/home/u/Q3 Plan.md"];
+    [edited->_documentPath release];
+    edited->_documentPath = nil;
+    exporter = [[[OMDShareExporter alloc] initWithSource:edited] autorelease];
+    OMDShareItem *item = [exporter shareItemForFormat:OMDShareFormatMarkdown error:NULL];
+    XCTAssertNil([item documentURL]);
+    XCTAssertEqualObjects([item folderURL], [item fileURL]);
 }
 
 - (void)testSharingTwiceKeepsTheNameInSeparateDirectories

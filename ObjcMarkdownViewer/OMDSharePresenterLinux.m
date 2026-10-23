@@ -16,9 +16,8 @@
 @interface OMDSharePresenterLinux : OMDShareBasicPresenter
 @end
 
-static BOOL OMDPerformSharingService(NSString *name, OMDShareItem *item)
+static BOOL OMDPerformSharingServiceOnFile(NSString *name, OMDShareItem *item, NSURL *file)
 {
-    NSURL *file = [item fileURL];
     NSSharingService *service = [NSSharingService sharingServiceNamed:name];
     if (service == nil || file == nil) {
         return NO;
@@ -26,6 +25,11 @@ static BOOL OMDPerformSharingService(NSString *name, OMDShareItem *item)
     [service setSubject:[item title]];
     [service performWithItems:[NSArray arrayWithObject:file]];
     return YES;
+}
+
+static BOOL OMDPerformSharingService(NSString *name, OMDShareItem *item)
+{
+    return OMDPerformSharingServiceOnFile(name, item, [item fileURL]);
 }
 
 @implementation OMDSharePresenterLinux
@@ -49,7 +53,7 @@ static BOOL OMDPerformSharingService(NSString *name, OMDShareItem *item)
 
 - (void)showShareItemInFolder:(OMDShareItem *)item
 {
-    if (!OMDPerformSharingService(GSSharingServiceNameShowInFolder, item)) {
+    if (!OMDPerformSharingServiceOnFile(GSSharingServiceNameShowInFolder, item, [item folderURL])) {
         [super showShareItemInFolder:item];
     }
 }
