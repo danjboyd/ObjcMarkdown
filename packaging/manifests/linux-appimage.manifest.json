@@ -93,7 +93,9 @@
         "GSFirstControlKey": "Alt_L",
         "GSSecondControlKey": "Alt_R",
         "GSFirstAlternateKey": "Super_L",
-        "GSSecondAlternateKey": "Super_R"
+        "GSSecondAlternateKey": "Super_R",
+        "GSX11HandlesWindowDecorations": "NO",
+        "GnomeThemeMenuStyle": "primary"
       }
     }
   },
@@ -232,6 +234,7 @@
       "enabled": true,
       "appDirName": "ObjcMarkdown.AppDir",
       "desktopEntryName": "objcmarkdown.desktop",
+      "startupWMClass": "MarkdownViewer",
       "iconRelativePath": "metadata/icons/markdown_icon.png",
       "updates": {
         "feedUrl": "https://danjboyd.github.io/ObjcMarkdown/updates/linux/stable.json",

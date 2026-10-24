@@ -487,6 +487,11 @@ CONFIG_PATH="$CONFIG_ROOT/GNUstep.conf"
 mkdir -p "$CONFIG_ROOT"
 chmod 700 "$CONFIG_ROOT" 2>/dev/null || true
 
+# The user Library is the AppImage's own (relative to the home directory, as
+# gnustep-packager's gnustepConfig.userLibrary "app" makes it): GNUstep
+# searches ~/GNUstep/Library first, so a theme built there against the host's
+# GNUstep took the place of the bundled one. The defaults stay in
+# ~/GNUstep/Defaults.
 cat > "$CONFIG_PATH" <<EOF_CONFIG
 GNUSTEP_USER_CONFIG_FILE=
 GNUSTEP_SYSTEM_ROOT="$RUNTIME_ROOT/System"
@@ -501,6 +506,7 @@ GNUSTEP_LOCAL_TOOLS="$RUNTIME_ROOT/Local/Tools"
 GNUSTEP_NETWORK_LIBRARY="$RUNTIME_ROOT/Network/Library"
 GNUSTEP_NETWORK_LIBRARIES="$RUNTIME_ROOT/Network/Library/Libraries"
 GNUSTEP_NETWORK_TOOLS="$RUNTIME_ROOT/Network/Tools"
+GNUSTEP_USER_DIR_LIBRARY=GNUstep/Library/AppImage/org.objcmarkdown.MarkdownViewer
 EOF_CONFIG
 chmod 600 "$CONFIG_PATH" 2>/dev/null || true
 
