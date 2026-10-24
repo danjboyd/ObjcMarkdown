@@ -94,7 +94,6 @@
         "GSSecondControlKey": "Alt_R",
         "GSFirstAlternateKey": "Super_L",
         "GSSecondAlternateKey": "Super_R",
-        "GSX11HandlesWindowDecorations": "NO",
         "GnomeThemeMenuStyle": "primary"
       }
     }
