@@ -4,8 +4,10 @@ on:
   push:
     tags:
       - "v*"
-      # 0.2.5.1 is a Linux-only hotfix (#288): Windows and macOS stay on 0.2.5.
+      # 0.2.5.1 (#288) and 0.2.5.2 are Linux-only hotfixes: Windows and
+      # macOS stay on 0.2.5.
       - "!v0.2.5.1"
+      - "!v0.2.5.2"
   workflow_dispatch:
     inputs:
       version:

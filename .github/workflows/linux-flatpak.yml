@@ -49,7 +49,7 @@ jobs:
           # (which the AppImage's zsync update information follows) stays
           # the last real one.
           prerelease: ${{ contains(github.ref_name, '-') }}
-          # The Linux-only 0.2.5.1 hotfix leaves 0.2.5 the Latest release, for
-          # the Windows and macOS downloads.
-          make_latest: ${{ github.ref_name == 'v0.2.5.1' && 'false' || 'legacy' }}
+          # The Linux-only 0.2.5.x hotfixes leave 0.2.5 the Latest release,
+          # for the Windows and macOS downloads.
+          make_latest: ${{ startsWith(github.ref_name, 'v0.2.5.') && 'false' || 'legacy' }}
           files: MarkdownViewer.flatpak
