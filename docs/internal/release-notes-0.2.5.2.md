@@ -13,6 +13,7 @@ which stays the Latest release.
 **Fixed since 0.2.5.1**
 - Linux AppImage: GNOME's dash and dash-to-dock show Markdown Viewer's icon for the running window instead of a generic one, also when the AppImage is installed with Gear Lever.
 - Linux AppImage: a GNUstep theme installed in your own `~/GNUstep/Library/Themes` no longer replaces the Adwaita theme the AppImage carries. The AppImage now keeps its own Library in `~/GNUstep/Library/AppImage/org.objcmarkdown.MarkdownViewer`; your settings are unchanged.
+- Linux AppImage: on a computer with GNUstep installed, the AppImage no longer uses that GNUstep's pasteboard and notification servers (`gpbs`, `gdnc`) when they are already running; it starts the ones it carries, with its patched GNUstep. It keeps its temporary files in its own folder (`$XDG_RUNTIME_DIR/objcmarkdown-gnustep-<uid>/tmp`).
 
 ---
 
@@ -23,6 +24,7 @@ which stays the Latest release.
 | 96c4fe6 | packaged default `GnomeThemeMenuStyle = primary` (written only when unset; this commit also seeded `GSX11HandlesWindowDecorations = NO`, which 51e7e12 drops); `startupWMClass` in the manifest; the app wrapper's GNUstep.conf sets `GNUSTEP_USER_DIR_LIBRARY`; gnustep-packager v0.1.5 | cherry-picked from main's `appimage-desktop-integration` |
 | gnustep-packager v0.1.5 | `StartupWMClass` in the AppImage desktop entry (defaults to the launch entry's name, `backends.appimage.startupWMClass` overrides) | branches `appimage-startup-wm-class` and `release-v0.1.5`; needs its PRs merged and the tag |
 | 51e7e12, b2843f8 | the Adwaita theme's libs-back series (shadows, rounded corners, window types, alpha channel, popover shadows) and libs-gui patch (a theme turns GNUstep-drawn decorations on) carried in `packaging/patches`; the CI image rebuilt (`sha256:1494c94d...`) and pinned | cherry-picked from main's `appimage-csd-patches` (#300) |
+| this branch | the app wrapper exports a private `TMPDIR`, so GNUstep's message-port sockets (and with them `gdnc` and `gpbs`) are the AppImage's own, not a host GNUstep's already running in `/tmp/GNUstepSecure<uid>`; a config folder it doesn't own is replaced by a `mktemp -d` one | checked by bwrap on a host with /usr/GNUstep and its gdnc running: before, no bundled gdnc started; after, the bundled one did; every GNUstep library and the theme from the AppImage in both |
 | this branch | `windows-packaging.yml` and `macos.yml` skip `v0.2.5.2`; the Linux release jobs don't mark `v0.2.5.x` Latest | Linux-only release |
 
 **Note:** a user whose own Library held the theme (a developer's machine) gets the bundled theme after the update; anything else they kept in `~/GNUstep/Library` (Services, fonts, an unsaved-document recovery snapshot from before the update) is no longer seen by the AppImage.
@@ -36,4 +38,5 @@ which stays the Latest release.
 - [ ] Dan's go to push this branch.
 - [ ] `v0.2.5.2` tagged on this branch with Dan's go; then: the linux-appimage and linux-flatpak runs green, the Windows and macOS workflows not run, v0.2.5 still Latest, the Linux feed naming 0.2.5.2.
 - [ ] By eye, on the released AppImage installed with Gear Lever, with no `GSX11HandlesWindowDecorations`, `GSBackHandlesWindowDecorations` or `GnomeThemeMenuStyle` in the global or MarkdownViewer domain: header bar, rounded corners and shadow, and the menu button on first launch; GNUstep's theme chosen in Preferences gives the desktop's title bar after a relaunch; the dock shows the app's icon; a theme in `~/GNUstep/Library/Themes` isn't loaded (`/proc/<pid>/maps` names the AppImage's `Adwaita.theme`). Record the bundled theme commit (`BundledThemes.txt`).
+- [ ] On a host with GNUstep and its `gdnc`/`gpbs` running: the AppImage's own `gdnc` (and `gpbs` after a copy) run from the AppImage's mount, and `/proc/<pid>/maps` names only the AppImage's GNUstep libraries.
 - [ ] An installed 0.2.5.1 AppImage offered 0.2.5.2 through the live feed.
