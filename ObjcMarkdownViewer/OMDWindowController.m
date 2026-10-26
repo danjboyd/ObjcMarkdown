@@ -1506,22 +1506,8 @@ static NSMutableArray *OMDSecondaryWindows(void)
         NSArray *extraPaths = [[_pendingLaunchExtraPaths copy] autorelease];
         [_pendingLaunchExtraPaths release];
         _pendingLaunchExtraPaths = nil;
-        // Each opens from the window of the one before, so that with
-        // window tabs (a new tab goes right after its opener's) they keep
-        // the command line's order.
-        OMDWindowController *opener = self;
-        for (NSString *extraPath in extraPaths) {
-            BOOL inNewTab = !([opener->_documentTabsController count] == 0 &&
-                              opener->_currentPath == nil && opener->_currentMarkdown == nil);
-            if ([opener openDocumentAtPath:extraPath inNewTab:inNewTab requireDirtyConfirm:NO]) {
-                openedFromArgs = YES;
-#if defined(GNUSTEP)
-                OMDWindowController *shown = [OMDWindowController windowControllerWithDocumentAtPath:extraPath];
-                if (shown != nil) {
-                    opener = shown;
-                }
-#endif
-            }
+        if ([self openDocumentsAtPathsInOrder:extraPaths]) {
+            openedFromArgs = YES;
         }
     } else {
         openedFromArgs = [self openDocumentFromArguments];
@@ -9943,6 +9929,49 @@ static BOOL OMDIsMarkdownPath(NSString *path)
 {
     [self cancelPendingRecoveryAutosave];
     [self clearRecoverySnapshot];
+}
+
+- (BOOL)openDocumentsAtPathsInOrder:(NSArray *)paths
+{
+    // Each opens from the window of the one before, so that with window
+    // tabs (a new tab goes right after its opener's) they keep their order.
+    BOOL opened = NO;
+    OMDWindowController *opener = self;
+    for (NSString *path in paths) {
+        BOOL inNewTab = !([opener->_documentTabsController count] == 0 &&
+                          opener->_currentPath == nil && opener->_currentMarkdown == nil);
+        if ([opener openDocumentAtPath:path inNewTab:inNewTab requireDirtyConfirm:NO]) {
+            opened = YES;
+#if defined(GNUSTEP)
+            OMDWindowController *shown = [OMDWindowController windowControllerWithDocumentAtPath:path];
+            if (shown != nil) {
+                opener = shown;
+            }
+#endif
+        }
+    }
+    return opened;
+}
+
+- (NSArray *)openLocalDocumentPaths
+{
+    NSMutableArray *paths = [NSMutableArray array];
+    NSInteger index = 0;
+    for (; index < (NSInteger)[_documentTabsController count]; index++) {
+        OMDMarkdownDocument *tab = [_documentTabsController tabAtIndex:index];
+        NSString *path = [tab sourcePath];
+        if ([path length] > 0 && [[tab remoteURL] length] == 0 && ![paths containsObject:path]) {
+            [paths addObject:path];
+        }
+    }
+    return paths;
+}
+
+- (NSString *)selectedLocalDocumentPath
+{
+    OMDMarkdownDocument *tab = [_documentTabsController selectedTab];
+    NSString *path = [tab sourcePath];
+    return ([path length] > 0 && [[tab remoteURL] length] == 0) ? path : nil;
 }
 
 - (void)windowWillClose:(NSNotification *)notification
