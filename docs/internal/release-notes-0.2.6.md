@@ -12,7 +12,7 @@ Changes are counted from v0.2.5 (ba4f6ff). Milestone "0.2.6" (4).
 - Linux AppImage and Flatpak: under the Adwaita theme the window has a header bar with the toolbar and a menu button, rounded corners and a shadow; menus have shadows too. Under GNUstep's default theme the window manager's title bar is kept (#299, #300).
 
 **Fixed since 0.2.5**
-- Show in Folder after sharing a saved, unedited document selects the document in its own folder, not a temporary copy (#265). Any other share is a temporary copy, and the notice says so.
+- Windows: Show in Folder after sharing a saved, unedited document selects the document in its own folder, not a temporary copy (#265). Any other share is a temporary copy, and the notice says so.
 - Share opens one share panel at a time; choosing Share again brings it forward (libs-sharing cbc6726).
 - Toolbar: in a narrow window Save goes into the overflow menu before Open (#280).
 - The app icon has a transparent background instead of a white square (#281).
@@ -22,6 +22,8 @@ Changes are counted from v0.2.5 (ba4f6ff). Milestone "0.2.6" (4).
 
 **Known issues**
 - Show in Folder still selects the temporary copy for a saved document whose extension is not lower-case `md` (`.markdown`, `.MD`, `.mdown`; `.TXT` in plain-text mode). Fix in 0.2.7.
+- Linux: Show in Folder in the Share panel still selects the temporary copy, as in 0.2.5 (#304). Fix in 0.2.7.
+- Linux: the app's bundled notification service (gdnc) keeps running after the app quits, as GNUstep's own does; the next launch starts or finds one again.
 - macOS with window restoration on: the restored documents come back in reversed tab order.
 - Windows: typing in the source editor still costs about 46 ms of CPU per key (#164; the highlight timer moves to 0.2.7, the rest is upstream in libs-gui).
 - Linux and Windows: shortcodes whose emoji is outside the BMP stay as typed (#267).
@@ -49,10 +51,16 @@ Changes are counted from v0.2.5 (ba4f6ff). Milestone "0.2.6" (4).
 ## Checklist
 
 - [x] Scope (Dan, 2026-10-28): #298 as it is and #302 in; the extension fix and #164 to 0.2.7.
-- [ ] Packaging runs green on the rc1 SHA (AppImage, Flatpak, MSI, dmg); record the Adwaita and WinUITheme commits the packages bundle.
-- [ ] `v0.2.6-rc1` tagged on this notes PR's merge commit once packaging is green (Dan's go 2026-10-28); pre-release, outside the stable feeds.
+- [x] Packaging runs green on 6410322 (AppImage 40754715327 on a rerun: the first attempt crashed in PowerShell after the smoke launch, "Cannot write to a closed TextWriter"; Flatpak 40754718743, MSI 40754723020, dmg 40754726534). Adwaita 928c2ca (0.1.0-alpha16) in the AppImage and Flatpak (the AppImage's BundledThemes.txt agrees); WinUITheme cad2585 (alpha12) in the MSI.
+- [x] `v0.2.6-rc1` tagged on 6410322, #303's merge commit (Dan's go 2026-10-28); 5 tag workflows green, 13 assets, pre-release, stable feeds untouched.
 - [ ] rc1 rounds on the CI packages, not dev builds:
-  - Linux: AppImage and Flatpak, isolated (private display, private defaults). For each package:
+  - Linux: AppImage and Flatpak, isolated (private GNOME display, private home and defaults; Dan's defaults unchanged). PASS with two findings, 2026-10-28:
+    - Both packages, Adwaita: header bar with toolbar and menu button, rounded corners and a shadow; menus have shadows; drag, double-click to maximize (square, no shadow when maximized) and restore work. GNUstep's default theme: the window manager's title bar. The AppImage seeds no GSX11HandlesWindowDecorations; the Flatpak's launcher sets GSTheme Adwaita on first run.
+    - #302, with the host's /usr/GNUstep gpbs running: the AppImage started its bundled gdnc and gpbs (private TMPDIR under XDG_RUNTIME_DIR); Copy went through the bundled gpbs; Share to email opened the mail app with the staged message; dragging the file out gave a GTK drop target its text/uri-list.
+    - #301: Share again shows one panel, not two. #288: arrows, Home/End and typing work. #293: Reveal in Source selects the block.
+    - Finding: Show in Folder in the Share panel selects the staged copy on Linux, as in 0.2.5 (#304, 0.2.7); #298 covers Windows and the notice.
+    - Finding: gpbs exits with the app, gdnc does not (AppImage and Flatpak). A 0.2.5.1 AppImage's gdnc on Dan's machine had outlived its FUSE mount by a day, so this predates #302; #302 makes it happen on hosts with GNUstep too. Likely what crashed the first AppImage packaging attempt.
+    The checklist items below were the plan for this round:
     - Header bar window under Adwaita (#299, #300): the window has the theme's shadow and rounded corners, not a square, opaque rectangle. The header bar holds the toolbar and the menu button, and dragging, double-click to maximize and the window buttons work.
     - Menus and popovers under Adwaita draw their shadow (libs-back 0005).
     - GNUstep's default theme (GSTheme set to it, relaunch): the window manager's title bar, not GNUstep's NeXT title bar and not a header bar.
