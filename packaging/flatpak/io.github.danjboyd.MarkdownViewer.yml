@@ -155,8 +155,8 @@ modules:
     sources:
       - type: git
         url: https://github.com/danjboyd/plugins-themes-Adwaita.git
-        branch: alpha17-candidate
-        commit: 4dcc96101813a7a73fb824b74d236ab42c87759e
+        tag: 0.1.0-alpha17
+        commit: 10225c7c9ec98af4f3d420b3310b0ef64488ae51
 
   # Export as HTML, DOCX, ODT and RTF and Import go through pandoc. Its
   # release binary is static and carries its data files; the AppImage
