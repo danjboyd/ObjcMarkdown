@@ -42,7 +42,7 @@
 
 - (void)showShareItemInFolder:(OMDShareItem *)item
 {
-    OMDRevealPathInFileManager([[item fileURL] path]);
+    OMDRevealPathInFileManager([[item folderURL] path]);
 }
 
 - (void)copyFileOfShareItem:(OMDShareItem *)item
