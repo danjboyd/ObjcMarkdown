@@ -6,8 +6,8 @@
       "id": "linux-adwaita-theme",
       "kind": "git",
       "repo": "https://github.com/danjboyd/plugins-themes-Adwaita.git",
-      "ref": "928c2cadf9ae39484af0d4de2cd1fe18b760c1c4",
-      "refName": "0.1.0-alpha16",
+      "ref": "4dcc96101813a7a73fb824b74d236ab42c87759e",
+      "refName": "alpha17-candidate",
       "workspacePath": "../gnustep/plugins-themes-adwaita",
       "platforms": [
         "linux"
@@ -24,6 +24,7 @@
         "83efd71 (branch markdownviewer-0.2.2-hotfix) is 589cea6 plus only the overlay-scroller fix from e84ab12 (plugins-themes-Adwaita#75): -tile no longer re-enters itself, which overflowed the stack when launching in Split or opening a window tab (#120).",
         "b2d4326 (tag 0.1.0-alpha15, main) replaces the hotfix branch: it has e84ab12 and the theme's work since 589cea6, plus gnustep-window-tabbing 3c4e62f (switching tabs shows the new tab before hiding the old, so the window no longer flickers) and a submenu's first item level with the item that opens it (the Email submenu was top-aligned).",
         "928c2ca (tag 0.1.0-alpha16, main) releases a cell's typing attributes after drawing (they leaked on every draw) and fills the toolbar's overflow menu by each item's visibilityPriority.",
+        "4dcc961 (branch alpha17-candidate) is the alpha17 Dan approved for 0.2.6 rc2 after a clean three-app recheck (2026-10-22): the toolbar brings same-priority items back to the row (af326ff, #280), the overflow mark in the text colour, focus-visible per window, control and text-field heights matching push buttons, room for sort indicators, and the About panel as AdwAboutWindow. It is not the 0.1.0-alpha17 tag (10225c7), which adds two later About-panel commits and the version bump; its AdwaitaInfo.plist still says 0.1.0-alpha16.",
         "packaging/scripts/stage-linux-runtime.sh fetches and builds this ref; the Linux release workflow adds it to the release notes, and the package records it in metadata/docs/BundledThemes.txt."
       ]
     },
