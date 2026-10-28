@@ -70,4 +70,6 @@ Changes are counted from v0.2.5 (ba4f6ff). Milestone "0.2.6" (4).
     - #293 Reveal in Source; #301 Share twice brings the open panel forward; #288 the arrows, Home/End and Delete work in text.
   - macOS: the dmg (on-screen #266/#297 at rc1 -> rc2).
   - Windows: the MSI; #265 Show in Folder. (#164's measurement moves with it to 0.2.7.)
+- [ ] rc2: Adwaita 0.1.0-alpha17 (10225c7) replaces alpha16 in the AppImage and Flatpak (Dan, 2026-10-28). `v0.2.6-rc2` and its packaging wait for Dan's go after the macOS rc1 on-screen round.
+- [ ] rc2 Linux re-check of the theme on both packages, isolated as in rc1: BundledThemes.txt names 10225c7 (0.1.0-alpha17); About Markdown Viewer shows a sharp icon, downscaled, not blocky; under Adwaita the header bar with toolbar and menu button, rounded corners and shadow, drag, double-click maximize and restore; menus and the Share panel with shadows; a narrow window's toolbar overflow (Save before Open, #280); under GNUstep's default theme the window manager's title bar.
 - [ ] Dan: go for v0.2.6 final.
