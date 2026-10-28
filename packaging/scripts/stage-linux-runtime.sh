@@ -485,7 +485,19 @@ CONFIG_ROOT="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/objcmarkdown-gnustep-${UID:-$(i
 CONFIG_PATH="$CONFIG_ROOT/GNUstep.conf"
 
 mkdir -p "$CONFIG_ROOT"
+if [ -L "$CONFIG_ROOT" ] || [ ! -O "$CONFIG_ROOT" ]; then
+  CONFIG_ROOT="$(mktemp -d)"
+  CONFIG_PATH="$CONFIG_ROOT/GNUstep.conf"
+fi
 chmod 700 "$CONFIG_ROOT" 2>/dev/null || true
+
+# GNUstep finds gdnc and gpbs through sockets in NSTemporaryDirectory(). With
+# the shared /tmp, a host GNUstep's daemons answered instead of the bundled
+# ones, and the host's libs-back served the pasteboard without the patches the
+# AppImage carries. A private TMPDIR makes the app start its own.
+mkdir -p "$CONFIG_ROOT/tmp"
+chmod 700 "$CONFIG_ROOT/tmp" 2>/dev/null || true
+export TMPDIR="$CONFIG_ROOT/tmp"
 
 # The user Library is the AppImage's own (relative to the home directory, as
 # gnustep-packager's gnustepConfig.userLibrary "app" makes it): GNUstep
