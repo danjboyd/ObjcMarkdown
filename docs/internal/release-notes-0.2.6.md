@@ -18,7 +18,9 @@ Changes are counted from v0.2.5 (ba4f6ff). Milestone "0.2.6" (4).
 - The app icon has a transparent background instead of a white square (#281).
 - Linux AppImage: the arrow keys, Home/End and Delete work in text again (#288, also in 0.2.5.1).
 - Linux AppImage: on a computer with GNUstep installed, the app uses its own bundled services (pasteboard, notifications), not the host's (#302).
+- Linux AppImage and Flatpak, under Adwaita on GNOME with Wayland: a pop-up button's list (such as the Heading menu) no longer shows blank from its second opening (Adwaita 0.1.0-alpha18).
 - Builds: packaged with gnustep-packager v0.1.4, which also updates the in-app updater.
+- Builds: the Linux packages bundle Adwaita 0.1.0-alpha18 (3083b0a); the Windows MSI bundles WinUITheme 0.1.0-alpha13 (72f2a10) with libs-back carry-0.32.0.5.
 
 **Known issues**
 - Show in Folder still selects the temporary copy for a saved document whose extension is not lower-case `md` (`.markdown`, `.MD`, `.mdown`; `.TXT` in plain-text mode). Fix in 0.2.7.
@@ -46,6 +48,9 @@ Changes are counted from v0.2.5 (ba4f6ff). Milestone "0.2.6" (4).
 | #301 | Vendor libs-sharing cbc6726: one share panel at a time | merged 7b44871 |
 | #298 | #265 Show in Folder selects the document for a share of it as saved (Markdown Viewer Windows) | merged 315a2bc at 17c0c50; Linux review no blockers (Dan 2026-10-28: as it is) |
 | #302 | Linux AppImage: a private TMPDIR, so the bundled gdnc and gpbs run instead of a host GNUstep's | merged eaeab3f (Dan 2026-10-28); replaces the dropped 0.2.5.2 |
+| #306 | Linux packages: Adwaita 0.1.0-alpha17 (10225c7) | merged 367270c (rc2) |
+| #308 | Linux packages: Adwaita 0.1.0-alpha18 (3083b0a): pop-up lists on GNOME Wayland | merged 7c41024 (Dan, ask #392) |
+| #310 | Windows MSI: WinUITheme 0.1.0-alpha13 (72f2a10), libs-back carry-0.32.0.5 | merged eeefd9f (Dan, ask #429) |
 
 **Out** (0.2.7, Dan 2026-10-28, unless Markdown Viewer Windows pushes them before rc1 packaging): the case-insensitive extension check for #265 (c921369), #164's highlight timer (highlight-timer-164, 019a95b). No 0.2.5.2: hotfix-0.2.5.2 stays as a branch, unreleased.
 
@@ -75,5 +80,12 @@ Changes are counted from v0.2.5 (ba4f6ff). Milestone "0.2.6" (4).
 - [x] rc2 Linux re-check of the theme on both packages, isolated as in rc1: BundledThemes.txt names 10225c7 (0.1.0-alpha17); About Markdown Viewer shows a sharp icon, downscaled, not blocky; under Adwaita the header bar with toolbar and menu button, rounded corners and shadow, drag, double-click maximize and restore; menus and the Share panel with shadows; a narrow window's toolbar overflow (Save before Open, #280); under GNUstep's default theme the window manager's title bar.
   PASS 2026-10-28 on the released rc2 AppImage and Flatpak (private display and home): header bar, rounded corners and shadow; menu shadows; About shows 0.2.6-rc2 and a sharp, downscaled icon (both packages); at 560 px Explorer, Save and Share go into the overflow and Open stays (#280); GNUstep's default theme keeps the window manager's title bar.
 - [x] #266 on Linux, rc1 -> rc2 through a local signed feed (tools/dev/update-test, the rc2 bytes as 0.2.6-rc2.uat): rc1 with one.md and two.md in tabs, Check for Updates, Install, Restart and Install. The AppImage on disk became rc2's bytes (sha256 d9de0487...), the relaunched app (no arguments) reopened one.md and two.md in tab order with two.md selected. PASS.
-- Observation, not compared yet with 0.2.5.1: a second launch of the AppImage with a file started a second instance (MarkdownViewerCopy1) instead of handing the file to the running one.
+- Observation, compared with 0.2.5.1 (2026-10-29): a second launch of the AppImage with a file starts a second instance (MarkdownViewerCopy1) instead of handing the file to the running one. 0.2.5.1 and rc2 do the same (private home, one runtime directory for both launches): not a regression, not a 0.2.6 blocker.
+- [x] rc3: Adwaita 0.1.0-alpha18 (3083b0a) for the AppImage and Flatpak (#308, merged 7c41024; Dan, ask #392) and WinUITheme 0.1.0-alpha13 (72f2a10) with libs-back carry-0.32.0.5 for the MSI (#310, merged eeefd9f; Dan, ask #429). The rc3 commit is eeefd9f. Packaging on eeefd9f all green (AppImage 40926016923, Flatpak 40926020680, MSI 40926024690, dmg 40926028556). The AppImage's BundledThemes.txt names Adwaita 3083b0a (0.1.0-alpha18), and the Flatpak's theme reports 0.1.0-alpha18; the MSI's BundledThemes.txt names WinUITheme 72f2a10, and its build installed gnustep-back 0.32.0.5 from carry-0.32.0.5.
+- [ ] `v0.2.6-rc3` on eeefd9f: waits for Dan's go.
+- [x] rc3 Linux round on the 7c41024 AppImage and Flatpak (40921694480, 40921698847; the Linux inputs are the same in eeefd9f), isolated as before (private display, private home and defaults; Dan's defaults unchanged). PASS 2026-10-29:
+  - BundledThemes.txt names Adwaita 3083b0a (0.1.0-alpha18); the theme reports 0.1.0-alpha18 in both packages, and THIRD-PARTY-NOTICES ships in the bundle.
+  - About Markdown Viewer shows 0.2.6-rc3 and a sharp, downscaled icon (both packages).
+  - Under Adwaita: header bar with toolbar and menu button, rounded corners and shadow; the menu and the Heading pop-up draw their shadows. Under GNUstep's default theme: the window manager's title bar.
+  - Pop-up opened again and again (the alpha18 fix): under a private headless GNOME Shell 48.7 on Wayland (XWayland, WAYLAND_DISPLAY set), the Heading pop-up opened, an item picked and opened again, five times: the list drew in full each time. rc2 (alpha17) did the same on this Mutter, so this host doesn't reproduce GNOME/mutter#5080: the check shows no regression, not the fix. The fix itself was checked by the Adwaita agent.
 - [ ] Dan: go for v0.2.6 final.
