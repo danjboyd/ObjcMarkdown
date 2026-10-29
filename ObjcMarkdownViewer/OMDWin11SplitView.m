@@ -233,11 +233,20 @@
     [self setNeedsDisplay:YES];
 }
 
+// AppKit and libs-gui both track a divider drag in -mouseDown: until the
+// button comes up.
 - (void)mouseDown:(NSEvent *)event
 {
+    _omdTrackingDivider = YES;
     [super mouseDown:event];
+    _omdTrackingDivider = NO;
     [self omdSnapSubviewsToPixels];
     [self omdInvalidateCursorRects];
+}
+
+- (BOOL)omdIsTrackingDivider
+{
+    return _omdTrackingDivider;
 }
 
 - (void)resetCursorRects

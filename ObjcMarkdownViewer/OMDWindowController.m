@@ -1151,8 +1151,6 @@ static NSMutableArray *OMDSecondaryWindows(void)
     OMDStartupTrace(@"setupWindow: setupWorkspaceChrome returned");
 
     _splitRatio = 0.5;
-    _lastObservedSplitAvailableWidth = -1.0;
-    _isApplyingSplitViewRatio = NO;
     NSNumber *savedSplitRatio = [[NSUserDefaults standardUserDefaults] objectForKey:@"ObjcMarkdownSplitRatio"];
     if ([savedSplitRatio respondsToSelector:@selector(doubleValue)]) {
         double value = [savedSplitRatio doubleValue];
@@ -5046,24 +5044,13 @@ constrainSplitPosition:(CGFloat)proposedPosition
         return;
     }
 
-    CGFloat available = -1.0;
-    CGFloat width = [_splitView bounds].size.width;
-    CGFloat divider = [_splitView dividerThickness];
-    if (width > divider) {
-        available = width - divider;
-    }
-    BOOL canCompareWidth = (_lastObservedSplitAvailableWidth >= 0.0 && available >= 0.0);
-    BOOL widthChanged = (canCompareWidth &&
-                         fabs(available - _lastObservedSplitAvailableWidth) > 0.5);
-
     [self layoutSourceEditorContainer];
-    // Preserve the user-selected split ratio when the window width changes.
-    // Width-driven min-size clamping should not overwrite the stored ratio.
-    if (!_isApplyingSplitViewRatio && canCompareWidth && !widthChanged) {
+    // Only a drag of the divider is the user's choice of split. Any other
+    // resize (the window's, the panes coming back from another mode with the
+    // frames it left them, a new tab taking its group's frame) isn't, and
+    // keeping it gave a later Split a preview 15% wide.
+    if ([(OMDWin11SplitView *)_splitView omdIsTrackingDivider]) {
         [self persistSplitViewRatio];
-    }
-    if (available >= 0.0) {
-        _lastObservedSplitAvailableWidth = available;
     }
     [self updatePreviewDocumentGeometry];
     [_copyButtonsController updateCodeBlockButtons];
@@ -5808,15 +5795,9 @@ static CGFloat OMDOutlinePanelWidth(NSRect bounds)
     [_previewScrollView setHidden:NO];
     // GNUstep can defer split subview geometry until the next resize event.
     // Force one immediate pass so Edit->Split transitions are visually correct.
-    // The panes come back with the frames another mode left them (the
-    // preview as wide as the whole area), so the first pass shares the width
-    // out wrongly: don't keep that as the user's split ratio.
-    BOOL wasApplying = _isApplyingSplitViewRatio;
-    _isApplyingSplitViewRatio = YES;
     [_splitView adjustSubviews];
     [self applySplitViewRatio];
     [_splitView adjustSubviews];
-    _isApplyingSplitViewRatio = wasApplying;
     [self layoutSourceEditorContainer];
     [self updateFormattingBarContextState];
     [_splitView setNeedsDisplay:YES];
@@ -7035,10 +7016,7 @@ static CGFloat OMDOutlinePanelWidth(NSRect bounds)
     if (position > (available - minWidth)) {
         position = available - minWidth;
     }
-    BOOL wasApplying = _isApplyingSplitViewRatio;
-    _isApplyingSplitViewRatio = YES;
     [_splitView setPosition:position ofDividerAtIndex:0];
-    _isApplyingSplitViewRatio = wasApplying;
 }
 
 - (void)persistSplitViewRatio
