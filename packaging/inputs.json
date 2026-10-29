@@ -6,8 +6,8 @@
       "id": "linux-adwaita-theme",
       "kind": "git",
       "repo": "https://github.com/danjboyd/plugins-themes-Adwaita.git",
-      "ref": "10225c7c9ec98af4f3d420b3310b0ef64488ae51",
-      "refName": "0.1.0-alpha17",
+      "ref": "3083b0aee26001c5f5ffe073bed4e82a668eb0cd",
+      "refName": "0.1.0-alpha18",
       "workspacePath": "../gnustep/plugins-themes-adwaita",
       "platforms": [
         "linux"
@@ -25,6 +25,7 @@
         "b2d4326 (tag 0.1.0-alpha15, main) replaces the hotfix branch: it has e84ab12 and the theme's work since 589cea6, plus gnustep-window-tabbing 3c4e62f (switching tabs shows the new tab before hiding the old, so the window no longer flickers) and a submenu's first item level with the item that opens it (the Email submenu was top-aligned).",
         "928c2ca (tag 0.1.0-alpha16, main) releases a cell's typing attributes after drawing (they leaked on every draw) and fills the toolbar's overflow menu by each item's visibilityPriority.",
         "10225c7 (tag 0.1.0-alpha17) is the alpha17 Dan approved for 0.2.6 rc2: the toolbar brings same-priority items back to the row (af326ff, #280), the overflow mark in the text colour, focus-visible per window, control and text-field heights matching push buttons, room for sort indicators, and the About panel as AdwAboutWindow drawing an icon from its widest bitmap, never one scaled up (3db4b3e). Its tree is 5d6a906, which Markdown Viewer, LinDirStat and ScreenshotTool rechecked clean (2026-10-22), plus the version bump.",
+        "3083b0a (tag 0.1.0-alpha18) is the build for 0.2.6 rc3: under GNOME on Wayland a pop-up button's list keeps its size while on screen, so it no longer shows blank from its second opening (GNOME/mutter#5080; X11 unchanged), and THIRD-PARTY-NOTICES for the GNOME icons ships in the bundle. It needs no libs-back or libs-gui patch beyond the ones alpha17 needed.",
         "packaging/scripts/stage-linux-runtime.sh fetches and builds this ref; the Linux release workflow adds it to the release notes, and the package records it in metadata/docs/BundledThemes.txt."
       ]
     },
