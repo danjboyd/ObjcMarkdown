@@ -276,11 +276,37 @@ static NSString *OMDRunningAppVersion(void)
             [restored addObject:[[[window representedURL] path] stringByStandardizingPath]];
         }
     }
+    // One at a time: opens issued together finish in any order, and the
+    // tabs came back reversed or with another one selected (#315). Then the
+    // selected file (the last path) is shown, not opened again.
+    NSMutableArray *toOpen = [NSMutableArray array];
     for (NSString *path in paths) {
         if (![restored containsObject:[path stringByStandardizingPath]]) {
-            [self application:NSApp openFile:path];
+            [toOpen addObject:path];
         }
     }
+    NSString *selected = [paths lastObject];
+    NSDocumentController *documentController = [NSDocumentController sharedDocumentController];
+    OMDRelaunchReopenOpenInOrder(toOpen, ^(NSString *path, void (^done)(void)) {
+        void (^opened)(void) = [[done copy] autorelease];
+        [documentController openDocumentWithContentsOfURL:[NSURL fileURLWithPath:path]
+                                                  display:YES
+                                        completionHandler:^(NSDocument *document, BOOL alreadyOpen, NSError *error) {
+            (void)document;
+            (void)alreadyOpen;
+            if (error != nil) {
+                [NSApp presentError:error];
+            }
+            opened();
+        }];
+    }, ^{
+        NSDocument *document = [documentController documentForURL:[NSURL fileURLWithPath:selected]];
+        NSWindow *window = [[[document windowControllers] firstObject] window];
+        if (window != nil) {
+            [[window tabGroup] setSelectedWindow:window];
+            [window makeKeyAndOrderFront:nil];
+        }
+    });
 #else
     [_mainWindowController openDocumentsAtPathsInOrder:paths];
 #endif
