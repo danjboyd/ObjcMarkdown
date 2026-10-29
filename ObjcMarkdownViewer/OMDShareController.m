@@ -42,6 +42,7 @@
     [_selectionCheckbox release];
     [_warningsView release];
     [_sheetWarnings release];
+    [_sheetItem release];
 #endif
     [OMDShareNotice dismissNoticeForWindow:_window];
     [_exporter release];
@@ -133,13 +134,22 @@ static NSInteger OMDShareSheetChoices[] = {
 // Message the rendered document. Nil (after an alert) if it couldn't be made.
 - (NSArray *)sheetItemsForChoice:(NSInteger)choice
 {
+    [self setSheetItem:nil];
     if (choice == OMDShareEmailInMessageTag) {
         NSAttributedString *rendered = [self sharedRenderedText];
         id text = rendered != nil ? (id)rendered : (id)[self sharedMarkdown];
         return text != nil ? [NSArray arrayWithObject:text] : nil;
     }
     OMDShareItem *item = [self exportInFormat:(OMDShareFormat)choice];
+    [self setSheetItem:item];
     return item != nil ? [NSArray arrayWithObject:[item fileURL]] : nil;
+}
+
+- (void)setSheetItem:(OMDShareItem *)item
+{
+    [item retain];
+    [_sheetItem release];
+    _sheetItem = item;
 }
 
 - (NSSegmentedControl *)formatControl
@@ -385,6 +395,7 @@ static OMDShareFormat OMDShareFormatForSheetChoice(NSInteger choice)
             return;
         }
         OMDShareSetLastFormat((OMDShareFormat)choice);
+        [controller setSheetItem:item];
         [(NSSharingServicePicker *)controller->_picker setItems:[NSArray arrayWithObject:[item fileURL]]];
     }];
 }
@@ -424,6 +435,7 @@ static OMDShareFormat OMDShareFormatForSheetChoice(NSInteger choice)
     _warningsReserve = -1.0;
     [_sheetWarnings release];
     _sheetWarnings = nil;
+    [self setSheetItem:nil];
     NSArray *items = inBackground ? [self placeholderItemsForChoice:choice]
                                   : [self sheetItemsForChoice:choice];
     if (items == nil) {
@@ -476,6 +488,7 @@ static OMDShareFormat OMDShareFormatForSheetChoice(NSInteger choice)
         OMDShareSetLastSheetChoice(choice);
         [self selectSheetChoice:choice];
         [self updateSheetAccessory];
+        [self setSheetItem:nil];
         [(NSSharingServicePicker *)_picker setItems:[self placeholderItemsForChoice:choice]];
         [self exportSheetChoiceInBackground:choice];
         return YES;
@@ -537,6 +550,7 @@ static OMDShareFormat OMDShareFormatForSheetChoice(NSInteger choice)
     }
     ++_exportGeneration;
     _sheetBundled = YES;
+    [self setSheetItem:item];
     [self updateSheetAccessory];
     [(NSSharingServicePicker *)_picker setItems:[NSArray arrayWithObject:[item fileURL]]];
 }
@@ -557,6 +571,13 @@ static OMDShareFormat OMDShareFormatForSheetChoice(NSInteger choice)
                                          [self sharedRenderedText]);
 }
 
+- (void)showInFolderService:(NSArray *)items service:(id)service
+{
+    (void)items;
+    (void)service;
+    [_presenter showShareItemInFolder:_sheetItem];
+}
+
 - (void)sharingServicePicker:(NSSharingServicePicker *)picker
      didChooseSharingService:(NSSharingService *)service
 {
@@ -568,7 +589,9 @@ static OMDShareFormat OMDShareFormatForSheetChoice(NSInteger choice)
 
 // In the Message: the app's own Email (draft and paste) and Copy (the
 // rendered document as HTML with inline styles, RTF and text), with the
-// library's titles and images; files get the library's services as they are.
+// library's titles and images. Files get the library's services, except
+// that for a share of the document as saved Show in Folder shows the
+// document, not its copy in the temporary folder (#304).
 - (NSArray *)sharingServicePicker:(NSSharingServicePicker *)picker
           sharingServicesForItems:(NSArray *)items
           proposedSharingServices:(NSArray *)proposed
@@ -576,7 +599,7 @@ static OMDShareFormat OMDShareFormatForSheetChoice(NSInteger choice)
     (void)picker;
     (void)items;
     if (_sheetChoice != OMDShareEmailInMessageTag) {
-        return proposed;
+        return [self servicesShowingDocumentInFolder:proposed];
     }
     NSSharingService *email = [NSSharingService sharingServiceNamed:NSSharingServiceNameComposeEmail];
     NSSharingService *copy = [NSSharingService sharingServiceNamed:GSSharingServiceNameCopy];
@@ -591,6 +614,31 @@ static OMDShareFormat OMDShareFormatForSheetChoice(NSInteger choice)
                                                                        target:self
                                                                        action:@selector(copyRenderedService:service:)] autorelease];
     return [NSArray arrayWithObjects:ours, copyRendered, nil];
+}
+
+// proposed with the library's Show in Folder, which shows the file shared,
+// swapped for the presenter's, which shows the sheet item's folderURL.
+// The library's services are new objects each time: matched by title.
+- (NSArray *)servicesShowingDocumentInFolder:(NSArray *)proposed
+{
+    if ([_sheetItem documentURL] == nil) {
+        return proposed;
+    }
+    NSSharingService *library = [NSSharingService sharingServiceNamed:GSSharingServiceNameShowInFolder];
+    NSMutableArray *services = [NSMutableArray arrayWithCapacity:[proposed count]];
+    NSEnumerator *e = [proposed objectEnumerator];
+    NSSharingService *service = nil;
+    while ((service = [e nextObject]) != nil) {
+        if (library != nil && [[service title] isEqualToString:[library title]]) {
+            service = [[[NSSharingService alloc] initWithTitle:[library title]
+                                                         image:[library image]
+                                                alternateImage:nil
+                                                        target:self
+                                                        action:@selector(showInFolderService:service:)] autorelease];
+        }
+        [services addObject:service];
+    }
+    return services;
 }
 #endif
 
