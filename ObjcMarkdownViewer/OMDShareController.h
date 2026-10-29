@@ -30,6 +30,10 @@
     BOOL _selectionOnly;
     // Whether the sheet shows the Markdown's .zip with its images.
     BOOL _sheetBundled;
+    // The file the sheet shares, while it's an export (nil for In the
+    // Message and while one is being made): Show in Folder shows its
+    // folderURL, the document itself for a share of it as saved (#304).
+    OMDShareItem *_sheetItem;
     // The warnings area's height while the sheet shows: the tallest any
     // choice needs, so the tiles don't move (#242); < 0 to measure again.
     CGFloat _warningsReserve;
