@@ -12,10 +12,34 @@
     NSUInteger _contextObjectIndex;
     OMRenderedObject *_contextObject;
     OMTextTable *_contextTable;
+    NSRange _contextTextRange;
     // linkedObjectIndex + 1, so a zero-initialised view has no linked object.
     NSUInteger _linkedObjectIndexPlusOne;
 }
 @end
+
+NSUInteger OMDTaskItemIndexAtCharacterIndex(NSAttributedString *text, NSUInteger characterIndex)
+{
+    if (text == nil || characterIndex >= [text length] ||
+        [text attribute:OMMarkdownRendererTaskItemAttributeName atIndex:characterIndex effectiveRange:NULL] == nil) {
+        return NSNotFound;
+    }
+    // Count the boxes before it; each box is one character.
+    NSUInteger count = 0;
+    NSUInteger index = 0;
+    while (index < characterIndex) {
+        NSRange run = NSMakeRange(index, 0);
+        id value = [text attribute:OMMarkdownRendererTaskItemAttributeName
+                           atIndex:index
+             longestEffectiveRange:&run
+                           inRange:NSMakeRange(index, characterIndex - index)];
+        if (value != nil) {
+            count += run.length;
+        }
+        index = NSMaxRange(run) > index ? NSMaxRange(run) : index + 1;
+    }
+    return count;
+}
 
 @implementation OMDTextView
 
@@ -33,6 +57,7 @@
 
 - (void)dealloc
 {
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
     [_documentBackgroundColor release];
     [_documentBorderColor release];
     [_codeBlockRanges release];
@@ -259,6 +284,96 @@
     }
     return object;
 }
+
+- (NSUInteger)taskItemIndexAtPoint:(NSPoint)point
+{
+    NSLayoutManager *layoutManager = [self layoutManager];
+    NSTextContainer *container = [self textContainer];
+    if (layoutManager == nil || container == nil || [[self textStorage] length] == 0) {
+        return NSNotFound;
+    }
+    NSPoint origin = [self textContainerOrigin];
+    NSPoint containerPoint = NSMakePoint(point.x - origin.x, point.y - origin.y);
+    NSUInteger glyphIndex = [layoutManager glyphIndexForPoint:containerPoint inTextContainer:container];
+    if (glyphIndex >= [layoutManager numberOfGlyphs]) {
+        return NSNotFound;
+    }
+    // The box's own glyph only, not the space or text beside it.
+    NSRect glyphRect = [layoutManager boundingRectForGlyphRange:NSMakeRange(glyphIndex, 1)
+                                                inTextContainer:container];
+    if (!NSPointInRect(containerPoint, glyphRect)) {
+        return NSNotFound;
+    }
+    return OMDTaskItemIndexAtCharacterIndex([self textStorage],
+                                            [layoutManager characterIndexForGlyphAtIndex:glyphIndex]);
+}
+
+#if defined(GNUSTEP)
+// GNUstep's NSTextView gives links a pointing hand but doesn't read
+// NSCursorAttributeName (the renderer's clickable task boxes); add those
+// the same way, over the visible text.
+- (void)resetCursorRects
+{
+    [super resetCursorRects];
+    NSLayoutManager *layoutManager = [self layoutManager];
+    NSTextContainer *container = [self textContainer];
+    NSTextStorage *storage = [self textStorage];
+    NSRect visible = [self visibleRect];
+    if (![self isSelectable] || layoutManager == nil || container == nil ||
+        [storage length] == 0 || NSIsEmptyRect(visible)) {
+        return;
+    }
+    NSPoint origin = [self textContainerOrigin];
+    NSRect inContainer = NSOffsetRect(visible, -origin.x, -origin.y);
+    NSRange glyphs = [layoutManager glyphRangeForBoundingRectWithoutAdditionalLayout:inContainer
+                                                                    inTextContainer:container];
+    NSRange characters = [layoutManager characterRangeForGlyphRange:glyphs actualGlyphRange:NULL];
+    NSUInteger index = characters.location;
+    while (index < NSMaxRange(characters)) {
+        NSRange run = NSMakeRange(index, 0);
+        NSCursor *cursor = [storage attribute:NSCursorAttributeName
+                                      atIndex:index
+                        longestEffectiveRange:&run
+                                      inRange:NSMakeRange(index, NSMaxRange(characters) - index)];
+        if ([cursor isKindOfClass:[NSCursor class]]) {
+            NSUInteger count = 0;
+            NSUInteger i = 0;
+            NSRectArray rects = [layoutManager rectArrayForCharacterRange:run
+                                             withinSelectedCharacterRange:run
+                                                          inTextContainer:container
+                                                                rectCount:&count];
+            for (i = 0; i < count; i++) {
+                [self addCursorRect:NSOffsetRect(rects[i], origin.x, origin.y) cursor:cursor];
+            }
+        }
+        index = NSMaxRange(run) > index ? NSMaxRange(run) : index + 1;
+    }
+}
+
+// The cursor rects above cover the visible text, so scrolling (the clip
+// view's bounds changing) calls for new ones. The preview's text view sits
+// in a canvas view, so the clip view is the enclosing scroll view's.
+- (void)viewDidMoveToWindow
+{
+    [super viewDidMoveToWindow];
+    NSNotificationCenter *center = [NSNotificationCenter defaultCenter];
+    [center removeObserver:self name:NSViewBoundsDidChangeNotification object:nil];
+    NSClipView *clipView = [[self enclosingScrollView] contentView];
+    if ([self window] != nil && clipView != nil) {
+        [clipView setPostsBoundsChangedNotifications:YES];
+        [center addObserver:self
+                   selector:@selector(clipViewBoundsDidChange:)
+                       name:NSViewBoundsDidChangeNotification
+                     object:clipView];
+    }
+}
+
+- (void)clipViewBoundsDidChange:(NSNotification *)notification
+{
+    (void)notification;
+    [[self window] invalidateCursorRectsForView:self];
+}
+#endif
 
 - (NSImage *)imageForRenderedObjectAtIndex:(NSUInteger)characterIndex
 {
@@ -588,6 +703,20 @@
 - (void)mouseDown:(NSEvent *)event
 {
     NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
+    // A plain click on a task box toggles it, and leaves the selection as it
+    // is; the second click of a double-click does nothing more.
+    NSUInteger modifiers = [event modifierFlags] & (NSShiftKeyMask | NSControlKeyMask |
+                                                    NSAlternateKeyMask | NSCommandKeyMask);
+    id delegate = [self delegate];
+    if (modifiers == 0 && [delegate respondsToSelector:@selector(textView:toggleTaskItemAtIndex:)]) {
+        NSUInteger taskIndex = [self taskItemIndexAtPoint:point];
+        if (taskIndex != NSNotFound) {
+            if ([event clickCount] > 1 ||
+                [(id<OMDTextViewRenderedObjectDelegate>)delegate textView:self toggleTaskItemAtIndex:taskIndex]) {
+                return;
+            }
+        }
+    }
     NSUInteger index = NSNotFound;
     OMRenderedObject *object = [self renderedObjectAtPoint:point characterIndex:&index];
     BOOL extending = ([event modifierFlags] & NSShiftKeyMask) != 0;
@@ -900,22 +1029,129 @@
     [delegate textView:self revealSourceOfRenderedObject:object];
 }
 
-- (NSMenu *)menuForEvent:(NSEvent *)event
+// The character index drawn nearest a point in view coordinates, or
+// NSNotFound in an empty view.
+- (NSUInteger)characterIndexNearestPoint:(NSPoint)point
+{
+    NSLayoutManager *layoutManager = [self layoutManager];
+    NSTextContainer *container = [self textContainer];
+    if (layoutManager == nil || container == nil || [[self textStorage] length] == 0) {
+        return NSNotFound;
+    }
+    NSPoint origin = [self textContainerOrigin];
+    NSPoint containerPoint = NSMakePoint(point.x - origin.x, point.y - origin.y);
+    NSUInteger glyph = [layoutManager glyphIndexForPoint:containerPoint inTextContainer:container];
+    if (glyph >= [layoutManager numberOfGlyphs]) {
+        return NSNotFound;
+    }
+    return [layoutManager characterIndexForGlyphAtIndex:glyph];
+}
+
+// The preview range a text menu opened at index acts on: the selection if
+// the click is in it, else the click's position.
+- (NSRange)contextTextRangeAtCharacterIndex:(NSUInteger)index
+{
+    NSRange selection = [self selectedRange];
+    if (selection.length > 0 && index >= selection.location && index <= NSMaxRange(selection)) {
+        return selection;
+    }
+    return NSMakeRange(index, 0);
+}
+
+- (BOOL)offersRevealInSource
+{
+    return ![self isEditable] &&
+           [[self delegate] respondsToSelector:@selector(textView:revealSourceOfPreviewRange:)];
+}
+
+- (void)addRevealInSourceItemToMenu:(NSMenu *)menu
+{
+    if ([menu numberOfItems] > 0) {
+        [menu addItem:[NSMenuItem separatorItem]];
+    }
+    NSMenuItem *item = (NSMenuItem *)[menu addItemWithTitle:@"Reveal in Source"
+                                                     action:@selector(revealContextTextSource:)
+                                              keyEquivalent:@""];
+    [item setTarget:self];
+    [item setEnabled:YES];
+}
+
+- (void)revealContextTextSource:(id)sender
+{
+    if (![self offersRevealInSource] || _contextTextRange.location == NSNotFound) {
+        NSBeep();
+        return;
+    }
+    [(id<OMDTextViewRenderedObjectDelegate>)[self delegate] textView:self revealSourceOfPreviewRange:_contextTextRange];
+}
+
+#if defined(GNUSTEP)
+// GNUstep's menu for text (Cut, Copy, Paste) is shared by every text view and
+// its Cut and Paste mean nothing in the preview, so the preview has its own.
+- (NSMenu *)textMenuForEvent:(NSEvent *)event
+{
+    if (![self offersRevealInSource]) {
+        return nil;
+    }
+    NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
+    NSUInteger index = [self characterIndexNearestPoint:point];
+    if (index == NSNotFound) {
+        return nil;
+    }
+    _contextTextRange = [self contextTextRangeAtCharacterIndex:index];
+    NSMenu *menu = [[[NSMenu alloc] initWithTitle:@"Text"] autorelease];
+    [menu setAutoenablesItems:NO];
+    NSMenuItem *item = (NSMenuItem *)[menu addItemWithTitle:@"Copy" action:@selector(copy:) keyEquivalent:@""];
+    [item setTarget:self];
+    [item setEnabled:([self selectedRange].length > 0)];
+    [self addRevealInSourceItemToMenu:menu];
+    return menu;
+}
+#endif
+
+// The preview's own menus: for a rendered object, a table, or (GNUstep)
+// text. Nil for AppKit's or GNUstep's standard menu.
+- (NSMenu *)previewMenuForEvent:(NSEvent *)event
 {
     NSMenu *menu = [self renderedObjectMenuForEvent:event];
     if (menu == nil) {
         menu = [self textTableMenuForEvent:event];
     }
-    return menu != nil ? menu : [super menuForEvent:event];
+#if defined(GNUSTEP)
+    if (menu == nil) {
+        menu = [self textMenuForEvent:event];
+    }
+#endif
+    return menu;
+}
+
+- (NSMenu *)menuForEvent:(NSEvent *)event
+{
+    NSMenu *menu = [self previewMenuForEvent:event];
+    if (menu != nil) {
+        return menu;
+    }
+    menu = [super menuForEvent:event];
+#if !defined(GNUSTEP)
+    // AppKit's own text menu (it may select the clicked word first), with
+    // Reveal in Source after it.
+    if ([self offersRevealInSource]) {
+        NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
+        NSUInteger index = [self characterIndexNearestPoint:point];
+        if (index != NSNotFound) {
+            _contextTextRange = [self contextTextRangeAtCharacterIndex:index];
+            menu = (menu != nil) ? [[menu copy] autorelease] : [[[NSMenu alloc] initWithTitle:@"Text"] autorelease];
+            [self addRevealInSourceItemToMenu:menu];
+        }
+    }
+#endif
+    return menu;
 }
 
 // GNUstep's NSTextView builds its own menu here instead of asking menuForEvent:.
 - (void)rightMouseDown:(NSEvent *)event
 {
-    NSMenu *menu = [self renderedObjectMenuForEvent:event];
-    if (menu == nil) {
-        menu = [self textTableMenuForEvent:event];
-    }
+    NSMenu *menu = [self previewMenuForEvent:event];
     if (menu == nil) {
         [super rightMouseDown:event];
         return;

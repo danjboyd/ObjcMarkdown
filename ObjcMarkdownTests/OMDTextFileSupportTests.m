@@ -142,4 +142,18 @@
     XCTAssertNil(OMDDiskFingerprintForFileAttributes(nil));
 }
 
+- (void)testPrintJobTitleIsTheDocumentNameWithoutExtension
+{
+    XCTAssertEqualObjects(OMDPrintJobTitle(@"/tmp/notes/print.md", nil), @"print");
+    XCTAssertEqualObjects(OMDPrintJobTitle(@"/tmp/notes/print.md", @""), @"print");
+    XCTAssertEqualObjects(OMDPrintJobTitle(@"/tmp/notes.markdown", nil), @"notes");
+    XCTAssertEqualObjects(OMDPrintJobTitle(@"/tmp/README", nil), @"README");
+    XCTAssertEqualObjects(OMDPrintJobTitle(@"/tmp/.profile", nil), @".profile");
+    XCTAssertEqualObjects(OMDPrintJobTitle(@"/tmp/print.md", @"README.md (GitHub)"), @"README.md (GitHub)");
+    XCTAssertEqualObjects(OMDPrintJobTitle(nil, @"Pasted.md"), @"Pasted");
+    XCTAssertNil(OMDPrintJobTitle(nil, nil));
+    XCTAssertNil(OMDPrintJobTitle(@"", @"  "));
+}
+
+
 @end

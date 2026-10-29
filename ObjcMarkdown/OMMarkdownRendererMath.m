@@ -394,12 +394,70 @@ NSDictionary *OMMathAttributes(OMTheme *theme,
         }
         [style setAlignment:NSCenterTextAlignment];
         [style setParagraphSpacingBefore:8.0 * scale];
-        [style setParagraphSpacing:8.0 * scale];
+        [style setParagraphSpacing:OMParagraphSpacingAfter(8.0 * scale)];
         [mathAttrs setObject:style forKey:NSParagraphStyleAttributeName];
         [style release];
     }
 
     return [mathAttrs autorelease];
+}
+
+#if defined(GNUSTEP)
+/* A font of font's size and slant for a character font lacks. GNUstep
+   doesn't fall back per glyph, so a symbol the math text maps to (an
+   integral sign in Noto Sans Mono, say) would draw as "?". */
+static NSFont *OMMathFontCoveringCharacter(NSFont *font, unichar ch)
+{
+    static NSArray *candidates = nil;
+    if (candidates == nil) {
+        candidates = [[NSArray alloc] initWithObjects:@"DejaVuSansMono", @"DejaVuSans",
+                                                      @"LiberationMono", @"CambriaMath",
+                                                      @"SegoeUISymbol", nil];
+    }
+    BOOL italic = ([[NSFontManager sharedFontManager] traitsOfFont:font] & NSItalicFontMask) != 0;
+    for (NSString *name in candidates) {
+        NSFont *candidate = [NSFont fontWithName:name size:[font pointSize]];
+        if (candidate == nil || ![[candidate coveredCharacterSet] characterIsMember:ch]) {
+            continue;
+        }
+        if (italic) {
+            NSFont *slanted = OMFontWithTraits(candidate, NSItalicFontMask);
+            if (slanted != nil && [[slanted coveredCharacterSet] characterIsMember:ch]) {
+                return slanted;
+            }
+        }
+        return candidate;
+    }
+    return nil;
+}
+#endif
+
+void OMAppendMathText(NSMutableAttributedString *output, NSString *text, NSDictionary *mathAttrs)
+{
+#if defined(GNUSTEP)
+    NSUInteger start = [output length];
+#endif
+    OMAppendString(output, text, mathAttrs);
+#if defined(GNUSTEP)
+    NSFont *font = [mathAttrs objectForKey:NSFontAttributeName];
+    NSCharacterSet *covered = [font coveredCharacterSet];
+    if (covered == nil) {
+        return;
+    }
+    NSUInteger length = [output length] - start;
+    NSString *appended = [[output string] substringWithRange:NSMakeRange(start, length)];
+    for (NSUInteger i = 0; i < length; i++) {
+        unichar ch = [appended characterAtIndex:i];
+        if (ch < 0x80 || (ch >= 0xD800 && ch <= 0xDFFF)
+            || [covered characterIsMember:ch]) {
+            continue;
+        }
+        NSFont *fallback = OMMathFontCoveringCharacter(font, ch);
+        if (fallback != nil) {
+            [output addAttribute:NSFontAttributeName value:fallback range:NSMakeRange(start + i, 1)];
+        }
+    }
+#endif
 }
 
 static BOOL OMMathIsCommandCharacter(unichar ch)
@@ -725,6 +783,43 @@ static NSString *OMWindowsKnownExecutablePathNamed(NSString *name)
 }
 #endif
 
+NSArray *OMExecutableSearchDirectories(NSString *pathValue)
+{
+    NSMutableArray *directories = [NSMutableArray array];
+    if (pathValue != nil && [pathValue length] > 0) {
+#if defined(_WIN32)
+        NSString *separator = ([pathValue rangeOfString:@";"].location != NSNotFound) ? @";" : @":";
+#else
+        NSString *separator = @":";
+#endif
+        for (NSString *searchPath in [pathValue componentsSeparatedByString:separator]) {
+            if ([searchPath length] > 0 && ![directories containsObject:searchPath]) {
+                [directories addObject:searchPath];
+            }
+        }
+    }
+
+#if defined(__APPLE__)
+    // Apps opened from the Finder or the Dock get launchd's minimal PATH,
+    // without MacTeX's directory or where Homebrew and MacPorts put TeX
+    // Live and tree-sitter (#244).
+    NSArray *fallbacks = [NSArray arrayWithObjects:@"/Library/TeX/texbin",
+                                                   @"/opt/homebrew/bin",
+                                                   @"/usr/local/bin",
+                                                   @"/opt/local/bin",
+                                                   @"/usr/bin",
+                                                   nil];
+#else
+    NSArray *fallbacks = [NSArray arrayWithObject:@"/usr/bin"];
+#endif
+    for (NSString *fallback in fallbacks) {
+        if (![directories containsObject:fallback]) {
+            [directories addObject:fallback];
+        }
+    }
+    return directories;
+}
+
 NSString *OMExecutablePathNamed(NSString *name)
 {
     if (name == nil || [name length] == 0) {
@@ -748,26 +843,12 @@ NSString *OMExecutablePathNamed(NSString *name)
     }
 #endif
 
-    NSDictionary *environment = [[NSProcessInfo processInfo] environment];
-    NSString *pathValue = [environment objectForKey:@"PATH"];
-    if (pathValue != nil && [pathValue length] > 0) {
-#if defined(_WIN32)
-        NSString *separator = ([pathValue rangeOfString:@";"].location != NSNotFound) ? @";" : @":";
-#else
-        NSString *separator = @":";
-#endif
-        NSArray *searchPaths = [pathValue componentsSeparatedByString:separator];
-        for (NSString *searchPath in searchPaths) {
-            NSString *resolved = OMExecutablePathInDirectory(searchPath, name, fileManager);
-            if (resolved != nil) {
-                return resolved;
-            }
+    NSString *pathValue = [[[NSProcessInfo processInfo] environment] objectForKey:@"PATH"];
+    for (NSString *searchPath in OMExecutableSearchDirectories(pathValue)) {
+        NSString *resolved = OMExecutablePathInDirectory(searchPath, name, fileManager);
+        if (resolved != nil) {
+            return resolved;
         }
-    }
-
-    NSString *fallback = OMExecutablePathInDirectory(@"/usr/bin", name, fileManager);
-    if (fallback != nil) {
-        return fallback;
     }
     return nil;
 }
@@ -1042,10 +1123,33 @@ static BOOL OMRunTask(NSString *launchPath,
     [task setArguments:arguments];
 #endif
 
-    NSPipe *outputPipe = [NSPipe pipe];
-    NSPipe *errorPipe = [NSPipe pipe];
-    [task setStandardOutput:outputPipe];
-    [task setStandardError:errorPipe];
+    // Files, not pipes: dvisvgm writes a whole SVG to stdout, and a pipe
+    // nobody reads while it runs fills up and stalls it until the timeout.
+    NSString *outputBase = [NSTemporaryDirectory() stringByAppendingPathComponent:
+        [NSString stringWithFormat:@"om-math-%@", [[NSProcessInfo processInfo] globallyUniqueString]]];
+    NSString *outputPath = [outputBase stringByAppendingString:@".out"];
+    NSString *errorPath = [outputBase stringByAppendingString:@".err"];
+    NSFileManager *fileManager = [NSFileManager defaultManager];
+    if (![fileManager createFileAtPath:outputPath contents:nil attributes:nil] ||
+        ![fileManager createFileAtPath:errorPath contents:nil attributes:nil]) {
+        [fileManager removeItemAtPath:outputPath error:NULL];
+#if defined(_WIN32)
+        if (currentDirectoryPath != nil && [currentDirectoryPath length] > 0) {
+            NSString *scriptPath = OMWindowsTaskScriptPath(currentDirectoryPath);
+            if (scriptPath != nil) {
+                [fileManager removeItemAtPath:scriptPath error:NULL];
+            }
+        }
+#endif
+        if (terminationStatus != NULL) {
+            *terminationStatus = -1;
+        }
+        return NO;
+    }
+    NSFileHandle *outputHandle = [NSFileHandle fileHandleForWritingAtPath:outputPath];
+    NSFileHandle *errorHandle = [NSFileHandle fileHandleForWritingAtPath:errorPath];
+    [task setStandardOutput:outputHandle];
+    [task setStandardError:errorHandle];
 
     BOOL launched = YES;
     BOOL timedOut = NO;
@@ -1081,8 +1185,12 @@ static BOOL OMRunTask(NSString *launchPath,
 #endif
     }
 
-    NSData *capturedOutput = [[outputPipe fileHandleForReading] readDataToEndOfFile];
-    NSData *capturedError = [[errorPipe fileHandleForReading] readDataToEndOfFile];
+    [outputHandle closeFile];
+    [errorHandle closeFile];
+    NSData *capturedOutput = [NSData dataWithContentsOfFile:outputPath];
+    NSData *capturedError = [NSData dataWithContentsOfFile:errorPath];
+    [fileManager removeItemAtPath:outputPath error:NULL];
+    [fileManager removeItemAtPath:errorPath error:NULL];
 
 #if defined(_WIN32)
     if (currentDirectoryPath != nil && [currentDirectoryPath length] > 0) {
@@ -1655,6 +1763,12 @@ static NSString *OMMathInkHexForTheme(OMTheme *theme)
 
 // dvisvgm leaves glyph fills unset (black); a fill on the root recolours them.
 #if !defined(_WIN32)
+// Whether the platform's image reps read SVG: GNUstep's do only with
+// ImageMagick. Found out by trying, once: GNUstep can't say beforehand
+// (+imageFileTypes is empty, and -imageRepClassForData: claims the data
+// then fails to read it, logging TIFF errors).
+static BOOL OMMathSVGReaderFailed = NO;
+
 // Only the non-Windows path uses it.
 static NSData *OMMathSVGDataWithInk(NSData *svgData, NSString *inkHex)
 {
@@ -1844,7 +1958,21 @@ NSAttributedString *OMMathAttachmentAttributedString(NSString *formula,
 
         if (baseImage == nil) {
             NSTimeInterval decodeStart = OMNow();
-            NSImage *decodedImage = [[[NSImage alloc] initWithData:OMMathSVGDataWithInk(svgData, inkHex)] autorelease];
+            NSData *inkedData = OMMathSVGDataWithInk(svgData, inkHex);
+            // GNUstep reads SVG only with libs-gui built with ImageMagick;
+            // without (the Linux packages, #246) the paths are drawn here.
+            // OMMathUseBuiltinSVGReader (a default) forces it, for checks
+            // on a GNUstep that has an SVG reader.
+            BOOL builtinReader = [[NSUserDefaults standardUserDefaults] boolForKey:@"OMMathUseBuiltinSVGReader"];
+            NSImage *decodedImage = (!builtinReader && !OMMathSVGReaderFailed)
+                ? [[[NSImage alloc] initWithData:inkedData] autorelease]
+                : nil;
+            if (decodedImage == nil && !builtinReader) {
+                OMMathSVGReaderFailed = YES;
+            }
+            if (decodedImage == nil) {
+                decodedImage = OMMathImageFromSVGData(inkedData);
+            }
             if (stats != NULL) {
                 stats->svgDecodeSeconds += (OMNow() - decodeStart);
             }
@@ -2135,7 +2263,7 @@ void OMAppendDisplayMathFormula(NSString *formula,
                             formula,
                             [NSString stringWithFormat:@"$$\n%@\n$$", OMTrimmedCellText(formula)]);
     } else {
-        OMAppendString(output, OMReadableMathFallbackString(formula), mathAttrs);
+        OMAppendMathText(output, OMReadableMathFallbackString(formula), mathAttrs);
     }
 }
 

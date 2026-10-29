@@ -91,6 +91,48 @@ GSSharingImageNamed(NSString *name)
 
 /* Small helpers. */
 
+/* Where a copy was last saved (#15). */
+static NSString * const GSSharingSaveCopyDirectoryKey = @"GSSharingSaveCopyDirectory";
+
+static BOOL
+GSSharingIsDirectory(NSString *path)
+{
+  BOOL isDirectory = NO;
+
+  return path != nil
+    && [[NSFileManager defaultManager] fileExistsAtPath: path isDirectory: &isDirectory]
+    && isDirectory;
+}
+
+/* The folder Save a Copy opens in: the app's (the picker's saveDirectory),
+   else where a copy was last saved, else the file's own unless it is a
+   temporary one (an export), else home. */
+static NSString *
+GSSharingSaveCopyDirectory(NSSharingService *service, NSURL *file)
+{
+  NSString *suggested = GSSharingStateForService(service, YES)->saveDirectory;
+  NSString *last = [[NSUserDefaults standardUserDefaults]
+                     stringForKey: GSSharingSaveCopyDirectoryKey];
+  NSString *own = [[[file path] stringByDeletingLastPathComponent]
+                    stringByStandardizingPath];
+  NSString *temporary = [NSTemporaryDirectory() stringByStandardizingPath];
+
+  if (GSSharingIsDirectory(suggested))
+    {
+      return suggested;
+    }
+  if (GSSharingIsDirectory(last))
+    {
+      return last;
+    }
+  if (GSSharingIsDirectory(own) && [own hasPrefix: temporary] == NO
+    && [own isEqual: @"/tmp"] == NO && [own hasPrefix: @"/tmp/"] == NO)
+    {
+      return own;
+    }
+  return NSHomeDirectory();
+}
+
 static NSArray *
 GSSharingFilesOfItems(NSArray *items)
 {
@@ -1025,22 +1067,36 @@ GSSharingEmailDraftWithNotice(NSURL *draft, NSURL *file)
   NSFileManager *manager = [NSFileManager defaultManager];
   NSError *error = nil;
 
+  /* It reports a dismissed panel as cancelled, and a copy that failed. */
+  GSSharingServiceWillFinishLater(service);
   if (file == nil)
     {
+      GSSharingServiceFinish(service, items,
+        [NSError errorWithDomain: NSCocoaErrorDomain
+                            code: NSFileNoSuchFileError userInfo: nil]);
       return;
     }
   panel = [NSSavePanel savePanel];
   [panel setTitle: @"Save a Copy"];
   [panel setNameFieldStringValue: [[file path] lastPathComponent]];
+  /* The copy keeps the file's type: a name typed without the extension
+     gets it, as with the app's own Export (#24). */
+  if ([[[file path] pathExtension] length] > 0)
+    {
+      [panel setAllowedFileTypes:
+        [NSArray arrayWithObject: [[file path] pathExtension]]];
+    }
   [panel setCanCreateDirectories: YES];
-  [panel setDirectory: NSHomeDirectory()];
+  [panel setDirectory: GSSharingSaveCopyDirectory(service, file)];
   if ([panel runModal] != NSFileHandlingPanelOKButton)
     {
+      GSSharingServiceFinish(service, items, GSSharingCancelledError());
       return;
     }
   destination = [[panel URL] path];
   if ([destination length] == 0)
     {
+      GSSharingServiceFinish(service, items, GSSharingCancelledError());
       return;
     }
   /* The panel has asked about replacing it. */
@@ -1050,7 +1106,16 @@ GSSharingEmailDraftWithNotice(NSURL *draft, NSURL *file)
       NSRunAlertPanel(@"Couldn't save a copy",
                       (error != nil ? [error localizedDescription] : destination),
                       @"OK", nil, nil);
+      GSSharingServiceFinish(service, items,
+        (error != nil ? error : [NSError errorWithDomain: NSCocoaErrorDomain
+                                                    code: NSFileWriteUnknownError
+                                                userInfo: nil]));
+      return;
     }
+  [[NSUserDefaults standardUserDefaults]
+    setObject: [destination stringByDeletingLastPathComponent]
+       forKey: GSSharingSaveCopyDirectoryKey];
+  GSSharingServiceFinish(service, items, nil);
 }
 
 + (void) showInFolder: (NSArray *)items service: (NSSharingService *)service
@@ -1070,10 +1135,12 @@ GSSharingEmailDraftWithNotice(NSURL *draft, NSURL *file)
   {
     NSTask *task = AUTORELEASE([NSTask new]);
 
-    /* Explorer exits with 1 even when it worked. */
+    /* Explorer exits with 1 even when it worked. Its /select takes only
+       C:\... (#23). */
     [task setLaunchPath: @"explorer.exe"];
     [task setArguments: [NSArray arrayWithObject:
-      [NSString stringWithFormat: @"/select,%@", path]]];
+      [NSString stringWithFormat: @"/select,%@",
+        [path stringByReplacingOccurrencesOfString: @"/" withString: @"\\"]]]];
     NS_DURING
       {
         [task launch];
@@ -1112,21 +1179,63 @@ GSSharingEmailDraftWithNotice(NSURL *draft, NSURL *file)
     }
 #if defined(_WIN32)
   {
-    NSUInteger length = [path length];
-    unichar *wide = malloc((length + 1) * sizeof(unichar));
+    /* SHOpenWithDialog rejects C:/... (E_INVALIDARG), the form GNUstep's
+       paths have, and shows nothing (#23). */
+    NSString *windowsPath = [path stringByReplacingOccurrencesOfString: @"/"
+                                                            withString: @"\\"];
+    NSUInteger length = [windowsPath length];
+    unichar *wide;
     OPENASINFO info;
+    NSWindow *window = [NSApp mainWindow];
+    HWND owner = NULL;
+    HRESULT result;
 
+    /* It reports a dismissed chooser as cancelled (the sheet comes back,
+       #16), and a chooser Windows wouldn't show. */
+    GSSharingServiceWillFinishLater(service);
+    wide = malloc((length + 1) * sizeof(unichar));
     if (wide == NULL)
       {
+        GSSharingServiceFinish(service, items,
+          [NSError errorWithDomain: NSCocoaErrorDomain
+                              code: NSFileReadUnknownError userInfo: nil]);
         return;
       }
-    [path getCharacters: wide range: NSMakeRange(0, length)];
+    [windowsPath getCharacters: wide range: NSMakeRange(0, length)];
     wide[length] = 0;
     memset(&info, 0, sizeof(info));
     info.pcszFile = (const wchar_t *)wide;
     info.oaifInFlags = OAIF_ALLOW_REGISTRATION | OAIF_EXEC;
-    SHOpenWithDialog(NULL, &info);
+    /* The document window owns the chooser (#23). */
+    if (window == nil)
+      {
+        window = [NSApp keyWindow];
+      }
+    if (window != nil)
+      {
+        owner = (HWND)(intptr_t)[window windowNumber];
+      }
+    result = SHOpenWithDialog(owner, &info);
     free(wide);
+    if (SUCCEEDED(result))
+      {
+        GSSharingServiceFinish(service, items, nil);
+      }
+    else if (result == HRESULT_FROM_WIN32(ERROR_CANCELLED))
+      {
+        GSSharingServiceFinish(service, items, GSSharingCancelledError());
+      }
+    else
+      {
+        NSLog(@"Open With: SHOpenWithDialog failed for %@ (HRESULT 0x%08lx)",
+              windowsPath, (unsigned long)result);
+        [GSSharingNotice showMessage: @"Windows didn't show its list of apps."
+                              detail: @"Show the file in its folder and open it from there."
+                                file: [NSURL fileURLWithPath: path]];
+        GSSharingServiceFinish(service, items,
+          [NSError errorWithDomain: NSCocoaErrorDomain
+                              code: NSFeatureUnsupportedError userInfo: nil]);
+      }
   }
 #elif defined(GSSHARING_HAVE_GIO)
   /* The desktop's own chooser through the portal (sandboxed or not); its

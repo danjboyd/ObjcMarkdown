@@ -5,6 +5,9 @@
 #import "OMMarkdownRendererInternal.h"
 #import "OMFontSupport.h"
 #include "OMEmojiShortcodes.inc"
+#if !defined(GNUSTEP)
+#include "OMEmojiShortcodesAll.inc"
+#endif
 
 NSString * const OMMarkdownRendererMathArtifactsDidWarmNotification = @"OMMarkdownRendererMathArtifactsDidWarmNotification";
 NSString * const OMMarkdownRendererRemoteImagesDidWarmNotification = @"OMMarkdownRendererRemoteImagesDidWarmNotification";
@@ -21,6 +24,10 @@ NSString * const OMMarkdownRendererHeadingSourceLineKey = @"OMMarkdownRendererHe
 NSString * const OMMarkdownRendererHeadingAnchorAttributeName = @"OMMarkdownRendererHeadingAnchor";
 NSString * const OMMarkdownRendererFootnoteAnchorAttributeName = @"OMMarkdownRendererFootnoteAnchor";
 NSString * const OMMarkdownRendererBlockquoteColorAttributeName = @"OMMarkdownRendererBlockquoteColor";
+NSString * const OMMarkdownRendererTaskItemCheckedKey = @"OMMarkdownRendererTaskItemChecked";
+NSString * const OMMarkdownRendererTaskItemSourceLineKey = @"OMMarkdownRendererTaskItemSourceLine";
+NSString * const OMMarkdownRendererTaskItemSourceLocationKey = @"OMMarkdownRendererTaskItemSourceLocation";
+NSString * const OMMarkdownRendererTaskItemAttributeName = @"OMMarkdownRendererTaskItem";
 NSString * const OMMarkdownRendererDiagramRangeKey = @"OMMarkdownRendererDiagramRange";
 NSString * const OMMarkdownRendererDiagramSourceKey = @"OMMarkdownRendererDiagramSource";
 
@@ -188,58 +195,13 @@ BOOL OMURLUsesAllowedLinkScheme(NSURL *url)
     return OMURLUsesAllowedScheme(url, OMAllowedLinkSchemes());
 }
 
-static BOOL OMTreeSitterRuntimeAvailable(void)
-{
-    static dispatch_once_t onceToken;
-    static BOOL available = NO;
-    dispatch_once(&onceToken, ^{
-        available = NO;
-
-        const char *libraryCandidates[] = {
-            "libtree-sitter.so",
-            "libtree-sitter.so.0",
-            "libtree-sitter.so.0.22",
-            "libtree-sitter.dylib",
-#if defined(_WIN32)
-            "tree-sitter.dll",
-            "libtree-sitter.dll",
-#endif
-            NULL
-        };
-        const char **cursor = libraryCandidates;
-        for (; *cursor != NULL; cursor++) {
-#if defined(_WIN32)
-            HMODULE handle = LoadLibraryA(*cursor);
-            if (handle != NULL) {
-                available = YES;
-                FreeLibrary(handle);
-                break;
-            }
-#else
-            void *handle = dlopen(*cursor, RTLD_LAZY | RTLD_LOCAL);
-            if (handle != NULL) {
-                available = YES;
-                dlclose(handle);
-                break;
-            }
-#endif
-        }
-
-        if (!available) {
-            available = (OMExecutablePathNamed(@"tree-sitter") != nil);
-        }
-
-    });
-    return available;
-}
-
 BOOL OMShouldApplyCodeSyntaxHighlighting(const OMRenderContext *renderContext)
 {
     OMMarkdownParsingOptions *options = OMRenderContextParsingOptions(renderContext);
     if (options != nil && ![options codeSyntaxHighlightingEnabled]) {
         return NO;
     }
-    return OMTreeSitterRuntimeAvailable();
+    return YES;
 }
 
 static OMMarkdownHTMLPolicy OMHTMLPolicyForBlockNode(const OMRenderContext *renderContext,
@@ -311,7 +273,7 @@ NSMutableParagraphStyle *OMParagraphStyleWithIndent(CGFloat firstIndent,
     NSMutableParagraphStyle *style = [[[NSMutableParagraphStyle alloc] init] autorelease];
     [style setFirstLineHeadIndent:firstIndent];
     [style setHeadIndent:headIndent];
-    [style setParagraphSpacing:spacingAfter];
+    [style setParagraphSpacing:OMParagraphSpacingAfter(spacingAfter)];
     [style setLineSpacing:lineSpacing];
     [style setLineHeightMultiple:lineHeightMultiple];
     if (fontSize > 0.0 && lineHeightMultiple > 0.0) {
@@ -378,6 +340,24 @@ static void OMRemoveAttributeWhereSet(NSMutableAttributedString *output, NSStrin
     for (NSValue *range in ranges) {
         [output removeAttribute:name range:[range rangeValue]];
     }
+}
+
+// GNUstep 0.32's typesetter ignores paragraph spacing; libs-gui after it
+// (90f54cd0, "applies paragraph spacing after a paragraph") honours it.
+// Block gaps are sized blank lines (OMSizeBlockGaps), so spacing set on a
+// paragraph only added to them, once per line in a code block, and the
+// packages (built with the newer libs-gui) laid text out about 1.6 times
+// looser than 0.32 (#245). On GNUstep paragraphs get none, so both look as
+// the gaps intend. It's left out where the styles are made: taking it off
+// the finished text was quadratic in its attribute runs.
+CGFloat OMParagraphSpacingAfter(CGFloat spacing)
+{
+#if defined(GNUSTEP)
+    (void)spacing;
+    return 0.0;
+#else
+    return spacing;
+#endif
 }
 
 static void OMSizeBlockGaps(NSMutableAttributedString *output,
@@ -570,6 +550,78 @@ static void OMAppendListMarker(NSMutableAttributedString *output,
     }
 }
 
+#if defined(GNUSTEP)
+// GNUstep doesn't fall back per glyph either, so a character of the text
+// the body font lacks (the footnote back-link's U+21A9 in Segoe UI and
+// Tahoma, #252) drew as "?". Each one from start on is drawn in the list
+// markers' fallback font, slanted where the text is. macOS falls back by
+// itself.
+static void OMApplyTextFallbackFonts(NSMutableAttributedString *output, NSUInteger start)
+{
+    // Where there's Symbola, emoji are OMApplyEmojiFont's: it draws them
+    // all in that one font. Without it (Windows) they fall back here.
+    // Characters no fallback font has are remembered, so a long text in a
+    // script none of them covers costs one lookup per character.
+    static BOOL looked = NO;
+    static NSCharacterSet *emoji = nil;
+    static NSMutableIndexSet *unavailable = nil;
+    if (!looked) {
+        looked = YES;
+        emoji = [NSFont fontWithName:@"Symbola" size:12.0] != nil ? [OMEmojiCharacterSet() retain] : nil;
+        unavailable = [[NSMutableIndexSet alloc] init];
+    }
+    NSString *string = [output string];
+    NSUInteger length = [output length];
+    NSUInteger index = start;
+    while (index < length) {
+        NSRange run;
+        NSFont *font = [output attribute:NSFontAttributeName atIndex:index effectiveRange:&run];
+        NSUInteger end = MIN(NSMaxRange(run), length);
+        NSCharacterSet *covered = nil;
+        BOOL italic = NO;
+        // A run of one script mostly needs one font.
+        NSFont *last = nil;
+        for (; font != nil && index < end; index++) {
+            unichar character = [string characterAtIndex:index];
+            if (character < 0x80 || (character >= 0xD800 && character <= 0xDFFF)
+                || character == NSAttachmentCharacter || [emoji characterIsMember:character]
+                || [unavailable containsIndex:character]) {
+                continue;
+            }
+            if (covered == nil) {
+                covered = [font coveredCharacterSet];
+                italic = ([[NSFontManager sharedFontManager] traitsOfFont:font] & NSItalicFontMask) != 0;
+                if (covered == nil) {
+                    break;
+                }
+            }
+            if ([covered characterIsMember:character]) {
+                continue;
+            }
+            NSFont *fallback = nil;
+            if (last != nil && [[last coveredCharacterSet] characterIsMember:character]) {
+                fallback = last;
+            } else {
+                fallback = OMListMarkerFallbackFont(character, [font pointSize]);
+                if (fallback != nil && italic) {
+                    NSFont *slanted = OMFontWithTraits(fallback, NSItalicFontMask);
+                    if ([[slanted coveredCharacterSet] characterIsMember:character]) {
+                        fallback = slanted;
+                    }
+                }
+            }
+            if (fallback == nil) {
+                [unavailable addIndex:character];
+                continue;
+            }
+            last = fallback;
+            [output addAttribute:NSFontAttributeName value:fallback range:NSMakeRange(index, 1)];
+        }
+        index = end;
+    }
+}
+#endif
+
 static NSString *OMListPrefix(NSMutableArray *listStack)
 {
     NSMutableDictionary *list = OMListContext(listStack);
@@ -736,7 +788,7 @@ static void OMAppendRule(NSMutableAttributedString *output,
     [style setHeadIndent:indent];
     [style setMinimumLineHeight:height];
     [style setMaximumLineHeight:height];
-    [style setParagraphSpacing:spacingAfter];
+    [style setParagraphSpacing:OMParagraphSpacingAfter(spacingAfter)];
     [ruleAttrs setObject:style forKey:NSParagraphStyleAttributeName];
     [ruleAttrs setObject:[NSFont systemFontOfSize:1.0] forKey:NSFontAttributeName];
     [ruleAttrs setObject:attachment forKey:NSAttachmentAttributeName];
@@ -866,11 +918,19 @@ static NSDictionary *OMEmojiShortcodeTable(void)
     dispatch_once(&onceToken, ^{
         NSMutableDictionary *built = [NSMutableDictionary dictionary];
         size_t index = 0;
+#if !defined(GNUSTEP)
+        // macOS draws every emoji, so every GitHub shortcode becomes one.
+        for (; index < sizeof(OMEmojiShortcodesAll) / sizeof(OMEmojiShortcodesAll[0]); index++) {
+            [built setObject:[NSString stringWithUTF8String:OMEmojiShortcodesAll[index].emoji]
+                      forKey:[NSString stringWithUTF8String:OMEmojiShortcodesAll[index].name]];
+        }
+#else
         for (; index < sizeof(OMEmojiShortcodes) / sizeof(OMEmojiShortcodes[0]); index++) {
             unichar character = OMEmojiShortcodes[index].character;
             [built setObject:[NSString stringWithCharacters:&character length:1]
                       forKey:[NSString stringWithUTF8String:OMEmojiShortcodes[index].name]];
         }
+#endif
         table = [built copy];
     });
     return table;
@@ -937,6 +997,19 @@ static NSString *OMStringByReplacingEmojiShortcodes(NSString *text)
     }
     [result appendString:[text substringFromIndex:copied]];
     return result;
+}
+
+// A link's text that is (part of) its own address, as in autolinks and
+// <url>: shown as typed, so "https://x.org/a:b:c" keeps its ":b:".
+static BOOL OMTextNodeIsLinkAddress(cmark_node *textNode, NSString *text)
+{
+    cmark_node *parent = cmark_node_parent(textNode);
+    if (parent == NULL || cmark_node_get_type(parent) != CMARK_NODE_LINK || [text length] == 0) {
+        return NO;
+    }
+    const char *url = cmark_node_get_url(parent);
+    NSString *urlString = url != NULL ? [NSString stringWithUTF8String:url] : nil;
+    return urlString != nil && [urlString rangeOfString:text].location != NSNotFound;
 }
 
 static void OMAppendTextWithMathSpans(NSString *text,
@@ -1030,7 +1103,7 @@ static void OMAppendTextWithMathSpans(NSString *text,
                                                     [NSString stringWithFormat:@"$%@$", formula]);
                             } else {
                                 NSDictionary *mathAttrs = OMMathAttributes(theme, attributes, scale, NO);
-                                OMAppendString(output, OMReadableMathFallbackString(formula), mathAttrs);
+                                OMAppendMathText(output, OMReadableMathFallbackString(formula), mathAttrs);
                             }
                             renderedMath = YES;
                             cursor = i + 1;
@@ -1059,6 +1132,7 @@ static void OMPrepareFootnotes(cmark_node *document);
 @property (nonatomic, retain) NSArray *blockAnchors;
 @property (nonatomic, retain) NSArray *diagramBlocks;
 @property (nonatomic, retain) NSArray *headings;
+@property (nonatomic, retain) NSArray *taskItems;
 - (NSAttributedString *)om_attributedStringFromMarkdown:(NSString *)markdown;
 @end
 
@@ -1201,11 +1275,6 @@ void OMPerformOnMainThread(void (^block)(void))
 @synthesize blockquoteRanges = _blockquoteRanges;
 @synthesize blockAnchors = _blockAnchors;
 
-+ (BOOL)isTreeSitterAvailable
-{
-    return OMTreeSitterRuntimeAvailable();
-}
-
 - (instancetype)init
 {
     return [self initWithTheme:[OMTheme defaultTheme]
@@ -1248,6 +1317,7 @@ void OMPerformOnMainThread(void (^block)(void))
     [_blockAnchors release];
     [_diagramBlocks release];
     [_headings release];
+    [_taskItems release];
     [_parsingOptions release];
     [_theme release];
     [super dealloc];
@@ -1279,6 +1349,8 @@ void OMPerformOnMainThread(void (^block)(void))
 
 - (NSAttributedString *)om_attributedStringFromMarkdown:(NSString *)markdown
 {
+    // No boxes from an earlier render outlive a render that ends early.
+    [self setTaskItems:[NSArray array]];
     if (markdown == nil) {
         return [[[NSAttributedString alloc] initWithString:@""] autorelease];
     }
@@ -1350,6 +1422,11 @@ void OMPerformOnMainThread(void (^block)(void))
     NSMutableArray *headings = [NSMutableArray array];
     renderContext.headings = headings;
     renderContext.headingSlugCounts = [NSMutableDictionary dictionary];
+    NSMutableArray *taskItems = [NSMutableArray array];
+    renderContext.sourceMarkdown = markdown;
+    renderContext.sourceLineStarts = [NSMutableData data];
+    renderContext.taskItems = taskItems;
+    renderContext.interactiveTaskItems = self.interactiveTaskItems;
     renderContext.consumedDisplayMathLineRanges = consumedDisplayMathLineRanges;
     renderContext.rawMathSources = [NSMutableDictionary dictionary];
     renderContext.mathPerfStats = &stats;
@@ -1372,6 +1449,7 @@ void OMPerformOnMainThread(void (^block)(void))
     [self setBlockAnchors:blockAnchors];
     [self setDiagramBlocks:diagramBlocks];
     [self setHeadings:headings];
+    [self setTaskItems:taskItems];
     OMTrimTrailingNewlines(output);
     [self setCodeBlockRanges:OMRangesClampedToLength(codeRanges, [output length])];
     [self setBlockquoteRanges:OMRangesClampedToLength(blockquoteRanges, [output length])];
@@ -1704,6 +1782,137 @@ static void OMRenderList(cmark_node *node,
     }
 }
 
+// The UTF-16 index in the source where a 1-based line starts, counting lines
+// as cmark does ("\n", "\r\n" and a lone "\r" each end one); NSNotFound past
+// the end. The starts are found once per render, when first needed.
+static NSUInteger OMSourceLineStart(const OMRenderContext *renderContext, NSUInteger line)
+{
+    NSString *markdown = renderContext != NULL ? renderContext->sourceMarkdown : nil;
+    NSMutableData *starts = renderContext != NULL ? renderContext->sourceLineStarts : nil;
+    if (markdown == nil || starts == nil || line == 0) {
+        return NSNotFound;
+    }
+    if ([starts length] == 0) {
+        NSUInteger length = [markdown length];
+        NSUInteger start = 0;
+        NSUInteger index = 0;
+        [starts appendBytes:&start length:sizeof(start)];
+        while (index < length) {
+            unichar character = [markdown characterAtIndex:index];
+            if (character == '\r' && index + 1 < length && [markdown characterAtIndex:index + 1] == '\n') {
+                index += 1;
+            }
+            index += 1;
+            if (character == '\n' || character == '\r') {
+                start = index;
+                [starts appendBytes:&start length:sizeof(start)];
+            }
+        }
+    }
+    if (line > [starts length] / sizeof(NSUInteger)) {
+        return NSNotFound;
+    }
+    return ((const NSUInteger *)[starts bytes])[line - 1];
+}
+
+// The UTF-16 index of a 1-based byte column (cmark's columns count UTF-8
+// bytes) on the line starting at lineStart; NSNotFound if the line is
+// shorter or the column falls inside a character.
+static NSUInteger OMSourceIndexForByteColumn(NSString *markdown, NSUInteger lineStart, NSUInteger column)
+{
+    NSUInteger length = [markdown length];
+    NSUInteger target = column - 1;
+    NSUInteger bytes = 0;
+    NSUInteger index = lineStart;
+    while (bytes < target && index < length) {
+        unichar character = [markdown characterAtIndex:index];
+        if (character == '\n' || character == '\r') {
+            return NSNotFound;
+        }
+        if (character < 0x80) {
+            bytes += 1;
+        } else if (character < 0x800) {
+            bytes += 2;
+        } else if (character >= 0xD800 && character <= 0xDBFF && index + 1 < length) {
+            bytes += 4;
+            index += 1;
+        } else {
+            bytes += 3;
+        }
+        index += 1;
+    }
+    return bytes == target ? index : NSNotFound;
+}
+
+// Where a task item's state is in the source: the index of the character
+// between its brackets. cmark starts an item at its list marker; after the
+// marker and its spaces come "[ ]", "[x]" or "[X]", which must agree with
+// the parsed state. NSNotFound if anything differs, so a box is only ever
+// tied to its own brackets (not to a "[ ]" further on, in code or text).
+static NSUInteger OMTaskItemSourceLocation(cmark_node *item, BOOL checked, const OMRenderContext *renderContext)
+{
+    int line = cmark_node_get_start_line(item);
+    int column = cmark_node_get_start_column(item);
+    NSString *markdown = renderContext != NULL ? renderContext->sourceMarkdown : nil;
+    if (markdown == nil || line < 1 || column < 1) {
+        return NSNotFound;
+    }
+    NSUInteger lineStart = OMSourceLineStart(renderContext, (NSUInteger)line);
+    if (lineStart == NSNotFound) {
+        return NSNotFound;
+    }
+    NSUInteger index = OMSourceIndexForByteColumn(markdown, lineStart, (NSUInteger)column);
+    NSUInteger length = [markdown length];
+    if (index == NSNotFound || index >= length) {
+        return NSNotFound;
+    }
+
+    unichar character = [markdown characterAtIndex:index];
+    if (character == '-' || character == '+' || character == '*') {
+        index += 1;
+    } else {
+        NSUInteger digits = 0;
+        while (index < length && digits <= 9) {
+            character = [markdown characterAtIndex:index];
+            if (character < '0' || character > '9') {
+                break;
+            }
+            digits += 1;
+            index += 1;
+        }
+        if (digits == 0 || digits > 9 || index >= length) {
+            return NSNotFound;
+        }
+        character = [markdown characterAtIndex:index];
+        if (character != '.' && character != ')') {
+            return NSNotFound;
+        }
+        index += 1;
+    }
+
+    NSUInteger spaces = 0;
+    while (index < length) {
+        character = [markdown characterAtIndex:index];
+        if (character != ' ' && character != '\t') {
+            break;
+        }
+        spaces += 1;
+        index += 1;
+    }
+    if (spaces == 0 || index + 2 >= length) {
+        return NSNotFound;
+    }
+    if ([markdown characterAtIndex:index] != '[' || [markdown characterAtIndex:index + 2] != ']') {
+        return NSNotFound;
+    }
+    unichar state = [markdown characterAtIndex:index + 1];
+    BOOL sourceChecked = (state == 'x' || state == 'X');
+    if ((state != ' ' && !sourceChecked) || sourceChecked != checked) {
+        return NSNotFound;
+    }
+    return index + 1;
+}
+
 static void OMRenderListItem(cmark_node *node,
                              OMTheme *theme,
                              NSMutableAttributedString *output,
@@ -1718,12 +1927,31 @@ static void OMRenderListItem(cmark_node *node,
 {
     NSUInteger startLocation = [output length];
     NSString *prefix = OMListPrefix(listStack);
+    NSUInteger taskLocation = NSNotFound;
+    BOOL taskChecked = NO;
     if (OMGFMNodeIsTaskItem(node)) {
-        NSString *box = cmark_gfm_extensions_get_tasklist_item_checked(node) ? @"\u2611 " : @"\u2610 ";
+        taskChecked = cmark_gfm_extensions_get_tasklist_item_checked(node) ? YES : NO;
+        NSString *box = taskChecked ? @"\u2611 " : @"\u2610 ";
         BOOL bullet = ((cmark_list_type)[[OMListContext(listStack) objectForKey:@"type"] intValue] == CMARK_BULLET_LIST);
         prefix = bullet ? box : [prefix stringByAppendingString:box];
+        taskLocation = OMTaskItemSourceLocation(node, taskChecked, renderContext);
     }
     OMAppendListMarker(output, prefix, attributes);
+    if (taskLocation != NSNotFound && renderContext->taskItems != nil) {
+        // The box is the prefix's next-to-last character; a space follows it.
+        NSRange boxRange = NSMakeRange(startLocation + [prefix length] - 2, 1);
+        [output addAttribute:OMMarkdownRendererTaskItemAttributeName
+                       value:[NSNumber numberWithBool:YES]
+                       range:boxRange];
+        if (renderContext->interactiveTaskItems) {
+            [output addAttribute:NSCursorAttributeName value:[NSCursor pointingHandCursor] range:boxRange];
+        }
+        [renderContext->taskItems addObject:[NSDictionary dictionaryWithObjectsAndKeys:
+            [NSNumber numberWithBool:taskChecked], OMMarkdownRendererTaskItemCheckedKey,
+            [NSNumber numberWithInt:cmark_node_get_start_line(node)], OMMarkdownRendererTaskItemSourceLineKey,
+            [NSNumber numberWithUnsignedInteger:taskLocation], OMMarkdownRendererTaskItemSourceLocationKey,
+            nil]];
+    }
 
     cmark_node *child = cmark_node_first_child(node);
     while (child != NULL) {
@@ -2201,7 +2429,17 @@ void OMRenderInlines(cmark_node *node,
                 }
                 const char *literal = cmark_node_get_literal(child);
                 NSString *text = literal != NULL ? [NSString stringWithUTF8String:literal] : @"";
-                OMAppendTextWithMathSpans(text, theme, output, attributes, scale, renderContext);
+#if defined(GNUSTEP)
+                NSUInteger textStart = [output length];
+#endif
+                if (OMTextNodeIsLinkAddress(child, text)) {
+                    OMAppendString(output, text, attributes);
+                } else {
+                    OMAppendTextWithMathSpans(text, theme, output, attributes, scale, renderContext);
+                }
+#if defined(GNUSTEP)
+                OMApplyTextFallbackFonts(output, textStart);
+#endif
                 break;
             }
             case CMARK_NODE_FOOTNOTE_REFERENCE: {

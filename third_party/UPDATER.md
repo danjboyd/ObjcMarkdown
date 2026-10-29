@@ -4,8 +4,10 @@
 `updater/objc/` in [danjboyd/gnustep-packager](https://github.com/danjboyd/gnustep-packager),
 the Linux and Windows updater (macOS uses Sparkle).
 
-- Source: gnustep-packager `updater/objc` at `43e3a23` (the merge of #50; the
-  updater is the same at its main `7ac44ad`). That brings #49 (a skipped
+- Source: gnustep-packager `updater/objc` at `v0.1.4` (`211d913`). Since
+  `43e3a23` that adds #69 (an install failure's reason ends with one period,
+  not two) and a progress label without a bezel (`eb91bf2`). `43e3a23` (the
+  merge of #50) brought #49 (a skipped
   version is written to disk right away, so it survives the app being closed
   some other way than Quit) and #50 (GNUstep's alert shows at most three
   buttons, so with release notes the offer's third is "More...", which
@@ -26,8 +28,8 @@ the Linux and Windows updater (macOS uses Sparkle).
   system `cmd.exe`, which runs msiexec with backslash paths, records the
   result and relaunches the app, so msiexec's Restart Manager has no helper
   to stop). Before that, `142d46a` (#9, downloads that follow redirects,
-  through WinHTTP on Windows). The packaging pins `84694a3`, which builds the
-  packages but not this copy.
+  through WinHTTP on Windows). The packaging workflows pin the packager at
+  `v0.1.4` too; they build the packages' updater, not this copy.
 - Copied: `Headers/` and `Source/` of each, unchanged. The helper's
   `Source/monocypher/` is Monocypher 4.0.2 (CC0), which checks the update
   payloads' Ed25519 signatures; its README there gives the tarball's hash.

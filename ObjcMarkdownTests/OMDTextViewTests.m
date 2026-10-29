@@ -17,6 +17,71 @@
           userData:(void *)userData;
 @end
 
+// Records the task box a click asked to toggle.
+@interface OMDTaskToggleRecorder : NSObject <OMDTextViewRenderedObjectDelegate>
+{
+    NSUInteger _toggledIndex;
+}
+- (NSUInteger)toggledIndex;
+@end
+
+@implementation OMDTaskToggleRecorder
+
+- (instancetype)init
+{
+    self = [super init];
+    if (self != nil) {
+        _toggledIndex = NSNotFound;
+    }
+    return self;
+}
+
+- (NSUInteger)toggledIndex
+{
+    return _toggledIndex;
+}
+
+- (BOOL)textView:(OMDTextView *)textView toggleTaskItemAtIndex:(NSUInteger)itemIndex
+{
+    (void)textView;
+    _toggledIndex = itemIndex;
+    return YES;
+}
+
+@end
+
+// Records the preview range Reveal in Source asked for (#293).
+@interface OMDRevealRecorder : NSObject <OMDTextViewRenderedObjectDelegate>
+{
+    NSRange _revealedRange;
+}
+- (NSRange)revealedRange;
+@end
+
+@implementation OMDRevealRecorder
+
+- (instancetype)init
+{
+    self = [super init];
+    if (self != nil) {
+        _revealedRange = NSMakeRange(NSNotFound, 0);
+    }
+    return self;
+}
+
+- (NSRange)revealedRange
+{
+    return _revealedRange;
+}
+
+- (void)textView:(OMDTextView *)textView revealSourceOfPreviewRange:(NSRange)range
+{
+    (void)textView;
+    _revealedRange = range;
+}
+
+@end
+
 @interface OMDTextViewTests : XCTestCase
 @end
 
@@ -336,6 +401,183 @@
     XCTAssertNil([textView renderedObjectAtPoint:outside characterIndex:NULL]);
     NSPoint onIntro = NSMakePoint(origin.x + 4.0, origin.y + 4.0);
     XCTAssertNil([textView renderedObjectAtPoint:onIntro characterIndex:NULL]);
+}
+
+- (NSString *)taskMarkdown
+{
+    return @"- [ ] first\n- plain\n- [x] second\n\n```\n- [ ] in code\n```\n";
+}
+
+// The character index of the n-th task box, or NSNotFound.
+- (NSUInteger)indexOfTaskBox:(NSUInteger)n inTextView:(OMDTextView *)textView
+{
+    NSTextStorage *storage = [textView textStorage];
+    NSUInteger index = 0;
+    NSUInteger seen = 0;
+    for (; index < [storage length]; index++) {
+        if ([storage attribute:OMMarkdownRendererTaskItemAttributeName atIndex:index effectiveRange:NULL] != nil) {
+            if (seen == n) {
+                return index;
+            }
+            seen += 1;
+        }
+    }
+    return NSNotFound;
+}
+
+// The centre of the glyph at a character index, in view coordinates.
+- (NSPoint)centreOfCharacter:(NSUInteger)index inTextView:(OMDTextView *)textView
+{
+    NSLayoutManager *layoutManager = [textView layoutManager];
+    NSRange glyphs = [layoutManager glyphRangeForCharacterRange:NSMakeRange(index, 1) actualCharacterRange:NULL];
+    NSRect box = [layoutManager boundingRectForGlyphRange:glyphs inTextContainer:[textView textContainer]];
+    NSPoint origin = [textView textContainerOrigin];
+    return NSMakePoint(NSMidX(box) + origin.x, NSMidY(box) + origin.y);
+}
+
+// Boxes are numbered in order; a "[ ]" in code or an item's text is none.
+- (void)testTaskItemIndexesCountTheBoxes
+{
+    OMDTextView *textView = [self textViewShowingMarkdown:[self taskMarkdown]];
+    NSTextStorage *storage = [textView textStorage];
+    NSUInteger first = [self indexOfTaskBox:0 inTextView:textView];
+    NSUInteger second = [self indexOfTaskBox:1 inTextView:textView];
+    XCTAssertTrue(first != NSNotFound && second != NSNotFound);
+    XCTAssertEqual([self indexOfTaskBox:2 inTextView:textView], (NSUInteger)NSNotFound);
+    if (first == NSNotFound || second == NSNotFound) {
+        return;
+    }
+    XCTAssertEqual(OMDTaskItemIndexAtCharacterIndex(storage, first), (NSUInteger)0);
+    XCTAssertEqual(OMDTaskItemIndexAtCharacterIndex(storage, second), (NSUInteger)1);
+    XCTAssertEqual(OMDTaskItemIndexAtCharacterIndex(storage, first + 2), (NSUInteger)NSNotFound);
+    XCTAssertEqual(OMDTaskItemIndexAtCharacterIndex(storage, [storage length]), (NSUInteger)NSNotFound);
+    XCTAssertEqual(OMDTaskItemIndexAtCharacterIndex(nil, 0), (NSUInteger)NSNotFound);
+
+    // Hit testing: the box itself, not the item's text beside it.
+    XCTAssertEqual([textView taskItemIndexAtPoint:[self centreOfCharacter:second inTextView:textView]], (NSUInteger)1);
+    XCTAssertEqual([textView taskItemIndexAtPoint:[self centreOfCharacter:second + 3 inTextView:textView]],
+                   (NSUInteger)NSNotFound);
+}
+
+// A click on a box goes to the delegate with the box's number, and the
+// view's selection stays as it was.
+- (void)testClickOnTaskBoxAsksDelegateAndKeepsSelection
+{
+    OMDTextView *textView = [self textViewShowingMarkdown:[self taskMarkdown]];
+    OMDTaskToggleRecorder *recorder = [[[OMDTaskToggleRecorder alloc] init] autorelease];
+    NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0.0, 0.0, 640.0, 800.0)
+                                                   styleMask:NSBorderlessWindowMask
+                                                     backing:NSBackingStoreBuffered
+                                                       defer:YES];
+    [[window contentView] addSubview:textView];
+    [textView setDelegate:(id)recorder];
+    NSUInteger second = [self indexOfTaskBox:1 inTextView:textView];
+    XCTAssertTrue(second != NSNotFound);
+    if (second == NSNotFound) {
+        [window release];
+        return;
+    }
+    NSRange selection = NSMakeRange(second + 2, 3);
+    [textView setSelectedRange:selection];
+
+    NSPoint inWindow = [textView convertPoint:[self centreOfCharacter:second inTextView:textView] toView:nil];
+    NSEvent *click = [NSEvent mouseEventWithType:NSLeftMouseDown
+                                        location:inWindow
+                                   modifierFlags:0
+                                       timestamp:0.0
+                                    windowNumber:[window windowNumber]
+                                         context:nil
+                                     eventNumber:0
+                                      clickCount:1
+                                        pressure:1.0];
+    [textView mouseDown:click];
+    XCTAssertEqual([recorder toggledIndex], (NSUInteger)1);
+    XCTAssertTrue(NSEqualRanges([textView selectedRange], selection));
+
+    [textView setDelegate:nil];
+    [textView removeFromSuperview];
+    [window release];
+}
+
+// The menu a right click at a character opens.
+- (NSMenu *)textMenuAtCharacter:(NSUInteger)index inTextView:(OMDTextView *)textView window:(NSWindow *)window
+{
+    NSPoint inWindow = [textView convertPoint:[self centreOfCharacter:index inTextView:textView] toView:nil];
+    NSEvent *click = [NSEvent mouseEventWithType:NSRightMouseDown
+                                        location:inWindow
+                                   modifierFlags:0
+                                       timestamp:0.0
+                                    windowNumber:[window windowNumber]
+                                         context:nil
+                                     eventNumber:0
+                                      clickCount:1
+                                        pressure:1.0];
+    return [textView menuForEvent:click];
+}
+
+// A right click on text offers Reveal in Source, which asks the delegate for
+// the selection when the click is in it, else for the clicked position.
+- (void)testTextMenuRevealsTheClickedTextInSource
+{
+    OMDTextView *textView = [self textViewShowingMarkdown:@"First paragraph.\n\nSecond paragraph.\n"];
+    OMDRevealRecorder *recorder = [[[OMDRevealRecorder alloc] init] autorelease];
+    NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0.0, 0.0, 640.0, 800.0)
+                                                   styleMask:NSBorderlessWindowMask
+                                                     backing:NSBackingStoreBuffered
+                                                       defer:YES];
+    [[window contentView] addSubview:textView];
+    [textView setDelegate:(id)recorder];
+    NSString *text = [[textView textStorage] string];
+    NSRange second = [text rangeOfString:@"Second"];
+    NSRange first = [text rangeOfString:@"First"];
+
+    [textView setSelectedRange:first];
+    NSMenu *menu = [self textMenuAtCharacter:second.location + 2 inTextView:textView window:window];
+    NSMenuItem *item = (NSMenuItem *)[menu itemWithTitle:@"Reveal in Source"];
+    XCTAssertNotNil(item);
+    XCTAssertTrue([item isEnabled]);
+    [[item target] performSelector:[item action] withObject:item];
+    // GNUstep reveals the clicked position; AppKit's menu first selects the
+    // clicked word. Either way, the clicked paragraph's.
+    NSRange paragraph = [text rangeOfString:@"Second paragraph."];
+    NSRange revealed = [recorder revealedRange];
+    XCTAssertTrue(revealed.location != NSNotFound && revealed.location >= paragraph.location &&
+                  NSMaxRange(revealed) <= NSMaxRange(paragraph) &&
+                  revealed.location <= second.location + 2 && second.location + 2 <= NSMaxRange(revealed),
+                  @"%@", NSStringFromRange(revealed));
+
+    [textView setSelectedRange:second];
+    menu = [self textMenuAtCharacter:second.location + 2 inTextView:textView window:window];
+    item = (NSMenuItem *)[menu itemWithTitle:@"Reveal in Source"];
+    [[item target] performSelector:[item action] withObject:item];
+    XCTAssertTrue(NSEqualRanges([recorder revealedRange], second));
+
+    [textView setDelegate:nil];
+    [textView removeFromSuperview];
+    [window release];
+}
+
+// No delegate that can reveal, or an editable view: no Reveal in Source.
+- (void)testTextMenuHasNoRevealWithoutADelegate
+{
+    OMDTextView *textView = [self textViewShowingMarkdown:@"Words.\n"];
+    NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0.0, 0.0, 640.0, 800.0)
+                                                   styleMask:NSBorderlessWindowMask
+                                                     backing:NSBackingStoreBuffered
+                                                       defer:YES];
+    [[window contentView] addSubview:textView];
+    NSMenu *menu = [self textMenuAtCharacter:1 inTextView:textView window:window];
+    XCTAssertNil([menu itemWithTitle:@"Reveal in Source"]);
+
+    OMDRevealRecorder *recorder = [[[OMDRevealRecorder alloc] init] autorelease];
+    [textView setDelegate:(id)recorder];
+    [textView setEditable:YES];
+    menu = [self textMenuAtCharacter:1 inTextView:textView window:window];
+    XCTAssertNil([menu itemWithTitle:@"Reveal in Source"]);
+
+    [textView setDelegate:nil];
+    [textView removeFromSuperview];
+    [window release];
 }
 
 - (void)testPartOfATableCopiesAsTabSeparatedText

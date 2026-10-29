@@ -41,6 +41,7 @@
     [_spinner release];
     [_selectionCheckbox release];
     [_warningsView release];
+    [_sheetWarnings release];
 #endif
     [OMDShareNotice dismissNoticeForWindow:_window];
     [_exporter release];
@@ -233,17 +234,20 @@ static OMDShareFormat OMDShareFormatForSheetChoice(NSInteger choice)
     return choice == OMDShareEmailInMessageTag ? OMDShareFormatHTML : (OMDShareFormat)choice;
 }
 
-// Lays out the accessory for the choice shown: the warnings that apply,
-// what to do instead, and "Selection only" while there is a selection.
-// Called before the picker's items change, which lays out the sheet again.
-- (void)updateSheetAccessory
+// Lays the warnings for choice out in warnings, bottom up (the view isn't
+// flipped): what to do instead, then the warnings. Returns their height, 0
+// for none.
+- (CGFloat)layoutWarningsForChoice:(NSInteger)choice inView:(NSView *)warnings width:(CGFloat)width
 {
-    NSView *view = [self sheetAccessoryView];
-    NSView *warnings = (NSView *)_warningsView;
-    NSButton *checkbox = (NSButton *)_selectionCheckbox;
-    CGFloat width = NSWidth([view frame]);
-    OMDShareFormat format = OMDShareFormatForSheetChoice(_sheetChoice);
-    NSArray *found = [self warningsForFormat:format];
+    OMDShareFormat format = OMDShareFormatForSheetChoice(choice);
+    // The document is checked once per sheet, not once per choice: each
+    // check parses it, and a long document would make Share slow to open.
+    if (_sheetWarnings == nil) {
+        NSString *markdown = [self sharedMarkdown];
+        _sheetWarnings = [(markdown != nil ? OMDShareWarnings(markdown, [_source shareResourceDirectory])
+                                           : [NSArray array]) retain];
+    }
+    NSArray *found = OMDShareWarningsForFormat(_sheetWarnings, format);
     BOOL offerPDF = NO;
     BOOL offerBundle = NO;
     NSMutableArray *labels = [NSMutableArray array];
@@ -252,13 +256,13 @@ static OMDShareFormat OMDShareFormatForSheetChoice(NSInteger choice)
 
     while ((warning = [e nextObject]) != nil) {
         // The .zip carries the local images.
-        if (_sheetBundled && [warning offersBundle]) {
+        if (_sheetBundled && choice == _sheetChoice && [warning offersBundle]) {
             continue;
         }
         [labels addObject:OMDShareSheetLabel([warning messageForFormat:format], width)];
-        offerPDF = offerPDF || ([warning suggestsPDF] && _sheetChoice != OMDShareFormatPDF);
-        offerBundle = offerBundle || ([warning offersBundle] && _sheetChoice == OMDShareFormatMarkdown &&
-                                      !_selectionOnly && !_sheetBundled);
+        offerPDF = offerPDF || ([warning suggestsPDF] && choice != OMDShareFormatPDF);
+        offerBundle = offerBundle || ([warning offersBundle] && choice == OMDShareFormatMarkdown &&
+                                      !_selectionOnly && !(_sheetBundled && choice == _sheetChoice));
     }
 
     [[[[warnings subviews] copy] autorelease] makeObjectsPerformSelector:@selector(removeFromSuperview)];
@@ -270,7 +274,6 @@ static OMDShareFormat OMDShareFormatForSheetChoice(NSInteger choice)
         [buttons addObject:OMDShareSheetButton(@"Share as .zip with Images", self, @selector(sheetShareBundle:))];
     }
 
-    // Bottom up (the view isn't flipped): buttons, then the labels.
     CGFloat y = 0.0;
     if ([buttons count] > 0) {
         CGFloat x = 0.0;
@@ -290,7 +293,49 @@ static OMDShareFormat OMDShareFormatForSheetChoice(NSInteger choice)
         [warnings addSubview:label];
         y += NSHeight([label frame]) + 2.0;
     }
-    CGFloat warningsHeight = [labels count] > 0 ? y - 2.0 : 0.0;
+    return [labels count] > 0 ? y - 2.0 : 0.0;
+}
+
+// The height the warnings take for the tallest choice: the warnings area
+// keeps it while the sheet shows, so the tiles under it don't move as the
+// format is switched (#242).
+- (CGFloat)tallestWarningsHeightInWidth:(CGFloat)width
+{
+    NSView *scratch = [[[NSView alloc] initWithFrame:NSMakeRect(0, 0, width, 0)] autorelease];
+    CGFloat tallest = 0.0;
+    NSUInteger index = 0;
+    for (index = 0; index < sizeof(OMDShareSheetChoices) / sizeof(OMDShareSheetChoices[0]); index++) {
+        tallest = MAX(tallest, [self layoutWarningsForChoice:OMDShareSheetChoices[index]
+                                                      inView:scratch
+                                                       width:width]);
+    }
+    return tallest;
+}
+
+// Lays out the accessory for the choice shown: the warnings that apply,
+// what to do instead, and "Selection only" while there is a selection.
+// Called before the picker's items change, which lays out the sheet again.
+- (void)updateSheetAccessory
+{
+    NSView *view = [self sheetAccessoryView];
+    NSView *warnings = (NSView *)_warningsView;
+    NSButton *checkbox = (NSButton *)_selectionCheckbox;
+    CGFloat width = NSWidth([view frame]);
+
+    if (_warningsReserve < 0.0) {
+        _warningsReserve = [self tallestWarningsHeightInWidth:width];
+    }
+    CGFloat warningsHeight = [self layoutWarningsForChoice:_sheetChoice inView:warnings width:width];
+    // Kept at the top of the reserved height.
+    if (warningsHeight < _warningsReserve) {
+        CGFloat lift = _warningsReserve - warningsHeight;
+        NSEnumerator *e = [[warnings subviews] objectEnumerator];
+        NSView *subview = nil;
+        while ((subview = [e nextObject]) != nil) {
+            [subview setFrameOrigin:NSMakePoint(NSMinX([subview frame]), NSMinY([subview frame]) + lift)];
+        }
+        warningsHeight = _warningsReserve;
+    }
     [warnings setFrame:NSMakeRect(0.0, 0.0, width, warningsHeight)];
     [warnings setHidden:(warningsHeight == 0.0)];
 
@@ -376,6 +421,9 @@ static OMDShareFormat OMDShareFormatForSheetChoice(NSInteger choice)
     // Each sheet starts with the whole document.
     _selectionOnly = NO;
     _sheetBundled = NO;
+    _warningsReserve = -1.0;
+    [_sheetWarnings release];
+    _sheetWarnings = nil;
     NSArray *items = inBackground ? [self placeholderItemsForChoice:choice]
                                   : [self sheetItemsForChoice:choice];
     if (items == nil) {
@@ -389,6 +437,9 @@ static OMDShareFormat OMDShareFormatForSheetChoice(NSInteger choice)
     [_picker release];
     _picker = [[NSSharingServicePicker alloc] initWithItems:items];
     [(NSSharingServicePicker *)_picker setDelegate:self];
+    // Save a Copy opens in the document's folder, not the exports' temporary
+    // one (libs-sharing#15).
+    [(NSSharingServicePicker *)_picker setSaveDirectory:[_source shareResourceDirectory]];
     [self updateSheetAccessory];
     [(NSSharingServicePicker *)_picker setAccessoryView:[self sheetAccessoryView]];
     NSRect rect;
@@ -458,6 +509,10 @@ static OMDShareFormat OMDShareFormatForSheetChoice(NSInteger choice)
     BOOL wanted = ([(NSButton *)sender state] == NSOnState);
     BOOL was = _selectionOnly;
     _selectionOnly = wanted;
+    // The selection has its own warnings: check and measure again.
+    _warningsReserve = -1.0;
+    [_sheetWarnings release];
+    _sheetWarnings = nil;
     if (![self switchSheetToChoice:_sheetChoice]) {
         _selectionOnly = was;
         [(NSButton *)sender setState:(was ? NSOnState : NSOffState)];
@@ -697,12 +752,16 @@ static OMDShareFormat OMDShareFormatForSheetChoice(NSInteger choice)
 - (NSToolbarItem *)toolbarItemWithIdentifier:(NSString *)identifier target:(id)target
 {
     NSToolbarItem *item = nil;
-    if ([_presenter respondsToSelector:@selector(shareToolbarItemWithIdentifier:itemProvider:)]) {
+    if ([_presenter respondsToSelector:@selector(shareToolbarItemWithIdentifier:canShare:itemProvider:)]) {
         // __block: under manual retain counting a copied block doesn't
         // retain it, so the presenter keeping the block doesn't keep this
         // controller alive (it outlives every click on the item).
         __block OMDShareController *controller = self;
+        __block id<OMDShareSource> source = _source;
         item = [_presenter shareToolbarItemWithIdentifier:identifier
+                                                 canShare:^BOOL (void) {
+            return [source shareSourceText] != nil;
+        }
                                              itemProvider:^OMDShareItem *(void) {
             return [controller exportInFormat:[OMDShareController lastFormat]];
         }];

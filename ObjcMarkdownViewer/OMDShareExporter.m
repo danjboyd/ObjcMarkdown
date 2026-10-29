@@ -359,10 +359,19 @@ static NSError *OMDShareMissingTextError(BOOL selectionOnly)
         return nil;
     }
 
-    return [[[OMDShareItem alloc] initWithTitle:title
-                                         format:format
-                                        fileURL:[NSURL fileURLWithPath:path]
-                                   renderedText:[self renderedTextForSelection:selectionOnly]] autorelease];
+    OMDShareItem *item = [[[OMDShareItem alloc] initWithTitle:title
+                                                       format:format
+                                                      fileURL:[NSURL fileURLWithPath:path]
+                                                 renderedText:[self renderedTextForSelection:selectionOnly]] autorelease];
+    if (format == OMDShareFormatMarkdown && !selectionOnly &&
+        [_source respondsToSelector:@selector(shareDocumentPath)]) {
+        NSString *documentPath = [_source shareDocumentPath];
+        // An imported document's file isn't the Markdown shared.
+        if ([documentPath length] > 0 && [[documentPath pathExtension] isEqualToString:extension]) {
+            [item setDocumentURL:[NSURL fileURLWithPath:documentPath]];
+        }
+    }
+    return item;
 }
 
 - (OMDShareItem *)bundleShareItemWithError:(NSError **)error

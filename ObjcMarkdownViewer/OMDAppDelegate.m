@@ -5,6 +5,7 @@
 #import "OMDShareExporter.h"
 #import "OMDWindowController.h"
 #import "OMDPreferencesController.h"
+#import "OMDRelaunchReopen.h"
 #import <objc/runtime.h>
 #import "OMDWindowTabbing.h"
 #if !defined(GNUSTEP)
@@ -104,6 +105,8 @@ static BOOL OMDIsPreferencesSetterSelector(SEL selector)
 #else
     [_mainWindowController applicationDidFinishLaunching:notification];
 #endif
+    // After the window's own launch work, which it also defers.
+    [self performSelector:@selector(reopenDocumentsFromBeforeRelaunch) withObject:nil afterDelay:0.0];
 #if defined(GNUSTEP)
     if (_updaterController == nil) {
         NSError *updateError = nil;
@@ -172,7 +175,115 @@ static BOOL OMDIsPreferencesSetterSelector(SEL selector)
     for (OMDWindowController *controller in controllers) {
         [controller discardRecoverySnapshot];
     }
+    [self keepOpenDocumentsForRelaunch:controllers];
     return NSTerminateNow;
+}
+
+#pragma mark Reopening after an update (#266)
+
+// The version this build was made from, rc suffix and all (macOS's
+// CFBundleShortVersionString has only the numbers, so an rc1 and an rc2
+// would look the same).
+static NSString *OMDRunningAppVersion(void)
+{
+    NSString *version = nil;
+#ifdef OMD_APP_VERSION
+    version = [NSString stringWithUTF8String:OMD_APP_VERSION];
+#endif
+    if ([version length] == 0) {
+        version = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleShortVersionString"];
+    }
+    return version;
+}
+
+- (void)keepOpenDocumentsForRelaunch:(NSArray *)controllers
+{
+    // Where each document is a window grouped as tabs (macOS, GNUstep with
+    // window tabbing), a group's windows in tab order, not front to back.
+    NSMutableArray *ordered = [NSMutableArray array];
+    for (OMDWindowController *controller in controllers) {
+        NSWindow *window = [controller mainWindow];
+        NSArray *group = nil;
+        if ([window respondsToSelector:@selector(tabbedWindows)]) {
+            group = [window tabbedWindows];
+        }
+        if ([group count] == 0) {
+            group = (window != nil) ? [NSArray arrayWithObject:window] : [NSArray array];
+        }
+        for (NSWindow *tab in group) {
+            id delegate = [tab delegate];
+            if ([delegate isKindOfClass:[OMDWindowController class]] && ![ordered containsObject:delegate]) {
+                [ordered addObject:delegate];
+            }
+        }
+        if (![ordered containsObject:controller]) {
+            [ordered addObject:controller];
+        }
+    }
+    NSMutableArray *paths = [NSMutableArray array];
+    for (OMDWindowController *controller in ordered) {
+        for (NSString *path in [controller openLocalDocumentPaths]) {
+            if (![paths containsObject:path]) {
+                [paths addObject:path];
+            }
+        }
+    }
+    NSString *selected = [[self activeWindowController] selectedLocalDocumentPath];
+    NSDictionary *record = OMDRelaunchReopenRecordMake(OMDRunningAppVersion(), paths, selected);
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    if (record != nil) {
+        [defaults setObject:record forKey:OMDRelaunchReopenDefaultsKey];
+    } else {
+        [defaults removeObjectForKey:OMDRelaunchReopenDefaultsKey];
+    }
+    [defaults synchronize];
+}
+
+// At launch: the documents the previous version had open, after what the
+// launch itself opens (a file it was given, a recovery snapshot). The
+// record is used once.
+- (void)reopenDocumentsFromBeforeRelaunch
+{
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    NSDictionary *record = [defaults dictionaryForKey:OMDRelaunchReopenDefaultsKey];
+    if (record == nil) {
+        return;
+    }
+    [defaults removeObjectForKey:OMDRelaunchReopenDefaultsKey];
+    NSFileManager *fileManager = [NSFileManager defaultManager];
+    NSArray *paths = OMDRelaunchReopenPathsForLaunch(record, OMDRunningAppVersion(), ^BOOL(NSString *path) {
+        BOOL isDirectory = NO;
+        return [fileManager fileExistsAtPath:path isDirectory:&isDirectory] && !isDirectory;
+    });
+    if ([paths count] == 0) {
+        return;
+    }
+    // Opening a file that is already open (macOS may have restored its
+    // window) only shows it.
+#if !defined(GNUSTEP)
+    // And a file AppKit restored, or has a window for, before this pass is
+    // left alone: restored documents are registered by now, but not
+    // opening them again costs nothing. (Taken before the loop, so the
+    // selected file, listed again last, is still shown.)
+    NSMutableSet *restored = [NSMutableSet set];
+    for (NSDocument *document in [[NSDocumentController sharedDocumentController] documents]) {
+        if ([[document fileURL] isFileURL]) {
+            [restored addObject:[[[document fileURL] path] stringByStandardizingPath]];
+        }
+    }
+    for (NSWindow *window in [NSApp windows]) {
+        if ([[window representedURL] isFileURL]) {
+            [restored addObject:[[[window representedURL] path] stringByStandardizingPath]];
+        }
+    }
+    for (NSString *path in paths) {
+        if (![restored containsObject:[path stringByStandardizingPath]]) {
+            [self application:NSApp openFile:path];
+        }
+    }
+#else
+    [_mainWindowController openDocumentsAtPathsInOrder:paths];
+#endif
 }
 
 - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)application

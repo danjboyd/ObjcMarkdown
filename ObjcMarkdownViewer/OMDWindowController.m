@@ -81,6 +81,15 @@ static const NSTimeInterval OMDSourceSyntaxHighlightDebounceInterval = 0.08;
 static const NSTimeInterval OMDSourceSyntaxHighlightLargeDocDebounceInterval = 0.16;
 static const NSTimeInterval OMDRecoveryAutosaveDebounceInterval = 1.25;
 static const NSTimeInterval OMDExternalFileMonitorInterval = 1.50;
+// Undo names of a task box's toggle, which undo and redo recognise to save
+// the document as the toggle itself did.
+static NSString * const OMDCheckTaskActionName = @"Check Task";
+static NSString * const OMDUncheckTaskActionName = @"Uncheck Task";
+
+static BOOL OMDIsTaskToggleActionName(NSString *name)
+{
+    return [name isEqualToString:OMDCheckTaskActionName] || [name isEqualToString:OMDUncheckTaskActionName];
+}
 static const NSUInteger OMDSourceSyntaxIncrementalThreshold = 120000;
 static const NSUInteger OMDSourceSyntaxIncrementalContextChars = 12000;
 static const CGFloat OMDSourceEditorDefaultFontSize = 13.0;
@@ -523,12 +532,15 @@ static CGFloat OMDClampedScrollSpeed(CGFloat value)
 - (NSPrintInfo *)configuredPrintInfo;
 - (CGFloat)printableContentWidthForPrintInfo:(NSPrintInfo *)printInfo;
 - (OMDTextView *)newPrintTextViewForPrintInfo:(NSPrintInfo *)printInfo;
+- (void)applyPrintJobTitleToOperation:(NSPrintOperation *)operation;
 #if defined(_WIN32)
 - (NSString *)windowsHeadlessBrowserPath;
 - (NSString *)temporaryHTMLExportPath;
 - (NSString *)styledHTMLDocumentWithBody:(NSString *)bodyHTML title:(NSString *)title;
 - (BOOL)writePandocHTMLForCurrentPreviewToPath:(NSString *)path;
+- (BOOL)writeMarkdownHTMLForCurrentPreviewToPath:(NSString *)path;
 - (BOOL)writeHTMLForPrintView:(OMDTextView *)printView toPath:(NSString *)path;
+- (NSString *)exportDocumentTitle;
 - (BOOL)exportHTMLAtPath:(NSString *)htmlPath toPDFAtPath:(NSString *)pdfPath usingBrowser:(NSString *)browserPath;
 - (BOOL)exportPrintView:(OMDTextView *)printView toPDFAtPath:(NSString *)pdfPath usingBrowser:(NSString *)browserPath;
 - (NSString *)temporaryPDFPrintPath;
@@ -594,7 +606,13 @@ static CGFloat OMDClampedScrollSpeed(CGFloat value)
 - (void)performFormattingCommandWithTag:(NSInteger)tag;
 - (void)toggleBoldFormatting:(id)sender;
 - (void)toggleItalicFormatting:(id)sender;
+- (void)revealPreviewSelectionInSource:(id)sender;
 - (NSTextView *)activeEditingTextView;
+- (NSUndoManager *)activeUndoManager;
+- (void)finishTaskToggleWasClean:(BOOL)wasClean;
+- (void)saveAfterTaskToggleAtPath:(NSString *)path;
+- (BOOL)replaceTaskStateAtSourceLocation:(NSUInteger)location withState:(NSString *)state;
+- (void)undoTaskStateChange:(NSDictionary *)change;
 - (void)undo:(id)sender;
 - (void)redo:(id)sender;
 - (void)updateModeControlSelection;
@@ -685,7 +703,6 @@ static CGFloat OMDClampedScrollSpeed(CGFloat value)
 - (void)toggleSourceHighlightHighContrast:(id)sender;
 - (NSColor *)sourceHighlightAccentColor;
 - (void)setSourceHighlightAccentColor:(NSColor *)color;
-- (BOOL)isTreeSitterAvailable;
 - (BOOL)isRendererSyntaxHighlightingPreferenceEnabled;
 - (BOOL)isRendererSyntaxHighlightingEnabled;
 - (void)setRendererSyntaxHighlightingPreferenceEnabled:(BOOL)enabled;
@@ -849,6 +866,8 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [_workspaceMainContainer release];
     [_sidebarContainer release];
     [_renderer release];
+    [_previewTaskItems release];
+    [_previewTaskItemsMarkdown release];
     [_sourceTextView release];
     [_sourceScrollView release];
     [_previewScrollView release];
@@ -1316,6 +1335,8 @@ static NSMutableArray *OMDSecondaryWindows(void)
     // The preview follows the desktop's light or dark appearance; printing
     // keeps its own light renderer.
     [_renderer setTheme:[OMTheme defaultThemeForDarkAppearance:OMDSystemAppearanceIsDark()]];
+    // Clicking a task box in the preview toggles it.
+    [_renderer setInteractiveTaskItems:YES];
     OMDStartupTrace(@"setupWindow: renderer allocated");
     OMMarkdownParsingOptions *options = [OMMarkdownParsingOptions defaultOptions];
     id mathPolicyValue = [defaults objectForKey:OMDMathRenderingPolicyDefaultsKey];
@@ -1355,9 +1376,6 @@ static NSMutableArray *OMDSecondaryWindows(void)
     id rendererSyntaxHighlighting = [defaults objectForKey:OMDRendererSyntaxHighlightingDefaultsKey];
     if ([rendererSyntaxHighlighting respondsToSelector:@selector(boolValue)]) {
         rendererSyntaxHighlightingEnabled = [rendererSyntaxHighlighting boolValue];
-    }
-    if (![OMMarkdownRenderer isTreeSitterAvailable]) {
-        rendererSyntaxHighlightingEnabled = NO;
     }
     [options setCodeSyntaxHighlightingEnabled:rendererSyntaxHighlightingEnabled];
     [_renderer setParsingOptions:options];
@@ -1488,22 +1506,8 @@ static NSMutableArray *OMDSecondaryWindows(void)
         NSArray *extraPaths = [[_pendingLaunchExtraPaths copy] autorelease];
         [_pendingLaunchExtraPaths release];
         _pendingLaunchExtraPaths = nil;
-        // Each opens from the window of the one before, so that with
-        // window tabs (a new tab goes right after its opener's) they keep
-        // the command line's order.
-        OMDWindowController *opener = self;
-        for (NSString *extraPath in extraPaths) {
-            BOOL inNewTab = !([opener->_documentTabsController count] == 0 &&
-                              opener->_currentPath == nil && opener->_currentMarkdown == nil);
-            if ([opener openDocumentAtPath:extraPath inNewTab:inNewTab requireDirtyConfirm:NO]) {
-                openedFromArgs = YES;
-#if defined(GNUSTEP)
-                OMDWindowController *shown = [OMDWindowController windowControllerWithDocumentAtPath:extraPath];
-                if (shown != nil) {
-                    opener = shown;
-                }
-#endif
-            }
+        if ([self openDocumentsAtPathsInOrder:extraPaths]) {
+            openedFromArgs = YES;
         }
     } else {
         openedFromArgs = [self openDocumentFromArguments];
@@ -2006,15 +2010,17 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
         return [self hasLoadedDocument];
     }
 
+    if (action == @selector(revealPreviewSelectionInSource:)) {
+        return [self canRevealPreviewSelectionInSource];
+    }
+
     if (action == @selector(undo:)) {
-        NSTextView *textView = [self activeEditingTextView];
-        NSUndoManager *undoManager = (textView != nil ? [textView undoManager] : nil);
+        NSUndoManager *undoManager = [self activeUndoManager];
         return undoManager != nil && [undoManager canUndo];
     }
 
     if (action == @selector(redo:)) {
-        NSTextView *textView = [self activeEditingTextView];
-        NSUndoManager *undoManager = (textView != nil ? [textView undoManager] : nil);
+        NSUndoManager *undoManager = [self activeUndoManager];
         return undoManager != nil && [undoManager canRedo];
     }
 
@@ -2087,7 +2093,7 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
 
     if (action == @selector(toggleRendererSyntaxHighlighting:)) {
         [menuItem setState:([self isRendererSyntaxHighlightingEnabled] ? NSOnState : NSOffState)];
-        return _renderer != nil && [self isTreeSitterAvailable];
+        return _renderer != nil;
     }
 
     if (action == @selector(shareDocument:)) {
@@ -2156,6 +2162,26 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
 - (void)fillRecentDocumentsMenu:(NSMenu *)menu
 {
     if (menu == nil) {
+        return;
+    }
+
+    // GNUstep updates every menu on each key press (-performKeyEquivalent:),
+    // so leave the items alone when the list hasn't changed.
+    NSArray *recentForCheck = [[NSDocumentController sharedDocumentController] recentDocumentURLs];
+    NSMutableArray *wantedPaths = [NSMutableArray array];
+    for (NSURL *url in recentForCheck) {
+        if (url != nil && [url isFileURL] && [[url path] length] > 0) {
+            [wantedPaths addObject:[url path]];
+        }
+    }
+    NSMutableArray *shownPaths = [NSMutableArray array];
+    for (NSMenuItem *item in [menu itemArray]) {
+        if ([item action] == @selector(openRecentDocumentFromMenuItem:) &&
+            [[item representedObject] isKindOfClass:[NSString class]]) {
+            [shownPaths addObject:[item representedObject]];
+        }
+    }
+    if ([menu numberOfItems] > 0 && [shownPaths isEqualToArray:wantedPaths]) {
         return;
     }
 
@@ -3127,15 +3153,20 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
 
 - (NSString *)recoverySnapshotPath
 {
-#if !defined(GNUSTEP)
-    // macOS keeps an app's files in ~/Library/Application Support.
+    // macOS keeps an app's files in ~/Library/Application Support; GNUstep
+    // in ~/GNUstep/Library/ApplicationSupport unless GNUstep.conf moves the
+    // user Library (as tools/dev does, so UI checks leave the real one).
     NSArray *supportDirectories = NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory, NSUserDomainMask, YES);
     if ([supportDirectories count] > 0) {
-        NSString *directory = [[[supportDirectories objectAtIndex:0] stringByAppendingPathComponent:@"MarkdownViewer"]
+#if !defined(GNUSTEP)
+        NSString *appFolder = @"MarkdownViewer";
+#else
+        NSString *appFolder = @"ObjcMarkdownViewer";
+#endif
+        NSString *directory = [[[supportDirectories objectAtIndex:0] stringByAppendingPathComponent:appFolder]
             stringByAppendingPathComponent:@"Recovery"];
         return [directory stringByAppendingPathComponent:@"autosave-recovery.plist"];
     }
-#endif
     NSString *home = NSHomeDirectory();
     if (home == nil || [home length] == 0) {
         home = NSTemporaryDirectory();
@@ -3837,6 +3868,22 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
     return printView;
 }
 
+// Name the job after the document, as the window does (without the
+// extension, so Save as PDF suggests "print.pdf"), so the print
+// queue and a PDF saved from the print panel aren't "Untitled" (#261).
+// GNUstep's NSPrintOperation has no -setJobTitle:, so this is macOS only.
+- (void)applyPrintJobTitleToOperation:(NSPrintOperation *)operation
+{
+#if !defined(GNUSTEP)
+    NSString *title = OMDPrintJobTitle(_currentPath, _currentDisplayTitle);
+    if (title != nil) {
+        [operation setJobTitle:title];
+    }
+#else
+    (void)operation;
+#endif
+}
+
 - (void)printDocument:(id)sender
 {
     (void)sender;
@@ -3862,11 +3909,18 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
     }
 #else
     NSPrintOperation *operation = [NSPrintOperation printOperationWithView:printView printInfo:printInfo];
+    [self applyPrintJobTitleToOperation:operation];
     [self logPrintDiagnosticsForOperation:operation printInfo:printInfo stage:@"before runOperation"];
     [operation setShowsPrintPanel:YES];
     [operation setShowsProgressPanel:YES];
     ok = [operation runOperation];
     [self logPrintDiagnosticsForOperation:operation printInfo:printInfo stage:@"after runOperation"];
+    // -runOperation also returns NO when the print panel is cancelled,
+    // which sets the job's disposition to cancel: not a failure (#239).
+    if (!ok && [[[operation printInfo] jobDisposition] isEqualToString:NSPrintCancelJob]) {
+        [printView release];
+        return;
+    }
 #endif
     [printView release];
 
@@ -3911,8 +3965,19 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
 {
     NSString *safeTitle = OMDHTMLEscapedString(title != nil ? title : @"Document");
     NSString *body = (bodyHTML != nil ? bodyHTML : @"");
+    // The page is written to the temporary directory, so relative images
+    // resolve against the document's folder.
+    NSString *base = @"";
+    if (_currentPath != nil) {
+        NSURL *folderURL = [NSURL fileURLWithPath:[_currentPath stringByDeletingLastPathComponent]
+                                      isDirectory:YES];
+        if (folderURL != nil) {
+            base = [NSString stringWithFormat:@"<base href=\"%@\">",
+                                              OMDHTMLEscapedString([folderURL absoluteString])];
+        }
+    }
     return [NSString stringWithFormat:
-            @"<!doctype html><html><head><meta charset=\"utf-8\">"
+            @"<!doctype html><html><head><meta charset=\"utf-8\">%@"
             "<title>%@</title>"
             "<style>"
             "@page{size:auto;margin:0.7in;}"
@@ -3934,11 +3999,14 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
             "table{width:100%%;border-collapse:collapse;table-layout:auto;font-size:0.96em;page-break-inside:auto;}"
             "thead{display:table-header-group;}"
             "tr{page-break-inside:avoid;page-break-after:auto;}"
-            "th,td{border:1px solid #d0d7de;padding:6px 10px;vertical-align:top;text-align:left;}"
+            "th,td{border:1px solid #d0d7de;padding:6px 10px;vertical-align:top;}"
+            // cmark-gfm aligns columns with align="right"; a rule would win.
+            "th:not([align]),td:not([align]){text-align:left;}"
             "th{font-weight:600;background:#f6f8fa;}"
             "img{max-width:100%%;}"
             "hr{border:none;border-top:1px solid #d0d7de;margin:1.5em 0;}"
             "</style></head><body><div class=\"page\">%@</div></body></html>",
+            base,
             safeTitle,
             body];
 }
@@ -3987,7 +4055,7 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
         return NO;
     }
 
-    NSString *title = (_currentPath != nil ? [[_currentPath lastPathComponent] stringByDeletingPathExtension] : @"Markdown Export");
+    NSString *title = [self exportDocumentTitle];
     NSString *html = nil;
     NSRange htmlTagRange = [[fragment lowercaseString] rangeOfString:@"<html"];
     if (htmlTagRange.location != NSNotFound) {
@@ -4001,6 +4069,39 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
         return NO;
     }
     return [htmlData writeToFile:path atomically:YES];
+}
+
+// Without pandoc: cmark-gfm's HTML, the same as Copy Rendered puts on the
+// clipboard (math as readable TeX), so headings, tables and code keep their
+// look (#169).
+- (BOOL)writeMarkdownHTMLForCurrentPreviewToPath:(NSString *)path
+{
+    if (path == nil || [path length] == 0) {
+        return NO;
+    }
+    NSString *markdown = [self markdownForCurrentPreview];
+    if (markdown == nil) {
+        markdown = _currentMarkdown;
+    }
+    NSString *fragment = OMDClipboardHTMLFromMarkdown(markdown);
+    if (fragment == nil) {
+        return NO;
+    }
+    NSString *title = [self exportDocumentTitle];
+    NSString *html = [self styledHTMLDocumentWithBody:fragment title:title];
+    NSData *htmlData = [html dataUsingEncoding:NSUTF8StringEncoding];
+    if (htmlData == nil || [htmlData length] == 0) {
+        return NO;
+    }
+    return [htmlData writeToFile:path atomically:YES];
+}
+
+// The exported page's <title>, which the PDF made from it and the print
+// job take as their name: the same as the Mac's job title (#261).
+- (NSString *)exportDocumentTitle
+{
+    NSString *title = OMDPrintJobTitle(_currentPath, _currentDisplayTitle);
+    return (title != nil ? title : @"Markdown Export");
 }
 
 - (BOOL)writeHTMLForPrintView:(OMDTextView *)printView toPath:(NSString *)path
@@ -4029,8 +4130,10 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
         }
         NSString *htmlString = [NSString stringWithFormat:
                                 @"<!doctype html><html><head><meta charset=\"utf-8\">"
+                                "<title>%@</title>"
                                 "<style>body{font-family:Segoe UI,Arial,sans-serif;margin:40px;line-height:1.45;color:#222;}pre{white-space:pre-wrap;word-wrap:break-word;font:14px/1.45 Consolas,'Courier New',monospace;}</style>"
                                 "</head><body><pre>%@</pre></body></html>",
+                                OMDHTMLEscapedString([self exportDocumentTitle]),
                                 OMDHTMLEscapedString(plainText)];
         htmlData = [htmlString dataUsingEncoding:NSUTF8StringEncoding];
         if (htmlData == nil || [htmlData length] == 0) {
@@ -4062,21 +4165,33 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
                         [htmlURL absoluteString],
                         nil]];
 
-    NSPipe *stdoutPipe = [NSPipe pipe];
-    NSPipe *stderrPipe = [NSPipe pipe];
-    [task setStandardOutput:stdoutPipe];
-    [task setStandardError:stderrPipe];
+    // Not pipes: nothing reads them, and Edge logs a few KB to stderr, so
+    // it blocked on a full pipe while the app waited for it to exit.
+    [task setStandardOutput:[NSFileHandle fileHandleWithNullDevice]];
+    [task setStandardError:[NSFileHandle fileHandleWithNullDevice]];
 
     BOOL launched = YES;
+    BOOL finished = NO;
     @try {
         [task launch];
-        [task waitUntilExit];
+        // Edge takes a few seconds; one that hangs mustn't take the app
+        // with it.
+        NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:90.0];
+        while ([task isRunning] && [deadline timeIntervalSinceNow] > 0) {
+            [NSThread sleepForTimeInterval:0.1];
+        }
+        finished = ![task isRunning];
+        if (!finished) {
+            OMDLogPrintDiagnostics(@"export PDF: the headless browser didn't finish in 90 s; stopping it");
+            [task terminate];
+        }
     } @catch (NSException *exception) {
         launched = NO;
         (void)exception;
     }
 
     return (launched &&
+            finished &&
             [task terminationStatus] == 0 &&
             [[NSFileManager defaultManager] fileExistsAtPath:pdfPath]);
 }
@@ -4089,6 +4204,9 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
     }
 
     BOOL wroteHTML = [self writePandocHTMLForCurrentPreviewToPath:htmlPath];
+    if (!wroteHTML) {
+        wroteHTML = [self writeMarkdownHTMLForCurrentPreviewToPath:htmlPath];
+    }
     if (!wroteHTML) {
         wroteHTML = [self writeHTMLForPrintView:printView toPath:htmlPath];
     }
@@ -4108,9 +4226,21 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
     if (temporaryDirectory == nil || [temporaryDirectory length] == 0) {
         temporaryDirectory = @"C:/Windows/Temp";
     }
-    NSString *fileName = [NSString stringWithFormat:@"ObjcMarkdown-Print-%@.pdf",
-                                                    [[NSProcessInfo processInfo] globallyUniqueString]];
-    return [temporaryDirectory stringByAppendingPathComponent:fileName];
+    // The shell's print verb names the job after the file: the document's
+    // name, in a folder of its own so prints never collide (#261).
+    NSString *folder = [temporaryDirectory stringByAppendingPathComponent:
+                        [NSString stringWithFormat:@"ObjcMarkdown-Print-%@",
+                                                   [[NSProcessInfo processInfo] globallyUniqueString]]];
+    if (![[NSFileManager defaultManager] createDirectoryAtPath:folder
+                                   withIntermediateDirectories:YES
+                                                    attributes:nil
+                                                         error:NULL]) {
+        return nil;
+    }
+    NSCharacterSet *unsafe = [NSCharacterSet characterSetWithCharactersInString:@"\\/:*?\"<>|"];
+    NSString *name = [[[self exportDocumentTitle] componentsSeparatedByCharactersInSet:unsafe]
+                      componentsJoinedByString:@"_"];
+    return [folder stringByAppendingPathComponent:[name stringByAppendingPathExtension:@"pdf"]];
 }
 
 - (BOOL)launchWindowsShellPrintForPDFAtPath:(NSString *)path
@@ -4169,6 +4299,7 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
 
     NSPrintOperation *operation = [NSPrintOperation printOperationWithView:printView
                                                                  printInfo:printInfo];
+    [self applyPrintJobTitleToOperation:operation];
     [self logPrintDiagnosticsForOperation:operation printInfo:printInfo stage:@"before export runOperation"];
     [operation setShowsPrintPanel:NO];
     [operation setShowsProgressPanel:YES];
@@ -4361,6 +4492,15 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
     return [[self defaultSaveMarkdownFileName] pathExtension];
 }
 
+- (NSString *)shareDocumentPath
+{
+    if (![self isCurrentDocumentReloadableFromDisk] || _sourceIsDirty ||
+        [self currentDocumentHasNewerDiskVersion]) {
+        return nil;
+    }
+    return _currentPath;
+}
+
 - (NSString *)shareMarkdownText
 {
     NSString *markdown = [self markdownForCurrentPreview];
@@ -4548,6 +4688,10 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
     _isProgrammaticPreviewUpdate = YES;
     OMDApplyRenderedString([_textView textStorage], rendered);
     _isProgrammaticPreviewUpdate = NO;
+    [_previewTaskItems release];
+    _previewTaskItems = [[_renderer taskItems] copy];
+    [_previewTaskItemsMarkdown release];
+    _previewTaskItemsMarkdown = [previewMarkdown copy];
     [self logPreviewStyleDiagnosticsForRenderedString:rendered];
     NSTimeInterval applyMs = perfLogging ? ((OMDNow() - applyStart) * 1000.0) : 0.0;
     [self updatePreviewDocumentGeometry];
@@ -4664,6 +4808,10 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
     NSAttributedString *empty = [[[NSAttributedString alloc] initWithString:@""] autorelease];
     [[_textView textStorage] setAttributedString:empty];
     _isProgrammaticPreviewUpdate = NO;
+    [_previewTaskItems release];
+    _previewTaskItems = nil;
+    [_previewTaskItemsMarkdown release];
+    _previewTaskItemsMarkdown = nil;
 
     if ([_textView isKindOfClass:[OMDTextView class]]) {
         OMDTextView *previewTextView = (OMDTextView *)_textView;
@@ -7278,11 +7426,6 @@ static CGFloat OMDOutlinePanelWidth(NSRect bounds)
     [_preferencesController syncPreferencesPanelFromSettings];
 }
 
-- (BOOL)isTreeSitterAvailable
-{
-    return [OMMarkdownRenderer isTreeSitterAvailable];
-}
-
 - (BOOL)isRendererSyntaxHighlightingPreferenceEnabled
 {
     id value = [[NSUserDefaults standardUserDefaults] objectForKey:OMDRendererSyntaxHighlightingDefaultsKey];
@@ -7294,9 +7437,6 @@ static CGFloat OMDOutlinePanelWidth(NSRect bounds)
 
 - (BOOL)isRendererSyntaxHighlightingEnabled
 {
-    if (![self isTreeSitterAvailable]) {
-        return NO;
-    }
     return [self isRendererSyntaxHighlightingPreferenceEnabled];
 }
 
@@ -7309,7 +7449,7 @@ static CGFloat OMDOutlinePanelWidth(NSRect bounds)
         OMMarkdownParsingOptions *existing = [_renderer parsingOptions];
         OMMarkdownParsingOptions *options = existing != nil ? [[existing copy] autorelease]
                                                             : [OMMarkdownParsingOptions defaultOptions];
-        [options setCodeSyntaxHighlightingEnabled:(enabled && [self isTreeSitterAvailable])];
+        [options setCodeSyntaxHighlightingEnabled:enabled];
         [self applyParsingOptionsAndRender:options];
     } else {
         [_preferencesController syncPreferencesPanelFromSettings];
@@ -8743,29 +8883,48 @@ static CGFloat OMDOutlinePanelWidth(NSRect bounds)
     return nil;
 }
 
+// The editor's history. The preview has none of its own (its undo manager
+// is the window's): what it changes, through its task boxes, is in the
+// document's, so with the preview focused (Read, or Split) it is that one.
+- (NSUndoManager *)activeUndoManager
+{
+    NSTextView *textView = [self activeEditingTextView];
+    if (textView != nil && textView != _textView) {
+        return [textView undoManager];
+    }
+    if ([self isPreviewVisible] && [self hasLoadedDocument] && !_currentDocumentReadOnly) {
+        return [[self currentDocument] undoManager];
+    }
+    return nil;
+}
+
 - (void)undo:(id)sender
 {
     (void)sender;
-    NSTextView *textView = [self activeEditingTextView];
-    if (textView == nil) {
+    NSUndoManager *undoManager = [self activeUndoManager];
+    if (undoManager == nil || ![undoManager canUndo]) {
         return;
     }
-    NSUndoManager *undoManager = [textView undoManager];
-    if (undoManager != nil && [undoManager canUndo]) {
-        [undoManager undo];
+    BOOL taskToggle = OMDIsTaskToggleActionName([undoManager undoActionName]);
+    BOOL wasClean = !_sourceIsDirty;
+    [undoManager undo];
+    if (taskToggle) {
+        [self finishTaskToggleWasClean:wasClean];
     }
 }
 
 - (void)redo:(id)sender
 {
     (void)sender;
-    NSTextView *textView = [self activeEditingTextView];
-    if (textView == nil) {
+    NSUndoManager *undoManager = [self activeUndoManager];
+    if (undoManager == nil || ![undoManager canRedo]) {
         return;
     }
-    NSUndoManager *undoManager = [textView undoManager];
-    if (undoManager != nil && [undoManager canRedo]) {
-        [undoManager redo];
+    BOOL taskToggle = OMDIsTaskToggleActionName([undoManager redoActionName]);
+    BOOL wasClean = !_sourceIsDirty;
+    [undoManager redo];
+    if (taskToggle) {
+        [self finishTaskToggleWasClean:wasClean];
     }
 }
 
@@ -8973,31 +9132,86 @@ static NSRange OMDCharacterRangeForSourceLines(NSString *source, NSRange lineRan
     return NSMakeRange(NSNotFound, 0);
 }
 
-- (void)textView:(OMDTextView *)textView revealSourceOfRenderedObject:(OMRenderedObject *)object
+// Select source in the editor, showing it beside the preview: from Read
+// this document goes to Split, without changing the preferred mode (#293).
+// The exact range holds only while the preview matches the editor text;
+// otherwise the source lines (which may have moved a little) are used.
+- (void)revealSourceCharacters:(NSRange)exact lines:(NSRange)lineRange
 {
-    if (textView != _textView || _sourceTextView == nil || object == nil || ![self hasLoadedDocument]) {
+    if (_sourceTextView == nil || ![self hasLoadedDocument]) {
         return;
     }
     NSString *source = [_sourceTextView string];
     NSRange characters = NSMakeRange(NSNotFound, 0);
-    // The exact range holds only while the preview matches the editor text.
-    NSRange exact = [object sourceRange];
     if (_sourceRevision == _lastRenderedSourceRevision &&
         exact.location != NSNotFound && NSMaxRange(exact) <= [source length]) {
         characters = exact;
     } else {
-        characters = OMDCharacterRangeForSourceLines(source, [object sourceLineRange]);
+        characters = OMDCharacterRangeForSourceLines(source, lineRange);
     }
     if (characters.location == NSNotFound) {
         NSBeep();
         return;
     }
     if (_viewerMode == OMDViewerModeRead) {
-        [self setViewerMode:OMDViewerModeSplit persistPreference:YES];
+        [self setViewerMode:OMDViewerModeSplit persistPreference:NO];
     }
     [_sourceTextView setSelectedRange:characters];
     [_sourceTextView scrollRangeToVisible:characters];
     [[_sourceTextView window] makeFirstResponder:_sourceTextView];
+}
+
+- (void)textView:(OMDTextView *)textView revealSourceOfRenderedObject:(OMRenderedObject *)object
+{
+    if (textView != _textView || object == nil) {
+        return;
+    }
+    [self revealSourceCharacters:[object sourceRange] lines:[object sourceLineRange]];
+}
+
+// The source lines of the blocks a preview range touches, or {NSNotFound, 0}.
+- (NSRange)sourceLineRangeForPreviewRange:(NSRange)range
+{
+    if (_textView == nil || ![self hasLoadedDocument] || range.location == NSNotFound) {
+        return NSMakeRange(NSNotFound, 0);
+    }
+    return OMDSourceLineRangeForPreviewRange(range, [_renderer blockAnchors]);
+}
+
+- (void)textView:(OMDTextView *)textView revealSourceOfPreviewRange:(NSRange)range
+{
+    if (textView != _textView) {
+        return;
+    }
+    NSRange lines = [self sourceLineRangeForPreviewRange:range];
+    if (lines.location == NSNotFound) {
+        NSBeep();
+        return;
+    }
+    [self revealSourceCharacters:NSMakeRange(NSNotFound, 0) lines:lines];
+}
+
+// Edit > Reveal in Source: the blocks of the preview's selection, or of the
+// last click in it. In Split only while the preview has the focus.
+- (BOOL)canRevealPreviewSelectionInSource
+{
+    if (_sourceTextView == nil || _textView == nil || _viewerMode == OMDViewerModeEdit) {
+        return NO;
+    }
+    if (_viewerMode == OMDViewerModeSplit && [[_textView window] firstResponder] != _textView) {
+        return NO;
+    }
+    return [self sourceLineRangeForPreviewRange:[_textView selectedRange]].location != NSNotFound;
+}
+
+- (void)revealPreviewSelectionInSource:(id)sender
+{
+    (void)sender;
+    if (![self canRevealPreviewSelectionInSource]) {
+        NSBeep();
+        return;
+    }
+    [self textView:(OMDTextView *)_textView revealSourceOfPreviewRange:[_textView selectedRange]];
 }
 
 - (void)textView:(OMDTextView *)textView rerenderRenderedObject:(OMRenderedObject *)object
@@ -9007,6 +9221,150 @@ static NSRange OMDCharacterRangeForSourceLines(NSString *source, NSRange lineRan
     }
     [OMMarkdownRenderer invalidateCachedMathForFormula:[object source]];
     [_renderScheduler scheduleMathArtifactRefresh];
+}
+
+// A click on a task box in the preview (Read or Split) toggles the item's
+// "[ ]" in the source: an edit like any other, which undo reverts. A
+// document with no other unsaved changes is saved at once (Dan,
+// 2026-10-22), so a file someone else watches sees the change; one with
+// unsaved changes keeps them, and the toggle, for the user to save.
+- (BOOL)textView:(OMDTextView *)textView toggleTaskItemAtIndex:(NSUInteger)itemIndex
+{
+    if (textView != _textView || _sourceTextView == nil || ![self hasLoadedDocument] ||
+        _currentDocumentReadOnly || _currentDocumentRenderMode != OMDDocumentRenderModeMarkdown) {
+        return NO;
+    }
+    // The file changed on disk: the usual prompt, not a toggle of text that
+    // may be out of date.
+    NSUInteger revision = _sourceRevision;
+    [self refreshCurrentDocumentDiskStateAllowPrompt:NO];
+    if (_sourceRevision != revision || [self currentDocumentHasNewerDiskVersion]) {
+        [self refreshCurrentDocumentDiskStateAllowPrompt:YES];
+        return YES;
+    }
+    // The boxes map to the source only if the preview shows the editor's
+    // text as it is now; otherwise bring the preview up to date first.
+    NSString *source = [_sourceTextView string];
+    if (_previewTaskItemsMarkdown == nil || ![_previewTaskItemsMarkdown isEqualToString:source] ||
+        itemIndex >= [_previewTaskItems count]) {
+        [self renderCurrentMarkdown];
+        NSBeep();
+        return YES;
+    }
+
+    NSDictionary *item = [_previewTaskItems objectAtIndex:itemIndex];
+    NSUInteger location = [[item objectForKey:OMMarkdownRendererTaskItemSourceLocationKey] unsignedIntegerValue];
+    BOOL checked = [[item objectForKey:OMMarkdownRendererTaskItemCheckedKey] boolValue];
+    if (location == 0 || location + 1 >= [source length] ||
+        [source characterAtIndex:location - 1] != '[' || [source characterAtIndex:location + 1] != ']') {
+        NSBeep();
+        return YES;
+    }
+    BOOL wasClean = !_sourceIsDirty;
+    if ([self replaceTaskStateAtSourceLocation:location withState:(checked ? @" " : @"x")]) {
+        [self finishTaskToggleWasClean:wasClean];
+    }
+    return YES;
+}
+
+// Puts state (" " or "x") between the brackets at location and registers
+// the change back as its undo, named for what the toggle did. The edit goes
+// through the editor, so the document and preview follow as for typing; the
+// editor's own undo record is left out, because GNUstep replays that one on
+// the text storage without telling the editor's delegate, which then keeps
+// the old text.
+- (BOOL)replaceTaskStateAtSourceLocation:(NSUInteger)location withState:(NSString *)state
+{
+    NSString *source = [_sourceTextView string];
+    if (_sourceTextView == nil || location == 0 || location + 1 >= [source length] ||
+        [source characterAtIndex:location - 1] != '[' || [source characterAtIndex:location + 1] != ']') {
+        NSBeep();
+        return NO;
+    }
+    NSRange range = NSMakeRange(location, 1);
+    NSString *previous = [source substringWithRange:range];
+    NSArray *sourceSelection = [[[_sourceTextView selectedRanges] copy] autorelease];
+    NSUndoManager *undoManager = [[self currentDocument] undoManager];
+
+    [undoManager disableUndoRegistration];
+    BOOL allowed = [_sourceTextView shouldChangeTextInRange:range replacementString:state];
+    if (allowed) {
+        NSTextStorage *storage = [_sourceTextView textStorage];
+        [storage beginEditing];
+        [storage replaceCharactersInRange:range withString:state];
+        [storage endEditing];
+        [_sourceTextView didChangeText];
+    }
+    [undoManager enableUndoRegistration];
+    if (!allowed) {
+        return NO;
+    }
+    [undoManager registerUndoWithTarget:self
+                               selector:@selector(undoTaskStateChange:)
+                                 object:[NSDictionary dictionaryWithObjectsAndKeys:
+                                            [NSNumber numberWithUnsignedInteger:location], @"location",
+                                            previous, @"state",
+                                            nil]];
+    [undoManager setActionName:([state isEqualToString:@" "] ? OMDUncheckTaskActionName : OMDCheckTaskActionName)];
+    // One character for one: the editor's selection stays where it was.
+    _isProgrammaticSelectionSync = YES;
+    [_sourceTextView setSelectedRanges:sourceSelection];
+    _isProgrammaticSelectionSync = NO;
+    return YES;
+}
+
+// Undo (and, registered in turn, redo) of a task box's toggle. -undo: and
+// -redo: then show and save it (-finishTaskToggleWasClean:).
+- (void)undoTaskStateChange:(NSDictionary *)change
+{
+    NSUInteger location = [[change objectForKey:@"location"] unsignedIntegerValue];
+    NSString *state = [change objectForKey:@"state"];
+    if (![self hasLoadedDocument] || _currentDocumentReadOnly || state == nil) {
+        return;
+    }
+    [self replaceTaskStateAtSourceLocation:location withState:state];
+}
+
+// After a task box's edit, or its undo or redo: the preview shows it at once
+// (Read mode has no live preview), both panes stay where they were, and a
+// document that was clean is saved.
+- (void)finishTaskToggleWasClean:(BOOL)wasClean
+{
+    NSClipView *previewClip = [_previewScrollView contentView];
+    NSClipView *sourceClip = [_sourceScrollView contentView];
+    NSPoint previewOrigin = [previewClip bounds].origin;
+    NSPoint sourceOrigin = [sourceClip bounds].origin;
+    NSRange previewSelection = [_textView selectedRange];
+
+    if ([self isPreviewVisible]) {
+        [self renderCurrentMarkdown];
+        [previewClip scrollToPoint:previewOrigin];
+        [_previewScrollView reflectScrolledClipView:previewClip];
+        if (NSMaxRange(previewSelection) <= [[_textView textStorage] length]) {
+            [_textView setSelectedRange:previewSelection];
+        }
+    }
+    if (sourceClip != nil) {
+        [sourceClip scrollToPoint:sourceOrigin];
+        [_sourceScrollView reflectScrolledClipView:sourceClip];
+    }
+
+    // Saved on the next pass of the run loop: the change counts as unsaved
+    // only when the undo group of the event that made it closes, so a save
+    // now would be followed by the document marking itself edited again.
+    if (wasClean && [OMDTrimmedString(_currentPath) length] > 0 &&
+        ![self isImportableDocumentPath:_currentPath] && !_currentDocumentReadOnly) {
+        [self performSelector:@selector(saveAfterTaskToggleAtPath:) withObject:[[_currentPath copy] autorelease] afterDelay:0.0];
+    }
+}
+
+- (void)saveAfterTaskToggleAtPath:(NSString *)path
+{
+    // Only the document the toggle was made in, if it is still shown.
+    if (![self hasLoadedDocument] || ![path isEqualToString:_currentPath] || _currentDocumentReadOnly) {
+        return;
+    }
+    [self saveDocumentFromVimCommand];
 }
 
 - (void)refreshOutline
@@ -9580,6 +9938,49 @@ static BOOL OMDIsMarkdownPath(NSString *path)
 {
     [self cancelPendingRecoveryAutosave];
     [self clearRecoverySnapshot];
+}
+
+- (BOOL)openDocumentsAtPathsInOrder:(NSArray *)paths
+{
+    // Each opens from the window of the one before, so that with window
+    // tabs (a new tab goes right after its opener's) they keep their order.
+    BOOL opened = NO;
+    OMDWindowController *opener = self;
+    for (NSString *path in paths) {
+        BOOL inNewTab = !([opener->_documentTabsController count] == 0 &&
+                          opener->_currentPath == nil && opener->_currentMarkdown == nil);
+        if ([opener openDocumentAtPath:path inNewTab:inNewTab requireDirtyConfirm:NO]) {
+            opened = YES;
+#if defined(GNUSTEP)
+            OMDWindowController *shown = [OMDWindowController windowControllerWithDocumentAtPath:path];
+            if (shown != nil) {
+                opener = shown;
+            }
+#endif
+        }
+    }
+    return opened;
+}
+
+- (NSArray *)openLocalDocumentPaths
+{
+    NSMutableArray *paths = [NSMutableArray array];
+    NSInteger index = 0;
+    for (; index < (NSInteger)[_documentTabsController count]; index++) {
+        OMDMarkdownDocument *tab = [_documentTabsController tabAtIndex:index];
+        NSString *path = [tab sourcePath];
+        if ([path length] > 0 && [[tab remoteURL] length] == 0 && ![paths containsObject:path]) {
+            [paths addObject:path];
+        }
+    }
+    return paths;
+}
+
+- (NSString *)selectedLocalDocumentPath
+{
+    OMDMarkdownDocument *tab = [_documentTabsController selectedTab];
+    NSString *path = [tab sourcePath];
+    return ([path length] > 0 && [[tab remoteURL] length] == 0) ? path : nil;
 }
 
 - (void)windowWillClose:(NSNotification *)notification

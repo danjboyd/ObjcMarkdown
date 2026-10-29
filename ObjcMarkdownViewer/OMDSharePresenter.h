@@ -41,10 +41,12 @@ typedef NS_ENUM(NSInteger, OMDShareWarningChoice) {
 // share controller put the document on the clipboard to paste instead.
 - (BOOL)emailRenderedDocument:(OMDShareItem *)item forWindow:(NSWindow *)window;
 // The platform's own toolbar item (macOS: NSSharingServicePickerToolbarItem).
-// The provider exports in the last-used format when the item needs it.
-// Without this method the share controller makes its own item, which pops
-// up the Share menu.
+// canShare says cheaply whether there is a document to share; the provider
+// exports it in the last-used format, only when a share asks for the file
+// (never when the toolbar is built or validated: #236). Without this method
+// the share controller makes its own item, which pops up the Share menu.
 - (NSToolbarItem *)shareToolbarItemWithIdentifier:(NSString *)identifier
+                                         canShare:(BOOL (^)(void))canShare
                                      itemProvider:(OMDShareItem *(^)(void))provider;
 // Asked before a share in format that has warnings (OMDShareWarning, those
 // that apply to format) or while the document has a selection, where the

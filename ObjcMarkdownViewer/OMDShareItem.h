@@ -20,6 +20,7 @@ typedef NS_ENUM(NSInteger, OMDShareFormat) {
     OMDShareFormat _format;
     NSURL *_fileURL;
     NSAttributedString *_renderedText;
+    NSURL *_documentURL;
 }
 
 - (instancetype)initWithTitle:(NSString *)title
@@ -36,5 +37,11 @@ typedef NS_ENUM(NSInteger, OMDShareFormat) {
 - (NSAttributedString *)renderedText;
 // The exported file's name ("Q3 Plan.pdf").
 - (NSString *)fileName;
+// The document's own file when the exported file is a copy of it as saved
+// (a Markdown share of an unedited document), or nil (#265).
+- (NSURL *)documentURL;
+- (void)setDocumentURL:(NSURL *)documentURL;
+// What Show in Folder selects: the document, or else the exported file.
+- (NSURL *)folderURL;
 
 @end

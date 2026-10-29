@@ -25,6 +25,7 @@
     [_title release];
     [_fileURL release];
     [_renderedText release];
+    [_documentURL release];
     [super dealloc];
 }
 
@@ -51,6 +52,22 @@
 - (NSString *)fileName
 {
     return [[_fileURL path] lastPathComponent];
+}
+
+- (NSURL *)documentURL
+{
+    return _documentURL;
+}
+
+- (void)setDocumentURL:(NSURL *)documentURL
+{
+    [_documentURL release];
+    _documentURL = [documentURL copy];
+}
+
+- (NSURL *)folderURL
+{
+    return _documentURL != nil ? _documentURL : _fileURL;
 }
 
 @end
