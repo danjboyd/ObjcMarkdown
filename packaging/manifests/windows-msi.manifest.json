@@ -40,7 +40,7 @@
     {
       "name": "WinUITheme",
       "repo": "https://github.com/danjboyd/plugins-themes-winuitheme.git",
-      "ref": "cad2585bc834c797ac62609879a4a48ca412ebae",
+      "ref": "72f2a10743e5a441a2d4b4e36e03ce150da3caab",
       "platforms": [
         "windows",
         "msi"
