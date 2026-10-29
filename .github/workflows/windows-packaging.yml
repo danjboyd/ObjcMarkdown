@@ -46,7 +46,7 @@ jobs:
       # WinUITheme draws window tabs in the title bar, Windows' shadows and
       # per-monitor DPI only with it. ScreenshotTool's MSI ships the same.
       msys2-package-urls: >-
-        https://github.com/danjboyd/libs-back/releases/download/carry-0.32.0.4/mingw-w64-clang-x86_64-gnustep-back-0.32.0.4-1-any.pkg.tar.zst
+        https://github.com/danjboyd/libs-back/releases/download/carry-0.32.0.5/mingw-w64-clang-x86_64-gnustep-back-0.32.0.5-1-any.pkg.tar.zst
       run-validation: true
       run-smoke: true
       upload-artifacts: true
