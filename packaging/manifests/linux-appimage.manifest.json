@@ -93,7 +93,8 @@
         "GSFirstControlKey": "Alt_L",
         "GSSecondControlKey": "Alt_R",
         "GSFirstAlternateKey": "Super_L",
-        "GSSecondAlternateKey": "Super_R"
+        "GSSecondAlternateKey": "Super_R",
+        "GnomeThemeMenuStyle": "primary"
       }
     }
   },
@@ -128,6 +129,7 @@
         "metadata/icons/markdown_icon.png",
         "metadata/smoke/sample-commonmark.md",
         "runtime/etc/GNUstep/GNUstep.conf",
+        "runtime/System/Library/KeyBindings/DefaultKeyBindings.dict",
         "runtime/System/Library/Themes/Adwaita.theme",
         "runtime/System/Tools/defaults",
         "runtime/bin/pandoc",
@@ -231,6 +233,7 @@
       "enabled": true,
       "appDirName": "ObjcMarkdown.AppDir",
       "desktopEntryName": "objcmarkdown.desktop",
+      "startupWMClass": "MarkdownViewer",
       "iconRelativePath": "metadata/icons/markdown_icon.png",
       "updates": {
         "feedUrl": "https://danjboyd.github.io/ObjcMarkdown/updates/linux/stable.json",

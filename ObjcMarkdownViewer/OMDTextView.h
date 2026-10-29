@@ -12,11 +12,25 @@
 @optional
 // Show the object's Markdown source in the editor.
 - (void)textView:(OMDTextView *)textView revealSourceOfRenderedObject:(OMRenderedObject *)object;
+// Show the Markdown source of the blocks a preview range touches (#293).
+- (void)textView:(OMDTextView *)textView revealSourceOfPreviewRange:(NSRange)range;
 // Render a math object again with its caches dropped.
 - (void)textView:(OMDTextView *)textView rerenderRenderedObject:(OMRenderedObject *)object;
+// A click on a task box: toggle the itemIndex-th task item (the renderer's
+// -taskItems order). Return YES if the click was used, so the view doesn't
+// also select text.
+- (BOOL)textView:(OMDTextView *)textView toggleTaskItemAtIndex:(NSUInteger)itemIndex;
 @end
 
+// The index among the task boxes (OMMarkdownRendererTaskItemAttributeName) of
+// the box at characterIndex in text, or NSNotFound if it isn't one.
+NSUInteger OMDTaskItemIndexAtCharacterIndex(NSAttributedString *text, NSUInteger characterIndex);
+
 @interface OMDTextView : NSTextView
+
+// The index among the task boxes of the box drawn at a point in view
+// coordinates, or NSNotFound.
+- (NSUInteger)taskItemIndexAtPoint:(NSPoint)point;
 
 // The rendered object drawn at a point in view coordinates, or nil.
 - (OMRenderedObject *)renderedObjectAtPoint:(NSPoint)point characterIndex:(NSUInteger *)characterIndex;

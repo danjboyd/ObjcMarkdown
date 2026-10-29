@@ -18,7 +18,7 @@ permissions:
 
 jobs:
   resolve-version:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       package_version: ${{ steps.version.outputs.package_version }}
     steps:
@@ -35,16 +35,15 @@ jobs:
 
   build-appimage:
     needs: resolve-version
-    uses: danjboyd/gnustep-packager/.github/workflows/package-gnustep-app.yml@82090aa23be03bf2181948d4a5a64b6b96c41298
+    uses: danjboyd/gnustep-packager/.github/workflows/package-gnustep-app.yml@v0.1.5
     with:
       manifest-path: packaging/manifests/linux-appimage.manifest.json
       backend: appimage
       package-version: ${{ needs.resolve-version.outputs.package_version }}
-      packager-repository: danjboyd/gnustep-packager
-      packager-ref: 82090aa23be03bf2181948d4a5a64b6b96c41298
+      runs-on-appimage: '["ubuntu-24.04"]'
       # GitHub-hosted, in the CI image (ci/linux/Dockerfile), pinned by the
       # digest linux-gnustep-clang.yml uses.
-      container-appimage: ghcr.io/danjboyd/objcmarkdown-ci@sha256:9bacf4e27f77aaff5a2a2d920ee674b5e602a16b9b4ca1fe780945a53d059c48
+      container-appimage: ghcr.io/danjboyd/objcmarkdown-ci@sha256:1494c94dc5e4f4a06e15fffcc646c9be33504450c437eb055e72c9b970716819
       skip-default-host-setup: true
       # The CI image already has the AppImage tools; the packager rejects
       # extra apt packages when it does not set up the host.
@@ -62,7 +61,7 @@ jobs:
     if: github.ref_type == 'tag'
     needs:
       - build-appimage
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     concurrency:
       group: objcmarkdown-update-feeds
       cancel-in-progress: false

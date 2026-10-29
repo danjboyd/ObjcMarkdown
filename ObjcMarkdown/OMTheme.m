@@ -15,6 +15,33 @@
 #include <stdlib.h>
 #include <string.h>
 
+// A theme's font by name. On Windows GNUstep can't read the Type 1
+// Helvetica it ships and draws Tahoma for it, which has no italic face, so
+// emphasis drew upright (#252). There Helvetica is Segoe UI, the system's
+// own font, which has every face the renderer asks for.
+#if OBJCMARKDOWN_ENABLE_TOML_THEME
+static NSFont *OMThemeFontNamed(NSString *name, CGFloat size)
+{
+#if defined(_WIN32)
+    static NSDictionary *substitutes = nil;
+    if (substitutes == nil) {
+        substitutes = [[NSDictionary alloc] initWithObjectsAndKeys:
+                           @"SegoeUI", @"Helvetica",
+                           @"SegoeUI-Bold", @"Helvetica-Bold",
+                           nil];
+    }
+    NSString *substitute = [substitutes objectForKey:name];
+    if (substitute != nil) {
+        NSFont *font = [NSFont fontWithName:substitute size:size];
+        if (font != nil) {
+            return font;
+        }
+    }
+#endif
+    return [NSFont fontWithName:name size:size];
+}
+#endif
+
 @interface OMTheme ()
 @property (nonatomic, retain) NSFont *baseFont;
 @property (nonatomic, retain) NSColor *baseTextColor;
@@ -147,7 +174,7 @@
         if (fontFamily != nil || fontSize != nil) {
             NSString *name = fontFamily != nil ? fontFamily : @"Helvetica";
             CGFloat size = fontSize != nil ? [fontSize doubleValue] : 14.0;
-            NSFont *font = [NSFont fontWithName:name size:size];
+            NSFont *font = OMThemeFontNamed(name, size);
             if (font == nil) {
                 font = [NSFont systemFontOfSize:size];
             }
@@ -174,7 +201,7 @@
         NSString *fontFamily = [self stringInTable:heading key:"font_family"];
         NSString *colorValue = [self stringInTable:heading key:"color"];
         if (fontFamily != nil) {
-            NSFont *font = [NSFont fontWithName:fontFamily size:theme.baseFont.pointSize];
+            NSFont *font = OMThemeFontNamed(fontFamily, theme.baseFont.pointSize);
             if (font == nil) {
                 font = [NSFont boldSystemFontOfSize:theme.baseFont.pointSize];
             }

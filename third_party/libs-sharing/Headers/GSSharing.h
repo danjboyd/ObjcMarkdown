@@ -157,6 +157,12 @@ GSSHARING_EXPORT NSSharingServiceName const GSSharingServiceNameOpenWith;
     prepares new items, say a document still exporting. */
 - (BOOL) servicesEnabled;
 - (void) setServicesEnabled: (BOOL)flag;
+/** The folder Save a Copy opens in (the document's, when the items are
+    exports in a temporary folder), or nil. Without one it opens where a
+    copy was last saved, else in the file's own folder unless that is a
+    temporary one, else in the home folder. */
+- (NSString *) saveDirectory;
+- (void) setSaveDirectory: (NSString *)path;
 
 @end
 

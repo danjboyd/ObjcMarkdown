@@ -255,7 +255,10 @@ static NSButton *OMDShareNoticeButton(NSString *title, NSRect frame, id target, 
                                             [NSFont systemFontOfSize:0.0],
                                             [NSColor labelColor])];
     if (detail == nil) {
-        detail = @"Drag it into an email or a chat, or copy it.";
+        // Show in Folder selects a temporary copy unless it is the document as saved (#265).
+        detail = (hasFile && [item documentURL] == nil)
+            ? @"A temporary copy: drag it into an email or a chat, or copy it."
+            : @"Drag it into an email or a chat, or copy it.";
     }
     [content addSubview:OMDShareNoticeLabel(detail,
                                             NSMakeRect(textX, height - margin - 70.0, textWidth, 32.0),

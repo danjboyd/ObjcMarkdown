@@ -53,6 +53,7 @@ static NSMapTable *pickerStates = nil;
   RELEASE(recipients);
   RELEASE(handler);
   RELEASE(target);
+  RELEASE(saveDirectory);
   [super dealloc];
 }
 @end
@@ -63,6 +64,7 @@ static NSMapTable *pickerStates = nil;
   RELEASE(items);
   RELEASE(accessoryView);
   RELEASE(panel);
+  RELEASE(saveDirectory);
   [super dealloc];
 }
 @end
@@ -339,6 +341,8 @@ GSSharingDisplayNameOfItem(id item)
     {
       [delegate sharingService: self willShareItems: items];
     }
+  state->performing = YES;
+  state->performDefers = NO;
 #ifdef GSSHARING_HAS_BLOCKS
   if (state->handler != nil)
     {
@@ -352,6 +356,14 @@ GSSharingDisplayNameOfItem(id item)
                           withObject: items
                           withObject: self];
     }
+  state->performing = NO;
+  /* A job that reports itself has, or will. Another job ending meanwhile
+     (an upload, while this one's panel ran) doesn't stand for this one. */
+  if (state->performDefers)
+    {
+      return;
+    }
+  delegate = state->delegate;
   if ([delegate respondsToSelector:
          @selector(sharingService:didShareItems:)])
     {
@@ -360,6 +372,68 @@ GSSharingDisplayNameOfItem(id item)
 }
 
 @end
+
+
+void
+GSSharingServiceWillFinishLater(NSSharingService *service)
+{
+  GSSharingServiceState *state = GSSharingStateForService(service, YES);
+
+  if (state->performing)
+    {
+      state->performDefers = YES;
+    }
+  state->pendingJobs++;
+  /* Kept until the job reports: the sheet that offered it may be gone. */
+  RETAIN(service);
+}
+
+NSString * const GSSharingServiceDidFinishNotification
+  = @"GSSharingServiceDidFinishNotification";
+
+void
+GSSharingServiceFinish(NSSharingService *service, NSArray *items,
+                       NSError *error)
+{
+  GSSharingServiceState *state = GSSharingStateForService(service, NO);
+  id delegate;
+
+  if (state == nil || state->pendingJobs == 0)
+    {
+      return;
+    }
+  state->pendingJobs--;
+  delegate = state->delegate;
+  if (error == nil)
+    {
+      if ([delegate respondsToSelector:
+             @selector(sharingService:didShareItems:)])
+        {
+          [delegate sharingService: service didShareItems: items];
+        }
+    }
+  else if ([delegate respondsToSelector:
+              @selector(sharingService:didFailToShareItems:error:)])
+    {
+      [delegate sharingService: service didFailToShareItems: items
+                         error: error];
+    }
+  [[NSNotificationCenter defaultCenter]
+    postNotificationName: GSSharingServiceDidFinishNotification
+                  object: service
+                userInfo: (error != nil
+                           ? [NSDictionary dictionaryWithObject: error forKey: @"error"]
+                           : nil)];
+  AUTORELEASE(service);
+}
+
+NSError *
+GSSharingCancelledError(void)
+{
+  return [NSError errorWithDomain: NSCocoaErrorDomain
+                             code: NSUserCancelledError
+                         userInfo: nil];
+}
 
 
 /* NSSharingServicePicker's methods. */
@@ -425,6 +499,16 @@ GSSharingDisplayNameOfItem(id item)
   [(GSSharingPickerPanel *)state->panel pickerItemsDidChange];
 }
 
+- (NSString *) saveDirectory
+{
+  return GSSharingStateForPicker(self, YES)->saveDirectory;
+}
+
+- (void) setSaveDirectory: (NSString *)path
+{
+  ASSIGNCOPY(GSSharingStateForPicker(self, YES)->saveDirectory, path);
+}
+
 - (void) showRelativeToRect: (NSRect)rect
                      ofView: (NSView *)view
               preferredEdge: (NSRectEdge)preferredEdge
@@ -456,6 +540,18 @@ GSSharingDisplayNameOfItem(id item)
 
 @end
 
+
+void
+GSSharingPickerKeepShowing(NSSharingServicePicker *picker)
+{
+  GSSharingPickerState *state = GSSharingStateForPicker(picker, YES);
+
+  if (state->keptWhileShowing == NO)
+    {
+      state->keptWhileShowing = YES;
+      RETAIN(picker);
+    }
+}
 
 void
 GSSharingPickerDidFinish(NSSharingServicePicker *picker)

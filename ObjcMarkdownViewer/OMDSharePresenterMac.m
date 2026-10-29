@@ -21,7 +21,11 @@ static NSString * const OMDAppleMailBundleIdentifier = @"com.apple.mail";
     // Kept while shown: the picker and a service at work.
     NSSharingServicePicker *_picker;
     NSSharingService *_service;
+    BOOL (^_toolbarCanShare)(void);
     OMDShareItem *(^_toolbarItemProvider)(void);
+    // The file the toolbar item's last share exported, for rclone's links
+    // (its picker is handed a provider, not the file).
+    NSURL *_toolbarFile;
     // While the confirm sheet is up: its .zip button, which Selection only
     // turns off (not retained; the alert holds it).
     NSButton *_bundleButton;
@@ -73,9 +77,13 @@ static NSArray *OMDPickerItems(OMDShareItem *item)
     [_picker release];
     [_service setDelegate:nil];
     [_service release];
+    if (_toolbarCanShare != NULL) {
+        Block_release(_toolbarCanShare);
+    }
     if (_toolbarItemProvider != NULL) {
         Block_release(_toolbarItemProvider);
     }
+    [_toolbarFile release];
     [super dealloc];
 }
 
@@ -244,8 +252,13 @@ static NSArray *OMDPickerItems(OMDShareItem *item)
 }
 
 - (NSToolbarItem *)shareToolbarItemWithIdentifier:(NSString *)identifier
+                                         canShare:(BOOL (^)(void))canShare
                                      itemProvider:(OMDShareItem *(^)(void))provider
 {
+    if (_toolbarCanShare != NULL) {
+        Block_release(_toolbarCanShare);
+    }
+    _toolbarCanShare = (canShare != NULL ? Block_copy(canShare) : NULL);
     if (_toolbarItemProvider != NULL) {
         Block_release(_toolbarItemProvider);
     }
@@ -258,12 +271,46 @@ static NSArray *OMDPickerItems(OMDShareItem *item)
 
 #pragma mark NSSharingServicePickerToolbarItemDelegate
 
-// Asked when the item is clicked: exports in the last-used format.
+// The toolbar item's export, when the picker loads the file: the file, or
+// nil after the share controller's alert.
+- (NSURL *)exportToolbarFile
+{
+    OMDShareItem *item = (_toolbarItemProvider != NULL ? _toolbarItemProvider() : nil);
+    [_toolbarFile release];
+    _toolbarFile = [[item fileURL] retain];
+    return _toolbarFile;
+}
+
+// Asked whenever AppKit likes: when the item is made (-setDelegate:), when
+// the toolbar is validated, on a click. So nothing is exported here (#236):
+// no document, no items; otherwise a provider of the file's URL, which the
+// picker loads when it opens. The picker lists no services for a provider
+// of a file representation, and none when the URL comes later, so the
+// export is done at once on the main thread, where the picker asks.
 - (NSArray *)itemsForSharingServicePickerToolbarItem:(NSSharingServicePickerToolbarItem *)pickerToolbarItem
 {
     (void)pickerToolbarItem;
-    OMDShareItem *item = (_toolbarItemProvider != NULL ? _toolbarItemProvider() : nil);
-    return OMDPickerItems(item);
+    if (_toolbarItemProvider == NULL || _toolbarCanShare == NULL || !_toolbarCanShare()) {
+        return [NSArray array];
+    }
+    NSItemProvider *provider = [[[NSItemProvider alloc] init] autorelease];
+    [provider registerObjectOfClass:[NSURL class]
+                         visibility:NSItemProviderRepresentationVisibilityAll
+                        loadHandler:^NSProgress *(void (^completion)(id<NSItemProviderWriting>, NSError *)) {
+        void (^load)(void) = ^{
+            NSURL *file = [self exportToolbarFile];
+            completion(file, (file != nil ? nil : [NSError errorWithDomain:NSCocoaErrorDomain
+                                                                     code:NSUserCancelledError
+                                                                 userInfo:nil]));
+        };
+        if ([NSThread isMainThread]) {
+            load();
+        } else {
+            dispatch_async(dispatch_get_main_queue(), load);
+        }
+        return nil;
+    }];
+    return [NSArray arrayWithObject:provider];
 }
 
 #pragma mark NSSharingServicePickerDelegate
@@ -286,6 +333,11 @@ static NSArray *OMDPickerItems(OMDShareItem *item)
     for (id item in items) {
         if ([item isKindOfClass:[NSURL class]] && [item isFileURL]) {
             file = item;
+            break;
+        }
+        // The toolbar item's provider, loaded as the picker opened.
+        if ([item isKindOfClass:[NSItemProvider class]] && [_toolbarFile isFileURL]) {
+            file = _toolbarFile;
             break;
         }
     }

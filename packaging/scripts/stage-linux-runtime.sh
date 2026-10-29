@@ -34,6 +34,7 @@ GNUSTEP_FRAMEWORKS_DIR="$GNUSTEP_SYSTEM_ROOT/Library/Frameworks"
 GNUSTEP_BUNDLE_DIR="$GNUSTEP_SYSTEM_ROOT/Library/Bundles"
 GNUSTEP_COLORPICKER_DIR="$GNUSTEP_SYSTEM_ROOT/Library/ColorPickers"
 GNUSTEP_IMAGES_DIR="$GNUSTEP_SYSTEM_ROOT/Library/Images"
+GNUSTEP_KEYBINDINGS_DIR="$GNUSTEP_SYSTEM_ROOT/Library/KeyBindings"
 GNUSTEP_THEME_DIR="$GNUSTEP_SYSTEM_ROOT/Library/Themes"
 GNUSTEP_TOOLS_DIR="$GNUSTEP_SYSTEM_ROOT/Tools"
 GNUSTEP_MAKEFILES_DIR="$GNUSTEP_SYSTEM_ROOT/Library/Makefiles"
@@ -342,6 +343,11 @@ copy_dir_contents "/usr/GNUstep/System/Library/Bundles" "$GNUSTEP_BUNDLE_DIR"
 copy_dir_contents "/usr/GNUstep/System/Library/ColorPickers" "$GNUSTEP_COLORPICKER_DIR"
 copy_dir_contents "/usr/GNUstep/System/Library/Frameworks/PreferencePanes.framework" "$GNUSTEP_FRAMEWORKS_DIR/PreferencePanes.framework"
 copy_dir_contents "/usr/GNUstep/System/Library/Images" "$GNUSTEP_IMAGES_DIR"
+# NSTextView's key bindings (DefaultKeyBindings.dict): without them the
+# arrows, Home/End, Page Up/Down and Delete do nothing but beep in every
+# text view and field; typing and Backspace still work (#288).
+require_path "/usr/GNUstep/System/Library/KeyBindings/DefaultKeyBindings.dict"
+copy_dir_contents "/usr/GNUstep/System/Library/KeyBindings" "$GNUSTEP_KEYBINDINGS_DIR"
 copy_dir_contents "/usr/GNUstep/System/Library/Makefiles" "$GNUSTEP_MAKEFILES_DIR"
 # The fallback printer's PPD (PostScript/PPD): without it Export as PDF
 # and Print fail on an assertion in GSLPRPrinter and do nothing.
@@ -479,8 +485,25 @@ CONFIG_ROOT="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/objcmarkdown-gnustep-${UID:-$(i
 CONFIG_PATH="$CONFIG_ROOT/GNUstep.conf"
 
 mkdir -p "$CONFIG_ROOT"
+if [ -L "$CONFIG_ROOT" ] || [ ! -O "$CONFIG_ROOT" ]; then
+  CONFIG_ROOT="$(mktemp -d)"
+  CONFIG_PATH="$CONFIG_ROOT/GNUstep.conf"
+fi
 chmod 700 "$CONFIG_ROOT" 2>/dev/null || true
 
+# GNUstep finds gdnc and gpbs through sockets in NSTemporaryDirectory(). With
+# the shared /tmp, a host GNUstep's daemons answered instead of the bundled
+# ones, and the host's libs-back served the pasteboard without the patches the
+# AppImage carries. A private TMPDIR makes the app start its own.
+mkdir -p "$CONFIG_ROOT/tmp"
+chmod 700 "$CONFIG_ROOT/tmp" 2>/dev/null || true
+export TMPDIR="$CONFIG_ROOT/tmp"
+
+# The user Library is the AppImage's own (relative to the home directory, as
+# gnustep-packager's gnustepConfig.userLibrary "app" makes it): GNUstep
+# searches ~/GNUstep/Library first, so a theme built there against the host's
+# GNUstep took the place of the bundled one. The defaults stay in
+# ~/GNUstep/Defaults.
 cat > "$CONFIG_PATH" <<EOF_CONFIG
 GNUSTEP_USER_CONFIG_FILE=
 GNUSTEP_SYSTEM_ROOT="$RUNTIME_ROOT/System"
@@ -495,6 +518,7 @@ GNUSTEP_LOCAL_TOOLS="$RUNTIME_ROOT/Local/Tools"
 GNUSTEP_NETWORK_LIBRARY="$RUNTIME_ROOT/Network/Library"
 GNUSTEP_NETWORK_LIBRARIES="$RUNTIME_ROOT/Network/Library/Libraries"
 GNUSTEP_NETWORK_TOOLS="$RUNTIME_ROOT/Network/Tools"
+GNUSTEP_USER_DIR_LIBRARY=GNUstep/Library/AppImage/org.objcmarkdown.MarkdownViewer
 EOF_CONFIG
 chmod 600 "$CONFIG_PATH" 2>/dev/null || true
 

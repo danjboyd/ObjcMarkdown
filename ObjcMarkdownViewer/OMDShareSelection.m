@@ -27,10 +27,10 @@ NSString *OMDShareDedentedLines(NSArray *lines)
     return [dedented componentsJoinedByString:@"\n"];
 }
 
-NSString *OMDShareMarkdownForPreviewRange(NSString *markdown, NSRange range, NSArray *blockAnchors)
+NSRange OMDSourceLineRangeForPreviewRange(NSRange range, NSArray *blockAnchors)
 {
-    if (markdown == nil || range.location == NSNotFound) {
-        return nil;
+    if (range.location == NSNotFound) {
+        return NSMakeRange(NSNotFound, 0);
     }
     // The anchors the range overlaps (an empty range: the one it's in).
     NSMutableArray *touched = [NSMutableArray array];
@@ -42,6 +42,24 @@ NSString *OMDShareMarkdownForPreviewRange(NSString *markdown, NSRange range, NSA
             : (range.location >= start && range.location < start + length);
         if (overlaps) {
             [touched addObject:anchor];
+        }
+    }
+    // A click between blocks: the blocks that end last before it.
+    if ([touched count] == 0 && range.length == 0) {
+        NSUInteger lastEnd = 0;
+        for (NSDictionary *anchor in blockAnchors) {
+            NSUInteger end = [[anchor objectForKey:OMMarkdownRendererAnchorTargetStartKey] unsignedIntegerValue] +
+                             [[anchor objectForKey:OMMarkdownRendererAnchorTargetLengthKey] unsignedIntegerValue];
+            if (end <= range.location && end > lastEnd) {
+                lastEnd = end;
+            }
+        }
+        for (NSDictionary *anchor in blockAnchors) {
+            NSUInteger end = [[anchor objectForKey:OMMarkdownRendererAnchorTargetStartKey] unsignedIntegerValue] +
+                             [[anchor objectForKey:OMMarkdownRendererAnchorTargetLengthKey] unsignedIntegerValue];
+            if (lastEnd > 0 && end == lastEnd) {
+                [touched addObject:anchor];
+            }
         }
     }
     // Only the innermost: a list's anchor holds its items', and selecting
@@ -71,9 +89,23 @@ NSString *OMDShareMarkdownForPreviewRange(NSString *markdown, NSRange range, NSA
         first = MIN(first, startLine);
         last = MAX(last, endLine);
     }
-    if (first == NSNotFound || first == 0) {
+    if (first == NSNotFound || first == 0 || last < first) {
+        return NSMakeRange(NSNotFound, 0);
+    }
+    return NSMakeRange(first, last - first + 1);
+}
+
+NSString *OMDShareMarkdownForPreviewRange(NSString *markdown, NSRange range, NSArray *blockAnchors)
+{
+    if (markdown == nil) {
         return nil;
     }
+    NSRange lineRange = OMDSourceLineRangeForPreviewRange(range, blockAnchors);
+    if (lineRange.location == NSNotFound) {
+        return nil;
+    }
+    NSUInteger first = lineRange.location;
+    NSUInteger last = NSMaxRange(lineRange) - 1;
     NSArray *lines = [markdown componentsSeparatedByString:@"\n"];
     if (first > [lines count]) {
         return nil;

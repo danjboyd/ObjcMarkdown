@@ -40,7 +40,7 @@
     {
       "name": "WinUITheme",
       "repo": "https://github.com/danjboyd/plugins-themes-winuitheme.git",
-      "ref": "906e462ca6f3c42d4463cc2f22277888436cda21",
+      "ref": "cad2585bc834c797ac62609879a4a48ca412ebae",
       "platforms": [
         "windows",
         "msi"
@@ -135,6 +135,7 @@
         "runtime/bin/libfontconfig-1.dll",
         "runtime/bin/libfreetype-6.dll",
         "runtime/lib/GNUstep/Bundles/libgnustep-back-032.bundle/libgnustep-back-032.dll",
+        "runtime/lib/GNUstep/KeyBindings/DefaultKeyBindings.dict",
         "runtime/lib/GNUstep/Themes/WinUITheme.theme/WinUITheme.dll",
         "runtime/texlive/TinyTeX/bin/windows/latex.exe",
         "runtime/texlive/TinyTeX/bin/windows/dvisvgm.exe",

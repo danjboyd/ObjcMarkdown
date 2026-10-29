@@ -104,6 +104,8 @@
         [item setTarget:_delegate];
         [item setAction:@selector(toggleExplorerSidebar:)];
         [item setImage:OMDSymbolicImageNamedForCommand(@"omd-sidebar-show-symbolic", @"Explorer")];
+        // First into the overflow menu: View > Explorer does the same.
+        [item setVisibilityPriority:NSToolbarItemVisibilityPriorityLow];
         return item;
     }
 
@@ -151,6 +153,7 @@
         [item setToolTip:@"Open a Markdown file"];
         [item setTarget:_delegate];
         [item setAction:@selector(openDocument:)];
+        [item setVisibilityPriority:NSToolbarItemVisibilityPriorityHigh];
         return item;
     }
 
@@ -162,6 +165,8 @@
         [item setTarget:_delegate];
         [item setAction:@selector(saveDocument:)];
         [item setImage:OMDSymbolicImageNamedForCommand(@"omd-document-save-symbolic", @"Save")];
+        // Just below Open, so a narrow window keeps Open longer (#280).
+        [item setVisibilityPriority:NSToolbarItemVisibilityPriorityHigh - 1];
         return item;
     }
 
@@ -198,11 +203,16 @@
         [item setMaxSize:NSMakeSize(switcherWidth, OMDToolbarItemHeight)];
         [item setLabel:@""];
         [item setPaletteLabel:@"View"];
+        // The app's main switch never goes into the overflow menu.
+        [item setVisibilityPriority:NSToolbarItemVisibilityPriorityUser];
         return item;
     }
 
     if ([identifier isEqualToString:@"ShareDocument"]) {
-        return [_delegate shareToolbarItemWithIdentifier:identifier];
+        // Overflows after Explorer, before Open and Save.
+        NSToolbarItem *item = [_delegate shareToolbarItemWithIdentifier:identifier];
+        [item setVisibilityPriority:NSToolbarItemVisibilityPriorityStandard];
+        return item;
     }
 
     return nil;

@@ -62,6 +62,13 @@ typedef struct {
     NSMutableArray *headings;
     // Slugs handed out so far in this document, for GitHub's de-duplication.
     NSMutableDictionary *headingSlugCounts;
+    // The markdown as given (sourceLines are its lines), for the task items'
+    // source locations; the UTF-16 index of each line's start, filled the
+    // first time a task item needs it (see OMTaskItemSourceLocation).
+    NSString *sourceMarkdown;
+    NSMutableData *sourceLineStarts;
+    NSMutableArray *taskItems;
+    BOOL interactiveTaskItems;
     // The list contexts enclosing the block being rendered (see OMRenderList).
     NSMutableArray *listStack;
     // Hashed source lines for block IDs (see OMBlockSignatureIndex).
@@ -103,6 +110,8 @@ BOOL OMMarkerIsEscaped(NSString *text, NSUInteger location);
 NSUInteger OMMathMaximumFormulaLength(const OMRenderContext *renderContext);
 BOOL OMNativeDiagramRenderingEnabled(const OMRenderContext *renderContext);
 NSTimeInterval OMNow(void);
+// The spacing after a paragraph: none on GNUstep, where blank lines space blocks (#245).
+CGFloat OMParagraphSpacingAfter(CGFloat spacing);
 NSMutableParagraphStyle *OMParagraphStyleWithIndent(CGFloat firstIndent,
                                                     CGFloat headIndent,
                                                     CGFloat spacingAfter,
@@ -189,6 +198,12 @@ BOOL OMDollarIsEscaped(NSString *text, NSUInteger location);
 NSString *OMDviPngExecutablePath(void);
 NSString *OMExecutablePathNamed(NSString *name);
 NSString *OMLaTeXExecutablePath(void);
+// Typeset math from dvisvgm's SVG without an SVG reader (OMMarkdownRendererMathSVG.m):
+// an image that draws the SVG's filled paths, or nil if it isn't that subset.
+NSImage *OMMathImageFromSVGData(NSData *svgData);
+// One SVG path's data as a bezier path, in SVG user units.
+NSBezierPath *OMMathSVGPathFromData(NSString *data);
+
 NSAttributedString *OMMathAttachmentAttributedString(NSString *formula,
                                                      OMTheme *theme,
                                                      NSMutableDictionary *attributes,
@@ -204,6 +219,7 @@ NSString *OMPlainTexExecutablePath(void);
 void OMPrepareRawMathSources(cmark_node *node, const OMRenderContext *renderContext);
 NSString *OMRawMathFormula(NSString *formula, BOOL display, const OMRenderContext *renderContext);
 NSString *OMReadableMathFallbackString(NSString *formula);
+void OMAppendMathText(NSMutableAttributedString *output, NSString *text, NSDictionary *mathAttrs);
 cmark_node *OMTryAppendMultiNodeDisplayMath(cmark_node *startNode,
                                             OMTheme *theme,
                                             NSMutableAttributedString *output,

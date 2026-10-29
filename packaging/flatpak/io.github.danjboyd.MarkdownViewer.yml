@@ -115,6 +115,8 @@ modules:
         commit: 549f639137a600936acde4cd618f0e4b858d883d
       - type: patch
         path: ../patches/libs-gui/0001-GSLayoutManager-compile-out-the-glyph-run-sanity-che.patch
+      - type: patch
+        path: ../patches/libs-gui/0002-GSTheme-let-a-theme-turn-GNUstep-drawn-window-decora.patch
 
   - name: gnustep-back
     buildsystem: simple
@@ -127,13 +129,23 @@ modules:
         url: https://github.com/gnustep/libs-back
         commit: 23fbe390dfa80c9eadf7174700de8553a985bc8f
       - type: patch
-        path: ../patches/libs-back/0001-x11-list-WM_DELETE_WINDOW-on-closable-windows.patch
+        path: ../patches/libs-back/0001-x11-keep-the-window-manager-functions-of-windows-the.patch
       - type: patch
-        path: ../patches/libs-back/0002-x11-answer-TARGETS-and-text-uri-list-for-drags-refus.patch
+        path: ../patches/libs-back/0002-x11-type-menus-tool-tips-drag-images-and-modal-panel.patch
       - type: patch
-        path: ../patches/libs-back/0003-x11-speak-XDND-version-3-and-send-what-each-version-.patch
+        path: ../patches/libs-back/0003-x11-an-alpha-channel-for-borderless-windows-when-a-t.patch
       - type: patch
-        path: ../patches/libs-back/0004-xpbs-offer-copied-files-as-text-uri-list-and-x-speci.patch
+        path: ../patches/libs-back/0004-x11-cairo-window-shadows-and-rounded-corners-for-win.patch
+      - type: patch
+        path: ../patches/libs-back/0005-x11-cairo-popover-shadows-for-menus-when-a-theme-ask.patch
+      - type: patch
+        path: ../patches/libs-back/0006-x11-list-WM_DELETE_WINDOW-on-closable-windows.patch
+      - type: patch
+        path: ../patches/libs-back/0007-x11-answer-TARGETS-and-text-uri-list-for-drags-refus.patch
+      - type: patch
+        path: ../patches/libs-back/0008-x11-speak-XDND-version-3-and-send-what-each-version-.patch
+      - type: patch
+        path: ../patches/libs-back/0009-xpbs-offer-copied-files-as-text-uri-list-and-x-speci.patch
 
   - name: adwaita-theme
     buildsystem: simple
@@ -143,8 +155,8 @@ modules:
     sources:
       - type: git
         url: https://github.com/danjboyd/plugins-themes-Adwaita.git
-        tag: 0.1.0-alpha15
-        commit: b2d43262cc58b8001503a8ac4b40aea5a0761159
+        tag: 0.1.0-alpha17
+        commit: 10225c7c9ec98af4f3d420b3310b0ef64488ae51
 
   # Export as HTML, DOCX, ODT and RTF and Import go through pandoc. Its
   # release binary is static and carries its data files; the AppImage

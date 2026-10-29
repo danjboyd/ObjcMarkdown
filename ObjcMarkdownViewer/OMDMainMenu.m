@@ -382,6 +382,12 @@ static void OMDUseEllipsisCharacters(NSMenu *menu)
                                                                       action:@selector(toggleItalicFormatting:)
                                                                keyEquivalent:@"i"];
     [toggleItalicItem setTarget:target];
+    [editMenu addItem:[NSMenuItem separatorItem]];
+    // The Markdown of the preview's selection, in the editor (#293).
+    NSMenuItem *revealItem = (NSMenuItem *)[editMenu addItemWithTitle:@"Reveal in Source"
+                                                                action:@selector(revealPreviewSelectionInSource:)
+                                                         keyEquivalent:@""];
+    [revealItem setTarget:target];
     [editMenuItem setSubmenu:editMenu];
 
     NSMenuItem *viewMenuItem = [[[NSMenuItem alloc] initWithTitle:@"View"

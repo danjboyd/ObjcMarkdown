@@ -12,7 +12,8 @@ if [[ -z "$version" ]]; then
   echo "VERSION stays $(cat VERSION)"
   exit 0
 fi
-if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+# Three or four numbers (a hotfix: 0.2.5.1), and an optional "-rc1" or the like.
+if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?(-[0-9A-Za-z.]+)?$ ]]; then
   echo "error: not a version: $version" >&2
   exit 1
 fi

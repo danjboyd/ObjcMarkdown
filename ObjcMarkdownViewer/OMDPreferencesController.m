@@ -366,7 +366,6 @@ static CGFloat OMDPreferencesFinishCard(NSView *card, CGFloat height)
     [_preferencesSourceFontField release];
     [_preferencesSourceFontButton release];
     [_preferencesRendererSyntaxHighlightingButton release];
-    [_preferencesRendererSyntaxHighlightingNoteLabel release];
     [_preferencesExplorerLocalRootField release];
     [_preferencesExplorerMaxFileSizeField release];
     [_preferencesExplorerListFontSizeField release];
@@ -435,8 +434,6 @@ static CGFloat OMDPreferencesFinishCard(NSView *card, CGFloat height)
     _preferencesSourceFontButton = nil;
     [_preferencesRendererSyntaxHighlightingButton release];
     _preferencesRendererSyntaxHighlightingButton = nil;
-    [_preferencesRendererSyntaxHighlightingNoteLabel release];
-    _preferencesRendererSyntaxHighlightingNoteLabel = nil;
     [_preferencesExplorerLocalRootField release];
     _preferencesExplorerLocalRootField = nil;
     [_preferencesExplorerMaxFileSizeField release];
@@ -766,16 +763,7 @@ static CGFloat OMDPreferencesFinishCard(NSView *card, CGFloat height)
                                                                           @selector(preferencesRendererSyntaxHighlightingChanged:),
                                                                           layout);
     [card addSubview:_preferencesRendererSyntaxHighlightingButton];
-
-    // Its text is set later (it names the highlighter in use): room for two lines.
-    rowY += layout.checkboxHeight + 4.0;
-    CGFloat noteWidth = layout.width - 22.0;
-    CGFloat noteHeight = OMDChromeLineHeight(layout.noteFont) * 2.0 + 4.0;
-    _preferencesRendererSyntaxHighlightingNoteLabel = [OMDStaticTextField(NSMakeRect(pad + 22.0, rowY, noteWidth, noteHeight),
-                                                                          @"", layout.noteFont, layout.noteColor,
-                                                                          NSLeftTextAlignment, YES) retain];
-    [card addSubview:_preferencesRendererSyntaxHighlightingNoteLabel];
-    rowY += noteHeight;
+    rowY += layout.checkboxHeight;
     return OMDPreferencesFinishCard(card, rowY + pad);
 }
 
@@ -1191,19 +1179,8 @@ static CGFloat OMDPreferencesFinishCard(NSView *card, CGFloat height)
         [_preferencesSourceAccentResetButton setEnabled:(sourceHighlightingEnabled && [_delegate sourceHighlightAccentColor] != nil)];
     }
 
-    BOOL treeSitterAvailable = [_delegate isTreeSitterAvailable];
     if (_preferencesRendererSyntaxHighlightingButton != nil) {
-        [_preferencesRendererSyntaxHighlightingButton setEnabled:treeSitterAvailable];
         [_preferencesRendererSyntaxHighlightingButton setState:([_delegate isRendererSyntaxHighlightingEnabled] ? NSOnState : NSOffState)];
-    }
-    if (_preferencesRendererSyntaxHighlightingNoteLabel != nil) {
-        if (treeSitterAvailable) {
-            [_preferencesRendererSyntaxHighlightingNoteLabel setTextColor:[NSColor controlTextColor]];
-            [_preferencesRendererSyntaxHighlightingNoteLabel setStringValue:@"Tree-sitter detected. Renderer syntax highlighting can be toggled here."];
-        } else {
-            [_preferencesRendererSyntaxHighlightingNoteLabel setTextColor:[NSColor secondaryLabelColor]];
-            [_preferencesRendererSyntaxHighlightingNoteLabel setStringValue:@"Renderer syntax highlighting requires Tree-sitter (install tree-sitter-cli and libtree-sitter-dev)."];
-        }
     }
 
     if (_preferencesExplorerLocalRootField != nil) {
@@ -1344,9 +1321,6 @@ static CGFloat OMDPreferencesFinishCard(NSView *card, CGFloat height)
 
 - (void)preferencesRendererSyntaxHighlightingChanged:(id)sender
 {
-    if (![_delegate isTreeSitterAvailable]) {
-        return;
-    }
     BOOL enabled = [_preferencesRendererSyntaxHighlightingButton state] == NSOnState;
     [_delegate setRendererSyntaxHighlightingPreferenceEnabled:enabled];
 }

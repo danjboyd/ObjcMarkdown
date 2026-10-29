@@ -128,6 +128,29 @@
                                                                             modifierFlags:modifiers] autorelease];
 }
 
+#if !defined(GNUSTEP)
+// macOS turns smart quotes and dashes on for every text view; the source
+// keeps what was typed (#238).
+- (void)testTypedQuotesAndDashesStayStraight
+{
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    [defaults registerDefaults:[NSDictionary dictionaryWithObjectsAndKeys:
+        [NSNumber numberWithBool:YES], @"NSAutomaticQuoteSubstitutionEnabled",
+        [NSNumber numberWithBool:YES], @"NSAutomaticDashSubstitutionEnabled",
+        [NSNumber numberWithBool:YES], @"NSAutomaticTextReplacementEnabled",
+        nil]];
+    OMDSourceTextView *view = [self newSourceView];
+
+    XCTAssertFalse([view isAutomaticQuoteSubstitutionEnabled]);
+    XCTAssertFalse([view isAutomaticDashSubstitutionEnabled]);
+    XCTAssertFalse([view isAutomaticTextReplacementEnabled]);
+
+    [view insertText:@"say \"hi\" -- it's `a 'b'`"];
+    XCTAssertEqualObjects([view string], @"say \"hi\" -- it's `a 'b'`");
+    [view release];
+}
+#endif
+
 - (void)testTabIndentsBulletListLine
 {
     OMDSourceTextView *view = [self newSourceView];

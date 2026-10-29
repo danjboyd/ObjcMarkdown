@@ -352,6 +352,27 @@ static BOOL OMDMathToolchainAvailable(void)
     XCTAssertTrue([[rendered string] rangeOfString:@"Intro text"].location != NSNotFound);
 }
 
+- (void)testNoParagraphSpacingInCodeBlocksAndListsOnGNUstep
+{
+#if defined(GNUSTEP)
+    // libs-gui after 0.32 honours paragraph spacing; blank lines already space
+    // the blocks, so none is set, or code lines and list items spread (#245).
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:
+        @"1. one\n2. two\n\n```c\nint a;\nint b;\n```\n\nafter\n"];
+    NSUInteger length = [rendered length];
+    NSUInteger index = 0;
+    while (index < length) {
+        NSRange effective;
+        NSParagraphStyle *style = [rendered attribute:NSParagraphStyleAttributeName
+                                              atIndex:index
+                                       effectiveRange:&effective];
+        XCTAssertEqualWithAccuracy([style paragraphSpacing], 0.0, 0.01);
+        index = NSMaxRange(effective);
+    }
+#endif
+}
+
 - (void)testHardBreakDoesNotAddParagraphSpacing
 {
     OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
@@ -366,7 +387,12 @@ static BOOL OMDMathToolchainAvailable(void)
     NSParagraphStyle *firstStyle = [rendered attribute:NSParagraphStyleAttributeName atIndex:first.location effectiveRange:NULL];
     NSParagraphStyle *secondStyle = [rendered attribute:NSParagraphStyleAttributeName atIndex:second.location effectiveRange:NULL];
     XCTAssertEqualWithAccuracy([firstStyle paragraphSpacing], 0.0, 0.01);
+#if defined(GNUSTEP)
+    // Paragraph spacing is dropped on GNUstep: blank lines space the blocks (#245).
+    XCTAssertEqualWithAccuracy([secondStyle paragraphSpacing], 0.0, 0.01);
+#else
     XCTAssertTrue([secondStyle paragraphSpacing] > 0.0);
+#endif
     XCTAssertNil([rendered attribute:@"OMHardLineBreak" atIndex:NSMaxRange(first) effectiveRange:NULL]);
 }
 
@@ -756,6 +782,31 @@ static BOOL OMDMathToolchainAvailable(void)
     }
 }
 
+- (void)testToolSearchFollowsPATHThenThePlatformsInstallDirectories
+{
+    NSArray *directories = OMExecutableSearchDirectories(@"/opt/tools/bin:/usr/bin::/opt/tools/bin");
+    XCTAssertEqualObjects([directories objectAtIndex:0], @"/opt/tools/bin");
+    XCTAssertEqualObjects([directories objectAtIndex:1], @"/usr/bin");
+    XCTAssertEqual([directories indexOfObject:@"/opt/tools/bin" inRange:NSMakeRange(1, [directories count] - 1)],
+                   (NSUInteger)NSNotFound);
+    XCTAssertTrue([OMExecutableSearchDirectories(nil) containsObject:@"/usr/bin"]);
+}
+
+#if defined(__APPLE__)
+// Opened from the Finder, the app's PATH is launchd's, without MacTeX or
+// Homebrew; math via LaTeX must find them anyway (#244).
+- (void)testFromTheFinderToolSearchFindsMacTeXHomebrewAndMacPorts
+{
+    NSArray *directories = OMExecutableSearchDirectories(@"/usr/bin:/bin:/usr/sbin:/sbin");
+    XCTAssertTrue([directories containsObject:@"/Library/TeX/texbin"]);
+    XCTAssertTrue([directories containsObject:@"/opt/homebrew/bin"]);
+    XCTAssertTrue([directories containsObject:@"/usr/local/bin"]);
+    XCTAssertTrue([directories containsObject:@"/opt/local/bin"]);
+    XCTAssertEqualObjects([directories subarrayWithRange:NSMakeRange(0, 4)],
+                          ([NSArray arrayWithObjects:@"/usr/bin", @"/bin", @"/usr/sbin", @"/sbin", nil]));
+}
+#endif
+
 - (void)testDisplayMathCasesBlockRendersWithExternalTools
 {
     if (!OMDMathToolchainAvailable()) {
@@ -775,6 +826,72 @@ static BOOL OMDMathToolchainAvailable(void)
     XCTAssertTrue([text rangeOfString:@"\\begin{cases}"].location == NSNotFound);
     XCTAssertTrue([text rangeOfString:@"\\text{otherwise}"].location == NSNotFound);
     XCTAssertTrue([text rangeOfString:@"D_{nom,yr} ="].location == NSNotFound);
+}
+
+- (void)testMathRendersWithoutAnSVGReader
+{
+    if (!OMDMathToolchainAvailable()) {
+        return;
+    }
+    /* The Linux packages' GNUstep can't read SVG (#246); the renderer then
+       draws dvisvgm's paths itself. OMMathUseBuiltinSVGReader forces that
+       here. The formula is unique so no cached image stands in for it. */
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    [defaults setBool:YES forKey:@"OMMathUseBuiltinSVGReader"];
+    OMMarkdownParsingOptions *options = [OMMarkdownParsingOptions defaultOptions];
+    [options setMathRenderingPolicy:OMMarkdownMathRenderingPolicyExternalTools];
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] initWithTheme:nil
+                                                                parsingOptions:options] autorelease];
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:
+        @"$$\\int_{-\\infty}^{\\infty} e^{-x^2}\\,dx = \\sqrt{\\pi} + \\frac{246}{1}$$"];
+    [defaults removeObjectForKey:@"OMMathUseBuiltinSVGReader"];
+    NSImage *image = nil;
+    NSUInteger index = 0;
+    while (image == nil && index < [rendered length]) {
+        NSRange effective;
+        NSTextAttachment *attachment = [rendered attribute:NSAttachmentAttributeName
+                                                   atIndex:index
+                                            effectiveRange:&effective];
+        image = [(id)[attachment attachmentCell] image];
+        index = NSMaxRange(effective);
+    }
+    XCTAssertNotNil(image);
+    XCTAssertTrue([image size].width > 10.0 && [image size].height > 5.0);
+    BOOL drawnFromPaths = NO;
+    for (NSImageRep *rep in [image representations]) {
+        drawnFromPaths = drawnFromPaths || [NSStringFromClass([rep class]) isEqualToString:@"OMMathSVGImageRep"];
+    }
+    XCTAssertTrue(drawnFromPaths);
+}
+
+- (void)testDisplayMathWithALargeSVGRenders
+{
+    if (!OMDMathToolchainAvailable()) {
+        return;
+    }
+
+    /* dvisvgm writes the SVG to stdout. Eighteen rows of 96 letters, under
+       the 2048-character formula limit, make about 160 KB of SVG, more than
+       a pipe holds, so it renders only if the output is read while dvisvgm
+       runs. */
+    NSString *letters = @"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRST";
+    NSMutableArray *rows = [NSMutableArray array];
+    for (NSUInteger i = 0; i < 18; i++) {
+        [rows addObject:letters];
+    }
+    NSString *markdown = [NSString stringWithFormat:@"$$\n\\begin{array}{l}\n%@\n\\end{array}\n$$\n",
+                          [rows componentsJoinedByString:@" \\\\\n"]];
+
+    OMMarkdownParsingOptions *options = [OMMarkdownParsingOptions defaultOptions];
+    [options setMathRenderingPolicy:OMMarkdownMathRenderingPolicyExternalTools];
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] initWithTheme:nil
+                                                                parsingOptions:options] autorelease];
+    NSDate *start = [NSDate date];
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
+    XCTAssertNotNil(rendered);
+    XCTAssertTrue([rendered containsAttachments]);
+    XCTAssertTrue([[rendered string] rangeOfString:@"begin{array}"].location == NSNotFound);
+    XCTAssertTrue(-[start timeIntervalSinceNow] < 8.0, @"took %.1f s", -[start timeIntervalSinceNow]);
 }
 
 - (void)testDisplayMathBlockSurvivesSetextHeadingInterpretation
@@ -1036,6 +1153,55 @@ static BOOL OMDMathToolchainAvailable(void)
     XCTAssertTrue([text rangeOfString:@"P(A | B)"].location != NSNotFound);
 }
 
+#if defined(GNUSTEP)
+- (void)testStyledMathSymbolsDrawInAFontThatHasThem
+{
+    OMMarkdownParsingOptions *options = [OMMarkdownParsingOptions defaultOptions];
+    [options setMathRenderingPolicy:OMMarkdownMathRenderingPolicyStyledText];
+    /* Noto Sans Mono has no integral sign; GNUstep doesn't fall back per glyph. */
+    NSString *themePath = [NSTemporaryDirectory() stringByAppendingPathComponent:@"om-math-font-theme.toml"];
+    [@"[code]\nfont_family = \"NotoSansMono-Regular\"\n" writeToFile:themePath
+                                                          atomically:YES
+                                                            encoding:NSUTF8StringEncoding
+                                                               error:NULL];
+    OMTheme *theme = [OMTheme themeWithContentsOfFile:themePath error:NULL];
+    [[NSFileManager defaultManager] removeItemAtPath:themePath error:NULL];
+    XCTAssertNotNil(theme);
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] initWithTheme:theme
+                                                                parsingOptions:options] autorelease];
+
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:
+        @"Inline $\\int_0^1 x\\,dx \\le \\infty$.\n\n$$\n\\int_{-\\infty}^{\\infty} e^{-x^2}\\,dx = \\sqrt{\\pi}\n$$\n"];
+    NSString *text = [rendered string];
+    BOOL anyFontHasIntegral = NO;
+    NSArray *names = [NSArray arrayWithObjects:@"DejaVuSansMono", @"DejaVuSans", @"LiberationMono",
+                                               @"CambriaMath", @"SegoeUISymbol", nil];
+    for (NSString *name in names) {
+        NSFont *candidate = [NSFont fontWithName:name size:12.0];
+        if ([[candidate coveredCharacterSet] characterIsMember:0x222B]) {
+            anyFontHasIntegral = YES;
+        }
+    }
+
+    NSUInteger integrals = 0;
+    for (NSUInteger i = 0; i < [text length]; i++) {
+        unichar ch = [text characterAtIndex:i];
+        if (ch != 0x222B && ch != 0x221E && ch != 0x221A && ch != 0x2264) {
+            continue;
+        }
+        if (ch == 0x222B) {
+            integrals += 1;
+        }
+        NSFont *font = [rendered attribute:NSFontAttributeName atIndex:i effectiveRange:NULL];
+        NSCharacterSet *covered = [font coveredCharacterSet];
+        if (covered != nil && anyFontHasIntegral && ch == 0x222B) {
+            XCTAssertTrue([covered characterIsMember:ch], @"U+%04X drawn in %@", ch, [font fontName]);
+        }
+    }
+    XCTAssertEqual(integrals, (NSUInteger)2);
+}
+#endif
+
 - (void)testHTMLPolicyIgnoreDropsInlineAndBlockHTML
 {
     OMMarkdownParsingOptions *options = [OMMarkdownParsingOptions defaultOptions];
@@ -1210,13 +1376,8 @@ static BOOL OMDMathToolchainAvailable(void)
     XCTAssertNotNil(plainColor);
     XCTAssertNotNil(keywordColor);
     XCTAssertNotNil(commentColor);
-    if ([OMMarkdownRenderer isTreeSitterAvailable]) {
-        XCTAssertFalse([plainColor isEqual:keywordColor]);
-        XCTAssertFalse([keywordColor isEqual:commentColor]);
-    } else {
-        XCTAssertTrue([plainColor isEqual:keywordColor]);
-        XCTAssertTrue([keywordColor isEqual:commentColor]);
-    }
+    XCTAssertFalse([plainColor isEqual:keywordColor]);
+    XCTAssertFalse([keywordColor isEqual:commentColor]);
 }
 
 - (void)testCodeBlockSyntaxHighlightingCanBeDisabledByParsingOption
@@ -1283,10 +1444,8 @@ static BOOL OMDMathToolchainAvailable(void)
     XCTAssertNotNil(keywordColor);
     XCTAssertNotNil(plainColor);
     XCTAssertNotNil(commentColor);
-    if ([OMMarkdownRenderer isTreeSitterAvailable]) {
-        XCTAssertFalse([keywordColor isEqual:plainColor]);
-        XCTAssertFalse([keywordColor isEqual:commentColor]);
-    }
+    XCTAssertFalse([keywordColor isEqual:plainColor]);
+    XCTAssertFalse([keywordColor isEqual:commentColor]);
 }
 
 - (void)testYAMLCodeBlockSyntaxHighlightingAppliesDistinctTokenColors
@@ -1315,10 +1474,8 @@ static BOOL OMDMathToolchainAvailable(void)
     XCTAssertNotNil(keyColor);
     XCTAssertNotNil(plainColor);
     XCTAssertNotNil(commentColor);
-    if ([OMMarkdownRenderer isTreeSitterAvailable]) {
-        XCTAssertFalse([keyColor isEqual:plainColor]);
-        XCTAssertFalse([keyColor isEqual:commentColor]);
-    }
+    XCTAssertFalse([keyColor isEqual:plainColor]);
+    XCTAssertFalse([keyColor isEqual:commentColor]);
 }
 
 - (void)testMathPolicyTransitionsBetweenStyledAndDisabled
@@ -2099,6 +2256,165 @@ static BOOL OMDMathToolchainAvailable(void)
     XCTAssertTrue([text rangeOfString:@"[ ]"].location == NSNotFound);
 }
 
+// The indexes of the boxes that carry the task item attribute, in order.
+- (NSArray *)taskBoxIndexesIn:(NSAttributedString *)rendered
+{
+    NSMutableArray *indexes = [NSMutableArray array];
+    NSUInteger index = 0;
+    while (index < [rendered length]) {
+        NSRange run = NSMakeRange(0, 0);
+        id value = [rendered attribute:OMMarkdownRendererTaskItemAttributeName
+                               atIndex:index
+                 longestEffectiveRange:&run
+                               inRange:NSMakeRange(index, [rendered length] - index)];
+        if (value != nil) {
+            NSUInteger at = 0;
+            for (at = run.location; at < NSMaxRange(run); at++) {
+                [indexes addObject:[NSNumber numberWithUnsignedInteger:at]];
+            }
+        }
+        index = NSMaxRange(run) > index ? NSMaxRange(run) : index + 1;
+    }
+    return indexes;
+}
+
+// Each item points at its own brackets in markdown, agrees with its box, and
+// the boxes and items pair up one to one.
+- (void)assertTaskItems:(NSArray *)items
+               rendered:(NSAttributedString *)rendered
+               markdown:(NSString *)markdown
+{
+    NSArray *boxes = [self taskBoxIndexesIn:rendered];
+    NSMutableSet *locations = [NSMutableSet set];
+    NSUInteger i = 0;
+    XCTAssertEqual([boxes count], [items count]);
+    for (i = 0; i < [items count] && i < [boxes count]; i++) {
+        NSDictionary *item = [items objectAtIndex:i];
+        NSUInteger location = [[item objectForKey:OMMarkdownRendererTaskItemSourceLocationKey] unsignedIntegerValue];
+        BOOL checked = [[item objectForKey:OMMarkdownRendererTaskItemCheckedKey] boolValue];
+        unichar box = [[rendered string] characterAtIndex:[[boxes objectAtIndex:i] unsignedIntegerValue]];
+        XCTAssertTrue(location >= 1 && location + 1 < [markdown length]);
+        XCTAssertEqual([markdown characterAtIndex:location - 1], (unichar)'[');
+        XCTAssertEqual([markdown characterAtIndex:location + 1], (unichar)']');
+        unichar state = [markdown characterAtIndex:location];
+        XCTAssertEqual((state == 'x' || state == 'X'), checked);
+        XCTAssertEqual(box, (unichar)(checked ? 0x2611 : 0x2610));
+        [locations addObject:[NSNumber numberWithUnsignedInteger:location]];
+    }
+    XCTAssertEqual([locations count], [items count]);
+}
+
+// Toggles item n in markdown at its reported location.
+- (NSString *)markdown:(NSString *)markdown togglingTaskItem:(NSDictionary *)item
+{
+    NSUInteger location = [[item objectForKey:OMMarkdownRendererTaskItemSourceLocationKey] unsignedIntegerValue];
+    BOOL checked = [[item objectForKey:OMMarkdownRendererTaskItemCheckedKey] boolValue];
+    return [markdown stringByReplacingCharactersInRange:NSMakeRange(location, 1)
+                                             withString:(checked ? @" " : @"x")];
+}
+
+// Each box maps back to its own "[ ]": identical items, nested and ordered
+// items. A "[ ]" in code, in text or in a quote is no item (cmark-gfm
+// finds no task items in block quotes).
+- (void)testTaskItemsMapToTheirOwnBrackets
+{
+    NSString *markdown = @"# Tasks\n"
+                         @"\n"
+                         @"- [ ] same\n"
+                         @"- [ ] same\n"
+                         @"  - [x] nested\n"
+                         @"    - [ ] deeper\n"
+                         @"\n"
+                         @"1. [X] ordered\n"
+                         @"10) [ ] ten\n"
+                         @"\n"
+                         @"> - [ ] quoted\n"
+                         @"\n"
+                         @"```\n"
+                         @"- [ ] in code\n"
+                         @"```\n"
+                         @"\n"
+                         @"    - [ ] indented code\n"
+                         @"\n"
+                         @"- plain [ ] text\n"
+                         @"- [ ]\n";
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
+    NSArray *items = [renderer taskItems];
+    NSUInteger i = 0;
+
+    XCTAssertEqual([items count], (NSUInteger)6);
+    [self assertTaskItems:items rendered:rendered markdown:markdown];
+    NSInteger lines[6] = { 3, 4, 5, 6, 8, 9 };
+    for (i = 0; i < [items count] && i < 6; i++) {
+        XCTAssertEqual([[[items objectAtIndex:i] objectForKey:OMMarkdownRendererTaskItemSourceLineKey] integerValue], lines[i]);
+    }
+
+    // Toggling the second "same" changes that item and no other.
+    NSString *toggled = [self markdown:markdown togglingTaskItem:[items objectAtIndex:1]];
+    [renderer attributedStringFromMarkdown:toggled];
+    NSArray *after = [renderer taskItems];
+    XCTAssertEqual([after count], [items count]);
+    for (i = 0; i < [after count] && i < [items count]; i++) {
+        BOOL before = [[[items objectAtIndex:i] objectForKey:OMMarkdownRendererTaskItemCheckedKey] boolValue];
+        BOOL now = [[[after objectAtIndex:i] objectForKey:OMMarkdownRendererTaskItemCheckedKey] boolValue];
+        XCTAssertEqual(now, (i == 1 ? !before : before));
+    }
+    XCTAssertTrue([toggled rangeOfString:@"- [ ] in code"].location != NSNotFound);
+    XCTAssertTrue([[rendered string] rangeOfString:@"[ ] quoted"].location != NSNotFound);
+}
+
+// Locations are UTF-16 indexes into the markdown as given: CRLF line ends, a
+// tab after the marker, text beyond the BMP before the list, front matter.
+- (void)testTaskItemLocationsWithCRLFTabsUnicodeAndFrontMatter
+{
+    NSString *markdown = @"---\r\n"
+                         @"title: été\r\n"
+                         @"---\r\n"
+                         @"Intro é \U0001F389 café\r\n"
+                         @"\r\n"
+                         @"-\t[ ] tab\r\n"
+                         @"- [x] crlf \U0001F389\r\n"
+                         @"\r\n"
+                         @"* [ ] star \u00e9\r\n"
+                         @"  + [X] plus\r\n";
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
+    NSArray *items = [renderer taskItems];
+
+    XCTAssertEqual([items count], (NSUInteger)4);
+    [self assertTaskItems:items rendered:rendered markdown:markdown];
+    NSString *toggled = markdown;
+    for (NSDictionary *item in items) {
+        toggled = [self markdown:toggled togglingTaskItem:item];
+    }
+    XCTAssertTrue([toggled rangeOfString:@"-\t[x] tab\r\n"].location != NSNotFound);
+    XCTAssertTrue([toggled rangeOfString:@"- [ ] crlf"].location != NSNotFound);
+    XCTAssertTrue([toggled rangeOfString:@"* [x] star"].location != NSNotFound);
+    XCTAssertTrue([toggled rangeOfString:@"  + [ ] plus"].location != NSNotFound);
+}
+
+// The pointing hand is only on boxes a view lets you click; a later render
+// without task items leaves none from the earlier one.
+- (void)testTaskBoxCursorOnlyWhenInteractiveAndItemsResetEachRender
+{
+    NSString *markdown = @"- [ ] one\n- [x] two\n";
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
+    NSUInteger box = [[[self taskBoxIndexesIn:rendered] objectAtIndex:0] unsignedIntegerValue];
+    XCTAssertNil([rendered attribute:NSCursorAttributeName atIndex:box effectiveRange:NULL]);
+
+    [renderer setInteractiveTaskItems:YES];
+    rendered = [renderer attributedStringFromMarkdown:markdown];
+    box = [[[self taskBoxIndexesIn:rendered] objectAtIndex:0] unsignedIntegerValue];
+    XCTAssertEqualObjects([rendered attribute:NSCursorAttributeName atIndex:box effectiveRange:NULL],
+                          [NSCursor pointingHandCursor]);
+    XCTAssertNil([rendered attribute:NSCursorAttributeName atIndex:box + 1 effectiveRange:NULL]);
+
+    [renderer attributedStringFromMarkdown:@"No tasks here.\n"];
+    XCTAssertEqual([[renderer taskItems] count], (NSUInteger)0);
+}
+
 - (void)testFootnotesRenderAsSuperscriptAndNumberedNotes
 {
     OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
@@ -2564,15 +2880,44 @@ static NSRange OMFootnoteAnchorRange(NSAttributedString *rendered, NSString *anc
     NSAttributedString *rendered = [renderer attributedStringFromMarkdown:
         @"Careful :warning:, done :white_check_mark:, party :tada:, code `:warning:`, url https://x.org/a:b:c and :not_a_code:."];
     NSString *text = [rendered string];
-    XCTAssertTrue([text rangeOfString:@"Careful ⚠,"].location != NSNotFound);
     XCTAssertTrue([text rangeOfString:@"done ✅,"].location != NSNotFound);
+#if defined(GNUSTEP)
+    XCTAssertTrue([text rangeOfString:@"Careful ⚠,"].location != NSNotFound);
     XCTAssertTrue([text rangeOfString:@":tada:"].location != NSNotFound, @"emoji GNUstep can't draw stay as typed");
+#else
+    // gemoji's warning sign carries the emoji presentation selector;
+    // Foundation matches it only as the whole grapheme.
+    XCTAssertTrue([text rangeOfString:@"Careful ⚠️," options:NSLiteralSearch].location != NSNotFound);
+    XCTAssertTrue([text rangeOfString:@"party \U0001F389,"].location != NSNotFound, @"macOS draws every emoji");
+    XCTAssertEqualObjects([[[renderer attributedStringFromMarkdown:@":rocket: :+1:"] string]
+                              stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]],
+                          @"\U0001F680 \U0001F44D");
+#endif
     XCTAssertTrue([text rangeOfString:@"code :warning:"].location != NSNotFound, @"code spans are left alone");
     XCTAssertTrue([text rangeOfString:@"https://x.org/a:b:c"].location != NSNotFound);
     XCTAssertTrue([text rangeOfString:@":not_a_code:"].location != NSNotFound);
     if ([NSFont fontWithName:@"Symbola" size:12.0] != nil) {
         NSFont *font = [rendered attribute:NSFontAttributeName atIndex:[text rangeOfString:@"✅"].location effectiveRange:NULL];
         XCTAssertEqualObjects([font fontName], @"Symbola");
+    }
+}
+
+- (void)testEmojiShortcodesStayAsTypedInLinkAddresses
+{
+    // :x: is in both tables, so this runs the same on GNUstep and macOS.
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:
+        @"bare https://x.org/a:x:b angle <https://y.org/:x:/> www www.z.org/c:x:d text [no :x:](https://w.org/e:x:f)"];
+    NSString *text = [rendered string];
+    XCTAssertTrue([text rangeOfString:@"https://x.org/a:x:b"].location != NSNotFound, @"autolink text is the address");
+    XCTAssertTrue([text rangeOfString:@"https://y.org/:x:/"].location != NSNotFound);
+    XCTAssertTrue([text rangeOfString:@"www.z.org/c:x:d"].location != NSNotFound);
+    NSRange linkText = [text rangeOfString:@"no ❌"];
+    XCTAssertTrue(linkText.location != NSNotFound, @"a link's own text still converts, as on GitHub");
+    if (linkText.location != NSNotFound) {
+        id target = [rendered attribute:NSLinkAttributeName atIndex:linkText.location effectiveRange:NULL];
+        NSString *address = [target isKindOfClass:[NSURL class]] ? [target absoluteString] : target;
+        XCTAssertEqualObjects(address, @"https://w.org/e:x:f", @"the target is untouched");
     }
 }
 
@@ -2705,6 +3050,64 @@ static NSRange OMFootnoteAnchorRange(NSAttributedString *rendered, NSString *anc
     }
     XCTAssertEqualObjects([boxFonts[0] fontName], [boxFonts[1] fontName]);
 }
+
+#if defined(GNUSTEP)
+// A character of the text the body font lacks draws in a font that has it:
+// the footnote back-link's U+21A9 drew as "?" on Windows (#252), in Tahoma
+// and in Segoe UI alike.
+- (void)testTextCharactersDrawInAFontThatHasThem
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:
+        @"A note.[^1] And *an → arrow*.\n\n[^1]: The note.\n"];
+    NSString *text = [rendered string];
+    BOOL fallbackInstalled = [NSFont fontWithName:@"DejaVuSans" size:12.0] != nil ||
+                             [NSFont fontWithName:@"SegoeUISymbol" size:12.0] != nil;
+    if (!fallbackInstalled) {
+        return;
+    }
+    unichar characters[2] = { 0x21A9, 0x2192 };
+    NSUInteger i = 0;
+    for (i = 0; i < 2; i++) {
+        NSRange found = [text rangeOfString:[NSString stringWithCharacters:&characters[i] length:1]];
+        XCTAssertTrue(found.location != NSNotFound);
+        if (found.location == NSNotFound) {
+            continue;
+        }
+        NSFont *font = [rendered attribute:NSFontAttributeName atIndex:found.location effectiveRange:NULL];
+        XCTAssertTrue([[font coveredCharacterSet] characterIsMember:characters[i]],
+                      @"%04X in %@", characters[i], [font fontName]);
+    }
+    // The ASCII around them keeps the body font.
+    NSFont *body = [rendered attribute:NSFontAttributeName atIndex:0 effectiveRange:NULL];
+    XCTAssertEqualObjects([body fontName], [[[renderer theme] baseFont] fontName]);
+}
+#endif
+
+#if defined(_WIN32)
+// On Windows the default theme's Helvetica is Segoe UI: GNUstep drew
+// Tahoma for it, which has no italic face, so emphasis drew upright (#252).
+- (void)testWindowsEmphasisIsItalic
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    if ([NSFont fontWithName:@"SegoeUI" size:12.0] == nil) {
+        return;
+    }
+    XCTAssertEqualObjects([[[renderer theme] baseFont] familyName], @"Segoe UI");
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:@"Some *emphasis* and ***both***.\n"];
+    NSString *text = [rendered string];
+    NSFontManager *manager = [NSFontManager sharedFontManager];
+    NSFont *emphasis = [rendered attribute:NSFontAttributeName
+                                   atIndex:[text rangeOfString:@"emphasis"].location
+                            effectiveRange:NULL];
+    XCTAssertTrue(([manager traitsOfFont:emphasis] & NSItalicFontMask) != 0, @"%@", [emphasis fontName]);
+    NSFont *both = [rendered attribute:NSFontAttributeName
+                               atIndex:[text rangeOfString:@"both"].location
+                        effectiveRange:NULL];
+    NSFontTraitMask traits = [manager traitsOfFont:both];
+    XCTAssertTrue((traits & NSItalicFontMask) != 0 && (traits & NSBoldFontMask) != 0, @"%@", [both fontName]);
+}
+#endif
 
 // Images in table cells are scaled to their column: sized for the whole
 // text width, they ran past their cell and pushed the next cell's image
