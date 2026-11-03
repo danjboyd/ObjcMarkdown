@@ -12,7 +12,7 @@ Changes are counted from v0.2.5 (ba4f6ff). Milestone "0.2.6" (4).
 - Linux AppImage and Flatpak: under the Adwaita theme the window has a header bar with the toolbar and a menu button, rounded corners and a shadow; menus have shadows too. Under GNUstep's default theme the window manager's title bar is kept (#299, #300).
 
 **Fixed since 0.2.5**
-- Windows: Show in Folder after sharing a saved, unedited document selects the document in its own folder, not a temporary copy (#265). Any other share is a temporary copy, and the notice says so.
+- Windows: Show in Folder after sharing a saved, unedited document from File > Share selects the document in its own folder, not a temporary copy (#265). Any other share is a temporary copy, and the notice says so.
 - Share opens one share panel at a time; choosing Share again brings it forward (libs-sharing cbc6726).
 - Toolbar: in a narrow window Save goes into the overflow menu before Open (#280).
 - The app icon has a transparent background instead of a white square (#281).
@@ -24,7 +24,10 @@ Changes are counted from v0.2.5 (ba4f6ff). Milestone "0.2.6" (4).
 
 **Known issues**
 - Show in Folder still selects the temporary copy for a saved document whose extension is not lower-case `md` (`.markdown`, `.MD`, `.mdown`; `.TXT` in plain-text mode). Fix in 0.2.7.
-- Linux: Show in Folder in the Share panel still selects the temporary copy, as in 0.2.5 (#304). Fix in 0.2.7.
+- Linux and Windows: Show in Folder in the Share panel (the Markdown tile, and the Email notice) still selects the temporary copy, as in 0.2.5 (#304). File > Share > Email as selects the document on Windows. Fix in 0.2.7.
+- Windows: after closing a background tab with its X, the next document opened gets its own window, placed exactly over the old one; the other tabs are in the window underneath (#323).
+- Windows, dark mode: display math draws as a white, garbled patch (#324).
+- Windows at 150%: a short black bar at the bottom left of the source pane cuts off the last line (#325).
 - macOS: in a second window tab, Split can give the preview only about 15% of the width, and that ratio is saved (ObjcMarkdownSplitRatio 0.85). Drag the divider back. Seen in the rc1 macOS round; not tied to #293.
 - Linux: the app's bundled notification service (gdnc) keeps running after the app quits, as GNUstep's own does; the next launch starts or finds one again.
 - macOS with window restoration on: the restored documents come back in reversed tab order.
@@ -94,5 +97,11 @@ Changes are counted from v0.2.5 (ba4f6ff). Milestone "0.2.6" (4).
 - [x] rc4: rc3 plus #317, macOS-only code; the pins are unchanged (Adwaita 3083b0a, WinUITheme 72f2a10, libs-back carry-0.32.0.5), so the Linux rc3 round stands. Packaging on e35c655 all green (AppImage 41681858896, Flatpak 41681863308, MSI 41681868257, dmg 41681872356).
 - [x] `v0.2.6-rc4` tagged on e35c655 (Dan, ask #752); 5 tag workflows green, 13 assets, pre-release, stable feeds untouched.
 - [x] rc4 macOS update test, rc3 (419) -> rc4 (423) through Sparkle on the released dmgs, a localhost copy of the rc4 appcast (EdDSA valid), automatic updates off on the scratch copy (Dan, ask #781). PASS 2026-11-03: one window, alpha.md | beta.md with alpha selected; the updated app is byte-identical to the dmg's; About shows 0.2.6-rc4. Launching rc4 with an rc3 record, 6 of 6 correct (including three tabs with the middle one selected); a same-version relaunch reopens nothing. Dan's preferences restored, /Applications untouched.
-- [ ] rc4 Windows round on the released MSI (OracleTestVMs lease): install, launch, render and the theme (record BundledThemes.txt), the rc3 -> rc4 in-app update reopening the documents in tab order.
+- [x] rc4 Windows round (markdown-viewer-windows) on an OracleTestVMs lease through the gate (Dan, ask #1314; destroyed after). PASS 2026-11-03:
+  - The released rc3 MSI installed fresh (twice, exit 0), then the in-app update to rc4 through rc4's feed (GP_UPDATER_FEED_URL): offered, downloaded, Restart and Install, relaunched. Installed metadata 0.2.6-rc4. A fresh install of the rc4 MSI itself wasn't run; CI's validation and smoke install it.
+  - BundledThemes.txt names WinUITheme 72f2a10743e5a441a2d4b4e36e03ce150da3caab before and after the update.
+  - #266 reopen: two tabs with the second selected, then three with the middle selected; order and selection right both times.
+  - Launch and render (table, code, list, math); WinUITheme light and dark; tabs (new, reorder by drag, close, wheel-scroll with 10, Split in a tab); #280 at 100% (Save into the overflow at 540 wide, Open stays); the overflow at 100/125/150%; Share opens the panel; text spacing at 125% and 150%.
+  - Findings, filed for 0.2.7: #304 also on Windows (the Share panel's Show in Folder); #323 (a background tab's close, then an open, gives a stacked new window); #324 (dark-mode display math); #325 (150%: a bar over the source pane's last line). Cosmetic: the menu route's Attach notice shows a generic file icon; with 10 tabs in 620 px the titles shrink to "..". The dark overflow chevron is faint (known, WinUITheme).
+  - Not covered: dragging a tab out of its window; Print and Export.
 - [ ] Dan: go for v0.2.6 final.
