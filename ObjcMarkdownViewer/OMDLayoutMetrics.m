@@ -179,3 +179,35 @@ CGFloat OMDChromeLineHeight(NSFont *font)
     }
     return ceil(height);
 }
+
+CGFloat OMDScrollViewWidthBesideVerticalScroller(NSScrollView *scrollView)
+{
+    if (scrollView == nil || ![scrollView hasVerticalScroller] || ![scrollView autohidesScrollers]) {
+        return 0.0;
+    }
+#if defined(GNUSTEP)
+    NSSize frameContentSize = [NSScrollView contentSizeForFrameSize:[scrollView frame].size
+                                              hasHorizontalScroller:NO
+                                                hasVerticalScroller:NO
+                                                         borderType:[scrollView borderType]];
+    CGFloat width = frameContentSize.width - [NSScroller scrollerWidth] - 1.0;
+#else
+    // Overlay scrollers float over the content and take no width.
+    if ([scrollView scrollerStyle] != NSScrollerStyleLegacy) {
+        return 0.0;
+    }
+    NSControlSize controlSize = NSControlSizeRegular;
+    if ([scrollView verticalScroller] != nil) {
+        controlSize = [[scrollView verticalScroller] controlSize];
+    }
+    NSSize frameContentSize = [NSScrollView contentSizeForFrameSize:[scrollView frame].size
+                                            horizontalScrollerClass:Nil
+                                              verticalScrollerClass:Nil
+                                                         borderType:[scrollView borderType]
+                                                        controlSize:controlSize
+                                                      scrollerStyle:NSScrollerStyleLegacy];
+    CGFloat width = frameContentSize.width -
+                    [NSScroller scrollerWidthForControlSize:controlSize scrollerStyle:NSScrollerStyleLegacy];
+#endif
+    return width > 0.0 ? width : 0.0;
+}
