@@ -789,6 +789,12 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [NSObject cancelPreviousPerformRequestsWithTarget:self
                                              selector:@selector(systemAppearanceDidChange)
                                                object:nil];
+    [[NSNotificationCenter defaultCenter] removeObserver:self
+                                                    name:NSPreferredScrollerStyleDidChangeNotification
+                                                  object:nil];
+    [NSObject cancelPreviousPerformRequestsWithTarget:self
+                                             selector:@selector(previewScrollerStyleDidChange)
+                                               object:nil];
 #endif
     [self unregisterAsSecondaryWindow];
     [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(refreshOutline) object:nil];
@@ -1401,6 +1407,13 @@ static NSMutableArray *OMDSecondaryWindows(void)
                                                  name:OMDMarkdownDocumentEditedStateDidChangeNotification
                                                object:nil];
 #if !defined(GNUSTEP)
+    // Scrollers turn legacy or overlay while the app runs (a mouse plugged
+    // in or out, or the Show scroll bars setting): the preview's width
+    // beside them changes (#319).
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(preferredScrollerStyleDidChange:)
+                                                 name:NSPreferredScrollerStyleDidChangeNotification
+                                               object:nil];
     // macOS switches between light and dark while the app runs (by hand, or
     // at sunset with Auto).
     if (!_observingSystemAppearance) {
@@ -5101,23 +5114,17 @@ constrainSplitPosition:(CGFloat)proposedPosition
     } else {
         bounds = [_textView bounds];
     }
-#if defined(GNUSTEP)
     // The preview's scrollers hide themselves, and the vertical one comes
-    // when a long document is shown and takes width. Lay out for the width
+    // when a long document is shown and takes width (GNUstep; macOS with
+    // legacy scrollers, as with a mouse attached). Lay out for the width
     // beside it either way: otherwise a long document is rendered for the
-    // empty view's width, and then rendered and laid out again for the
-    // narrower one (about 15 s for a 1.4 MB file, #121).
-    if (_previewScrollView != nil && [_previewScrollView autohidesScrollers]) {
-        NSSize frameContentSize = [NSScrollView contentSizeForFrameSize:[_previewScrollView frame].size
-                                                  hasHorizontalScroller:NO
-                                                    hasVerticalScroller:NO
-                                                             borderType:[_previewScrollView borderType]];
-        CGFloat besideScroller = frameContentSize.width - [NSScroller scrollerWidth] - 1.0;
-        if (besideScroller > 0.0) {
-            bounds.size.width = besideScroller;
-        }
+    // empty view's width, and then either rendered and laid out again for
+    // the narrower one (about 15 s for a 1.4 MB file, #121) or left wider
+    // than the view, with a horizontal scroller (#319).
+    CGFloat besideScroller = OMDScrollViewWidthBesideVerticalScroller(_previewScrollView);
+    if (besideScroller > 0.0) {
+        bounds.size.width = besideScroller;
     }
-#endif
     NSSize inset = [_textView textContainerInset];
     NSTextContainer *container = [_textView textContainer];
     CGFloat padding = container != nil ? [container lineFragmentPadding] : 0.0;
@@ -5430,6 +5437,28 @@ constrainSplitPosition:(CGFloat)proposedPosition
     [[NSUserDefaults standardUserDefaults] setInteger:characters forKey:OMDPreviewColumnCharactersDefaultsKey];
     [self previewWidthPreferenceDidChange];
 }
+
+#if !defined(GNUSTEP)
+- (void)preferredScrollerStyleDidChange:(NSNotification *)notification
+{
+    (void)notification;
+    // After the scroll views have taken the new style from the same
+    // notification.
+    [NSObject cancelPreviousPerformRequestsWithTarget:self
+                                             selector:@selector(previewScrollerStyleDidChange)
+                                               object:nil];
+    [self performSelector:@selector(previewScrollerStyleDidChange) withObject:nil afterDelay:0.0];
+}
+
+- (void)previewScrollerStyleDidChange
+{
+    if (![self isPreviewVisible]) {
+        return;
+    }
+    [self updatePreviewDocumentGeometry];
+    [self requestInteractiveRenderForLayoutWidthIfNeeded];
+}
+#endif
 
 - (void)previewWidthPreferenceDidChange
 {
