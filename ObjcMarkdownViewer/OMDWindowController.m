@@ -789,6 +789,12 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [NSObject cancelPreviousPerformRequestsWithTarget:self
                                              selector:@selector(systemAppearanceDidChange)
                                                object:nil];
+    [[NSNotificationCenter defaultCenter] removeObserver:self
+                                                    name:NSPreferredScrollerStyleDidChangeNotification
+                                                  object:nil];
+    [NSObject cancelPreviousPerformRequestsWithTarget:self
+                                             selector:@selector(previewScrollerStyleDidChange)
+                                               object:nil];
 #endif
     [self unregisterAsSecondaryWindow];
     [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(refreshOutline) object:nil];
@@ -1151,8 +1157,6 @@ static NSMutableArray *OMDSecondaryWindows(void)
     OMDStartupTrace(@"setupWindow: setupWorkspaceChrome returned");
 
     _splitRatio = 0.5;
-    _lastObservedSplitAvailableWidth = -1.0;
-    _isApplyingSplitViewRatio = NO;
     NSNumber *savedSplitRatio = [[NSUserDefaults standardUserDefaults] objectForKey:@"ObjcMarkdownSplitRatio"];
     if ([savedSplitRatio respondsToSelector:@selector(doubleValue)]) {
         double value = [savedSplitRatio doubleValue];
@@ -1403,6 +1407,13 @@ static NSMutableArray *OMDSecondaryWindows(void)
                                                  name:OMDMarkdownDocumentEditedStateDidChangeNotification
                                                object:nil];
 #if !defined(GNUSTEP)
+    // Scrollers turn legacy or overlay while the app runs (a mouse plugged
+    // in or out, or the Show scroll bars setting): the preview's width
+    // beside them changes (#319).
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(preferredScrollerStyleDidChange:)
+                                                 name:NSPreferredScrollerStyleDidChangeNotification
+                                               object:nil];
     // macOS switches between light and dark while the app runs (by hand, or
     // at sunset with Auto).
     if (!_observingSystemAppearance) {
@@ -4494,8 +4505,9 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
 
 - (NSString *)shareDocumentPath
 {
+    // An imported file (Word, HTML) isn't the Markdown shared.
     if (![self isCurrentDocumentReloadableFromDisk] || _sourceIsDirty ||
-        [self currentDocumentHasNewerDiskVersion]) {
+        [self currentDocumentHasNewerDiskVersion] || [self isImportableDocumentPath:_currentPath]) {
         return nil;
     }
     return _currentPath;
@@ -5046,24 +5058,13 @@ constrainSplitPosition:(CGFloat)proposedPosition
         return;
     }
 
-    CGFloat available = -1.0;
-    CGFloat width = [_splitView bounds].size.width;
-    CGFloat divider = [_splitView dividerThickness];
-    if (width > divider) {
-        available = width - divider;
-    }
-    BOOL canCompareWidth = (_lastObservedSplitAvailableWidth >= 0.0 && available >= 0.0);
-    BOOL widthChanged = (canCompareWidth &&
-                         fabs(available - _lastObservedSplitAvailableWidth) > 0.5);
-
     [self layoutSourceEditorContainer];
-    // Preserve the user-selected split ratio when the window width changes.
-    // Width-driven min-size clamping should not overwrite the stored ratio.
-    if (!_isApplyingSplitViewRatio && canCompareWidth && !widthChanged) {
+    // Only a drag of the divider is the user's choice of split. Any other
+    // resize (the window's, the panes coming back from another mode with the
+    // frames it left them, a new tab taking its group's frame) isn't, and
+    // keeping it gave a later Split a preview 15% wide.
+    if ([(OMDWin11SplitView *)_splitView omdIsTrackingDivider]) {
         [self persistSplitViewRatio];
-    }
-    if (available >= 0.0) {
-        _lastObservedSplitAvailableWidth = available;
     }
     [self updatePreviewDocumentGeometry];
     [_copyButtonsController updateCodeBlockButtons];
@@ -5114,23 +5115,17 @@ constrainSplitPosition:(CGFloat)proposedPosition
     } else {
         bounds = [_textView bounds];
     }
-#if defined(GNUSTEP)
     // The preview's scrollers hide themselves, and the vertical one comes
-    // when a long document is shown and takes width. Lay out for the width
+    // when a long document is shown and takes width (GNUstep; macOS with
+    // legacy scrollers, as with a mouse attached). Lay out for the width
     // beside it either way: otherwise a long document is rendered for the
-    // empty view's width, and then rendered and laid out again for the
-    // narrower one (about 15 s for a 1.4 MB file, #121).
-    if (_previewScrollView != nil && [_previewScrollView autohidesScrollers]) {
-        NSSize frameContentSize = [NSScrollView contentSizeForFrameSize:[_previewScrollView frame].size
-                                                  hasHorizontalScroller:NO
-                                                    hasVerticalScroller:NO
-                                                             borderType:[_previewScrollView borderType]];
-        CGFloat besideScroller = frameContentSize.width - [NSScroller scrollerWidth] - 1.0;
-        if (besideScroller > 0.0) {
-            bounds.size.width = besideScroller;
-        }
+    // empty view's width, and then either rendered and laid out again for
+    // the narrower one (about 15 s for a 1.4 MB file, #121) or left wider
+    // than the view, with a horizontal scroller (#319).
+    CGFloat besideScroller = OMDScrollViewWidthBesideVerticalScroller(_previewScrollView);
+    if (besideScroller > 0.0) {
+        bounds.size.width = besideScroller;
     }
-#endif
     NSSize inset = [_textView textContainerInset];
     NSTextContainer *container = [_textView textContainer];
     CGFloat padding = container != nil ? [container lineFragmentPadding] : 0.0;
@@ -5443,6 +5438,28 @@ constrainSplitPosition:(CGFloat)proposedPosition
     [[NSUserDefaults standardUserDefaults] setInteger:characters forKey:OMDPreviewColumnCharactersDefaultsKey];
     [self previewWidthPreferenceDidChange];
 }
+
+#if !defined(GNUSTEP)
+- (void)preferredScrollerStyleDidChange:(NSNotification *)notification
+{
+    (void)notification;
+    // After the scroll views have taken the new style from the same
+    // notification.
+    [NSObject cancelPreviousPerformRequestsWithTarget:self
+                                             selector:@selector(previewScrollerStyleDidChange)
+                                               object:nil];
+    [self performSelector:@selector(previewScrollerStyleDidChange) withObject:nil afterDelay:0.0];
+}
+
+- (void)previewScrollerStyleDidChange
+{
+    if (![self isPreviewVisible]) {
+        return;
+    }
+    [self updatePreviewDocumentGeometry];
+    [self requestInteractiveRenderForLayoutWidthIfNeeded];
+}
+#endif
 
 - (void)previewWidthPreferenceDidChange
 {
@@ -5808,15 +5825,9 @@ static CGFloat OMDOutlinePanelWidth(NSRect bounds)
     [_previewScrollView setHidden:NO];
     // GNUstep can defer split subview geometry until the next resize event.
     // Force one immediate pass so Edit->Split transitions are visually correct.
-    // The panes come back with the frames another mode left them (the
-    // preview as wide as the whole area), so the first pass shares the width
-    // out wrongly: don't keep that as the user's split ratio.
-    BOOL wasApplying = _isApplyingSplitViewRatio;
-    _isApplyingSplitViewRatio = YES;
     [_splitView adjustSubviews];
     [self applySplitViewRatio];
     [_splitView adjustSubviews];
-    _isApplyingSplitViewRatio = wasApplying;
     [self layoutSourceEditorContainer];
     [self updateFormattingBarContextState];
     [_splitView setNeedsDisplay:YES];
@@ -7035,10 +7046,7 @@ static CGFloat OMDOutlinePanelWidth(NSRect bounds)
     if (position > (available - minWidth)) {
         position = available - minWidth;
     }
-    BOOL wasApplying = _isApplyingSplitViewRatio;
-    _isApplyingSplitViewRatio = YES;
     [_splitView setPosition:position ofDividerAtIndex:0];
-    _isApplyingSplitViewRatio = wasApplying;
 }
 
 - (void)persistSplitViewRatio

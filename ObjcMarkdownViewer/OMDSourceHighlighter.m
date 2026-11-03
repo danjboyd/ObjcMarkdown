@@ -448,6 +448,57 @@ static BOOL OMDRangesIntersect(NSRange left, NSRange right)
     return NSIntersectionRange(left, right).length > 0;
 }
 
+// Gives target, within range, the colours and the no-ligatures setting
+// that source has there, editing only the runs where they differ. Returns
+// whether anything was changed.
+static BOOL OMDCopyChangedHighlightRuns(NSAttributedString *source,
+                                        NSMutableAttributedString *target,
+                                        NSRange range)
+{
+    NSNumber *noLigatures = [NSNumber numberWithInt:0];
+    BOOL editing = NO;
+    NSUInteger index = range.location;
+    NSUInteger end = NSMaxRange(range);
+    while (index < end) {
+        NSRange wantedRun;
+        NSColor *wanted = [source attribute:NSForegroundColorAttributeName
+                                    atIndex:index
+                      longestEffectiveRange:&wantedRun
+                                    inRange:NSMakeRange(index, end - index)];
+        NSUInteger runEnd = NSMaxRange(wantedRun);
+        while (index < runEnd) {
+            NSRange haveRun;
+            NSDictionary *have = [target attributesAtIndex:index effectiveRange:&haveRun];
+            NSUInteger pieceEnd = MIN(NSMaxRange(haveRun), runEnd);
+            NSRange piece = NSMakeRange(index, pieceEnd - index);
+            NSColor *color = [have objectForKey:NSForegroundColorAttributeName];
+            BOOL sameColor = (color == wanted) || (wanted != nil && [color isEqual:wanted]);
+            BOOL ligaturesOff = [[have objectForKey:NSLigatureAttributeName] isEqual:noLigatures];
+            if (!sameColor || !ligaturesOff) {
+                if (!editing) {
+                    [target beginEditing];
+                    editing = YES;
+                }
+                if (!sameColor) {
+                    if (wanted != nil) {
+                        [target addAttribute:NSForegroundColorAttributeName value:wanted range:piece];
+                    } else {
+                        [target removeAttribute:NSForegroundColorAttributeName range:piece];
+                    }
+                }
+                if (!ligaturesOff) {
+                    [target addAttribute:NSLigatureAttributeName value:noLigatures range:piece];
+                }
+            }
+            index = pieceEnd;
+        }
+    }
+    if (editing) {
+        [target endEditing];
+    }
+    return editing;
+}
+
 @implementation OMDSourceHighlighter
 
 + (void)omdApplyRegex:(NSRegularExpression *)regex
@@ -492,14 +543,22 @@ static BOOL OMDRangesIntersect(NSRange left, NSRange right)
                      options:(NSDictionary *)options
                  targetRange:(NSRange)targetRange
 {
-    if (textStorage == nil) {
+    NSUInteger length = [textStorage length];
+    if (length == 0) {
         return;
     }
-    [self highlightAttributedString:(NSMutableAttributedString *)textStorage
+    // Coloured in a copy, then only the runs whose colour changed are set in
+    // the storage (#164). In GNUstep each edit lays out and redraws the
+    // whole text view, so setting every colour again after each pause in
+    // typing cost a full redraw even when nothing had changed.
+    NSMutableAttributedString *colored = [[NSMutableAttributedString alloc] initWithString:[textStorage string]];
+    [self highlightAttributedString:colored
                       baseTextColor:baseTextColor
                     backgroundColor:backgroundColor
                             options:options
                         targetRange:targetRange];
+    OMDCopyChangedHighlightRuns(colored, textStorage, OMDNormalizedTargetRange(targetRange, length));
+    [colored release];
 }
 
 + (void)highlightAttributedString:(NSMutableAttributedString *)attributedString
