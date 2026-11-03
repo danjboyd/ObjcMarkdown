@@ -12,17 +12,22 @@ Changes are counted from v0.2.5 (ba4f6ff). Milestone "0.2.6" (4).
 - Linux AppImage and Flatpak: under the Adwaita theme the window has a header bar with the toolbar and a menu button, rounded corners and a shadow; menus have shadows too. Under GNUstep's default theme the window manager's title bar is kept (#299, #300).
 
 **Fixed since 0.2.5**
-- Windows: Show in Folder after sharing a saved, unedited document selects the document in its own folder, not a temporary copy (#265). Any other share is a temporary copy, and the notice says so.
+- Windows: Show in Folder after sharing a saved, unedited document from File > Share selects the document in its own folder, not a temporary copy (#265). Any other share is a temporary copy, and the notice says so.
 - Share opens one share panel at a time; choosing Share again brings it forward (libs-sharing cbc6726).
 - Toolbar: in a narrow window Save goes into the overflow menu before Open (#280).
 - The app icon has a transparent background instead of a white square (#281).
 - Linux AppImage: the arrow keys, Home/End and Delete work in text again (#288, also in 0.2.5.1).
 - Linux AppImage: on a computer with GNUstep installed, the app uses its own bundled services (pasteboard, notifications), not the host's (#302).
+- Linux AppImage and Flatpak, under Adwaita on GNOME with Wayland: a pop-up button's list (such as the Heading menu) no longer shows blank from its second opening (Adwaita 0.1.0-alpha18).
 - Builds: packaged with gnustep-packager v0.1.4, which also updates the in-app updater.
+- Builds: the Linux packages bundle Adwaita 0.1.0-alpha18 (3083b0a); the Windows MSI bundles WinUITheme 0.1.0-alpha13 (72f2a10) with libs-back carry-0.32.0.5.
 
 **Known issues**
 - Show in Folder still selects the temporary copy for a saved document whose extension is not lower-case `md` (`.markdown`, `.MD`, `.mdown`; `.TXT` in plain-text mode). Fix in 0.2.7.
-- Linux: Show in Folder in the Share panel still selects the temporary copy, as in 0.2.5 (#304). Fix in 0.2.7.
+- Linux and Windows: Show in Folder in the Share panel (the Markdown tile, and the Email notice) still selects the temporary copy, as in 0.2.5 (#304). File > Share > Email as selects the document on Windows. Fix in 0.2.7.
+- Windows: closing the launch window's tab and then opening the same document again brings that closed window back on its own, over the others, outside its tab group; the other tabs are in the window underneath (#323).
+- Windows, dark mode: display math draws as a white, garbled patch (#324).
+- Windows at 150%: a short black bar at the bottom left of the source pane cuts off the last line (#325).
 - macOS: in a second window tab, Split can give the preview only about 15% of the width, and that ratio is saved (ObjcMarkdownSplitRatio 0.85). Drag the divider back. Seen in the rc1 macOS round; not tied to #293.
 - Linux: the app's bundled notification service (gdnc) keeps running after the app quits, as GNUstep's own does; the next launch starts or finds one again.
 - macOS with window restoration on: the restored documents come back in reversed tab order.
@@ -46,6 +51,10 @@ Changes are counted from v0.2.5 (ba4f6ff). Milestone "0.2.6" (4).
 | #301 | Vendor libs-sharing cbc6726: one share panel at a time | merged 7b44871 |
 | #298 | #265 Show in Folder selects the document for a share of it as saved (Markdown Viewer Windows) | merged 315a2bc at 17c0c50; Linux review no blockers (Dan 2026-10-28: as it is) |
 | #302 | Linux AppImage: a private TMPDIR, so the bundled gdnc and gpbs run instead of a host GNUstep's | merged eaeab3f (Dan 2026-10-28); replaces the dropped 0.2.5.2 |
+| #306 | Linux packages: Adwaita 0.1.0-alpha17 (10225c7) | merged 367270c (rc2) |
+| #308 | Linux packages: Adwaita 0.1.0-alpha18 (3083b0a): pop-up lists on GNOME Wayland | merged 7c41024 (Dan, ask #392) |
+| #310 | Windows MSI: WinUITheme 0.1.0-alpha13 (72f2a10), libs-back carry-0.32.0.5 | merged eeefd9f (Dan, ask #429) |
+| #317 | #315 macOS: reopen the documents after an update one at a time, then show the selected one (Markdown Viewer macOS) | merged e35c655 (rc4; Dan, ask #663) |
 
 **Out** (0.2.7, Dan 2026-10-28, unless Markdown Viewer Windows pushes them before rc1 packaging): the case-insensitive extension check for #265 (c921369), #164's highlight timer (highlight-timer-164, 019a95b). No 0.2.5.2: hotfix-0.2.5.2 stays as a branch, unreleased.
 
@@ -75,5 +84,24 @@ Changes are counted from v0.2.5 (ba4f6ff). Milestone "0.2.6" (4).
 - [x] rc2 Linux re-check of the theme on both packages, isolated as in rc1: BundledThemes.txt names 10225c7 (0.1.0-alpha17); About Markdown Viewer shows a sharp icon, downscaled, not blocky; under Adwaita the header bar with toolbar and menu button, rounded corners and shadow, drag, double-click maximize and restore; menus and the Share panel with shadows; a narrow window's toolbar overflow (Save before Open, #280); under GNUstep's default theme the window manager's title bar.
   PASS 2026-10-28 on the released rc2 AppImage and Flatpak (private display and home): header bar, rounded corners and shadow; menu shadows; About shows 0.2.6-rc2 and a sharp, downscaled icon (both packages); at 560 px Explorer, Save and Share go into the overflow and Open stays (#280); GNUstep's default theme keeps the window manager's title bar.
 - [x] #266 on Linux, rc1 -> rc2 through a local signed feed (tools/dev/update-test, the rc2 bytes as 0.2.6-rc2.uat): rc1 with one.md and two.md in tabs, Check for Updates, Install, Restart and Install. The AppImage on disk became rc2's bytes (sha256 d9de0487...), the relaunched app (no arguments) reopened one.md and two.md in tab order with two.md selected. PASS.
-- Observation, not compared yet with 0.2.5.1: a second launch of the AppImage with a file started a second instance (MarkdownViewerCopy1) instead of handing the file to the running one.
+- Observation, compared with 0.2.5.1 (2026-10-29): a second launch of the AppImage with a file starts a second instance (MarkdownViewerCopy1) instead of handing the file to the running one. 0.2.5.1 and rc2 do the same (private home, one runtime directory for both launches): not a regression, not a 0.2.6 blocker.
+- [x] rc3: Adwaita 0.1.0-alpha18 (3083b0a) for the AppImage and Flatpak (#308, merged 7c41024; Dan, ask #392) and WinUITheme 0.1.0-alpha13 (72f2a10) with libs-back carry-0.32.0.5 for the MSI (#310, merged eeefd9f; Dan, ask #429). The rc3 commit is eeefd9f. Packaging on eeefd9f all green (AppImage 40926016923, Flatpak 40926020680, MSI 40926024690, dmg 40926028556). The AppImage's BundledThemes.txt names Adwaita 3083b0a (0.1.0-alpha18), and the Flatpak's theme reports 0.1.0-alpha18; the MSI's BundledThemes.txt names WinUITheme 72f2a10, and its build installed gnustep-back 0.32.0.5 from carry-0.32.0.5.
+- [x] `v0.2.6-rc3` tagged on eeefd9f (Dan, ask #586); 5 tag workflows green, 13 assets, pre-release, stable feeds untouched; the released AppImage's BundledThemes.txt names Adwaita 3083b0a.
+- [x] rc3 Linux round on the 7c41024 AppImage and Flatpak (40921694480, 40921698847; the Linux inputs are the same in eeefd9f), isolated as before (private display, private home and defaults; Dan's defaults unchanged). PASS 2026-10-29:
+  - BundledThemes.txt names Adwaita 3083b0a (0.1.0-alpha18); the theme reports 0.1.0-alpha18 in both packages, and THIRD-PARTY-NOTICES ships in the bundle.
+  - About Markdown Viewer shows 0.2.6-rc3 and a sharp, downscaled icon (both packages).
+  - Under Adwaita: header bar with toolbar and menu button, rounded corners and shadow; the menu and the Heading pop-up draw their shadows. Under GNUstep's default theme: the window manager's title bar.
+  - Pop-up opened again and again (the alpha18 fix): under a private headless GNOME Shell 48.7 on Wayland (XWayland, WAYLAND_DISPLAY set), the Heading pop-up opened, an item picked and opened again, five times: the list drew in full each time. rc2 (alpha17) did the same on this Mutter, so this host doesn't reproduce GNOME/mutter#5080: the check shows no regression, not the fix. The fix itself was checked by the Adwaita agent.
+- [x] rc3 macOS update test, rc2 (403) -> rc3 (419) through Sparkle on the released dmgs (Dan, ask #608). FAIL: both documents reopened in one window, but the tabs came back reversed or with the other one selected; launching rc3 with rc2's record by hand, 5 of 5 had one or the other (#315). Cause: the macOS reopen issued its asynchronous opens together. Dan chose an rc4 with the fix (ask #663).
+- [x] #315 fix (#317), on screen before merge (Dan, ask #668): a scratch build launched with another version's record, 12 of 12 correct (two tabs either one selected, three tabs the middle one selected). CI green on all three platforms.
+- [x] rc4: rc3 plus #317, macOS-only code; the pins are unchanged (Adwaita 3083b0a, WinUITheme 72f2a10, libs-back carry-0.32.0.5), so the Linux rc3 round stands. Packaging on e35c655 all green (AppImage 41681858896, Flatpak 41681863308, MSI 41681868257, dmg 41681872356).
+- [x] `v0.2.6-rc4` tagged on e35c655 (Dan, ask #752); 5 tag workflows green, 13 assets, pre-release, stable feeds untouched.
+- [x] rc4 macOS update test, rc3 (419) -> rc4 (423) through Sparkle on the released dmgs, a localhost copy of the rc4 appcast (EdDSA valid), automatic updates off on the scratch copy (Dan, ask #781). PASS 2026-11-03: one window, alpha.md | beta.md with alpha selected; the updated app is byte-identical to the dmg's; About shows 0.2.6-rc4. Launching rc4 with an rc3 record, 6 of 6 correct (including three tabs with the middle one selected); a same-version relaunch reopens nothing. Dan's preferences restored, /Applications untouched.
+- [x] rc4 Windows round (markdown-viewer-windows) on an OracleTestVMs lease through the gate (Dan, ask #1314; destroyed after). PASS 2026-11-03:
+  - The released rc3 MSI installed fresh (twice, exit 0), then the in-app update to rc4 through rc4's feed (GP_UPDATER_FEED_URL): offered, downloaded, Restart and Install, relaunched. Installed metadata 0.2.6-rc4. A fresh install of the rc4 MSI itself wasn't run; CI's validation and smoke install it.
+  - BundledThemes.txt names WinUITheme 72f2a10743e5a441a2d4b4e36e03ce150da3caab before and after the update.
+  - #266 reopen: two tabs with the second selected, then three with the middle selected; order and selection right both times.
+  - Launch and render (table, code, list, math); WinUITheme light and dark; tabs (new, reorder by drag, close, wheel-scroll with 10, Split in a tab); #280 at 100% (Save into the overflow at 540 wide, Open stays); the overflow at 100/125/150%; Share opens the panel; text spacing at 125% and 150%.
+  - Findings, filed for 0.2.7: #304 also on Windows (the Share panel's Show in Folder); #323 (closing the launch window's tab and reopening its document revives the closed window outside the group; the app's, from the code); #324 (dark-mode display math); #325 (150%: a bar over the source pane's last line). Cosmetic: the menu route's Attach notice shows a generic file icon; with 10 tabs in 620 px the titles shrink to "..". The dark overflow chevron is faint (known, WinUITheme).
+  - Not covered: dragging a tab out of its window; Print and Export.
 - [ ] Dan: go for v0.2.6 final.
