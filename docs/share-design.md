@@ -1,12 +1,105 @@
 # Share: design note
 
-Status: draft, 2026-10-16. Tracking issue: #170.
+Status: written 2026-10-16; status section refreshed 2026-11-03, after
+0.2.6. Tracking issue: #170.
 
 The viewer gets a Share command: one gesture that turns the open document
 into the form a colleague needs (a file or pasted content) and hands it to
 where they will read it (email, Teams, Slack, Messages, a cloud link). Later
 the Linux part becomes a reusable GNUstep library, so other GNUstep apps get
 a share sheet too.
+
+## Where it stands (after 0.2.6)
+
+Milestones 1 and 2 shipped together in 0.2.3, and later releases fixed
+them up. In milestone 3, rclone links shipped but haven't been tried on a
+real remote yet; the GNOME Online Accounts links haven't been started. The
+sections after this one are the design as it was written on 2026-10-16.
+Where what shipped differs from it, this section says so.
+
+### What shipped
+
+| Release | Share |
+|---|---|
+| 0.2.3 | Share on all three platforms: File > Share, a Share toolbar item and a share sheet with no Save panel. Formats: PDF, Word, Markdown, HTML. **Email as** each format, or **In the Message** (the rendered document as the body). **Copy Rendered** and **Copy for Slack**. **Checks before sending** (local images and links, math and Mermaid in formats that can't show them), with a PDF or a `.zip` with the images offered instead. **Share just the selection**. **rclone links** ("Link on <remote>"). Linux: libs-sharing's sheet. macOS: Apple's picker, with rclone remotes in it. Windows: the Windows share sheet, and libs-sharing's sheet where Windows has none (Windows Server). |
+| 0.2.4 | libs-sharing: Save a Copy opens in the document's folder and keeps the type when a name is typed without an extension (libs-sharing#24); Open With shows the chooser on Windows (libs-sharing#23). |
+| 0.2.5 | Toolbar overflow order: Explorer first, then Share, then Open and Save. Each theme reads the items' priority. |
+| 0.2.6 | Windows: Show in Folder after sharing a saved, unedited document selects the document in its own folder rather than the staged copy (#265, PR #298). Any other share is a temporary copy, and the notice says so. libs-sharing cbc6726: one share panel at a time, and Share again brings it forward (PR #301). The AppImage starts its own bundled pasteboard server, so Copy and Share work on a host that has GNUstep installed (#302). |
+
+### Where it differs from the design
+
+- **Menu.** File > Share has "Share as <format>...", an "Email as" submenu
+  (the four formats, plus "In the Message"), Copy Rendered, Copy for Slack
+  and Show File in Folder. The last choice is remembered for each
+  destination: the sheet's format, the email format and the menu's format
+  (`OMDShareLastSheetChoice`, `OMDShareLastEmailChoice`,
+  `OMDShareLastFormat`). These are app defaults, with no control in
+  Preferences. Copy as Markdown stays in the preview's context menu, not
+  in the Share menu. ODT and RTF stay
+  under File > Export, as planned.
+- **Not in the design, but shipped:** sharing just the selection
+  (`OMDShareSelection`), the `.zip` with the document's local images
+  (`OMDShareBundle`), and the checks before sending (`OMDShareChecks`). The
+  last two were planned for milestone 2 and arrived in 0.2.3.
+- **The library is danjboyd/libs-sharing.** The app compiles it in from
+  `third_party/libs-sharing` (copied by `tools/vendor/vendor-libs-sharing.sh`,
+  not edited there), so the packages need nothing new. It doesn't
+  subclass: it installs its methods into libs-gui's existing
+  `NSSharingService*` classes when it loads (`GSSharingInstall()`), so Cocoa
+  code runs unchanged.
+  - Plug-ins are `.sharingservice` bundles in `Library/SharingServices`, or
+    are registered with `GSSharingRegisterProvider()`.
+  - Built-in services: Email, Copy, Save a Copy, Show in Folder and Open
+    With. **Send to Phone** (KDE Connect / GSConnect) isn't built.
+  - The sheet's accessory view (`-setAccessoryView:`, a GNUstep extension)
+    holds the app's format switcher.
+- **Windows.** The app's Windows presenter stayed in the app. It shows the
+  Windows share sheet and uses MAPI for email. libs-sharing's Windows code
+  (`GSSharingWin32.m`) backs its own sheet where Windows has none, and its
+  Open With (`SHOpenWithDialog`). The libs-sharing README still calls the
+  Windows backend "the next part", which is out of date.
+- **macOS.** Share uses Apple's `NSSharingServicePicker`, as planned.
+  - Email as goes through `OMDShareMail`: a Mail draft with the document as
+    the body or as an attachment. With another default mail app, a draft
+    opens and the notice offers the file.
+  - rclone is a custom `NSSharingService` added through the picker's
+    delegate (`OMDShareRcloneMac`).
+- **Flatpak.** It shares through the desktop portals (email, OpenURI,
+  documents) and offers no rclone. Email to a mail app that the email
+  portal doesn't know gets a draft plus the "attach this file" notice.
+- **Drag-out.** On Linux the sheet's file icon drags the file out as
+  `text/uri-list` into browsers, mail apps and the file manager. Windows
+  has no drag-out, because libs-back's win32 backend has no OLE drag and
+  drop (#213).
+
+### Open for 0.2.7
+
+- #304 (Linux): the Share panel's Show in Folder selects the staged copy
+  for a share of the saved document. PR #311 fixes it the way #298 did on
+  Windows. It waits for 0.2.6 final.
+- Show in Folder chooses the document only when its extension is
+  lower-case `md`. `.markdown`, `.MD`, `.mdown`, and `.TXT` in plain-text
+  mode still get the staged copy. Markdown Viewer Windows has the
+  case-insensitive check in c921369, which isn't in #311.
+- libs-sharing#26 (Windows 11): Esc in Open With's chooser closes the whole
+  sheet, because `SHOpenWithDialog` returns `S_OK`.
+
+### Still open, not scheduled
+
+- #177 (macOS): a by-eye check of pasting Copy Rendered and Copy for Slack
+  into Mail, Teams and Slack. It needs Dan's Mac and his Teams and Slack.
+  If Slack shows Copy for Slack's `*bold*` as typed, the follow-up adds an
+  HTML version.
+- #198: rclone links have only been made with a stand-in, never with a
+  real remote. The first real OneDrive link should confirm the
+  organisation-only scope.
+- #197: GNOME Online Accounts links haven't been started. The spike's
+  risks below still apply (tenant consent, token scopes, the Flatpak).
+- #213 (Windows): dragging a file out needs OLE drag and drop in libs-back
+  win32. That is a GNUstep change and goes through
+  `docs/UPSTREAM_POLICY.md`.
+- Upstream: libs-sharing hasn't been offered to libs-gui. Offering it needs
+  Dan's sign-off under `docs/UPSTREAM_POLICY.md`.
 
 ## Goals
 
@@ -311,9 +404,17 @@ Then Dan decides: cut a release, or go on to milestone 2.
 
 ## Open questions
 
-- Should the Share menu list Word only, or Word and ODT, for people outside
-  Microsoft shops?
-- Teams: Dan pastes short documents and attaches long ones. Should Share
-  suggest one or the other from the document length, or leave it to the
-  menu?
-- The library's name and home (danjboyd/libs-sharing, then GNUstep).
+Settled by what shipped:
+- Word or ODT: Share lists Word only, and ODT stays under File > Export.
+- Paste or attach for Teams: the menu leaves it to the user, and Share
+  suggests neither from the document's length.
+- The library's name and home: danjboyd/libs-sharing.
+
+Still open:
+- When to offer libs-sharing to GNUstep (libs-gui), and in what form. Its
+  method-installing design was chosen so the code can move into libs-gui
+  later. Dan decides, under `docs/UPSTREAM_POLICY.md`.
+- Whether to build the remaining library services (Send to Phone) or drop
+  them from the plan.
+- GNOME Online Accounts (#197): whether it's still wanted now that rclone
+  links ship.
