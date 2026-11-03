@@ -6,6 +6,7 @@
 #import "OMRenderedObject.h"
 #import "OMTextTable.h"
 #import "OMMarkdownRenderer.h"
+#import "OMDBlockEditor.h"
 
 @interface OMDTextView ()
 {
@@ -700,9 +701,56 @@ NSUInteger OMDTaskItemIndexAtCharacterIndex(NSAttributedString *text, NSUInteger
     return resigned;
 }
 
+#pragma mark - Edit Block (#294)
+
+@synthesize blockEditor = _blockEditor;
+
+- (BOOL)hasOpenBlock
+{
+    return _blockEditor != nil && [_blockEditor isOpen];
+}
+
+// With a block open, only edits inside it.
+- (BOOL)shouldChangeTextInRange:(NSRange)affectedCharRange replacementString:(NSString *)replacementString
+{
+    if ([self hasOpenBlock] && ![_blockEditor allowsChangeInRange:affectedCharRange]) {
+        return NO;
+    }
+    return [super shouldChangeTextInRange:affectedCharRange replacementString:replacementString];
+}
+
+#if !defined(GNUSTEP)
+- (BOOL)shouldChangeTextInRanges:(NSArray *)affectedRanges replacementStrings:(NSArray *)replacementStrings
+{
+    if ([self hasOpenBlock]) {
+        for (NSValue *value in affectedRanges) {
+            if (![_blockEditor allowsChangeInRange:[value rangeValue]]) {
+                return NO;
+            }
+        }
+    }
+    return [super shouldChangeTextInRanges:affectedRanges replacementStrings:replacementStrings];
+}
+#endif
+
+- (void)askToCloseOpenBlock
+{
+    id delegate = [self delegate];
+    if ([delegate respondsToSelector:@selector(textViewShouldCloseOpenBlock:)]) {
+        [(id<OMDTextViewRenderedObjectDelegate>)delegate textViewShouldCloseOpenBlock:self];
+    }
+}
+
 - (void)mouseDown:(NSEvent *)event
 {
     NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
+    if ([self hasOpenBlock]) {
+        NSUInteger clicked = [self characterIndexNearestPoint:point];
+        NSRange open = [_blockEditor openRange];
+        if (clicked == NSNotFound || clicked < open.location || clicked > NSMaxRange(open)) {
+            [self askToCloseOpenBlock];
+        }
+    }
     // A plain click on a task box toggles it, and leaves the selection as it
     // is; the second click of a double-click does nothing more.
     NSUInteger modifiers = [event modifierFlags] & (NSShiftKeyMask | NSControlKeyMask |
@@ -741,6 +789,10 @@ NSUInteger OMDTaskItemIndexAtCharacterIndex(NSAttributedString *text, NSUInteger
 {
     NSString *characters = [event charactersIgnoringModifiers];
     NSRange selection = [self selectedRange];
+    if ([self hasOpenBlock] && [characters length] == 1 && [characters characterAtIndex:0] == 0x1B) {
+        [self askToCloseOpenBlock];
+        return;
+    }
     if (![self isEditable] && selection.length > 0 &&
         [characters length] == 1 && [characters characterAtIndex:0] == 0x1B) {
         [self setSelectedRange:NSMakeRange(selection.location, 0)];

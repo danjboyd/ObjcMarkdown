@@ -26,6 +26,7 @@ typedef unsigned short mode_t;
 @class OMDRenderScheduler;
 @class OMDOutlineController;
 @class OMDShareController;
+@class OMDBlockEditor;
 
 // GNUstep names the menu validation protocol NSMenuValidation; macOS 10.14
 // renamed it NSMenuItemValidation.
@@ -128,6 +129,13 @@ typedef unsigned short mode_t;
     // click on a box maps to its source only while that is the editor's text.
     NSArray *_previewTaskItems;
     NSString *_previewTaskItemsMarkdown;
+    // The preview's editable blocks, from the same render (Edit Block, #294),
+    // the open block's editor while one is open, and whether a source change
+    // is the open block's own.
+    NSArray *_previewEditableBlocks;
+    OMDBlockEditor *_blockEditor;
+    BOOL _isBlockEditorSourceEdit;
+    BOOL _previewAllowedUndoBeforeBlock;
     NSTimeInterval _lastZoomSliderEventTime;
     CGFloat _lastRenderedLayoutWidth;
     NSInteger _activeLinkedScrollDriver;

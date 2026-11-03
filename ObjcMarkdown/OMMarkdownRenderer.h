@@ -56,6 +56,15 @@ OM_EXPORT NSString * const OMMarkdownRendererTaskItemSourceLocationKey;
 // carries it is the n-th item.
 OM_EXPORT NSString * const OMMarkdownRendererTaskItemAttributeName;
 
+// Keys in the dictionaries returned by -editableBlocks (#294).
+OM_EXPORT NSString * const OMMarkdownRendererEditableBlockKindKey;         // NSString: @"paragraph"
+OM_EXPORT NSString * const OMMarkdownRendererEditableBlockSourceRangeKey;  // NSValue, UTF-16 range in the markdown
+// Attribute (@YES) on the rendered text of each block in -editableBlocks:
+// the n-th run that carries it is the n-th block, and the run is the block's
+// range in the rendered string. (Not an index, so inserting a block leaves
+// the attributes of the blocks below it as they were.)
+OM_EXPORT NSString * const OMMarkdownRendererEditableBlockAttributeName;
+
 // Keys in the dictionaries returned by -diagramBlocks.
 OM_EXPORT NSString * const OMMarkdownRendererDiagramRangeKey;
 OM_EXPORT NSString * const OMMarkdownRendererDiagramSourceKey;
@@ -114,5 +123,9 @@ OM_EXPORT NSString * const OMMarkdownRendererDiagramSourceKey;
 // When YES, the task boxes also show a pointing hand (NSCursorAttributeName),
 // for a view where clicking a box toggles it. NO by default.
 @property (nonatomic, assign) BOOL interactiveTaskItems;
+// One dictionary per block that Edit Block can open in place (keys above),
+// in document order. For now paragraphs only: the spike for #294. A block
+// is listed only if its source range was found exactly.
+@property (nonatomic, readonly) NSArray *editableBlocks;
 
 @end

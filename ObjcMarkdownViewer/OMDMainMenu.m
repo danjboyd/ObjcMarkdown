@@ -388,6 +388,11 @@ static void OMDUseEllipsisCharacters(NSMenu *menu)
                                                                 action:@selector(revealPreviewSelectionInSource:)
                                                          keyEquivalent:@""];
     [revealItem setTarget:target];
+    // Opens the preview's block as Markdown, in place; again closes it (#294).
+    NSMenuItem *editBlockItem = (NSMenuItem *)[editMenu addItemWithTitle:@"Edit Block"
+                                                                   action:@selector(editBlock:)
+                                                            keyEquivalent:@"\r"];
+    [editBlockItem setTarget:target];
     [editMenuItem setSubmenu:editMenu];
 
     NSMenuItem *viewMenuItem = [[[NSMenuItem alloc] initWithTitle:@"View"

@@ -69,6 +69,8 @@ typedef struct {
     NSMutableData *sourceLineStarts;
     NSMutableArray *taskItems;
     BOOL interactiveTaskItems;
+    // Blocks Edit Block can open, with their source ranges (#294).
+    NSMutableArray *editableBlocks;
     // The list contexts enclosing the block being rendered (see OMRenderList).
     NSMutableArray *listStack;
     // Hashed source lines for block IDs (see OMBlockSignatureIndex).
