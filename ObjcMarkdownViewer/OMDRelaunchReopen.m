@@ -52,3 +52,35 @@ NSArray *OMDRelaunchReopenPathsForLaunch(NSDictionary *record,
     }
     return result;
 }
+
+static void OMDRelaunchReopenOpenFrom(NSArray *paths,
+                                      NSUInteger index,
+                                      void (^open)(NSString *path, void (^done)(void)),
+                                      void (^finished)(void))
+{
+    if (index >= [paths count]) {
+        if (finished != nil) {
+            finished();
+        }
+        return;
+    }
+    open([paths objectAtIndex:index], ^{
+        OMDRelaunchReopenOpenFrom(paths, index + 1, open, finished);
+    });
+}
+
+void OMDRelaunchReopenOpenInOrder(NSArray *paths,
+                                  void (^open)(NSString *path, void (^done)(void)),
+                                  void (^finished)(void))
+{
+    NSMutableArray *distinct = [NSMutableArray array];
+    for (NSString *path in paths) {
+        if (![distinct containsObject:path]) {
+            [distinct addObject:path];
+        }
+    }
+    if (open == nil) {
+        [distinct removeAllObjects];
+    }
+    OMDRelaunchReopenOpenFrom(distinct, 0, open, finished);
+}

@@ -23,3 +23,12 @@ NSDictionary *OMDRelaunchReopenRecordMake(NSString *version, NSArray *paths, NSS
 NSArray *OMDRelaunchReopenPathsForLaunch(NSDictionary *record,
                                          NSString *currentVersion,
                                          BOOL (^fileExists)(NSString *path));
+
+// Opens each of the paths once, in order, one at a time: open is called
+// for the next path only when the one before has called its done block
+// (copy it to call it later). Opens that finish asynchronously, as
+// NSDocumentController's do, then still make their windows and tabs in
+// this order (#315). finished runs after the last one is done.
+void OMDRelaunchReopenOpenInOrder(NSArray *paths,
+                                  void (^open)(NSString *path, void (^done)(void)),
+                                  void (^finished)(void));
