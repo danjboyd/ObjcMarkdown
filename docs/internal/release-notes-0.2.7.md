@@ -8,7 +8,7 @@ misses rc1.
 ---
 
 **New since 0.2.6**
-- Read view: Edit Block opens a paragraph's Markdown in place and renders it again when you're done (#294). Pending: the spike decides whether it ships in 0.2.7 (draft PR, paragraphs only).
+- Read view: Edit Block opens a paragraph's Markdown in place and renders it again when you're done (#294). Pending: the spike (#332, paragraphs only) decides whether it ships in 0.2.7.
 
 **Fixed since 0.2.6**
 - macOS: Split keeps the ratio you dragged. New tabs no longer open with the preview at about 15% (#312).
@@ -54,7 +54,7 @@ misses rc1.
 | #328 | #164 the source highlighter sets only changed colours | green; CPU per key to be measured against the ~44 ms baseline |
 | #330 | #324 Windows math: premultiplied pixels, themed ink (draft) | Windows MSI check in dark and light |
 | `share-panel-email-304` | #304 Windows: the Share panel's Email uses the app's presenter | local (markdown-viewer-windows) |
-| Edit Block spike (draft) | #294 paragraphs only, with the minimal-edit test | go/stop in the morning report |
+| #332 | #294 Edit Block spike: paragraphs only, with the minimal-edit test (draft) | go/stop in the morning report |
 | #316, #313 | Adwaita alpha19; gnustep-packager v0.1.6 | markdown-viewer-linux |
 
 ## Checklist
