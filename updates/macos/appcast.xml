@@ -4,13 +4,13 @@
     <title>MarkdownViewer</title>
     <link>https://github.com/danjboyd/ObjcMarkdown</link>
     <item>
-      <title>0.2.5</title>
-      <link>https://github.com/danjboyd/ObjcMarkdown/releases/tag/v0.2.5</link>
-      <sparkle:version>354</sparkle:version>
-      <sparkle:shortVersionString>0.2.5</sparkle:shortVersionString>
+      <title>0.2.6</title>
+      <link>https://github.com/danjboyd/ObjcMarkdown/releases/tag/v0.2.6</link>
+      <sparkle:version>429</sparkle:version>
+      <sparkle:shortVersionString>0.2.6</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>11.0</sparkle:minimumSystemVersion>
-      <pubDate>Thu, 22 Oct 2026 18:38:18 +0000</pubDate>
-      <enclosure url="https://github.com/danjboyd/ObjcMarkdown/releases/download/v0.2.5/MarkdownViewer-0.2.5-macos.dmg" sparkle:edSignature="Ie+MLkHTkA6tDh3GXEzeyKMQGD+HfcqbCHerrPiZK4ugYM8y0Vp+MlCqb5gkguLNSJdyTPq/OE+XOOFy/NnjCg==" length="5554979" type="application/octet-stream"/>
+      <pubDate>Tue, 03 Nov 2026 21:59:49 +0000</pubDate>
+      <enclosure url="https://github.com/danjboyd/ObjcMarkdown/releases/download/v0.2.6/MarkdownViewer-0.2.6-macos.dmg" sparkle:edSignature="9M1EalbkNu2TrQ0KccHqTBSR3BE4HabDckSvBSFx45I1qS17m7XKJizKvFvsdA8lF7MTVB1OIaLCRTAY2CG1Ag==" length="5829589" type="application/octet-stream"/>
     </item>
   </channel>
 </rss>
