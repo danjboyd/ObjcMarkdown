@@ -55,3 +55,12 @@ NSFont *OMDChromeBoldFont(void);
 NSFont *OMDChromeSmallFont(void);
 // The height a line of text in this font needs.
 CGFloat OMDChromeLineHeight(NSFont *font);
+
+// The width to lay a scroll view's document out for when its vertical
+// scroller comes and goes by itself: the width beside that scroller,
+// whether or not it shows yet. Laid out for the width without it, a long
+// document is wider than the view once the scroller appears, and a
+// horizontal scroller shows (#319), or it has to be laid out again (#121).
+// 0 when the vertical scroller takes no width (none, one that never hides,
+// or macOS's overlay scrollers): then lay out for the view's width.
+CGFloat OMDScrollViewWidthBesideVerticalScroller(NSScrollView *scrollView);
