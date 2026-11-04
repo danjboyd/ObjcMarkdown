@@ -4,6 +4,9 @@
 #import "OMDBlockEditor.h"
 #import "OMMarkdownRenderer.h"
 
+#include <stdint.h>
+#include <stdlib.h>
+
 NSString * const OMDOpenBlockAttributeName = @"OMDOpenBlock";
 
 NSUInteger OMDEditableBlockIndexAtCharacterIndex(NSAttributedString *text,
@@ -45,6 +48,101 @@ NSUInteger OMDEditableBlockIndexAtCharacterIndex(NSAttributedString *text,
         index = NSMaxRange(run) > index ? NSMaxRange(run) : index + 1;
     }
     return NSNotFound;
+}
+
+static BOOL OMDBlockCharacterIsSpace(unichar c)
+{
+    return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == 0x2028 || c == 0x2029 || c == 0x00A0;
+}
+
+static BOOL OMDBlockCharactersMatch(unichar rendered, unichar source)
+{
+    if (rendered == source) {
+        return YES;
+    }
+    return OMDBlockCharacterIsSpace(rendered) && OMDBlockCharacterIsSpace(source);
+}
+
+// The rendered text is aligned with the source by a longest common
+// subsequence, traced back from the end so that each character is matched
+// as late as it can be: the space before "and" in "[link](u \"t\") and" is
+// the one after the link, not the one inside it. Past the size limit, the
+// characters are matched in order, each at its first match.
+NSUInteger OMDBlockSourceOffsetForRenderedOffset(NSString *rendered,
+                                                 NSString *source,
+                                                 NSUInteger renderedOffset)
+{
+    NSUInteger n = [rendered length];
+    NSUInteger m = [source length];
+    if (renderedOffset > n) {
+        renderedOffset = n;
+    }
+    if (renderedOffset == 0 || m == 0) {
+        return 0;
+    }
+    const NSUInteger limit = 1500;
+    if (n > limit || m > limit) {
+        NSUInteger position = 0;
+        for (NSUInteger r = 0; r < renderedOffset && position < m; r++) {
+            unichar c = [rendered characterAtIndex:r];
+            for (NSUInteger k = position; k < m; k++) {
+                if (OMDBlockCharactersMatch(c, [source characterAtIndex:k])) {
+                    position = k + 1;
+                    break;
+                }
+            }
+        }
+        return position;
+    }
+
+    unichar *r = (unichar *)malloc(sizeof(unichar) * n);
+    unichar *s = (unichar *)malloc(sizeof(unichar) * m);
+    uint16_t *table = (uint16_t *)calloc((n + 1) * (m + 1), sizeof(uint16_t));
+    if (r == NULL || s == NULL || table == NULL) {
+        free(r);
+        free(s);
+        free(table);
+        return 0;
+    }
+    [rendered getCharacters:r range:NSMakeRange(0, n)];
+    [source getCharacters:s range:NSMakeRange(0, m)];
+#define OMD_LCS(i, j) table[(i) * (m + 1) + (j)]
+    for (NSUInteger i = 1; i <= n; i++) {
+        for (NSUInteger j = 1; j <= m; j++) {
+            if (OMDBlockCharactersMatch(r[i - 1], s[j - 1])) {
+                OMD_LCS(i, j) = (uint16_t)(OMD_LCS(i - 1, j - 1) + 1);
+            } else {
+                uint16_t up = OMD_LCS(i - 1, j);
+                uint16_t left = OMD_LCS(i, j - 1);
+                OMD_LCS(i, j) = up > left ? up : left;
+            }
+        }
+    }
+    // The source position after the last rendered character before the
+    // caret that has a match.
+    NSUInteger result = 0;
+    NSUInteger i = n;
+    NSUInteger j = m;
+    while (i > 0 && j > 0) {
+        if (OMDBlockCharactersMatch(r[i - 1], s[j - 1]) &&
+            OMD_LCS(i, j) == OMD_LCS(i - 1, j - 1) + 1) {
+            if (i - 1 < renderedOffset) {
+                result = j;
+                break;
+            }
+            i -= 1;
+            j -= 1;
+        } else if (OMD_LCS(i, j - 1) >= OMD_LCS(i - 1, j)) {
+            j -= 1;
+        } else {
+            i -= 1;
+        }
+    }
+#undef OMD_LCS
+    free(r);
+    free(s);
+    free(table);
+    return result;
 }
 
 @implementation OMDBlockEditor

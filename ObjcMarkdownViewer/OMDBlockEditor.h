@@ -31,6 +31,17 @@ NSUInteger OMDEditableBlockIndexAtCharacterIndex(NSAttributedString *text,
                                                  NSUInteger characterIndex,
                                                  NSRange *renderedRange);
 
+// Where a caret at renderedOffset in a block's rendered text falls in the
+// block's source: the rendered text is aligned with the source, skipping
+// the markup the renderer drops (emphasis markers, link destinations,
+// entity names, the markers of continuation lines), and the caret goes
+// just after the source character of the last rendered character before
+// it. A soft line break matches any white space. The result is between 0
+// and the source's length.
+NSUInteger OMDBlockSourceOffsetForRenderedOffset(NSString *rendered,
+                                                 NSString *source,
+                                                 NSUInteger renderedOffset);
+
 @interface OMDBlockEditor : NSObject
 {
     NSTextStorage *_previewStorage;

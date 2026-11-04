@@ -9342,6 +9342,12 @@ static NSRange OMDCharacterRangeForSourceLines(NSString *source, NSRange lineRan
     }
 
     NSTextStorage *storage = [_textView textStorage];
+    // The caret goes where it was in the rendered text.
+    NSUInteger caret = [_textView selectedRange].location;
+    NSUInteger renderedOffset = caret > rendered.location ? caret - rendered.location : 0;
+    NSUInteger sourceOffset = OMDBlockSourceOffsetForRenderedOffset([[storage string] substringWithRange:rendered],
+                                                                    [[_sourceTextView string] substringWithRange:sourceRange],
+                                                                    renderedOffset);
     NSMutableDictionary *attributes = [NSMutableDictionary dictionary];
     NSFont *font = [_sourceTextView font];
     if (font == nil) {
@@ -9377,7 +9383,7 @@ static NSRange OMDCharacterRangeForSourceLines(NSString *source, NSRange lineRan
     [typing setObject:[NSNumber numberWithBool:YES] forKey:OMDOpenBlockAttributeName];
     [_textView setTypingAttributes:typing];
     [[_textView window] makeFirstResponder:_textView];
-    [_textView setSelectedRange:NSMakeRange([editor openRange].location, 0)];
+    [_textView setSelectedRange:NSMakeRange([editor openRange].location + MIN(sourceOffset, [editor openRange].length), 0)];
     [_textView scrollRangeToVisible:[editor openRange]];
 }
 

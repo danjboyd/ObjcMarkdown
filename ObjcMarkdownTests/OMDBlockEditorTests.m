@@ -344,6 +344,114 @@ static NSArray *OMDTestSpecMarkdown(NSString *path)
     XCTAssertTrue(checked > 400);
 }
 
+// The rendered text of the index-th editable block of rendered.
+static NSString *OMDTestRenderedBlock(NSAttributedString *rendered, NSString *containing, NSRange *range)
+{
+    NSUInteger at = [[rendered string] rangeOfString:containing].location;
+    NSRange found = NSMakeRange(NSNotFound, 0);
+    if (at == NSNotFound || OMDEditableBlockIndexAtCharacterIndex(rendered, at, &found) == NSNotFound) {
+        return nil;
+    }
+    if (range != NULL) {
+        *range = found;
+    }
+    return [[rendered string] substringWithRange:found];
+}
+
+// The source before the caret, for a caret just after `before` in the
+// block's rendered text.
+- (NSString *)sourceBeforeCaretAfter:(NSString *)before
+                            inBlock:(NSString *)renderedBlock
+                             source:(NSString *)blockSource
+{
+    NSRange at = [renderedBlock rangeOfString:before];
+    XCTAssertTrue(at.location != NSNotFound, @"%@ not in %@", before, renderedBlock);
+    if (at.location == NSNotFound) {
+        return nil;
+    }
+    NSUInteger offset = OMDBlockSourceOffsetForRenderedOffset(renderedBlock, blockSource, NSMaxRange(at));
+    return [blockSource substringToIndex:offset];
+}
+
+// Edit Block opens with the caret where it was in the rendered text.
+- (void)testTheCaretKeepsItsPlaceInTheSource
+{
+    NSString *markdown = [self corpusDocument];
+    OMMarkdownRenderer *renderer = [self renderer];
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
+    NSArray *blocks = [renderer editableBlocks];
+    XCTAssertEqual([blocks count], (NSUInteger)7);
+    if ([blocks count] != 7) {
+        return;
+    }
+    NSString *(^sourceOf)(NSUInteger) = ^NSString *(NSUInteger index) {
+        NSRange range = [[[blocks objectAtIndex:index] objectForKey:OMMarkdownRendererEditableBlockSourceRangeKey] rangeValue];
+        return [markdown substringWithRange:range];
+    };
+
+    NSString *plain = OMDTestRenderedBlock(rendered, @"A plain", NULL);
+    NSString *plainSource = sourceOf(0);
+    XCTAssertEqual(OMDBlockSourceOffsetForRenderedOffset(plain, plainSource, 0), (NSUInteger)0);
+    XCTAssertEqual(OMDBlockSourceOffsetForRenderedOffset(plain, plainSource, [plain length]), [plainSource length]);
+    XCTAssertTrue(OMDTestEndsWith([self sourceBeforeCaretAfter:@"with " inBlock:plain source:plainSource], @"with "));
+    XCTAssertTrue(OMDTestEndsWith([self sourceBeforeCaretAfter:@"empha" inBlock:plain source:plainSource], @"*empha"));
+    XCTAssertTrue(OMDTestEndsWith([self sourceBeforeCaretAfter:@"cod" inBlock:plain source:plainSource], @"`cod"));
+    // After the link, not inside its destination or title.
+    XCTAssertTrue(OMDTestEndsWith([self sourceBeforeCaretAfter:@"link a" inBlock:plain source:plainSource], @"\"t\") a"));
+    XCTAssertTrue(OMDTestEndsWith([self sourceBeforeCaretAfter:@"& an" inBlock:plain source:plainSource], @"&amp; an"));
+    XCTAssertTrue(OMDTestEndsWith([self sourceBeforeCaretAfter:@"second" inBlock:plain source:plainSource], @"\nIt wraps onto a second"));
+
+    NSString *unicode = OMDTestRenderedBlock(rendered, @"Unicode", NULL);
+    NSString *unicodeSource = sourceOf(1);
+    XCTAssertTrue(OMDTestEndsWith([self sourceBeforeCaretAfter:@"\U0001F600" inBlock:unicode source:unicodeSource], @"emoji \U0001F600"));
+    XCTAssertTrue(OMDTestEndsWith([self sourceBeforeCaretAfter:@"日本" inBlock:unicode source:unicodeSource], @"日本"));
+
+    // The second line of a quote: after its marker.
+    NSString *quote = OMDTestRenderedBlock(rendered, @"A quoted", NULL);
+    NSString *quoteSource = sourceOf(4);
+    XCTAssertTrue(OMDTestEndsWith([self sourceBeforeCaretAfter:@"paragraph" inBlock:quote source:quoteSource], @"A quoted paragraph"));
+    XCTAssertTrue(OMDTestEndsWith([self sourceBeforeCaretAfter:@"on" inBlock:quote source:quoteSource], @"> on"));
+}
+
+// Over the spec's paragraphs: the caret's place in the source never moves
+// back as it moves on in the rendered text, and stays inside the block.
+- (void)testTheCaretsPlaceInTheSourceMovesForwardWithIt
+{
+    NSString *path = [[NSString stringWithUTF8String:OM_SPEC_DIR] stringByAppendingPathComponent:@"spec.txt"];
+    NSArray *examples = OMDTestSpecMarkdown(path);
+    XCTAssertTrue([examples count] > 600);
+    NSUInteger checked = 0;
+    for (NSString *markdown in examples) {
+        OMMarkdownRenderer *renderer = [self renderer];
+        NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
+        NSArray *blocks = [renderer editableBlocks];
+        NSUInteger index = 0;
+        NSUInteger blockIndex = 0;
+        while (index < [rendered length] && blockIndex < [blocks count]) {
+            NSRange run = NSMakeRange(index, 1);
+            id value = [rendered attribute:OMMarkdownRendererEditableBlockAttributeName atIndex:index
+                     longestEffectiveRange:&run inRange:NSMakeRange(0, [rendered length])];
+            if (value != nil) {
+                NSString *text = [[rendered string] substringWithRange:run];
+                NSRange sourceRange = [[[blocks objectAtIndex:blockIndex] objectForKey:OMMarkdownRendererEditableBlockSourceRangeKey] rangeValue];
+                NSString *source = [markdown substringWithRange:sourceRange];
+                NSUInteger previous = 0;
+                for (NSUInteger offset = 0; offset <= [text length]; offset++) {
+                    NSUInteger at = OMDBlockSourceOffsetForRenderedOffset(text, source, offset);
+                    XCTAssertTrue(at >= previous && at <= [source length],
+                                  @"offset %lu -> %lu (previous %lu) in %@ / %@",
+                                  (unsigned long)offset, (unsigned long)at, (unsigned long)previous, text, source);
+                    previous = at;
+                }
+                checked += 1;
+                blockIndex += 1;
+            }
+            index = NSMaxRange(run) > index ? NSMaxRange(run) : index + 1;
+        }
+    }
+    XCTAssertTrue(checked > 400);
+}
+
 // An edit that touches text outside the open block (here, made directly on
 // the storage, as no view would allow it) marks the editor out of sync
 // instead of changing the source.
