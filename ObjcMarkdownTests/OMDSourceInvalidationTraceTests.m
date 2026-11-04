@@ -73,6 +73,31 @@ static void OMDTraceNote(NSString *what, NSRect rect, NSRect bounds)
 }
 @end
 
+@interface OMDTraceContentView : NSView
+@end
+@implementation OMDTraceContentView
+- (void)setNeedsDisplayInRect:(NSRect)rect
+{
+    OMDTraceNote(@"contentView", rect, [self bounds]);
+    [super setNeedsDisplayInRect:rect];
+}
+@end
+
+@interface OMDTraceScrollView : NSScrollView
+@end
+@implementation OMDTraceScrollView
+- (void)setNeedsDisplayInRect:(NSRect)rect
+{
+    OMDTraceNote(@"scrollView", rect, [self bounds]);
+    [super setNeedsDisplayInRect:rect];
+}
+- (void)tile
+{
+    OMDTraceNote(@"scrollView.tile", NSZeroRect, NSZeroRect);
+    [super tile];
+}
+@end
+
 @interface OMDTraceRuler : OMDLineNumberRulerView
 @end
 @implementation OMDTraceRuler
@@ -114,15 +139,17 @@ static void OMDTraceNote(NSString *what, NSRect rect, NSRect bounds)
         return;
     }
     [NSApplication sharedApplication];
-    if (getenv("OMD_TRACE_THEME") != NULL) {
-        [GSTheme setTheme:[GSTheme loadThemeNamed:[NSString stringWithUTF8String:getenv("OMD_TRACE_THEME")]]];
-        fprintf(stderr, "OMDTrace theme %s\n", [[[GSTheme theme] name] UTF8String]);
-    }
+    // The theme the defaults chose is active already. Don't load another
+    // instance of it: GSTheme records "old" methods when an instance is
+    // made, so it would record the active theme's overrides as the
+    // originals, and -tile would call itself until the stack ran out.
+    fprintf(stderr, "OMDTrace theme %s\n", [[[GSTheme theme] name] UTF8String]);
     NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 640, 480)
                                                    styleMask:NSTitledWindowMask
                                                      backing:NSBackingStoreBuffered
                                                        defer:NO];
-    NSScrollView *scroll = [[[NSScrollView alloc] initWithFrame:[[window contentView] bounds]] autorelease];
+    [window setContentView:[[[OMDTraceContentView alloc] initWithFrame:[[window contentView] frame]] autorelease]];
+    NSScrollView *scroll = [[[OMDTraceScrollView alloc] initWithFrame:[[window contentView] bounds]] autorelease];
     [scroll setContentView:[[[OMDTraceClipView alloc] initWithFrame:[[scroll contentView] frame]] autorelease]];
     [scroll setHasVerticalScroller:YES];
     [scroll setHasVerticalRuler:YES];
@@ -150,6 +177,11 @@ static void OMDTraceNote(NSString *what, NSRect rect, NSRect bounds)
         unichar c = [typed characterAtIndex:k % [typed length]];
         OMDTracePhase = @"key";
         [view insertText:[NSString stringWithCharacters:&c length:1]];
+        // What -updateWindowTitle does on every change.
+        OMDTracePhase = @"title";
+        [window setRepresentedFilename:@""];
+        [window setTitle:@"Untitled"];
+        [window setDocumentEdited:YES];
         OMDTracePhase = @"keyDisplay";
         [window displayIfNeeded];
         // What the 80 ms debounce does between keys.
