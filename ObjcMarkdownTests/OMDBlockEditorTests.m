@@ -63,6 +63,29 @@
 
 @end
 
+// Counts the undo actions it gets, as the window controller's block undo.
+@interface OMDTestUndoTarget : NSObject
+{
+@public
+    NSUInteger _undos;
+    NSDictionary *_last;
+}
+@end
+
+@implementation OMDTestUndoTarget
+- (void)dealloc
+{
+    [_last release];
+    [super dealloc];
+}
+- (void)undoChange:(NSDictionary *)change
+{
+    _undos += 1;
+    [_last release];
+    _last = [change copy];
+}
+@end
+
 // -hasPrefix: and -hasSuffix: are NO for an empty string on macOS.
 static BOOL OMDTestStartsWith(NSString *string, NSString *prefix)
 {
@@ -450,6 +473,71 @@ static NSString *OMDTestRenderedBlock(NSAttributedString *rendered, NSString *co
         }
     }
     XCTAssertTrue(checked > 400);
+}
+
+// One opening's edits are undone in one step: the block's source when it
+// was opened, put back over its range as edited, is the document before.
+- (void)testAllOfAnOpeningsEditsUndoInOneStep
+{
+    NSString *markdown = [self corpusDocument];
+    OMMarkdownRenderer *renderer = [self renderer];
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
+    NSRange renderedRange = NSMakeRange(NSNotFound, 0);
+    OMDTestRenderedBlock(rendered, @"A plain", &renderedRange);
+    NSRange sourceRange = [[[[renderer editableBlocks] objectAtIndex:0] objectForKey:OMMarkdownRendererEditableBlockSourceRangeKey] rangeValue];
+    NSTextStorage *preview = [[[NSTextStorage alloc] initWithAttributedString:rendered] autorelease];
+    OMDTestBlockSource *source = [[[OMDTestBlockSource alloc] initWithString:markdown] autorelease];
+    OMDBlockEditor *editor = [[[OMDBlockEditor alloc] initWithPreviewStorage:preview source:source] autorelease];
+    XCTAssertTrue([editor openBlockAtRenderedRange:renderedRange sourceRange:sourceRange attributes:nil]);
+    XCTAssertEqualObjects([editor originalSource], [markdown substringWithRange:sourceRange]);
+
+    NSRange open = [editor openRange];
+    [preview replaceCharactersInRange:NSMakeRange(open.location, 0) withString:@"Now "];
+    [preview replaceCharactersInRange:NSMakeRange(NSMaxRange([editor openRange]) - 1, 1) withString:@"!"];
+    [preview replaceCharactersInRange:NSMakeRange([editor openRange].location + 10, 5) withString:@""];
+    XCTAssertEqual(source->_replacements, (NSUInteger)3);
+    XCTAssertFalse([source->_text isEqualToString:markdown]);
+    XCTAssertEqual([editor sourceRange].location, sourceRange.location);
+
+    [source->_text replaceCharactersInRange:[editor sourceRange] withString:[editor originalSource]];
+    XCTAssertEqualObjects(source->_text, markdown);
+}
+
+// The window controller keeps one undo for an opening: each edit, typed as
+// its own event, removes the opening's earlier registration and registers
+// it again in its own group. One undo then takes the whole opening back,
+// with the record as last updated, and nothing is left to undo: the groups
+// the removal emptied are dropped (on GNUstep as on macOS). A group with no
+// action would be undone as nothing, which is why later edits don't simply
+// leave their groups empty.
+- (void)testAnOpeningsEditsLeaveOneUndo
+{
+    NSUndoManager *undoManager = [[[NSUndoManager alloc] init] autorelease];
+    [undoManager setGroupsByEvent:NO];
+    OMDTestUndoTarget *target = [[[OMDTestUndoTarget alloc] init] autorelease];
+    OMDTestUndoTarget *other = [[[OMDTestUndoTarget alloc] init] autorelease];
+    NSMutableDictionary *record = [NSMutableDictionary dictionary];
+
+    // An earlier edit, not the block's: it stays undoable after.
+    [undoManager beginUndoGrouping];
+    [undoManager registerUndoWithTarget:other selector:@selector(undoChange:) object:[NSDictionary dictionary]];
+    [undoManager endUndoGrouping];
+    for (int typed = 1; typed <= 4; typed++) {
+        [undoManager beginUndoGrouping];
+        [record setObject:[NSNumber numberWithInt:typed] forKey:@"length"];
+        [undoManager removeAllActionsWithTarget:target];
+        [undoManager registerUndoWithTarget:target selector:@selector(undoChange:) object:record];
+        [undoManager endUndoGrouping];
+    }
+    [undoManager undo];
+    XCTAssertEqual(target->_undos, (NSUInteger)1);
+    XCTAssertEqualObjects([target->_last objectForKey:@"length"], [NSNumber numberWithInt:4]);
+    XCTAssertEqual(other->_undos, (NSUInteger)0);
+    // The next undo is the earlier edit's.
+    XCTAssertTrue([undoManager canUndo]);
+    [undoManager undo];
+    XCTAssertEqual(other->_undos, (NSUInteger)1);
+    XCTAssertEqual(target->_undos, (NSUInteger)1);
 }
 
 // An edit that touches text outside the open block (here, made directly on

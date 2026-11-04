@@ -151,6 +151,7 @@ NSUInteger OMDBlockSourceOffsetForRenderedOffset(NSString *rendered,
 @synthesize openRange = _openRange;
 @synthesize sourceRange = _sourceRange;
 @synthesize outOfSync = _outOfSync;
+@synthesize originalSource = _originalSource;
 
 - (instancetype)initWithPreviewStorage:(NSTextStorage *)previewStorage
                                 source:(id<OMDBlockEditorSource>)source
@@ -174,6 +175,7 @@ NSUInteger OMDBlockSourceOffsetForRenderedOffset(NSString *rendered,
     [[NSNotificationCenter defaultCenter] removeObserver:self];
     [_previewStorage release];
     [_openText release];
+    [_originalSource release];
     [super dealloc];
 }
 
@@ -200,6 +202,8 @@ NSUInteger OMDBlockSourceOffsetForRenderedOffset(NSString *rendered,
     _sourceRange = sourceRange;
     [_openText release];
     _openText = [[block string] mutableCopy];
+    [_originalSource release];
+    _originalSource = [[block string] copy];
     _outOfSync = NO;
     _open = YES;
     return YES;

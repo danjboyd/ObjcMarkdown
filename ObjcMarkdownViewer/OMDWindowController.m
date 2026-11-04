@@ -752,6 +752,39 @@ static CGFloat OMDClampedScrollSpeed(CGFloat value)
 - (NSInteger)headingLevelForLine:(NSString *)line;
 @end
 
+// The undo of one opening of Edit Block: the target of its registration,
+// so that each edit can remove the opening's earlier registration (and
+// only that) and register it again. The controller keeps it alive, as an
+// undo manager doesn't retain its targets.
+@interface OMDBlockUndoRecord : NSObject
+{
+@public
+    id _controller;
+    NSUndoManager *_undoManager;
+    NSMutableDictionary *_change;
+}
+@end
+
+@implementation OMDBlockUndoRecord
+- (void)dealloc
+{
+    [_undoManager release];
+    [_change release];
+    [super dealloc];
+}
+
+- (void)undoBlockOpening:(NSDictionary *)change
+{
+    [_controller performSelector:@selector(undoBlockSourceEdit:) withObject:change];
+}
+
+- (void)forget
+{
+    [_undoManager removeAllActionsWithTarget:self];
+    _controller = nil;
+}
+@end
+
 @implementation OMDWindowController
 
 
@@ -883,6 +916,10 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [_previewTaskItemsMarkdown release];
     [_previewEditableBlocks release];
     [_blockEditor release];
+    for (OMDBlockUndoRecord *record in _blockUndoRecords) {
+        [record forget];
+    }
+    [_blockUndoRecords release];
     [_sourceTextView release];
     [_sourceScrollView release];
     [_previewScrollView release];
@@ -9401,6 +9438,7 @@ static NSRange OMDCharacterRangeForSourceLines(NSString *source, NSRange lineRan
     [_textView setAllowsUndo:_previewAllowedUndoBeforeBlock];
     [_blockEditor release];
     _blockEditor = nil;
+    _blockUndoRecord = nil;
 }
 
 // Esc, Command-Return or a click outside: the edit is kept (undo reverts
@@ -9430,25 +9468,62 @@ static NSRange OMDCharacterRangeForSourceLines(NSString *source, NSRange lineRan
     return [_sourceTextView string];
 }
 
+// Each edit of the open block, made in the source. The edits of one
+// opening are undone together: the first registers the undo of the whole
+// block (its source before the opening), and the later ones only keep the
+// block's length in that record up to date. The block's start doesn't
+// move, as every edit is inside it.
 - (BOOL)blockEditor:(OMDBlockEditor *)editor
     replaceSourceCharactersInRange:(NSRange)range
                         withString:(NSString *)string
 {
-    (void)editor;
-    return [self replaceBlockSourceInRange:range withString:string];
+    NSRange block = [editor sourceRange];
+    NSString *source = [_sourceTextView string];
+    if (string == nil || block.location == NSNotFound || NSMaxRange(block) > [source length] ||
+        range.location < block.location || NSMaxRange(range) > NSMaxRange(block)) {
+        return NO;
+    }
+    if (![self applyBlockSourceReplacementInRange:range withString:string]) {
+        return NO;
+    }
+    NSUInteger blockLength = block.length - range.length + [string length];
+    NSUndoManager *undoManager = [[self currentDocument] undoManager];
+    OMDBlockUndoRecord *record = (OMDBlockUndoRecord *)_blockUndoRecord;
+    if (record == nil || record->_undoManager != undoManager) {
+        record = [[[OMDBlockUndoRecord alloc] init] autorelease];
+        record->_controller = self;
+        record->_undoManager = [undoManager retain];
+        record->_change = [[NSMutableDictionary alloc] initWithObjectsAndKeys:
+                              [NSNumber numberWithUnsignedInteger:block.location], @"location",
+                              [editor originalSource], @"string",
+                              nil];
+        if (_blockUndoRecords == nil) {
+            _blockUndoRecords = [[NSMutableArray alloc] init];
+        }
+        [_blockUndoRecords addObject:record];
+        _blockUndoRecord = record;
+    }
+    [record->_change setObject:[NSNumber numberWithUnsignedInteger:blockLength] forKey:@"length"];
+    // Moved to this edit's group: a group left empty would undo as nothing
+    // (testAnOpeningsEditsLeaveOneUndo).
+    [undoManager removeAllActionsWithTarget:record];
+    [undoManager registerUndoWithTarget:record
+                               selector:@selector(undoBlockOpening:)
+                                 object:record->_change];
+    [undoManager setActionName:OMDTypingActionName];
+    return YES;
 }
 
-// Makes an open block's edit in the source, through the editor as a task
-// toggle does (the document and Split follow; the editor's own undo record
-// is left out, for the same GNUstep reason), and registers its undo.
-- (BOOL)replaceBlockSourceInRange:(NSRange)range withString:(NSString *)string
+// Makes an edit in the source through the editor, as a task toggle does
+// (the document and Split follow; the editor's own undo record is left
+// out, for the same GNUstep reason). No undo is registered.
+- (BOOL)applyBlockSourceReplacementInRange:(NSRange)range withString:(NSString *)string
 {
     NSString *source = [_sourceTextView string];
     if (_sourceTextView == nil || string == nil || range.location == NSNotFound ||
         NSMaxRange(range) > [source length]) {
         return NO;
     }
-    NSString *previous = [source substringWithRange:range];
     NSUndoManager *undoManager = [[self currentDocument] undoManager];
     [undoManager disableUndoRegistration];
     _isBlockEditorSourceEdit = YES;
@@ -9462,9 +9537,22 @@ static NSRange OMDCharacterRangeForSourceLines(NSString *source, NSRange lineRan
     }
     _isBlockEditorSourceEdit = NO;
     [undoManager enableUndoRegistration];
-    if (!allowed) {
+    return allowed;
+}
+
+// The same edit, with its undo registered (for undo and redo themselves).
+- (BOOL)replaceBlockSourceInRange:(NSRange)range withString:(NSString *)string
+{
+    NSString *source = [_sourceTextView string];
+    if (_sourceTextView == nil || string == nil || range.location == NSNotFound ||
+        NSMaxRange(range) > [source length]) {
         return NO;
     }
+    NSString *previous = [source substringWithRange:range];
+    if (![self applyBlockSourceReplacementInRange:range withString:string]) {
+        return NO;
+    }
+    NSUndoManager *undoManager = [[self currentDocument] undoManager];
     [undoManager registerUndoWithTarget:self
                                selector:@selector(undoBlockSourceEdit:)
                                  object:[NSDictionary dictionaryWithObjectsAndKeys:
@@ -9483,6 +9571,8 @@ static NSRange OMDCharacterRangeForSourceLines(NSString *source, NSRange lineRan
     if (![self hasLoadedDocument] || _currentDocumentReadOnly) {
         return;
     }
+    // The record may be the open block's, which closing releases.
+    change = [[change copy] autorelease];
     [self detachOpenBlock];
     NSRange range = NSMakeRange([[change objectForKey:@"location"] unsignedIntegerValue],
                                 [[change objectForKey:@"length"] unsignedIntegerValue]);

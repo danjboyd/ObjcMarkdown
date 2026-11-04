@@ -136,6 +136,10 @@ typedef unsigned short mode_t;
     OMDBlockEditor *_blockEditor;
     BOOL _isBlockEditorSourceEdit;
     BOOL _previewAllowedUndoBeforeBlock;
+    // The undo of the open block's edits (one per opening), and every
+    // opening's, which the undo managers don't retain.
+    id _blockUndoRecord;
+    NSMutableArray *_blockUndoRecords;
     NSTimeInterval _lastZoomSliderEventTime;
     CGFloat _lastRenderedLayoutWidth;
     NSInteger _activeLinkedScrollDriver;

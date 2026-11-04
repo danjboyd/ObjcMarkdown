@@ -49,6 +49,7 @@ NSUInteger OMDBlockSourceOffsetForRenderedOffset(NSString *rendered,
     NSRange _openRange;
     NSRange _sourceRange;
     NSMutableString *_openText;
+    NSString *_originalSource;
     BOOL _open;
     BOOL _updatingPreview;
     BOOL _outOfSync;
@@ -79,6 +80,9 @@ NSUInteger OMDBlockSourceOffsetForRenderedOffset(NSString *rendered,
 // The open block's range in the preview, and in the source.
 @property (nonatomic, readonly) NSRange openRange;
 @property (nonatomic, readonly) NSRange sourceRange;
+// The block's source when it was opened: putting it back over sourceRange
+// undoes every edit of this opening at once.
+@property (nonatomic, readonly) NSString *originalSource;
 // YES once an edit couldn't be mirrored (an edit outside the block, or the
 // source refused it); the caller should close the block and render again.
 @property (nonatomic, readonly, getter=isOutOfSync) BOOL outOfSync;
