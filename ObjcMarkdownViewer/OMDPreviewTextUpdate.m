@@ -6,6 +6,8 @@
 #import "OMTextTable.h"
 
 enum { OMDCompareChunkLength = 4096 };
+// Beyond this many separate edits, one big edit is cheaper.
+enum { OMDMaximumSeparateEdits = 4096 };
 
 // How attributes are compared. Before an edit nothing moves; after it,
 // rendered objects keep their content but their source positions shift,
@@ -330,6 +332,70 @@ BOOL OMDChangedRangesForRender(NSAttributedString *current,
     return OMDChangedRanges(current, rendered, currentRangeOut, renderedRangeOut, [NSMutableArray array]);
 }
 
+// Whether the paragraph at range, which holds the same characters in both,
+// is unchanged. Its objects' position updates are collected only if it is.
+static BOOL OMDParagraphUnchanged(NSAttributedString *current,
+                                  NSAttributedString *rendered,
+                                  NSRange range,
+                                  NSMutableArray *positionUpdates)
+{
+    if (!OMDParagraphStylesMatch(current, range.location, rendered, range.location)) {
+        return NO;
+    }
+    NSMutableArray *updates = [NSMutableArray array];
+    OMDCompareContext context = { YES, updates };
+    NSUInteger index = range.location;
+    NSUInteger limit = NSMaxRange(range);
+    while (index < limit) {
+        NSRange rangeA = NSMakeRange(index, 1);
+        NSRange rangeB = NSMakeRange(index, 1);
+        NSDictionary *attributesA = [current attributesAtIndex:index effectiveRange:&rangeA];
+        NSDictionary *attributesB = [rendered attributesAtIndex:index effectiveRange:&rangeB];
+        if (!OMDAttributesEquivalent(attributesA, attributesB, NSParagraphStyleAttributeName, &context)) {
+            return NO;
+        }
+        index = MIN(MIN(NSMaxRange(rangeA), NSMaxRange(rangeB)), limit);
+    }
+    [positionUpdates addObjectsFromArray:updates];
+    return YES;
+}
+
+// The changed paragraphs within range, which holds the same characters in
+// current and rendered, as NSValues; neighbours are joined.
+static NSArray *OMDChangedParagraphs(NSAttributedString *current,
+                                     NSAttributedString *rendered,
+                                     NSRange range,
+                                     NSMutableArray *positionUpdates)
+{
+    NSMutableArray *changed = [NSMutableArray array];
+    NSString *text = [rendered string];
+    NSUInteger index = range.location;
+    NSUInteger limit = NSMaxRange(range);
+    NSRange pending = NSMakeRange(NSNotFound, 0);
+    while (index < limit) {
+        NSRange newline = [text rangeOfString:@"\n"
+                                      options:NSLiteralSearch
+                                        range:NSMakeRange(index, limit - index)];
+        NSUInteger end = (newline.location != NSNotFound ? newline.location + 1 : limit);
+        NSRange paragraph = NSMakeRange(index, end - index);
+        if (!OMDParagraphUnchanged(current, rendered, paragraph, positionUpdates)) {
+            if (pending.location != NSNotFound && NSMaxRange(pending) == index) {
+                pending.length += paragraph.length;
+            } else {
+                if (pending.location != NSNotFound) {
+                    [changed addObject:[NSValue valueWithRange:pending]];
+                }
+                pending = paragraph;
+            }
+        }
+        index = end;
+    }
+    if (pending.location != NSNotFound) {
+        [changed addObject:[NSValue valueWithRange:pending]];
+    }
+    return changed;
+}
+
 NSRange OMDApplyRenderedString(NSTextStorage *storage, NSAttributedString *rendered)
 {
     if (storage == nil || rendered == nil) {
@@ -350,6 +416,31 @@ NSRange OMDApplyRenderedString(NSTextStorage *storage, NSAttributedString *rende
     }
     if (currentRange.length == 0 && renderedRange.length == 0) {
         return NSMakeRange(NSNotFound, 0);
+    }
+    // The same text with some attributes changed (a width-dependent rule or
+    // table across a document, when the window or Split resizes the preview):
+    // a separate edit per changed paragraph, as one edit would make the layout
+    // manager and the storage redo everything between the first and the last.
+    if (currentRange.length == renderedRange.length && currentRange.length > 0 &&
+        [[[storage string] substringWithRange:currentRange]
+            isEqualToString:[[rendered string] substringWithRange:renderedRange]]) {
+        NSMutableArray *kept = [NSMutableArray array];
+        NSArray *changed = OMDChangedParagraphs(storage, rendered, renderedRange, kept);
+        if ([changed count] <= OMDMaximumSeparateEdits) {
+            for (index = 0; index + 1 < [kept count]; index += 2) {
+                [(OMRenderedObject *)[kept objectAtIndex:index]
+                    updateSourcePositionsFromObject:[kept objectAtIndex:index + 1]];
+            }
+            for (NSValue *value in changed) {
+                NSRange paragraph = [value rangeValue];
+                [storage beginEditing];
+                [storage replaceCharactersInRange:paragraph
+                             withAttributedString:[rendered attributedSubstringFromRange:paragraph]];
+                [storage endEditing];
+            }
+            return ([changed count] > 0 ? NSMakeRange(currentRange.location, currentRange.length)
+                                        : NSMakeRange(NSNotFound, 0));
+        }
     }
     // The storage fixes the attributes of the new text itself (a paragraph's
     // closing newline takes the paragraph's style, for one), as it does for
