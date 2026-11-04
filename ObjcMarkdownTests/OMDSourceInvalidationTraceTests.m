@@ -144,6 +144,11 @@ static void OMDTraceNote(NSString *what, NSRect rect, NSRect bounds)
     // made, so it would record the active theme's overrides as the
     // originals, and -tile would call itself until the stack ran out.
     fprintf(stderr, "OMDTrace theme %s\n", [[[GSTheme theme] name] UTF8String]);
+    NSDictionary *global = [[NSUserDefaults standardUserDefaults] persistentDomainForName:NSGlobalDomain];
+    fprintf(stderr, "OMDTrace home=%s GSTheme=%s marker=%s\n",
+            [NSHomeDirectory() UTF8String],
+            [[[global objectForKey:@"GSTheme"] description] UTF8String],
+            [[[global objectForKey:@"OMDPrivateMarker"] description] UTF8String]);
     NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 640, 480)
                                                    styleMask:NSTitledWindowMask
                                                      backing:NSBackingStoreBuffered
