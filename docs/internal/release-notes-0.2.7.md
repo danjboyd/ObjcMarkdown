@@ -19,13 +19,15 @@ misses rc1.
 - Pending: Show in Folder selects the document for any saved Markdown extension (`.markdown`, `.MD`, `.mdown`, and `.TXT` in plain-text mode), not only `.md` (#265, #327).
 - Pending: Windows, dark mode: math draws in the theme's text colour on the page, not as a white patch (#324, #330).
 - Pending: Windows, the Share panel's Email notice names the saved document (#304, branch `share-panel-email-304`).
-- Pending: Builds: the Linux packages bundle a newer Adwaita (#316): alpha22 if it's out, otherwise alpha20 (34104f2); alpha21 breaks the app's launch. Packaging moves to a newer gnustep-packager (#313; v0.1.7 is under review).
+- Pending: Linux and Windows, the app no longer writes six keys into the global defaults domain (NSGlobalDomain), where they reached every GNUstep app (#335).
+- Pending: Preferences no longer shows Menu Bar under the menu button when the Menus setting has never been set (#334).
+- Pending: Linux, switching from Read to Split again on a large document is about three times cheaper: about 1.6 s of CPU instead of about 5 s on a 460 KB document (#318, partial fix 4768d30).
+- Pending: Builds: the Linux packages bundle Adwaita 0.1.0-alpha22 (d274272, #316, PR #336), and the Flatpak starts with the menu button, as the AppImage does (`GnomeThemeMenuStyle = primary`). Packaging moves to gnustep-packager v0.1.7 (#313, PR #337).
 
 **Known issues** (carried over from 0.2.6 unless fixed above; to be confirmed in the rc1 rounds)
 - Windows at 150%: a short black bar at the bottom left of the source pane cuts off the last line (#325). It isn't the backend carry: it looks the same with carry-0.32.0.4 as with 0.32.0.5.
 - Windows: typing in the source editor costs about as much CPU per key as in 0.2.6. #328 cut the redraws by about 35% but not the time per key (about 42 ms before, 47 ms after), so it isn't in rc1 (#164 stays open; #333 covers colouring large documents).
-- Linux and Windows: the app writes six keys into the global defaults domain (NSGlobalDomain) on GNUstep, where they reach every GNUstep app (issue to be filed by markdown-viewer-linux).
-- Linux: Split view can stall on large documents (#318). The libs-gui text-cache fix is going upstream first.
+- Linux: Split view can still stall on large documents (#318). The partial fix above cuts the later switches; the libs-gui text-cache fix is going upstream first.
 - Linux AppImage: opening a second file starts a second copy of the app (#309). Not a regression.
 - Linux: the bundled notification service (gdnc) keeps running after the app quits.
 - macOS with window restoration on: the restored documents come back in reversed tab order.
@@ -56,12 +58,15 @@ misses rc1.
 | #330 | #324 Windows math: premultiplied pixels, themed ink (draft) | Windows only (rc2's MSI shows the white patch too); in the uat2 check |
 | `share-panel-email-304` | #304 Windows: the Share panel's Email uses the app's presenter | local (markdown-viewer-windows) |
 | #332 | #294 Edit Block spike (draft) | moved to 0.2.8 (Dan, #2054); not in 0.2.7 |
-| #316 | Linux packages: newer Adwaita | alpha21 breaks the launch (the theme has a guard); pin alpha22 if out, else alpha20 (34104f2). Flatpak menu default: a question for Dan. markdown-viewer-linux |
-| #313 | gnustep-packager update | v0.1.7 under review. markdown-viewer-linux |
+| #336 | #316 Linux packages: Adwaita alpha22 (d274272); the Flatpak seeds `GnomeThemeMenuStyle = primary` like the AppImage (Dan) | merging on green (Dan, #2383). markdown-viewer-linux |
+| #337 | #313 gnustep-packager v0.1.7 | pending: the MSI comparison. markdown-viewer-linux |
+| 4768d30 | #318 partial: later Read-to-Split switches ~5 s -> ~1.6 s CPU on 460 KB | pending: push asked (#2497). markdown-viewer-linux |
+| #334 | Preferences shows Menu Bar under the menu button when the Menus setting is unset | 0.2.7 item |
+| #335 | Six keys written into NSGlobalDomain on GNUstep | 0.2.7 item |
 
 ## Checklist
 
-- [ ] Scope for rc1 (Dan): which of #326, #327, #330, #304 Email, #316 and #313 are in (#328 and Edit Block are out).
+- [ ] Scope for rc1 (Dan): which of #326, #327, #330, #304 Email, #316 (#336), #313 (#337), #318 (4768d30), #334 and #335 are in (#328 and Edit Block are out).
 - [ ] Merge round (Dan's go, after each PR's on-screen check).
 - [ ] Packaging green on the rc1 commit, untagged: AppImage, Flatpak, MSI, dmg. Record the theme commits: the AppImage's and the MSI's BundledThemes.txt (Adwaita, and WinUITheme with its libs-back carry).
 - [ ] `v0.2.7-rc1` tagged (Dan): tag workflows green, assets complete, pre-release, stable feeds untouched.
@@ -80,7 +85,9 @@ misses rc1.
     - #319 (#320): with a mouse attached (legacy scroll bars), relaunch in Split. There's no horizontal scroll bar under the preview.
     - #321 (#322): smoke.md and a long document in light and dark. Code lines, list items and paragraphs are tight, and the code-block card and quote bar show.
   - **Linux** (AppImage and Flatpak, isolated: private display, home and defaults):
-    - BundledThemes.txt names the pinned Adwaita (alpha22, or alpha20 at 34104f2) if #316 is in, and the app launches with it.
+    - BundledThemes.txt names Adwaita alpha22 (d274272) if #316 is in, and the app launches with it. A fresh Flatpak install starts with the menu button, like the AppImage.
+    - #318: on a large document, the second and later switches from Read to Split are quicker than in 0.2.6.
+    - #334 and #335: with the Menus setting never set, Preferences shows the menu button; after a session, NSGlobalDomain holds none of the app's keys.
     - #304 (#311): the Share panel's Show in Folder selects the saved document.
     - An update from 0.2.6 through a local signed feed (tools/dev/update-test), with the #266 reopen in tab order.
     - Header bar, menus and the Share panel under Adwaita; the window manager's title bar under GNUstep's default theme.
