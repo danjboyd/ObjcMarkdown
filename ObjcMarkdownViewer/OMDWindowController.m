@@ -647,6 +647,8 @@ static CGFloat OMDClampedScrollSpeed(CGFloat value)
 - (void)scrollPreviewToCharacterIndex:(NSUInteger)characterIndex verticalAnchor:(CGFloat)verticalAnchor;
 - (void)scrollSourceToCharacterIndex:(NSUInteger)characterIndex verticalAnchor:(CGFloat)verticalAnchor;
 - (void)applySplitViewRatio;
+- (BOOL)splitDividerPositionFromRatio:(CGFloat *)positionOut;
+- (void)setSplitPaneFramesFromRatio;
 - (void)persistSplitViewRatio;
 - (BOOL)isPreviewVisible;
 - (void)updateWindowTitle;
@@ -5822,6 +5824,9 @@ static CGFloat OMDOutlinePanelWidth(NSRect bounds)
     [_splitView setFrame:bounds];
     [_sourceEditorContainer setHidden:NO];
     [_previewScrollView setHidden:NO];
+    // The panes still have the frames another mode left them. Going through
+    // those to the split's ratio lays out both documents at each width (#318).
+    [self setSplitPaneFramesFromRatio];
     // GNUstep can defer split subview geometry until the next resize event.
     // Force one immediate pass so Edit->Split transitions are visually correct.
     [_splitView adjustSubviews];
@@ -7022,16 +7027,17 @@ static CGFloat OMDOutlinePanelWidth(NSRect bounds)
     _isProgrammaticSelectionSync = NO;
 }
 
-- (void)applySplitViewRatio
+// Where the divider goes for the split's ratio, or NO if there is no room.
+- (BOOL)splitDividerPositionFromRatio:(CGFloat *)positionOut
 {
     if (_splitView == nil || [[_splitView subviews] count] < 2) {
-        return;
+        return NO;
     }
 
     CGFloat width = [_splitView bounds].size.width;
     CGFloat divider = [_splitView dividerThickness];
     if (width <= divider + 20.0) {
-        return;
+        return NO;
     }
 
     CGFloat minWidth = 180.0;
@@ -7045,7 +7051,30 @@ static CGFloat OMDOutlinePanelWidth(NSRect bounds)
     if (position > (available - minWidth)) {
         position = available - minWidth;
     }
-    [_splitView setPosition:position ofDividerAtIndex:0];
+    *positionOut = position;
+    return YES;
+}
+
+- (void)applySplitViewRatio
+{
+    CGFloat position = 0.0;
+    if ([self splitDividerPositionFromRatio:&position]) {
+        [_splitView setPosition:position ofDividerAtIndex:0];
+    }
+}
+
+- (void)setSplitPaneFramesFromRatio
+{
+    CGFloat position = 0.0;
+    if (![self splitDividerPositionFromRatio:&position]) {
+        return;
+    }
+    NSRect bounds = [_splitView bounds];
+    CGFloat trailingStart = position + [_splitView dividerThickness];
+    [[[_splitView subviews] objectAtIndex:0] setFrame:NSMakeRect(NSMinX(bounds), NSMinY(bounds),
+                                                                 position, NSHeight(bounds))];
+    [[[_splitView subviews] objectAtIndex:1] setFrame:NSMakeRect(trailingStart, NSMinY(bounds),
+                                                                 NSWidth(bounds) - trailingStart, NSHeight(bounds))];
 }
 
 - (void)persistSplitViewRatio
