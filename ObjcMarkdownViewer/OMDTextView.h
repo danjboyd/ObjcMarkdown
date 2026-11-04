@@ -5,6 +5,7 @@
 
 @class OMDTextView;
 @class OMRenderedObject;
+@class OMDBlockEditor;
 
 // Optional delegate methods for rendered objects (math, diagrams, tables,
 // images) in the preview.
@@ -20,6 +21,8 @@
 // -taskItems order). Return YES if the click was used, so the view doesn't
 // also select text.
 - (BOOL)textView:(OMDTextView *)textView toggleTaskItemAtIndex:(NSUInteger)itemIndex;
+// Esc, or a click outside the open block (Edit Block, #294): close it.
+- (void)textViewShouldCloseOpenBlock:(OMDTextView *)textView;
 @end
 
 // The index among the task boxes (OMMarkdownRendererTaskItemAttributeName) of
@@ -46,6 +49,11 @@ NSUInteger OMDTaskItemIndexAtCharacterIndex(NSAttributedString *text, NSUInteger
 // Character index of the object whose sourceRange contains location (an
 // insertion point just after the object counts), or NSNotFound.
 - (NSUInteger)renderedObjectIndexContainingSourceLocation:(NSUInteger)location;
+
+// Edit Block (#294): while it has an open block, the view takes edits only
+// inside it (its other text stays as it is) and Esc or a click outside asks
+// the delegate to close it. Not retained.
+@property (nonatomic, assign) OMDBlockEditor *blockEditor;
 
 @property (nonatomic, retain) NSColor *documentBackgroundColor;
 @property (nonatomic, retain) NSColor *documentBorderColor;

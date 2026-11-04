@@ -28,6 +28,9 @@ NSString * const OMMarkdownRendererTaskItemCheckedKey = @"OMMarkdownRendererTask
 NSString * const OMMarkdownRendererTaskItemSourceLineKey = @"OMMarkdownRendererTaskItemSourceLine";
 NSString * const OMMarkdownRendererTaskItemSourceLocationKey = @"OMMarkdownRendererTaskItemSourceLocation";
 NSString * const OMMarkdownRendererTaskItemAttributeName = @"OMMarkdownRendererTaskItem";
+NSString * const OMMarkdownRendererEditableBlockKindKey = @"OMMarkdownRendererEditableBlockKind";
+NSString * const OMMarkdownRendererEditableBlockSourceRangeKey = @"OMMarkdownRendererEditableBlockSourceRange";
+NSString * const OMMarkdownRendererEditableBlockAttributeName = @"OMMarkdownRendererEditableBlock";
 NSString * const OMMarkdownRendererDiagramRangeKey = @"OMMarkdownRendererDiagramRange";
 NSString * const OMMarkdownRendererDiagramSourceKey = @"OMMarkdownRendererDiagramSource";
 
@@ -1130,6 +1133,7 @@ static void OMPrepareFootnotes(cmark_node *document);
 @property (nonatomic, retain) NSArray *diagramBlocks;
 @property (nonatomic, retain) NSArray *headings;
 @property (nonatomic, retain) NSArray *taskItems;
+@property (nonatomic, retain) NSArray *editableBlocks;
 - (NSAttributedString *)om_attributedStringFromMarkdown:(NSString *)markdown;
 @end
 
@@ -1315,6 +1319,7 @@ void OMPerformOnMainThread(void (^block)(void))
     [_diagramBlocks release];
     [_headings release];
     [_taskItems release];
+    [_editableBlocks release];
     [_parsingOptions release];
     [_theme release];
     [super dealloc];
@@ -1424,6 +1429,8 @@ void OMPerformOnMainThread(void (^block)(void))
     renderContext.sourceLineStarts = [NSMutableData data];
     renderContext.taskItems = taskItems;
     renderContext.interactiveTaskItems = self.interactiveTaskItems;
+    NSMutableArray *editableBlocks = [NSMutableArray array];
+    renderContext.editableBlocks = editableBlocks;
     renderContext.consumedDisplayMathLineRanges = consumedDisplayMathLineRanges;
     renderContext.rawMathSources = [NSMutableDictionary dictionary];
     renderContext.mathPerfStats = &stats;
@@ -1447,6 +1454,7 @@ void OMPerformOnMainThread(void (^block)(void))
     [self setDiagramBlocks:diagramBlocks];
     [self setHeadings:headings];
     [self setTaskItems:taskItems];
+    [self setEditableBlocks:editableBlocks];
     OMTrimTrailingNewlines(output);
     [self setCodeBlockRanges:OMRangesClampedToLength(codeRanges, [output length])];
     [self setBlockquoteRanges:OMRangesClampedToLength(blockquoteRanges, [output length])];
@@ -1839,6 +1847,68 @@ static NSUInteger OMSourceIndexForByteColumn(NSString *markdown, NSUInteger line
         index += 1;
     }
     return bytes == target ? index : NSNotFound;
+}
+
+// A block's exact range in the source, from cmark's start and end positions
+// (1-based lines, 1-based UTF-8 byte columns, the end inclusive); NSNotFound
+// if either end doesn't fall on a character.
+static NSRange OMNodeSourceCharacterRange(cmark_node *node, const OMRenderContext *renderContext)
+{
+    NSRange notFound = NSMakeRange(NSNotFound, 0);
+    NSString *markdown = renderContext != NULL ? renderContext->sourceMarkdown : nil;
+    int startLine = cmark_node_get_start_line(node);
+    int startColumn = cmark_node_get_start_column(node);
+    int endLine = cmark_node_get_end_line(node);
+    int endColumn = cmark_node_get_end_column(node);
+    if (markdown == nil || startLine < 1 || startColumn < 1 || endLine < startLine || endColumn < 1) {
+        return notFound;
+    }
+    NSUInteger startLineStart = OMSourceLineStart(renderContext, (NSUInteger)startLine);
+    NSUInteger endLineStart = OMSourceLineStart(renderContext, (NSUInteger)endLine);
+    if (startLineStart == NSNotFound || endLineStart == NSNotFound) {
+        return notFound;
+    }
+    NSUInteger start = OMSourceIndexForByteColumn(markdown, startLineStart, (NSUInteger)startColumn);
+    NSUInteger last = OMSourceIndexForByteColumn(markdown, endLineStart, (NSUInteger)endColumn);
+    NSUInteger length = [markdown length];
+    if (start == NSNotFound || last == NSNotFound || last >= length || start > last) {
+        return notFound;
+    }
+    NSUInteger end = NSMaxRange([markdown rangeOfComposedCharacterSequenceAtIndex:last]);
+    return NSMakeRange(start, end - start);
+}
+
+// Lists a block Edit Block can open (#294): its source range, and an
+// attribute on its rendered text (without the newlines after it) that
+// survives the final passes, as the task boxes' does.
+static void OMRecordEditableBlock(cmark_node *node,
+                                  NSString *kind,
+                                  NSMutableAttributedString *output,
+                                  NSUInteger renderedStart,
+                                  const OMRenderContext *renderContext)
+{
+    if (renderContext == NULL || renderContext->editableBlocks == nil) {
+        return;
+    }
+    NSString *string = [output string];
+    NSUInteger renderedEnd = [string length];
+    while (renderedEnd > renderedStart && [string characterAtIndex:renderedEnd - 1] == '\n') {
+        renderedEnd -= 1;
+    }
+    if (renderedEnd <= renderedStart) {
+        return;
+    }
+    NSRange sourceRange = OMNodeSourceCharacterRange(node, renderContext);
+    if (sourceRange.location == NSNotFound) {
+        return;
+    }
+    [output addAttribute:OMMarkdownRendererEditableBlockAttributeName
+                   value:[NSNumber numberWithBool:YES]
+                   range:NSMakeRange(renderedStart, renderedEnd - renderedStart)];
+    [renderContext->editableBlocks addObject:[NSDictionary dictionaryWithObjectsAndKeys:
+        kind, OMMarkdownRendererEditableBlockKindKey,
+        [NSValue valueWithRange:sourceRange], OMMarkdownRendererEditableBlockSourceRangeKey,
+        nil]];
 }
 
 // Where a task item's state is in the source: the index of the character
@@ -2333,6 +2403,7 @@ static void OMRenderBlocks(cmark_node *node,
             break;
         case CMARK_NODE_PARAGRAPH:
             OMRenderParagraph(node, theme, output, attributes, listStack, quoteLevel, scale, renderContext);
+            OMRecordEditableBlock(node, @"paragraph", output, startLocation, renderContext);
             OMRecordBlockAnchor(node, startLocation, [output length], renderContext);
             return;
         case CMARK_NODE_HEADING:

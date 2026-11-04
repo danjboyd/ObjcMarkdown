@@ -41,6 +41,7 @@
 #import "OMDRenderScheduler.h"
 #import "OMDPreviewTextUpdate.h"
 #import "OMDViewerDefaults.h"
+#import "OMDBlockEditor.h"
 #import "OMDViewerImages.h"
 #import "OMDDocumentTabsController.h"
 #import "OMDMarkdownDocument.h"
@@ -84,6 +85,7 @@ static const NSTimeInterval OMDExternalFileMonitorInterval = 1.50;
 // Undo names of a task box's toggle, which undo and redo recognise to save
 // the document as the toggle itself did.
 static NSString * const OMDCheckTaskActionName = @"Check Task";
+static NSString * const OMDTypingActionName = @"Typing";
 static NSString * const OMDUncheckTaskActionName = @"Uncheck Task";
 
 static BOOL OMDIsTaskToggleActionName(NSString *name)
@@ -411,7 +413,7 @@ static CGFloat OMDClampedScrollSpeed(CGFloat value)
 }
 
 
-@interface OMDWindowController () <OMDCopyButtonsControllerDelegate, OMDRenderSchedulerDelegate, OMDDocumentTabsControllerDelegate, OMDToolbarControllerDelegate, OMDStatusBarControllerDelegate, OMDExplorerControllerDelegate, OMDOpenLocationDelegate, OMDFormattingBarControllerDelegate, OMDPreferencesControllerDelegate, GSVVimBindingControllerDelegate, OMDTextViewRenderedObjectDelegate, OMDOutlineControllerDelegate, OMDMainWindowTabClosing, OMDShareSource>
+@interface OMDWindowController () <OMDBlockEditorSource, OMDCopyButtonsControllerDelegate, OMDRenderSchedulerDelegate, OMDDocumentTabsControllerDelegate, OMDToolbarControllerDelegate, OMDStatusBarControllerDelegate, OMDExplorerControllerDelegate, OMDOpenLocationDelegate, OMDFormattingBarControllerDelegate, OMDPreferencesControllerDelegate, GSVVimBindingControllerDelegate, OMDTextViewRenderedObjectDelegate, OMDOutlineControllerDelegate, OMDMainWindowTabClosing, OMDShareSource>
 - (void)importDocument:(id)sender;
 - (void)newWindow:(id)sender;
 - (void)newDocument:(id)sender;
@@ -607,6 +609,11 @@ static CGFloat OMDClampedScrollSpeed(CGFloat value)
 - (void)toggleBoldFormatting:(id)sender;
 - (void)toggleItalicFormatting:(id)sender;
 - (void)revealPreviewSelectionInSource:(id)sender;
+- (void)editBlock:(id)sender;
+- (void)detachOpenBlock;
+- (void)closeOpenBlock;
+- (BOOL)hasOpenBlock;
+- (BOOL)canEditBlock;
 - (NSTextView *)activeEditingTextView;
 - (NSUndoManager *)activeUndoManager;
 - (void)finishTaskToggleWasClean:(BOOL)wasClean;
@@ -745,6 +752,39 @@ static CGFloat OMDClampedScrollSpeed(CGFloat value)
 - (NSInteger)headingLevelForLine:(NSString *)line;
 @end
 
+// The undo of one opening of Edit Block: the target of its registration,
+// so that each edit can remove the opening's earlier registration (and
+// only that) and register it again. The controller keeps it alive, as an
+// undo manager doesn't retain its targets.
+@interface OMDBlockUndoRecord : NSObject
+{
+@public
+    id _controller;
+    NSUndoManager *_undoManager;
+    NSMutableDictionary *_change;
+}
+@end
+
+@implementation OMDBlockUndoRecord
+- (void)dealloc
+{
+    [_undoManager release];
+    [_change release];
+    [super dealloc];
+}
+
+- (void)undoBlockOpening:(NSDictionary *)change
+{
+    [_controller performSelector:@selector(undoBlockSourceEdit:) withObject:change];
+}
+
+- (void)forget
+{
+    [_undoManager removeAllActionsWithTarget:self];
+    _controller = nil;
+}
+@end
+
 @implementation OMDWindowController
 
 
@@ -874,6 +914,12 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [_renderer release];
     [_previewTaskItems release];
     [_previewTaskItemsMarkdown release];
+    [_previewEditableBlocks release];
+    [_blockEditor release];
+    for (OMDBlockUndoRecord *record in _blockUndoRecords) {
+        [record forget];
+    }
+    [_blockUndoRecords release];
     [_sourceTextView release];
     [_sourceScrollView release];
     [_previewScrollView release];
@@ -2023,6 +2069,10 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
 
     if (action == @selector(revealPreviewSelectionInSource:)) {
         return [self canRevealPreviewSelectionInSource];
+    }
+
+    if (action == @selector(editBlock:)) {
+        return [self hasOpenBlock] || [self canEditBlock];
     }
 
     if (action == @selector(undo:)) {
@@ -4696,11 +4746,15 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
     NSTimeInterval applyStart = perfLogging ? OMDNow() : 0.0;
     // Only the part that changed is replaced, so the layout manager keeps
     // the layout of the rest.
+    // A render replaces an open block with the block as rendered (#294).
+    [self detachOpenBlock];
     _isProgrammaticPreviewUpdate = YES;
     OMDApplyRenderedString([_textView textStorage], rendered);
     _isProgrammaticPreviewUpdate = NO;
     [_previewTaskItems release];
     _previewTaskItems = [[_renderer taskItems] copy];
+    [_previewEditableBlocks release];
+    _previewEditableBlocks = [[_renderer editableBlocks] copy];
     [_previewTaskItemsMarkdown release];
     _previewTaskItemsMarkdown = [previewMarkdown copy];
     [self logPreviewStyleDiagnosticsForRenderedString:rendered];
@@ -4815,12 +4869,15 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
     [_copyButtonsController hideCopyFeedback];
     [_copyButtonsController removeCopyButtons];
 
+    [self detachOpenBlock];
     _isProgrammaticPreviewUpdate = YES;
     NSAttributedString *empty = [[[NSAttributedString alloc] initWithString:@""] autorelease];
     [[_textView textStorage] setAttributedString:empty];
     _isProgrammaticPreviewUpdate = NO;
     [_previewTaskItems release];
     _previewTaskItems = nil;
+    [_previewEditableBlocks release];
+    _previewEditableBlocks = nil;
     [_previewTaskItemsMarkdown release];
     _previewTaskItemsMarkdown = nil;
 
@@ -9015,8 +9072,22 @@ static CGFloat OMDOutlinePanelWidth(NSRect bounds)
     if (_isProgrammaticSourceUpdate || _isProgrammaticSourceHighlightUpdate) {
         return;
     }
+    if ([notification object] == _textView) {
+        // An edit in the open block that couldn't be mirrored to the source.
+        if (_blockEditor != nil && [_blockEditor isOutOfSync]) {
+            [self closeOpenBlock];
+        }
+        return;
+    }
     if ([notification object] != _sourceTextView) {
         return;
+    }
+    // The source changed other than through the open block (undo, a
+    // reload): the block no longer matches it, so it closes and the preview
+    // renders again.
+    if ([self hasOpenBlock] && !_isBlockEditorSourceEdit) {
+        [self detachOpenBlock];
+        [self performSelector:@selector(renderCurrentMarkdown) withObject:nil afterDelay:0.0];
     }
 
     NSString *updatedMarkdown = [[_sourceTextView string] copy];
@@ -9037,7 +9108,8 @@ static CGFloat OMDOutlinePanelWidth(NSRect bounds)
     [self scheduleRecoveryAutosave];
     NSTimeInterval afterAutosave = profiling ? OMDKeyLatencyNow() : 0.0;
 
-    if (_viewerMode == OMDViewerModeSplit) {
+    // While a block is open the preview isn't rendered again; closing it does.
+    if (_viewerMode == OMDViewerModeSplit && ![self hasOpenBlock]) {
         if (_sourceRevision == _lastRenderedSourceRevision) {
             [self syncPreviewToSourceInteractionAnchor];
         }
@@ -9228,6 +9300,288 @@ static NSRange OMDCharacterRangeForSourceLines(NSString *source, NSRange lineRan
     }
     [OMMarkdownRenderer invalidateCachedMathForFormula:[object source]];
     [_renderScheduler scheduleMathArtifactRefresh];
+}
+
+#pragma mark - Edit Block (#294, spike: paragraphs only)
+
+- (BOOL)hasOpenBlock
+{
+    return _blockEditor != nil && [_blockEditor isOpen];
+}
+
+// The editable block at the preview's selection, and its ranges in the
+// preview and the source, if the preview shows the editor's text as it is
+// now; NSNotFound otherwise.
+- (NSUInteger)editableBlockAtPreviewSelectionRendered:(NSRange *)renderedRange source:(NSRange *)sourceRange
+{
+    if (_textView == nil || _sourceTextView == nil || ![self hasLoadedDocument] ||
+        _currentDocumentReadOnly || _currentDocumentRenderMode != OMDDocumentRenderModeMarkdown ||
+        _viewerMode == OMDViewerModeEdit || ![self isPreviewVisible] ||
+        ![_textView isKindOfClass:[OMDTextView class]]) {
+        return NSNotFound;
+    }
+    if (_viewerMode == OMDViewerModeSplit && [[_textView window] firstResponder] != _textView) {
+        return NSNotFound;
+    }
+    // Rendered with the task items, from the same markdown.
+    NSString *source = [_sourceTextView string];
+    if (_previewTaskItemsMarkdown == nil || ![_previewTaskItemsMarkdown isEqualToString:source]) {
+        return NSNotFound;
+    }
+    NSRange rendered = NSMakeRange(NSNotFound, 0);
+    NSUInteger index = OMDEditableBlockIndexAtCharacterIndex([_textView textStorage],
+                                                             [_textView selectedRange].location,
+                                                             &rendered);
+    if (index == NSNotFound || index >= [_previewEditableBlocks count]) {
+        return NSNotFound;
+    }
+    NSRange range = [[[_previewEditableBlocks objectAtIndex:index]
+                         objectForKey:OMMarkdownRendererEditableBlockSourceRangeKey] rangeValue];
+    if (range.location == NSNotFound || NSMaxRange(range) > [source length]) {
+        return NSNotFound;
+    }
+    if (renderedRange != NULL) {
+        *renderedRange = rendered;
+    }
+    if (sourceRange != NULL) {
+        *sourceRange = range;
+    }
+    return index;
+}
+
+- (BOOL)canEditBlock
+{
+    return [self editableBlockAtPreviewSelectionRendered:NULL source:NULL] != NSNotFound;
+}
+
+// Edit > Edit Block (Command-Return): opens the block at the preview's
+// selection as its Markdown, in place; with a block open, closes it.
+- (void)editBlock:(id)sender
+{
+    (void)sender;
+    if ([self hasOpenBlock]) {
+        [self closeOpenBlock];
+        return;
+    }
+    NSRange rendered = NSMakeRange(NSNotFound, 0);
+    NSRange sourceRange = NSMakeRange(NSNotFound, 0);
+    if ([self editableBlockAtPreviewSelectionRendered:&rendered source:&sourceRange] == NSNotFound) {
+        NSBeep();
+        return;
+    }
+    // The file changed on disk: the usual prompt, not an edit of text that
+    // may be out of date.
+    NSUInteger revision = _sourceRevision;
+    [self refreshCurrentDocumentDiskStateAllowPrompt:NO];
+    if (_sourceRevision != revision || [self currentDocumentHasNewerDiskVersion]) {
+        [self refreshCurrentDocumentDiskStateAllowPrompt:YES];
+        return;
+    }
+
+    NSTextStorage *storage = [_textView textStorage];
+    // The caret goes where it was in the rendered text.
+    NSUInteger caret = [_textView selectedRange].location;
+    NSUInteger renderedOffset = caret > rendered.location ? caret - rendered.location : 0;
+    NSString *renderedText = [[storage string] substringWithRange:rendered];
+    NSMutableDictionary *attributes = [NSMutableDictionary dictionary];
+    NSFont *font = [_sourceTextView font];
+    if (font == nil) {
+        font = [NSFont userFixedPitchFontOfSize:0.0];
+    }
+    if (font != nil) {
+        [attributes setObject:font forKey:NSFontAttributeName];
+    }
+    [attributes setObject:[NSColor textColor] forKey:NSForegroundColorAttributeName];
+    NSParagraphStyle *style = [storage attribute:NSParagraphStyleAttributeName atIndex:rendered.location effectiveRange:NULL];
+    if (style != nil) {
+        [attributes setObject:style forKey:NSParagraphStyleAttributeName];
+    }
+
+    OMDBlockEditor *editor = [[OMDBlockEditor alloc] initWithPreviewStorage:storage source:self];
+    _isProgrammaticPreviewUpdate = YES;
+    BOOL opened = [editor openBlockAtRenderedRange:rendered sourceRange:sourceRange attributes:attributes];
+    _isProgrammaticPreviewUpdate = NO;
+    if (!opened) {
+        [editor release];
+        NSBeep();
+        return;
+    }
+    [_blockEditor release];
+    _blockEditor = editor;
+    [(OMDTextView *)_textView setBlockEditor:editor];
+    // The source keeps the undo record; the preview's own would undo text
+    // that the next render replaces.
+    _previewAllowedUndoBeforeBlock = [_textView allowsUndo];
+    [_textView setAllowsUndo:NO];
+    [_textView setEditable:YES];
+    NSMutableDictionary *typing = [[attributes mutableCopy] autorelease];
+    [typing setObject:[NSNumber numberWithBool:YES] forKey:OMDOpenBlockAttributeName];
+    [_textView setTypingAttributes:typing];
+    [[_textView window] makeFirstResponder:_textView];
+    // Mapped onto the open text: the source without a container's markers.
+    NSUInteger openOffset = OMDBlockSourceOffsetForRenderedOffset(renderedText,
+                                                                  [[storage string] substringWithRange:[editor openRange]],
+                                                                  renderedOffset);
+    [_textView setSelectedRange:NSMakeRange([editor openRange].location + MIN(openOffset, [editor openRange].length), 0)];
+    [_textView scrollRangeToVisible:[editor openRange]];
+}
+
+// Stops editing in the preview, without rendering it.
+- (void)detachOpenBlock
+{
+    if (_blockEditor == nil) {
+        return;
+    }
+    [_blockEditor closeBlock];
+    if ([_textView isKindOfClass:[OMDTextView class]]) {
+        [(OMDTextView *)_textView setBlockEditor:nil];
+    }
+    [_textView setEditable:NO];
+    [_textView setAllowsUndo:_previewAllowedUndoBeforeBlock];
+    [_blockEditor release];
+    _blockEditor = nil;
+    _blockUndoRecord = nil;
+}
+
+// Esc, Command-Return or a click outside: the edit is kept (undo reverts
+// it) and the block renders again, the preview staying where it was.
+- (void)closeOpenBlock
+{
+    if (_blockEditor == nil) {
+        return;
+    }
+    NSClipView *previewClip = [_previewScrollView contentView];
+    NSPoint previewOrigin = [previewClip bounds].origin;
+    [self detachOpenBlock];
+    [self renderCurrentMarkdown];
+    [previewClip scrollToPoint:previewOrigin];
+    [_previewScrollView reflectScrolledClipView:previewClip];
+}
+
+- (void)textViewShouldCloseOpenBlock:(OMDTextView *)textView
+{
+    if ((NSTextView *)textView == _textView) {
+        [self closeOpenBlock];
+    }
+}
+
+- (NSString *)blockEditorSourceString
+{
+    return [_sourceTextView string];
+}
+
+// Each edit of the open block, made in the source. The edits of one
+// opening are undone together: the first registers the undo of the whole
+// block (its source before the opening), and the later ones only keep the
+// block's length in that record up to date. The block's start doesn't
+// move, as every edit is inside it.
+- (BOOL)blockEditor:(OMDBlockEditor *)editor
+    replaceSourceCharactersInRange:(NSRange)range
+                        withString:(NSString *)string
+{
+    NSRange block = [editor sourceRange];
+    NSString *source = [_sourceTextView string];
+    if (string == nil || block.location == NSNotFound || NSMaxRange(block) > [source length] ||
+        range.location < block.location || NSMaxRange(range) > NSMaxRange(block)) {
+        return NO;
+    }
+    if (![self applyBlockSourceReplacementInRange:range withString:string]) {
+        return NO;
+    }
+    NSUInteger blockLength = block.length - range.length + [string length];
+    NSUndoManager *undoManager = [[self currentDocument] undoManager];
+    OMDBlockUndoRecord *record = (OMDBlockUndoRecord *)_blockUndoRecord;
+    if (record == nil || record->_undoManager != undoManager) {
+        record = [[[OMDBlockUndoRecord alloc] init] autorelease];
+        record->_controller = self;
+        record->_undoManager = [undoManager retain];
+        record->_change = [[NSMutableDictionary alloc] initWithObjectsAndKeys:
+                              [NSNumber numberWithUnsignedInteger:block.location], @"location",
+                              [editor originalSource], @"string",
+                              nil];
+        if (_blockUndoRecords == nil) {
+            _blockUndoRecords = [[NSMutableArray alloc] init];
+        }
+        [_blockUndoRecords addObject:record];
+        _blockUndoRecord = record;
+    }
+    [record->_change setObject:[NSNumber numberWithUnsignedInteger:blockLength] forKey:@"length"];
+    // Moved to this edit's group: a group left empty would undo as nothing
+    // (testAnOpeningsEditsLeaveOneUndo).
+    [undoManager removeAllActionsWithTarget:record];
+    [undoManager registerUndoWithTarget:record
+                               selector:@selector(undoBlockOpening:)
+                                 object:record->_change];
+    [undoManager setActionName:OMDTypingActionName];
+    return YES;
+}
+
+// Makes an edit in the source through the editor, as a task toggle does
+// (the document and Split follow; the editor's own undo record is left
+// out, for the same GNUstep reason). No undo is registered.
+- (BOOL)applyBlockSourceReplacementInRange:(NSRange)range withString:(NSString *)string
+{
+    NSString *source = [_sourceTextView string];
+    if (_sourceTextView == nil || string == nil || range.location == NSNotFound ||
+        NSMaxRange(range) > [source length]) {
+        return NO;
+    }
+    NSUndoManager *undoManager = [[self currentDocument] undoManager];
+    [undoManager disableUndoRegistration];
+    _isBlockEditorSourceEdit = YES;
+    BOOL allowed = [_sourceTextView shouldChangeTextInRange:range replacementString:string];
+    if (allowed) {
+        NSTextStorage *storage = [_sourceTextView textStorage];
+        [storage beginEditing];
+        [storage replaceCharactersInRange:range withString:string];
+        [storage endEditing];
+        [_sourceTextView didChangeText];
+    }
+    _isBlockEditorSourceEdit = NO;
+    [undoManager enableUndoRegistration];
+    return allowed;
+}
+
+// The same edit, with its undo registered (for undo and redo themselves).
+- (BOOL)replaceBlockSourceInRange:(NSRange)range withString:(NSString *)string
+{
+    NSString *source = [_sourceTextView string];
+    if (_sourceTextView == nil || string == nil || range.location == NSNotFound ||
+        NSMaxRange(range) > [source length]) {
+        return NO;
+    }
+    NSString *previous = [source substringWithRange:range];
+    if (![self applyBlockSourceReplacementInRange:range withString:string]) {
+        return NO;
+    }
+    NSUndoManager *undoManager = [[self currentDocument] undoManager];
+    [undoManager registerUndoWithTarget:self
+                               selector:@selector(undoBlockSourceEdit:)
+                                 object:[NSDictionary dictionaryWithObjectsAndKeys:
+                                            [NSNumber numberWithUnsignedInteger:range.location], @"location",
+                                            [NSNumber numberWithUnsignedInteger:[string length]], @"length",
+                                            previous, @"string",
+                                            nil]];
+    [undoManager setActionName:OMDTypingActionName];
+    return YES;
+}
+
+// Undo (and redo) of an open block's edit: the block closes, the source
+// goes back, and the preview renders it.
+- (void)undoBlockSourceEdit:(NSDictionary *)change
+{
+    if (![self hasLoadedDocument] || _currentDocumentReadOnly) {
+        return;
+    }
+    // The record may be the open block's, which closing releases.
+    change = [[change copy] autorelease];
+    [self detachOpenBlock];
+    NSRange range = NSMakeRange([[change objectForKey:@"location"] unsignedIntegerValue],
+                                [[change objectForKey:@"length"] unsignedIntegerValue]);
+    if ([self replaceBlockSourceInRange:range withString:[change objectForKey:@"string"]] &&
+        [self isPreviewVisible]) {
+        [self renderCurrentMarkdown];
+    }
 }
 
 // A click on a task box in the preview (Read or Split) toggles the item's
