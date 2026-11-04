@@ -145,6 +145,115 @@ NSUInteger OMDBlockSourceOffsetForRenderedOffset(NSString *rendered,
     return result;
 }
 
+// The containers before a block's first character on its line (prefix),
+// as the prefix of a continuation line: each quote's ">" (with up to three
+// spaces before and one after) and each list item's width in spaces. NO
+// if the prefix holds no container or isn't understood (a tab).
+typedef struct {
+    BOOL quote;
+    NSUInteger width;
+} OMDBlockContainer;
+
+static BOOL OMDBlockContainersFromPrefix(NSString *prefix, OMDBlockContainer *containers,
+                                         NSUInteger capacity, NSUInteger *count)
+{
+    NSUInteger length = [prefix length];
+    NSUInteger index = 0;
+    NSUInteger found = 0;
+    while (index < length) {
+        unichar c = [prefix characterAtIndex:index];
+        if (c == '\t') {
+            return NO;
+        }
+        NSUInteger start = index;
+        while (index < length && [prefix characterAtIndex:index] == ' ' && index - start < 3) {
+            index += 1;
+        }
+        if (index >= length) {
+            // Spaces only: the indent of the text in the innermost
+            // container, which a continuation line needn't repeat.
+            break;
+        }
+        c = [prefix characterAtIndex:index];
+        if (found >= capacity) {
+            return NO;
+        }
+        if (c == '>') {
+            index += 1;
+            if (index < length && [prefix characterAtIndex:index] == ' ') {
+                index += 1;
+            }
+            containers[found].quote = YES;
+            containers[found].width = 0;
+            found += 1;
+            continue;
+        }
+        NSUInteger marker = index;
+        if (c == '-' || c == '+' || c == '*') {
+            index += 1;
+        } else if (c >= '0' && c <= '9') {
+            while (index < length && [prefix characterAtIndex:index] >= '0' &&
+                   [prefix characterAtIndex:index] <= '9' && index - marker < 9) {
+                index += 1;
+            }
+            if (index >= length || ([prefix characterAtIndex:index] != '.' && [prefix characterAtIndex:index] != ')')) {
+                return NO;
+            }
+            index += 1;
+        } else {
+            return NO;
+        }
+        NSUInteger spaces = 0;
+        while (index < length && [prefix characterAtIndex:index] == ' ') {
+            index += 1;
+            spaces += 1;
+        }
+        if (spaces == 0) {
+            return NO;
+        }
+        containers[found].quote = NO;
+        containers[found].width = index - start;
+        found += 1;
+    }
+    *count = found;
+    return found > 0;
+}
+
+// How much of line (from its start) is the containers' prefix: each
+// quote's marker while there is one (a lazy line has none), each list
+// item's indent up to its width, then the white space a paragraph's
+// continuation line may start with.
+static NSUInteger OMDBlockContinuationPrefixLength(NSString *source, NSUInteger lineStart, NSUInteger lineEnd,
+                                                   const OMDBlockContainer *containers, NSUInteger count)
+{
+    NSUInteger index = lineStart;
+    for (NSUInteger c = 0; c < count; c++) {
+        if (containers[c].quote) {
+            NSUInteger probe = index;
+            while (probe < lineEnd && [source characterAtIndex:probe] == ' ' && probe - index < 3) {
+                probe += 1;
+            }
+            if (probe >= lineEnd || [source characterAtIndex:probe] != '>') {
+                break;
+            }
+            index = probe + 1;
+            if (index < lineEnd && [source characterAtIndex:index] == ' ') {
+                index += 1;
+            }
+        } else {
+            NSUInteger probe = index;
+            while (probe < lineEnd && [source characterAtIndex:probe] == ' ' && probe - index < containers[c].width) {
+                probe += 1;
+            }
+            index = probe;
+        }
+    }
+    while (index < lineEnd && ([source characterAtIndex:index] == ' ' || [source characterAtIndex:index] == '\t')) {
+        index += 1;
+    }
+    return index - lineStart;
+}
+
 @implementation OMDBlockEditor
 
 @synthesize open = _open;
@@ -176,6 +285,8 @@ NSUInteger OMDBlockSourceOffsetForRenderedOffset(NSString *rendered,
     [_previewStorage release];
     [_openText release];
     [_originalSource release];
+    [_linePrefixes release];
+    [_newLinePrefix release];
     [super dealloc];
 }
 
@@ -189,9 +300,70 @@ NSUInteger OMDBlockSourceOffsetForRenderedOffset(NSString *rendered,
         sourceRange.location == NSNotFound || NSMaxRange(sourceRange) > [sourceString length]) {
         return NO;
     }
+    NSString *blockSource = [sourceString substringWithRange:sourceRange];
+    NSMutableArray *prefixes = [NSMutableArray arrayWithObject:@""];
+    NSMutableString *openText = [NSMutableString string];
+    NSString *newLinePrefix = @"";
+    // The first line's prefix: from its start to the block.
+    NSUInteger lineStart = sourceRange.location;
+    while (lineStart > 0) {
+        unichar c = [sourceString characterAtIndex:lineStart - 1];
+        if (c == '\n' || c == '\r') {
+            break;
+        }
+        lineStart -= 1;
+    }
+    OMDBlockContainer containers[16];
+    NSUInteger containerCount = 0;
+    BOOL project = OMDBlockContainersFromPrefix([sourceString substringWithRange:NSMakeRange(lineStart, sourceRange.location - lineStart)],
+                                                containers, 16, &containerCount);
+    if (project) {
+        NSMutableString *canonical = [NSMutableString string];
+        for (NSUInteger c = 0; c < containerCount; c++) {
+            if (containers[c].quote) {
+                [canonical appendString:@"> "];
+            } else {
+                for (NSUInteger s = 0; s < containers[c].width; s++) {
+                    [canonical appendString:@" "];
+                }
+            }
+        }
+        newLinePrefix = canonical;
+        // Line by line: a line ends after its "\n" (a "\r\n" stays
+        // whole, with the "\r" in the text before it).
+        NSUInteger index = sourceRange.location;
+        NSUInteger end = NSMaxRange(sourceRange);
+        NSUInteger textStart = index;
+        while (index < end) {
+            unichar c = [sourceString characterAtIndex:index];
+            index += 1;
+            if (c == '\n') {
+                [openText appendString:[sourceString substringWithRange:NSMakeRange(textStart, index - textStart)]];
+                NSUInteger lineEnd = index;
+                while (lineEnd < end && [sourceString characterAtIndex:lineEnd] != '\n' &&
+                       [sourceString characterAtIndex:lineEnd] != '\r') {
+                    lineEnd += 1;
+                }
+                NSUInteger prefixLength = OMDBlockContinuationPrefixLength(sourceString, index, lineEnd,
+                                                                           containers, containerCount);
+                [prefixes addObject:[sourceString substringWithRange:NSMakeRange(index, prefixLength)]];
+                index += prefixLength;
+                textStart = index;
+            }
+        }
+        [openText appendString:[sourceString substringWithRange:NSMakeRange(textStart, end - textStart)]];
+    } else {
+        for (NSUInteger index = 0; index < [blockSource length]; index++) {
+            if ([blockSource characterAtIndex:index] == '\n') {
+                [prefixes addObject:@""];
+            }
+        }
+        [openText setString:blockSource];
+    }
+
     NSMutableDictionary *blockAttributes = [NSMutableDictionary dictionaryWithDictionary:(attributes != nil ? attributes : [NSDictionary dictionary])];
     [blockAttributes setObject:[NSNumber numberWithBool:YES] forKey:OMDOpenBlockAttributeName];
-    NSAttributedString *block = [[[NSAttributedString alloc] initWithString:[sourceString substringWithRange:sourceRange]
+    NSAttributedString *block = [[[NSAttributedString alloc] initWithString:openText
                                                                  attributes:blockAttributes] autorelease];
     _updatingPreview = YES;
     [_previewStorage beginEditing];
@@ -203,7 +375,11 @@ NSUInteger OMDBlockSourceOffsetForRenderedOffset(NSString *rendered,
     [_openText release];
     _openText = [[block string] mutableCopy];
     [_originalSource release];
-    _originalSource = [[block string] copy];
+    _originalSource = [blockSource copy];
+    [_linePrefixes release];
+    _linePrefixes = [prefixes mutableCopy];
+    [_newLinePrefix release];
+    _newLinePrefix = [newLinePrefix copy];
     _outOfSync = NO;
     _open = YES;
     return YES;
@@ -225,6 +401,8 @@ NSUInteger OMDBlockSourceOffsetForRenderedOffset(NSString *rendered,
     _sourceRange = NSMakeRange(NSNotFound, 0);
     [_openText release];
     _openText = nil;
+    [_linePrefixes release];
+    _linePrefixes = nil;
     return result;
 }
 
@@ -266,18 +444,105 @@ NSUInteger OMDBlockSourceOffsetForRenderedOffset(NSString *rendered,
     }
     NSRange oldSpan = NSMakeRange(prefix, oldLength - prefix - suffix);
     NSRange newSpan = NSMakeRange(prefix, nowLength - prefix - suffix);
+    NSInteger sourceDelta = 0;
     if (oldSpan.length > 0 || newSpan.length > 0) {
-        NSRange sourceReplaced = NSMakeRange(_sourceRange.location + oldSpan.location, oldSpan.length);
+        // The span in the source: its ends past the markers of every line
+        // that starts at or before them, so an inserted line start keeps
+        // its line's markers and a removed line break takes the next
+        // line's with it.
+        NSUInteger sourceStart = [self sourceOffsetForOpenOffset:oldSpan.location];
+        NSUInteger sourceEnd = [self sourceOffsetForOpenOffset:NSMaxRange(oldSpan)];
+        NSString *inserted = [now substringWithRange:newSpan];
+        NSString *sourceInserted = inserted;
+        NSUInteger newLines = 0;
+        if ([_newLinePrefix length] > 0) {
+            NSMutableString *withMarkers = [NSMutableString string];
+            for (NSUInteger index = 0; index < [inserted length]; index++) {
+                unichar c = [inserted characterAtIndex:index];
+                [withMarkers appendFormat:@"%C", c];
+                if (c == '\n') {
+                    [withMarkers appendString:_newLinePrefix];
+                }
+            }
+            sourceInserted = withMarkers;
+        }
+        for (NSUInteger index = 0; index < [inserted length]; index++) {
+            if ([inserted characterAtIndex:index] == '\n') {
+                newLines += 1;
+            }
+        }
+        NSRange sourceReplaced = NSMakeRange(_sourceRange.location + sourceStart, sourceEnd - sourceStart);
         if (![_source blockEditor:self
             replaceSourceCharactersInRange:sourceReplaced
-                                withString:[now substringWithRange:newSpan]]) {
+                                withString:sourceInserted]) {
             _outOfSync = YES;
             return;
+        }
+        sourceDelta = (NSInteger)[sourceInserted length] - (NSInteger)sourceReplaced.length;
+        // The lines that started inside the old span are gone; the new
+        // span's lines start with the new-line markers.
+        NSUInteger firstLine = [self lineOfOpenOffset:oldSpan.location];
+        NSUInteger removedLines = [self lineOfOpenOffset:NSMaxRange(oldSpan)] - firstLine;
+        [_linePrefixes removeObjectsInRange:NSMakeRange(firstLine + 1, removedLines)];
+        for (NSUInteger line = 0; line < newLines; line++) {
+            [_linePrefixes insertObject:_newLinePrefix atIndex:firstLine + 1];
         }
     }
     [_openText setString:now];
     _openRange.length = nowLength;
-    _sourceRange.length = (NSUInteger)((NSInteger)_sourceRange.length + ((NSInteger)nowLength - (NSInteger)oldLength));
+    _sourceRange.length = (NSUInteger)((NSInteger)_sourceRange.length + sourceDelta);
+}
+
+// The open text's line holding offset (a line starts after its "\n").
+- (NSUInteger)lineOfOpenOffset:(NSUInteger)offset
+{
+    NSUInteger line = 0;
+    NSUInteger length = [_openText length];
+    for (NSUInteger index = 0; index < offset && index < length; index++) {
+        if ([_openText characterAtIndex:index] == '\n') {
+            line += 1;
+        }
+    }
+    return line;
+}
+
+// Where an offset in the open text (as it was before the edit being
+// mirrored) is in the block's source.
+- (NSUInteger)sourceOffsetForOpenOffset:(NSUInteger)offset
+{
+    NSUInteger markers = 0;
+    NSUInteger line = 0;
+    NSUInteger length = [_openText length];
+    for (NSUInteger index = 0; index < offset && index < length; index++) {
+        if ([_openText characterAtIndex:index] == '\n') {
+            line += 1;
+            if (line < [_linePrefixes count]) {
+                markers += [[_linePrefixes objectAtIndex:line] length];
+            }
+        }
+    }
+    return offset + markers;
+}
+
+- (NSString *)sourceForOpenText
+{
+    if (_openText == nil) {
+        return nil;
+    }
+    NSMutableString *result = [NSMutableString string];
+    NSUInteger line = 0;
+    NSUInteger length = [_openText length];
+    for (NSUInteger index = 0; index < length; index++) {
+        unichar c = [_openText characterAtIndex:index];
+        [result appendFormat:@"%C", c];
+        if (c == '\n') {
+            line += 1;
+            if (line < [_linePrefixes count]) {
+                [result appendString:[_linePrefixes objectAtIndex:line]];
+            }
+        }
+    }
+    return result;
 }
 
 @end

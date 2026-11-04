@@ -50,6 +50,12 @@ NSUInteger OMDBlockSourceOffsetForRenderedOffset(NSString *rendered,
     NSRange _sourceRange;
     NSMutableString *_openText;
     NSString *_originalSource;
+    // A block inside a quote or a list item shows its continuation lines
+    // without the container's markers: the prefix of each line of the
+    // open text in the source (the first line's is outside the block),
+    // and the prefix a new line gets.
+    NSMutableArray *_linePrefixes;
+    NSString *_newLinePrefix;
     BOOL _open;
     BOOL _updatingPreview;
     BOOL _outOfSync;
@@ -61,7 +67,10 @@ NSUInteger OMDBlockSourceOffsetForRenderedOffset(NSString *rendered,
                                 source:(id<OMDBlockEditorSource>)source;
 
 // Replaces renderedRange of the preview with the source's sourceRange,
-// drawn with attributes, and opens it. NO (and nothing changes) if a block
+// drawn with attributes, and opens it. In a quote or a list item, the
+// continuation lines are shown without the container's markers ("> ",
+// the item's indent), which the editor keeps in the source: a new line
+// typed in the block gets them. NO (and nothing changes) if a block
 // is already open or a range is out of bounds.
 - (BOOL)openBlockAtRenderedRange:(NSRange)renderedRange
                      sourceRange:(NSRange)sourceRange
@@ -83,6 +92,10 @@ NSUInteger OMDBlockSourceOffsetForRenderedOffset(NSString *rendered,
 // The block's source when it was opened: putting it back over sourceRange
 // undoes every edit of this opening at once.
 @property (nonatomic, readonly) NSString *originalSource;
+// The open block's source as the open text would make it: the text with
+// the container's markers put back. Equal to the source's sourceRange
+// while the editor is in sync.
+- (NSString *)sourceForOpenText;
 // YES once an edit couldn't be mirrored (an edit outside the block, or the
 // source refused it); the caller should close the block and render again.
 @property (nonatomic, readonly, getter=isOutOfSync) BOOL outOfSync;

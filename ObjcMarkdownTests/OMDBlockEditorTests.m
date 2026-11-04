@@ -284,8 +284,7 @@ static NSArray *OMDTestSpecMarkdown(NSString *path)
             OMDTestBlockSource *source = [[[OMDTestBlockSource alloc] initWithString:markdown] autorelease];
             OMDBlockEditor *editor = [[[OMDBlockEditor alloc] initWithPreviewStorage:preview source:source] autorelease];
             XCTAssertTrue([editor openBlockAtRenderedRange:renderedRange sourceRange:sourceRange attributes:nil]);
-            XCTAssertEqualObjects([[preview string] substringWithRange:[editor openRange]],
-                                  [markdown substringWithRange:sourceRange]);
+            XCTAssertEqualObjects([editor sourceForOpenText], [markdown substringWithRange:sourceRange]);
             NSRange closed = [editor closeBlock];
             XCTAssertTrue(NSEqualRanges(closed, sourceRange));
             XCTAssertEqualObjects(source->_text, markdown);
@@ -326,8 +325,7 @@ static NSArray *OMDTestSpecMarkdown(NSString *path)
             XCTAssertTrue(keptBefore, @"source before block %lu changed", (unsigned long)blockIndex);
             XCTAssertTrue(keptAfter, @"source after block %lu changed", (unsigned long)blockIndex);
             XCTAssertEqual([now length], [before length] + blockSource.length + [after length]);
-            XCTAssertEqualObjects([now substringWithRange:blockSource],
-                                  [[preview string] substringWithRange:[editor openRange]]);
+            XCTAssertEqualObjects([now substringWithRange:blockSource], [editor sourceForOpenText]);
             if ([editor isOutOfSync] || !keptBefore || !keptAfter) {
                 return checked;
             }
@@ -538,6 +536,62 @@ static NSString *OMDTestRenderedBlock(NSAttributedString *rendered, NSString *co
     [undoManager undo];
     XCTAssertEqual(other->_undos, (NSUInteger)1);
     XCTAssertEqual(target->_undos, (NSUInteger)1);
+}
+
+// A paragraph in a quote or a list item opens without its continuation
+// lines' markers; a new line typed in it gets them, and joining two lines
+// takes the second one's away.
+- (void)testAQuotedParagraphOpensWithoutItsMarkers
+{
+    struct { NSString *markdown; NSString *containing; NSString *open; NSString *newLineSource; } cases[] = {
+        { @"> A quoted paragraph\n> on two lines.\n", @"A quoted", @"A quoted paragraph\non two lines.", @"A quoted paragraph\n> on two\n> lines\n> ." },
+        { @"> > Nested\n> > quote.\n", @"Nested", @"Nested\nquote.", @"Nested\n> > quote\n> > ." },
+        { @"- Item text\n  goes on.\n", @"Item text", @"Item text\ngoes on.", @"Item text\n  goes\n  on\n  ." },
+        { @"> Lazy\ncontinuation.\n", @"Lazy", @"Lazy\ncontinuation.", @"Lazy\ncontinuation\n> ." },
+        { @"1. > Quote in\n   > an item.\n", @"Quote in", @"Quote in\nan item.", @"Quote in\n   > an\n   > item\n   > ." },
+    };
+    for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+        NSString *markdown = cases[i].markdown;
+        OMMarkdownRenderer *renderer = [self renderer];
+        NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
+        NSRange renderedRange = NSMakeRange(NSNotFound, 0);
+        XCTAssertNotNil(OMDTestRenderedBlock(rendered, cases[i].containing, &renderedRange), @"%@", markdown);
+        XCTAssertEqual([[renderer editableBlocks] count], (NSUInteger)1, @"%@", markdown);
+        if ([[renderer editableBlocks] count] != 1) {
+            continue;
+        }
+        NSRange sourceRange = [[[[renderer editableBlocks] objectAtIndex:0] objectForKey:OMMarkdownRendererEditableBlockSourceRangeKey] rangeValue];
+        NSTextStorage *preview = [[[NSTextStorage alloc] initWithAttributedString:rendered] autorelease];
+        OMDTestBlockSource *source = [[[OMDTestBlockSource alloc] initWithString:markdown] autorelease];
+        OMDBlockEditor *editor = [[[OMDBlockEditor alloc] initWithPreviewStorage:preview source:source] autorelease];
+        XCTAssertTrue([editor openBlockAtRenderedRange:renderedRange sourceRange:sourceRange attributes:nil]);
+        NSString *open = [[preview string] substringWithRange:[editor openRange]];
+        XCTAssertEqualObjects(open, cases[i].open, @"%@", markdown);
+        XCTAssertEqualObjects([editor sourceForOpenText], [markdown substringWithRange:sourceRange]);
+
+        // A line break typed before the last word's last character, and
+        // one before the second line's last word.
+        NSRange openRange = [editor openRange];
+        [preview replaceCharactersInRange:NSMakeRange(NSMaxRange(openRange) - 1, 0) withString:@"\n"];
+        NSUInteger space = [[preview string] rangeOfString:@" " options:NSBackwardsSearch
+                                                     range:[editor openRange]].location;
+        NSUInteger secondLine = [[preview string] rangeOfString:@"\n" options:0 range:[editor openRange]].location;
+        if (space != NSNotFound && space > secondLine) {
+            [preview replaceCharactersInRange:NSMakeRange(space, 1) withString:@"\n"];
+        }
+        XCTAssertFalse([editor isOutOfSync]);
+        XCTAssertEqualObjects([source->_text substringWithRange:[editor sourceRange]], cases[i].newLineSource, @"%@", markdown);
+        XCTAssertEqualObjects([editor sourceForOpenText], cases[i].newLineSource);
+
+        // Joining the first two lines again takes the second's markers.
+        NSUInteger firstBreak = [[preview string] rangeOfString:@"\n" options:0 range:[editor openRange]].location;
+        [preview replaceCharactersInRange:NSMakeRange(firstBreak, 1) withString:@" "];
+        XCTAssertEqualObjects([source->_text substringWithRange:[editor sourceRange]], [editor sourceForOpenText]);
+        NSString *joined = [source->_text substringWithRange:[editor sourceRange]];
+        NSString *firstLine = [[joined componentsSeparatedByString:@"\n"] objectAtIndex:0];
+        XCTAssertFalse([firstLine rangeOfString:@">"].location != NSNotFound, @"%@", joined);
+        XCTAssertEqualObjects([source->_text substringToIndex:sourceRange.location], [markdown substringToIndex:sourceRange.location]);
+    }
 }
 
 // An edit that touches text outside the open block (here, made directly on
