@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #import "OMDAppDelegate.h"
+#import "OMDDrawTrace.h"
 
 #if defined(_WIN32)
 static NSString * const OMDMathRenderingPolicyDefaultsKey = @"ObjcMarkdownMathRenderingPolicy";
@@ -359,6 +360,7 @@ int main(int argc, char *argv[])
     OMDEnsureDefaultPreferences();
     OMDStartupTrace(@"main: default preferences ensured");
 #endif
+    OMDDrawTraceInstallIfRequested();
     NSApplication *app = nil;
     @try {
         app = [NSApplication sharedApplication];

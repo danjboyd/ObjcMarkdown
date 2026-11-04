@@ -273,4 +273,40 @@ static NSMutableArray *OMDObserveStorageEdits(NSTextStorage *storage, id *observ
     [[NSNotificationCenter defaultCenter] removeObserver:observer];
 }
 
+// Not a check: with OMD_HIGHLIGHT_TIMING set, prints what one colouring pass
+// costs by document size, with no window (#164). Compare builds by these.
+- (void)testPrintHighlightTimings
+{
+    if (getenv("OMD_HIGHLIGHT_TIMING") == NULL) {
+        return;
+    }
+    NSString *block = @"# A heading\n\nA paragraph with **bold**, *italic*, `code` and a [link](https://example.com).\n\n- one\n- two\n\n```c\nint main(void) { return 0; }\n```\n\n";
+    NSUInteger sizes[] = { 200, 2000, 20000, 100000 };
+    NSUInteger s = 0;
+    for (; s < sizeof(sizes) / sizeof(sizes[0]); s++) {
+        NSMutableString *text = [NSMutableString string];
+        while ([text length] < sizes[s]) {
+            [text appendString:block];
+        }
+        NSTextStorage *storage = [[[NSTextStorage alloc] initWithString:text] autorelease];
+        NSColor *base = [NSColor blackColor];
+        NSColor *background = [NSColor whiteColor];
+        [OMDSourceHighlighter highlightTextStorage:storage baseTextColor:base backgroundColor:background];
+        NSUInteger reps = 15;
+        NSDate *start = [NSDate date];
+        NSUInteger r = 0;
+        for (; r < reps; r++) {
+            [OMDSourceHighlighter highlightTextStorage:storage baseTextColor:base backgroundColor:background];
+        }
+        double repeat = -[start timeIntervalSinceNow] * 1000.0 / reps;
+        start = [NSDate date];
+        for (r = 0; r < reps; r++) {
+            [storage replaceCharactersInRange:NSMakeRange([storage length] / 2, 0) withString:@"x"];
+            [OMDSourceHighlighter highlightTextStorage:storage baseTextColor:base backgroundColor:background];
+        }
+        double typed = -[start timeIntervalSinceNow] * 1000.0 / reps;
+        NSLog(@"OMDHighlightTiming chars=%lu repeat=%.2fms typed=%.2fms", (unsigned long)[storage length], repeat, typed);
+    }
+}
+
 @end
