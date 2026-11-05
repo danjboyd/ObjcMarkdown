@@ -125,6 +125,45 @@ static NSColor *OMDColorAt(NSMutableAttributedString *string, NSString *needle)
     }
 }
 
+// Where markup overlaps, the colour is the one a pass sets last: link,
+// bold, italic, math, inline code, then fenced lines (#346 sets each
+// character's colour once, so the order must be kept by hand).
+- (void)testOverlappingMarkupKeepsThePassOrder
+{
+    NSString *markdown = @"Solo `solo` and **solo** and *solo* and [solo](u) and $solo$.\n"
+                          "Over **bold `codeA` bold** and [link `codeB` link](u) and *it [linkC](u) it* and **b $mathD$ b**.\n"
+                          "- list **boldE** item\n"
+                          "\n"
+                          "```\n"
+                          "[linkF](u) and **boldF**\n"
+                          "```\n";
+    NSMutableAttributedString *styled = [[[NSMutableAttributedString alloc] initWithString:markdown] autorelease];
+    NSColor *base = [NSColor colorWithCalibratedRed:0.10 green:0.10 blue:0.10 alpha:1.0];
+    NSColor *background = [NSColor colorWithCalibratedRed:0.96 green:0.96 blue:0.96 alpha:1.0];
+    [OMDSourceHighlighter highlightAttributedString:styled baseTextColor:base backgroundColor:background];
+    NSString *text = [styled string];
+    NSColor *(^colorOf)(NSString *) = ^NSColor *(NSString *needle) {
+        NSRange found = [text rangeOfString:needle];
+        XCTAssertTrue(found.location != NSNotFound, @"%@", needle);
+        return [styled attribute:NSForegroundColorAttributeName atIndex:found.location + 1 effectiveRange:NULL];
+    };
+    NSColor *code = colorOf(@"`solo`");
+    NSColor *emphasis = colorOf(@"**solo**");
+    NSColor *link = colorOf(@"[solo]");
+    NSColor *math = colorOf(@"$solo$");
+    XCTAssertFalse([code isEqual:base]);
+    XCTAssertFalse([link isEqual:emphasis]);
+    XCTAssertFalse([code isEqual:emphasis]);
+
+    XCTAssertEqualObjects(colorOf(@"codeA"), code, @"inline code wins over bold");
+    XCTAssertEqualObjects(colorOf(@"codeB"), code, @"inline code wins over a link");
+    XCTAssertEqualObjects(colorOf(@"linkC"), emphasis, @"italic wins over a link");
+    XCTAssertEqualObjects(colorOf(@"mathD"), math, @"math wins over bold");
+    XCTAssertEqualObjects(colorOf(@"boldE"), emphasis, @"bold wins over a list line");
+    XCTAssertEqualObjects(colorOf(@"linkF"), code, @"a fenced line wins over a link");
+    XCTAssertEqualObjects(colorOf(@"boldF"), code, @"a fenced line wins over bold");
+}
+
 - (void)testFencedCodeWinsOverLinkHighlighting
 {
     NSString *markdown = @"```md\n[not-a-link](x)\n```\n\n[real-link](y)\n";
