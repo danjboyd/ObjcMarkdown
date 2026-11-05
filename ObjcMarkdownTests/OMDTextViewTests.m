@@ -10,6 +10,12 @@
 #import "OMTextTable.h"
 
 // The tool tip owner callback OMDTextView implements for its object rects.
+// OMDTextView.m: draws code-block cards and quote bars for every block (NO)
+// or only those in the dirty rect (YES, the default; #346).
+@interface OMDTextView (BlockDecorationCullingTesting)
++ (void)setCullsBlockDecorationsForTesting:(BOOL)culls;
+@end
+
 @interface OMDTextView (ToolTipOwner)
 - (NSString *)view:(NSView *)view
   stringForToolTip:(NSToolTipTag)tag
@@ -638,5 +644,114 @@
     XCTAssertTrue(ruled > 30, @"a rule runs down the column edge (%ld px)", (long)ruled);
 }
 
-@end
+// A long rendered document in a view as the preview sets it up: cards and
+// quote bars on, no background, laid out.
+- (OMDTextView *)decoratedTextViewForCullingTest
+{
+    NSMutableString *markdown = [NSMutableString stringWithString:@"# Cards and quote bars\n\n"];
+    NSUInteger section = 1;
+    for (; section <= 30; section++) {
+        [markdown appendFormat:@"## Section %lu\n\nA paragraph with **bold**, _emphasis_ and `code`.\n\n"
+                                "```objc\nNSString *value = @\"%lu\";\nNSLog(@\"%%@\", value);\n```\n\n"
+                                "> A quote that runs long enough to wrap onto a second line in a preview of this width, %lu.\n\n",
+                                (unsigned long)section, (unsigned long)section, (unsigned long)section];
+        if (section % 5 == 0) {
+            [markdown appendString:@"> [!NOTE]\n> An alert, whose bar has its own colour.\n\n> Outer quote\n>\n> > Nested quote\n\n```\n"];
+            NSUInteger line = 0;
+            for (; line < 60; line++) {
+                [markdown appendFormat:@"long code line %lu\n", (unsigned long)line];
+            }
+            [markdown appendString:@"```\n\n"];
+        }
+    }
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    [renderer setLayoutWidth:680.0];
+    NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
 
+    OMDTextView *textView = [[[OMDTextView alloc] initWithFrame:NSMakeRect(0.0, 0.0, 712.0, 800.0)] autorelease];
+    [textView setEditable:NO];
+    [textView setRichText:YES];
+    [textView setDrawsBackground:NO];
+    [textView setTextContainerInset:NSMakeSize(16.0, 16.0)];
+    [textView setVerticallyResizable:YES];
+    [textView setMaxSize:NSMakeSize(712.0, 1.0e7)];
+    [[textView textContainer] setContainerSize:NSMakeSize(680.0, 1.0e7)];
+    [[textView textContainer] setWidthTracksTextView:NO];
+    [[textView textStorage] setAttributedString:rendered];
+    [textView setCodeBlockRanges:[renderer codeBlockRanges]];
+    [textView setBlockquoteRanges:[renderer blockquoteRanges]];
+    [textView setCodeBlockBackgroundColor:[NSColor colorWithCalibratedRed:0.94 green:0.95 blue:0.97 alpha:1.0]];
+    [textView setCodeBlockBorderColor:[NSColor colorWithCalibratedRed:0.82 green:0.84 blue:0.87 alpha:1.0]];
+    [textView setCodeBlockPadding:NSMakeSize(20.0, 14.0)];
+    [textView setCodeBlockCornerRadius:6.0];
+    [textView setCodeBlockBorderWidth:1.0];
+    [textView setBlockquoteLineColor:[NSColor colorWithCalibratedWhite:0.6 alpha:1.0]];
+    [textView setBlockquoteLineWidth:3.0];
+    [[textView layoutManager] ensureLayoutForTextContainer:[textView textContainer]];
+    [textView sizeToFit];
+    return textView;
+}
+
+- (NSData *)pixelsOfTextView:(OMDTextView *)textView inRect:(NSRect)rect
+{
+    NSBitmapImageRep *bitmap = [textView bitmapImageRepForCachingDisplayInRect:rect];
+    [textView cacheDisplayInRect:rect toBitmapImageRep:bitmap];
+    return [NSData dataWithBytes:[bitmap bitmapData]
+                          length:(NSUInteger)([bitmap bytesPerRow] * [bitmap pixelsHigh])];
+}
+
+// Cards and quote bars are drawn only for blocks in the dirty rect (#346).
+// Every rect must look the same as with every block drawn: whole screens
+// down the document, and thin strips in a card's padding just outside its
+// text, and just above and below a quote bar.
+- (void)testCulledCardsAndQuoteBarsDrawTheSamePixels
+{
+    OMDTextView *textView = [self decoratedTextViewForCullingTest];
+    CGFloat height = NSHeight([textView frame]);
+    XCTAssertTrue(height > 8000.0, @"document height %.0f", height);
+    NSLayoutManager *layoutManager = [textView layoutManager];
+    NSPoint origin = [textView textContainerOrigin];
+
+    NSMutableArray *rects = [NSMutableArray array];
+    CGFloat y = 0.0;
+    for (; y + 800.0 <= height; y += floor(height / 9.0)) {
+        [rects addObject:[NSValue valueWithRect:NSMakeRect(0.0, floor(y), 712.0, 800.0)]];
+    }
+    [rects addObject:[NSValue valueWithRect:NSMakeRect(0.0, floor(height - 800.0), 712.0, 800.0)]];
+    NSArray *blocks = [[textView codeBlockRanges] arrayByAddingObjectsFromArray:[textView blockquoteRanges]];
+    NSUInteger index = 0;
+    for (; index < [blocks count]; index += 3) {
+        NSRange glyphs = [layoutManager glyphRangeForCharacterRange:[[blocks objectAtIndex:index] rangeValue] actualCharacterRange:NULL];
+        NSRect block = [layoutManager boundingRectForGlyphRange:glyphs inTextContainer:[textView textContainer]];
+        CGFloat top = floor(origin.y + NSMinY(block));
+        CGFloat bottom = ceil(origin.y + NSMaxY(block));
+        [rects addObject:[NSValue valueWithRect:NSMakeRect(0.0, top - 12.0, 712.0, 8.0)]];
+        [rects addObject:[NSValue valueWithRect:NSMakeRect(0.0, bottom + 4.0, 712.0, 8.0)]];
+        [rects addObject:[NSValue valueWithRect:NSMakeRect(0.0, top - 2.0, 712.0, 4.0)]];
+    }
+
+    for (NSValue *value in rects) {
+        NSRect rect = [value rectValue];
+        [OMDTextView setCullsBlockDecorationsForTesting:NO];
+        NSData *everyBlock = [self pixelsOfTextView:textView inRect:rect];
+        [OMDTextView setCullsBlockDecorationsForTesting:YES];
+        NSData *culled = [self pixelsOfTextView:textView inRect:rect];
+        XCTAssertTrue([culled isEqualToData:everyBlock], @"pixels differ in %@", NSStringFromRect(rect));
+    }
+
+#if !defined(GNUSTEP)
+    // The comparison means something: the cards and bars do show.
+    NSRect middle = [[rects objectAtIndex:4] rectValue];
+    NSData *decorated = [self pixelsOfTextView:textView inRect:middle];
+    NSArray *codeBlocks = [[[textView codeBlockRanges] retain] autorelease];
+    NSArray *quotes = [[[textView blockquoteRanges] retain] autorelease];
+    [textView setCodeBlockRanges:nil];
+    [textView setBlockquoteRanges:nil];
+    NSData *plain = [self pixelsOfTextView:textView inRect:middle];
+    [textView setCodeBlockRanges:codeBlocks];
+    [textView setBlockquoteRanges:quotes];
+    XCTAssertFalse([decorated isEqualToData:plain], @"no card or quote bar in %@", NSStringFromRect(middle));
+#endif
+}
+
+@end
