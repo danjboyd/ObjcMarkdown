@@ -4,6 +4,7 @@
 #import "OMDPreferencesController.h"
 #import "OMDExplorerController.h"
 #import "OMDFillViews.h"
+#import "OMDMenuButtonDetection.h"
 #import "OMDPanelSelection.h"
 #import "OMDTextFileSupport.h"
 #import "OMDViewerColors.h"
@@ -139,6 +140,8 @@ static NSString * const OMDWinUIThemeMenuStyleKey = @"WinUIThemeMenuStyle";
 static NSString * const OMDGnomeThemeMenuStyleKey = @"GnomeThemeMenuStyle";
 
 // The style in effect: this app's choice, else the user's for every app.
+// With neither set the theme decides, and themes differ, so what shows is
+// read from the windows (#334).
 static BOOL OMDMenuStyleUsesButton(void)
 {
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
@@ -147,7 +150,10 @@ static BOOL OMDMenuStyleUsesButton(void)
         return [winUI caseInsensitiveCompare:@"more"] == NSOrderedSame;
     }
     NSString *gnome = [defaults stringForKey:OMDGnomeThemeMenuStyleKey];
-    return gnome != nil && [gnome caseInsensitiveCompare:@"primary"] == NSOrderedSame;
+    if (gnome != nil) {
+        return [gnome caseInsensitiveCompare:@"primary"] == NSOrderedSame;
+    }
+    return OMDAppShowsMenuButton();
 }
 
 static void OMDSetMenuStyleUsesButton(BOOL usesButton)
