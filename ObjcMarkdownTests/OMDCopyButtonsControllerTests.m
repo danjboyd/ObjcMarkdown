@@ -47,6 +47,13 @@
 
 @implementation OMDCopyButtonsControllerTests
 
+- (void)setUp
+{
+    [super setUp];
+    // GNUstep needs the application (and its backend) before fonts.
+    [NSApplication sharedApplication];
+}
+
 - (NSString *)markdownWithCodeBlocks:(NSUInteger)count
 {
     NSMutableString *markdown = [NSMutableString string];
