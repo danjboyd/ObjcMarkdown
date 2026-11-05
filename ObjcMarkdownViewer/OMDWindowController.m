@@ -814,6 +814,12 @@ static NSMutableArray *OMDSecondaryWindows(void)
                                                         name:NSViewBoundsDidChangeNotification
                                                       object:[_sourceScrollView contentView]];
     }
+    if (_sourceTextView != nil) {
+        [[NSNotificationCenter defaultCenter] removeObserver:self
+                                                        name:NSTextStorageDidProcessEditingNotification
+                                                      object:[_sourceTextView textStorage]];
+    }
+    [_sourceHighlightState release];
     if (_previewScrollView != nil) {
         [[NSNotificationCenter defaultCenter] removeObserver:self
                                                         name:NSViewBoundsDidChangeNotification
@@ -1064,6 +1070,9 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [[NSApp effectiveAppearance] performAsCurrentDrawingAppearance:^{
         [_renderer setTheme:[OMTheme defaultThemeForDarkAppearance:OMDSystemAppearanceIsDark()]];
         [self renderCurrentMarkdown];
+        // The system colours look the same to the colouring pass in both
+        // appearances: say the whole text needs new colours.
+        _sourceHighlightNeedsFullPass = YES;
         [self requestSourceSyntaxHighlightingRefresh];
     }];
 }
@@ -1269,6 +1278,11 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [self configureSourceVimBindingController];
     [_sourceTextView setString:@""];
     _sourceHighlightNeedsFullPass = YES;
+    _sourceHighlightState = [[OMDSourceHighlightState alloc] init];
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(sourceTextStorageDidProcessEditing:)
+                                                 name:NSTextStorageDidProcessEditingNotification
+                                               object:[_sourceTextView textStorage]];
     [_sourceScrollView setDocumentView:_sourceTextView];
     [[_sourceScrollView contentView] setPostsBoundsChangedNotifications:YES];
     [[NSNotificationCenter defaultCenter] addObserver:self
@@ -7565,6 +7579,16 @@ static CGFloat OMDOutlinePanelWidth(NSRect bounds)
     }
 }
 
+// Every change to the source's characters, typed or not, so the next
+// colouring pass knows what to redo (#333).
+- (void)sourceTextStorageDidProcessEditing:(NSNotification *)notification
+{
+    NSTextStorage *storage = [notification object];
+    if (([storage editedMask] & NSTextStorageEditedCharacters) != 0) {
+        [_sourceHighlightState noteEditedRange:[storage editedRange] changeInLength:[storage changeInLength]];
+    }
+}
+
 - (void)cancelPendingSourceSyntaxHighlighting
 {
     if (_sourceSyntaxHighlightTimer != nil) {
@@ -7646,6 +7670,7 @@ static CGFloat OMDOutlinePanelWidth(NSRect bounds)
     NSColor *baseColor = [self sourceEditorBaseTextColor];
 
     NSTextStorage *storage = [_sourceTextView textStorage];
+    [_sourceHighlightState reset];
     if (storage != nil && [storage length] > 0) {
         _isProgrammaticSourceHighlightUpdate = YES;
         @try {
@@ -7718,17 +7743,35 @@ static CGFloat OMDOutlinePanelWidth(NSRect bounds)
         [highlightOptions setObject:accentColor forKey:OMDSourceHighlighterOptionAccentColor];
     }
 
+    // Above the threshold a window around the caret; below it the edited
+    // blocks, or the whole text when anything else changed (#333).
     NSRange targetRange = [self sourceSyntaxHighlightIncrementalRangeForStorage:storage];
     BOOL fullPass = targetRange.location == NSNotFound;
+    if (_sourceHighlightNeedsFullPass) {
+        [_sourceHighlightState reset];
+    }
     NSTimeInterval afterRange = profiling ? OMDKeyLatencyNow() : 0.0;
 
     _isProgrammaticSourceHighlightUpdate = YES;
     @try {
-        [OMDSourceHighlighter highlightTextStorage:storage
-                                     baseTextColor:baseColor
-                                   backgroundColor:backgroundColor
-                                           options:highlightOptions
-                                       targetRange:targetRange];
+        if (fullPass) {
+            NSRange coloured = [OMDSourceHighlighter highlightTextStorage:storage
+                                                            baseTextColor:baseColor
+                                                          backgroundColor:backgroundColor
+                                                                  options:highlightOptions
+                                                                    state:_sourceHighlightState];
+            if (coloured.location == NSNotFound) {
+                targetRange = NSMakeRange(0, 0);
+            } else if (coloured.length < [storage length]) {
+                targetRange = coloured;
+            }
+        } else {
+            [OMDSourceHighlighter highlightTextStorage:storage
+                                         baseTextColor:baseColor
+                                       backgroundColor:backgroundColor
+                                               options:highlightOptions
+                                           targetRange:targetRange];
+        }
     } @finally {
         _isProgrammaticSourceHighlightUpdate = NO;
     }
@@ -7763,7 +7806,7 @@ static CGFloat OMDOutlinePanelWidth(NSRect bounds)
                   OMDKeyLatencyMS(afterRange, afterHighlight),
                   OMDKeyLatencyMS(afterHighlight, end),
                   (unsigned long)[storage length],
-                  fullPass ? @"full" : NSStringFromRange(targetRange));
+                  targetRange.location == NSNotFound ? @"full" : NSStringFromRange(targetRange));
         }
     }
 }
