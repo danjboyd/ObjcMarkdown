@@ -6,6 +6,7 @@
 #import "OMDCopyButtonsController.h"
 #import "OMDTextView.h"
 #import "OMMarkdownRenderer.h"
+#import "OMDRenderResult.h"
 
 @interface OMDTextView (CopyCodeBlockTesting)
 - (BOOL)copyCodeBlockAtIndex:(NSUInteger)blockIndex toPasteboard:(NSPasteboard *)pasteboard;
@@ -38,7 +39,10 @@
     [super dealloc];
 }
 - (NSTextView *)previewTextView { return _textView; }
-- (OMMarkdownRenderer *)previewRenderer { return _renderer; }
+- (OMDRenderResult *)previewRenderResult
+{
+    return [OMDRenderResult resultOfRenderer:_renderer markdown:nil sourceRevision:0];
+}
 - (void)previewDidLayoutForCopyButtons { }
 @end
 

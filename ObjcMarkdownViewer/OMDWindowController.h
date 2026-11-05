@@ -10,6 +10,7 @@ typedef unsigned short mode_t;
 #import "OMDSourceTextView.h"
 
 @class OMMarkdownRenderer;
+@class OMDRenderResult;
 @class OMDDocumentConverter;
 @class OMDLineNumberRulerView;
 @class OMDFormattingBarController;
@@ -55,6 +56,10 @@ typedef unsigned short mode_t;
     NSTextView *_sourceTextView;
     OMDLineNumberRulerView *_sourceLineNumberRuler;
     OMMarkdownRenderer *_renderer;
+    // What the preview shows came from (#346): the viewer reads the
+    // preview's anchors, ranges, headings and task items here, not from
+    // _renderer.
+    OMDRenderResult *_appliedResult;
     BOOL _openedFileOnLaunch;
     NSString *_currentMarkdown;
     NSString *_currentPath;
