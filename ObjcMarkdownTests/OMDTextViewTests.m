@@ -14,6 +14,8 @@
 // or only those in the dirty rect (YES, the default; #346).
 @interface OMDTextView (BlockDecorationCullingTesting)
 + (void)setCullsBlockDecorationsForTesting:(BOOL)culls;
+- (void)drawCodeBlockBackgroundsInRect:(NSRect)dirtyRect;
+- (void)drawBlockquoteLinesInRect:(NSRect)dirtyRect;
 @end
 
 @interface OMDTextView (ToolTipOwner)
@@ -692,10 +694,24 @@
     return textView;
 }
 
+// The cards and quote bars a draw of rect paints, as the view's drawRect:
+// would with that dirty rect, in an image (views outside a window can't
+// cache their display on GNUstep).
 - (NSData *)pixelsOfTextView:(OMDTextView *)textView inRect:(NSRect)rect
 {
-    NSBitmapImageRep *bitmap = [textView bitmapImageRepForCachingDisplayInRect:rect];
-    [textView cacheDisplayInRect:rect toBitmapImageRep:bitmap];
+    NSImage *image = [[[NSImage alloc] initWithSize:rect.size] autorelease];
+    [image lockFocus];
+    [[NSColor whiteColor] set];
+    NSRectFill(NSMakeRect(0.0, 0.0, rect.size.width, rect.size.height));
+    // The view is flipped: put its rect's top-left at the image's top-left.
+    NSAffineTransform *flip = [NSAffineTransform transform];
+    [flip translateXBy:-NSMinX(rect) yBy:NSMaxY(rect)];
+    [flip scaleXBy:1.0 yBy:-1.0];
+    [flip concat];
+    [textView drawCodeBlockBackgroundsInRect:rect];
+    [textView drawBlockquoteLinesInRect:rect];
+    [image unlockFocus];
+    NSBitmapImageRep *bitmap = [NSBitmapImageRep imageRepWithData:[image TIFFRepresentation]];
     return [NSData dataWithBytes:[bitmap bitmapData]
                           length:(NSUInteger)([bitmap bytesPerRow] * [bitmap pixelsHigh])];
 }
@@ -739,7 +755,6 @@
         XCTAssertTrue([culled isEqualToData:everyBlock], @"pixels differ in %@", NSStringFromRect(rect));
     }
 
-#if !defined(GNUSTEP)
     // The comparison means something: the cards and bars do show.
     NSRect middle = [[rects objectAtIndex:4] rectValue];
     NSData *decorated = [self pixelsOfTextView:textView inRect:middle];
@@ -751,7 +766,6 @@
     [textView setCodeBlockRanges:codeBlocks];
     [textView setBlockquoteRanges:quotes];
     XCTAssertFalse([decorated isEqualToData:plain], @"no card or quote bar in %@", NSStringFromRect(middle));
-#endif
 }
 
 @end
