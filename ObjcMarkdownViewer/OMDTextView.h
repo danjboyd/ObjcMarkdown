@@ -61,4 +61,12 @@ NSUInteger OMDTaskItemIndexAtCharacterIndex(NSAttributedString *text, NSUInteger
 @property (nonatomic, retain) NSColor *blockquoteLineColor;
 @property (nonatomic, assign) CGFloat blockquoteLineWidth;
 
+// The index in codeBlockRanges of the block holding characterIndex, or
+// NSNotFound.
+- (NSUInteger)codeBlockIndexAtCharacterIndex:(NSUInteger)characterIndex;
+// Copies the code block that holds the selection (Edit > Copy Code Block),
+// so the copy buttons' action can be reached from the keyboard, and by
+// VoiceOver users, without finding the button (#346).
+- (IBAction)copyCodeBlockAtSelection:(id)sender;
+
 @end

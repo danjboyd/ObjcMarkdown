@@ -16,14 +16,14 @@ static const NSTimeInterval OMDCopyFeedbackDisplayInterval = 0.95;
 
 @interface OMDCopyButtonsController ()
 - (NSArray *)displayMathObjectRanges;
-- (void)addCopyButtonsForRanges:(NSArray *)ranges
-                        action:(SEL)action
-                       toolTip:(NSString *)toolTip
-                 layoutManager:(NSLayoutManager *)layoutManager
-                     container:(NSTextContainer *)container
-                    textOrigin:(NSPoint)textOrigin
-                  blockPadding:(NSSize)blockPadding
-            matchCodeBlockEdge:(BOOL)matchCodeBlockEdge;
+- (void)addCopySlotsForRanges:(NSArray *)ranges
+                       action:(SEL)action
+                      toolTip:(NSString *)toolTip
+                 blockPadding:(NSSize)blockPadding
+           matchCodeBlockEdge:(BOOL)matchCodeBlockEdge;
+- (BOOL)frameForCopySlot:(NSDictionary *)slot frame:(NSRect *)frameOut;
+- (void)observeClipViewOfTextView:(NSTextView *)textView;
+- (void)removeButtonForSlot:(NSNumber *)slot;
 - (void)applyCopyButtonDefaultAppearance:(NSButton *)button;
 - (void)showCopyFeedbackForButton:(NSButton *)button;
 @end
@@ -36,14 +36,19 @@ static const NSTimeInterval OMDCopyFeedbackDisplayInterval = 0.95;
     if (self != nil) {
         _delegate = delegate;
         _codeBlockButtons = [[NSMutableArray alloc] init];
+        _copySlots = [[NSMutableArray alloc] init];
+        _buttonsBySlot = [[NSMutableDictionary alloc] init];
     }
     return self;
 }
 
 - (void)dealloc
 {
+    [self observeClipViewOfTextView:nil];
     [self hideCopyFeedback];
     [_codeBlockButtons release];
+    [_copySlots release];
+    [_buttonsBySlot release];
     [super dealloc];
 }
 
@@ -53,6 +58,43 @@ static const NSTimeInterval OMDCopyFeedbackDisplayInterval = 0.95;
         [button removeFromSuperview];
     }
     [_codeBlockButtons removeAllObjects];
+    [_buttonsBySlot removeAllObjects];
+    [_copySlots removeAllObjects];
+}
+
+// Buttons are made only for blocks near what's visible, so scrolling has to
+// update them. A document with 1,600 code blocks had 1,600 buttons, each
+// with its cursor rect, tracking rect and tooltip: about 12 s of the main
+// thread over one scroll through it (#346).
+- (void)observeClipViewOfTextView:(NSTextView *)textView
+{
+    NSView *clipView = [[textView enclosingScrollView] contentView];
+    if (clipView == _observedClipView) {
+        return;
+    }
+    NSNotificationCenter *center = [NSNotificationCenter defaultCenter];
+    if (_observedClipView != nil) {
+        [center removeObserver:self name:NSViewBoundsDidChangeNotification object:_observedClipView];
+        [center removeObserver:self name:NSViewFrameDidChangeNotification object:_observedClipView];
+        [_observedClipView release];
+        _observedClipView = nil;
+    }
+    if (clipView != nil) {
+        _observedClipView = [clipView retain];
+        [clipView setPostsBoundsChangedNotifications:YES];
+        [clipView setPostsFrameChangedNotifications:YES];
+        [center addObserver:self selector:@selector(clipViewDidChange:)
+                       name:NSViewBoundsDidChangeNotification object:clipView];
+        [center addObserver:self selector:@selector(clipViewDidChange:)
+                       name:NSViewFrameDidChangeNotification object:clipView];
+    }
+}
+
+- (void)clipViewDidChange:(NSNotification *)notification
+{
+    if ([_copySlots count] > 0) {
+        [self updateVisibleCopyButtons];
+    }
 }
 
 - (void)updateCodeBlockButtons
@@ -68,6 +110,9 @@ static const NSTimeInterval OMDCopyFeedbackDisplayInterval = 0.95;
         [button removeFromSuperview];
     }
     [_codeBlockButtons removeAllObjects];
+    [_buttonsBySlot removeAllObjects];
+    [_copySlots removeAllObjects];
+    [self observeClipViewOfTextView:textView];
 
     NSArray *codeRanges = [renderer codeBlockRanges];
     NSArray *diagramBlocks = [renderer diagramBlocks];
@@ -84,7 +129,6 @@ static const NSTimeInterval OMDCopyFeedbackDisplayInterval = 0.95;
         return;
     }
 
-    NSPoint textOrigin = [textView textContainerOrigin];
     NSSize blockPadding = NSMakeSize(12.0, 8.0);
     if ([textView isKindOfClass:[OMDTextView class]]) {
         OMDTextView *codeView = (OMDTextView *)textView;
@@ -93,14 +137,11 @@ static const NSTimeInterval OMDCopyFeedbackDisplayInterval = 0.95;
         }
     }
 
-    [self addCopyButtonsForRanges:codeRanges
-                           action:@selector(copyCodeBlock:)
-                          toolTip:@"Copy code block"
-                    layoutManager:layoutManager
-                        container:container
-                       textOrigin:textOrigin
-                     blockPadding:blockPadding
-               matchCodeBlockEdge:NO];
+    [self addCopySlotsForRanges:codeRanges
+                         action:@selector(copyCodeBlock:)
+                        toolTip:@"Copy code block"
+                   blockPadding:blockPadding
+             matchCodeBlockEdge:NO];
 
     // Diagrams are centred attachments: their button goes at the code blocks'
     // right edge, level with the diagram's top.
@@ -111,25 +152,22 @@ static const NSTimeInterval OMDCopyFeedbackDisplayInterval = 0.95;
             [diagramRanges addObject:range];
         }
     }
-    [self addCopyButtonsForRanges:diagramRanges
-                           action:@selector(copyDiagramBlock:)
-                          toolTip:@"Copy diagram source"
-                    layoutManager:layoutManager
-                        container:container
-                       textOrigin:textOrigin
-                     blockPadding:blockPadding
-               matchCodeBlockEdge:YES];
+    [self addCopySlotsForRanges:diagramRanges
+                         action:@selector(copyDiagramBlock:)
+                        toolTip:@"Copy diagram source"
+                   blockPadding:blockPadding
+             matchCodeBlockEdge:YES];
 
     // Equations are narrow and centred: put the button just right of the
     // formula instead of over its corner (button 20 + 6 inset + 6 gap).
-    [self addCopyButtonsForRanges:displayMathRanges
-                           action:@selector(copyDisplayMathBlock:)
-                          toolTip:@"Copy equation source"
-                    layoutManager:layoutManager
-                        container:container
-                       textOrigin:textOrigin
-                     blockPadding:NSMakeSize(32.0, 0.0)
-               matchCodeBlockEdge:NO];
+    [self addCopySlotsForRanges:displayMathRanges
+                         action:@selector(copyDisplayMathBlock:)
+                        toolTip:@"Copy equation source"
+                   blockPadding:NSMakeSize(32.0, 0.0)
+             matchCodeBlockEdge:NO];
+    // In document order, so a scroll finds the blocks near it by bisection.
+    [_copySlots sortUsingFunction:OMDCompareCopySlots context:NULL];
+    [self updateVisibleCopyButtons];
 }
 
 - (NSArray *)displayMathObjectRanges
@@ -179,87 +217,184 @@ static const NSTimeInterval OMDCopyFeedbackDisplayInterval = 0.95;
     }
 }
 
-- (void)addCopyButtonsForRanges:(NSArray *)ranges
-                         action:(SEL)action
-                        toolTip:(NSString *)toolTip
-                  layoutManager:(NSLayoutManager *)layoutManager
-                      container:(NSTextContainer *)container
-                     textOrigin:(NSPoint)textOrigin
-                   blockPadding:(NSSize)blockPadding
-             matchCodeBlockEdge:(BOOL)matchCodeBlockEdge
+static NSInteger OMDCompareCopySlots(id a, id b, void *context)
+{
+    NSUInteger left = [[a objectForKey:@"range"] rangeValue].location;
+    NSUInteger right = [[b objectForKey:@"range"] rangeValue].location;
+    return left < right ? NSOrderedAscending : (left > right ? NSOrderedDescending : NSOrderedSame);
+}
+
+// One slot per block: what its button does and where it goes. The tag is
+// the block's index in its own list, as the copy actions expect.
+- (void)addCopySlotsForRanges:(NSArray *)ranges
+                       action:(SEL)action
+                      toolTip:(NSString *)toolTip
+                 blockPadding:(NSSize)blockPadding
+           matchCodeBlockEdge:(BOOL)matchCodeBlockEdge
+{
+    NSInteger index = 0;
+    for (NSValue *value in ranges) {
+        if ([value rangeValue].length > 0) {
+            [_copySlots addObject:[NSDictionary dictionaryWithObjectsAndKeys:
+                                   value, @"range",
+                                   NSStringFromSelector(action), @"action",
+                                   toolTip, @"toolTip",
+                                   [NSValue valueWithSize:blockPadding], @"padding",
+                                   [NSNumber numberWithBool:matchCodeBlockEdge], @"matchEdge",
+                                   [NSNumber numberWithInteger:index], @"tag",
+                                   nil]];
+        }
+        index++;
+    }
+}
+
+- (BOOL)frameForCopySlot:(NSDictionary *)slot frame:(NSRect *)frameOut
 {
     NSTextView *textView = [_delegate previewTextView];
     OMMarkdownRenderer *renderer = [_delegate previewRenderer];
-    if ([ranges count] == 0) {
-        return;
+    NSLayoutManager *layoutManager = [textView layoutManager];
+    NSTextContainer *container = [textView textContainer];
+    NSRange charRange = [[slot objectForKey:@"range"] rangeValue];
+    NSSize blockPadding = [[slot objectForKey:@"padding"] sizeValue];
+    NSPoint textOrigin = [textView textContainerOrigin];
+
+    NSRange glyphRange = [layoutManager glyphRangeForCharacterRange:charRange actualCharacterRange:NULL];
+    if (glyphRange.length == 0) {
+        return NO;
     }
 
-    NSInteger index = 0;
-    for (NSValue *value in ranges) {
-        NSRange charRange = [value rangeValue];
-        if (charRange.length == 0) {
-            index++;
-            continue;
-        }
+    NSRect blockRect = [layoutManager boundingRectForGlyphRange:glyphRange inTextContainer:container];
+    if ([[slot objectForKey:@"matchEdge"] boolValue]) {
+        // A code block's text runs to the line end less its tail inset.
+        NSRect fragment = [layoutManager lineFragmentRectForGlyphAtIndex:glyphRange.location effectiveRange:NULL];
+        CGFloat codeTailInset = 20.0 * ([renderer zoomScale] > 0.0 ? [renderer zoomScale] : 1.0);
+        CGFloat right = NSMaxX(fragment) - [container lineFragmentPadding] - codeTailInset;
+        blockRect.size.width = MAX(1.0, right - NSMinX(blockRect));
+    }
 
-        NSRange glyphRange = [layoutManager glyphRangeForCharacterRange:charRange actualCharacterRange:NULL];
-        if (glyphRange.length == 0) {
-            index++;
-            continue;
-        }
+    CGFloat buttonWidth = 20.0;
+    CGFloat buttonHeight = 20.0;
+    NSRect blockBounds = NSMakeRect(textOrigin.x + blockRect.origin.x - blockPadding.width,
+                                    textOrigin.y + blockRect.origin.y - blockPadding.height,
+                                    blockRect.size.width + (blockPadding.width * 2.0),
+                                    blockRect.size.height + (blockPadding.height * 2.0));
+    if (blockBounds.size.width < 1.0 || blockBounds.size.height < 1.0) {
+        return NO;
+    }
 
-        NSRect blockRect = [layoutManager boundingRectForGlyphRange:glyphRange inTextContainer:container];
-        if (matchCodeBlockEdge) {
-            // A code block's text runs to the line end less its tail inset.
-            NSRect fragment = [layoutManager lineFragmentRectForGlyphAtIndex:glyphRange.location effectiveRange:NULL];
-            CGFloat codeTailInset = 20.0 * ([renderer zoomScale] > 0.0 ? [renderer zoomScale] : 1.0);
-            CGFloat right = NSMaxX(fragment) - [container lineFragmentPadding] - codeTailInset;
-            blockRect.size.width = MAX(1.0, right - NSMinX(blockRect));
-        }
+    CGFloat x = NSMaxX(blockBounds) - buttonWidth - 6.0;
+    CGFloat y = 0.0;
+    if ([textView isFlipped]) {
+        y = NSMinY(blockBounds) + 4.0;
+    } else {
+        y = NSMaxY(blockBounds) - buttonHeight - 4.0;
+    }
 
-        CGFloat buttonWidth = 20.0;
-        CGFloat buttonHeight = 20.0;
-        NSRect blockBounds = NSMakeRect(textOrigin.x + blockRect.origin.x - blockPadding.width,
-                                        textOrigin.y + blockRect.origin.y - blockPadding.height,
-                                        blockRect.size.width + (blockPadding.width * 2.0),
-                                        blockRect.size.height + (blockPadding.height * 2.0));
-        if (blockBounds.size.width < 1.0 || blockBounds.size.height < 1.0) {
-            index++;
-            continue;
-        }
+    CGFloat minX = 2.0;
+    CGFloat maxX = NSWidth([textView bounds]) - buttonWidth - 2.0;
+    if (x < minX) {
+        x = minX;
+    }
+    if (x > maxX) {
+        x = maxX;
+    }
 
-        CGFloat x = NSMaxX(blockBounds) - buttonWidth - 6.0;
-        CGFloat y = 0.0;
-        if ([textView isFlipped]) {
-            y = NSMinY(blockBounds) + 4.0;
+    CGFloat minY = 2.0;
+    CGFloat maxY = NSHeight([textView bounds]) - buttonHeight - 2.0;
+    if (y < minY) {
+        y = minY;
+    }
+    if (y > maxY) {
+        y = maxY;
+    }
+
+    *frameOut = NSIntegralRect(NSMakeRect(x, y, buttonWidth, buttonHeight));
+    return YES;
+}
+
+- (void)removeButtonForSlot:(NSNumber *)slot
+{
+    NSButton *button = [_buttonsBySlot objectForKey:slot];
+    if (button == nil) {
+        return;
+    }
+    if (button == _copyFeedbackButton) {
+        [self hideCopyFeedback];
+    }
+    [button removeFromSuperview];
+    [_codeBlockButtons removeObjectIdenticalTo:button];
+    [_buttonsBySlot removeObjectForKey:slot];
+}
+
+- (NSUInteger)updateVisibleCopyButtons
+{
+    NSTextView *textView = [_delegate previewTextView];
+    NSLayoutManager *layoutManager = [textView layoutManager];
+    NSTextContainer *container = [textView textContainer];
+    if (textView == nil || layoutManager == nil || container == nil || [_copySlots count] == 0) {
+        return [_codeBlockButtons count];
+    }
+
+    // What's visible and a screen above and below, so a button is there
+    // before its block scrolls in. Without a scroll view, everything.
+    NSRect visible = [textView visibleRect];
+    NSRange near = NSMakeRange(0, [[textView textStorage] length]);
+    if ([textView enclosingScrollView] != nil && NSHeight(visible) > 0.0) {
+        NSRect area = NSInsetRect(visible, 0.0, -NSHeight(visible));
+        NSPoint origin = [textView textContainerOrigin];
+        area.origin.x -= origin.x;
+        area.origin.y -= origin.y;
+        NSRange glyphs = [layoutManager glyphRangeForBoundingRect:area inTextContainer:container];
+        near = [layoutManager characterRangeForGlyphRange:glyphs actualGlyphRange:NULL];
+    }
+
+    // Drop the buttons of blocks no longer near (there are only a few).
+    for (NSNumber *key in [_buttonsBySlot allKeys]) {
+        NSRange range = [[[_copySlots objectAtIndex:[key unsignedIntegerValue]] objectForKey:@"range"] rangeValue];
+        if (NSMaxRange(range) < near.location || range.location > NSMaxRange(near)) {
+            [self removeButtonForSlot:key];
+        }
+    }
+
+    // The first slot that may touch near: blocks don't overlap, so ranges
+    // end in the same order they start.
+    NSUInteger low = 0;
+    NSUInteger high = [_copySlots count];
+    while (low < high) {
+        NSUInteger middle = low + (high - low) / 2;
+        NSRange range = [[[_copySlots objectAtIndex:middle] objectForKey:@"range"] rangeValue];
+        if (NSMaxRange(range) < near.location) {
+            low = middle + 1;
         } else {
-            y = NSMaxY(blockBounds) - buttonHeight - 4.0;
+            high = middle;
         }
+    }
 
-        CGFloat minX = 2.0;
-        CGFloat maxX = NSWidth([textView bounds]) - buttonWidth - 2.0;
-        if (x < minX) {
-            x = minX;
+    NSUInteger slotIndex = low;
+    for (; slotIndex < [_copySlots count]; slotIndex++) {
+        NSDictionary *slot = [_copySlots objectAtIndex:slotIndex];
+        NSRange range = [[slot objectForKey:@"range"] rangeValue];
+        if (range.location > NSMaxRange(near)) {
+            break;
         }
-        if (x > maxX) {
-            x = maxX;
+        NSNumber *key = [NSNumber numberWithUnsignedInteger:slotIndex];
+        if ([_buttonsBySlot objectForKey:key] != nil) {
+            continue;
         }
-
-        CGFloat minY = 2.0;
-        CGFloat maxY = NSHeight([textView bounds]) - buttonHeight - 2.0;
-        if (y < minY) {
-            y = minY;
+        NSRect frame;
+        if (![self frameForCopySlot:slot frame:&frame]) {
+            continue;
         }
-        if (y > maxY) {
-            y = maxY;
-        }
-
-        NSRect buttonFrame = NSIntegralRect(NSMakeRect(x, y, buttonWidth, buttonHeight));
-        OMDCodeCopyButton *button = [[OMDCodeCopyButton alloc] initWithFrame:buttonFrame];
+        NSString *toolTip = [slot objectForKey:@"toolTip"];
+        OMDCodeCopyButton *button = [[OMDCodeCopyButton alloc] initWithFrame:frame];
         [self applyCopyButtonDefaultAppearance:button];
         [button setButtonType:NSMomentaryChangeButton];
         [button setBordered:NO];
         [button setToolTip:toolTip];
+        // The image has no words: name the button for VoiceOver.
+        if ([button respondsToSelector:@selector(setAccessibilityLabel:)]) {
+            [button setAccessibilityLabel:toolTip];
+        }
         id buttonCell = [button cell];
         if (buttonCell != nil && [buttonCell respondsToSelector:@selector(setImageScaling:)]) {
             [buttonCell setImageScaling:NSImageScaleNone];
@@ -268,13 +403,14 @@ static const NSTimeInterval OMDCopyFeedbackDisplayInterval = 0.95;
             [buttonCell setHighlightsBy:NSNoCellMask];
         }
         [button setTarget:self];
-        [button setAction:action];
-        [button setTag:index];
+        [button setAction:NSSelectorFromString([slot objectForKey:@"action"])];
+        [button setTag:[[slot objectForKey:@"tag"] integerValue]];
         [textView addSubview:button];
         [_codeBlockButtons addObject:button];
+        [_buttonsBySlot setObject:button forKey:key];
         [button release];
-        index++;
     }
+    return [_codeBlockButtons count];
 }
 
 - (void)copyDiagramBlock:(id)sender
