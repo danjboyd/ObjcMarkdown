@@ -114,5 +114,16 @@ OM_EXPORT NSString * const OMMarkdownRendererDiagramSourceKey;
 // When YES, the task boxes also show a pointing hand (NSCursorAttributeName),
 // for a view where clicking a box toggles it. NO by default.
 @property (nonatomic, assign) BOOL interactiveTaskItems;
+// When YES, each render also lists the Markdown's blocks as the viewer's
+// preview sync describes them, from the render's own parse, so the sync
+// needn't parse the document again (#346). NO by default.
+@property (nonatomic, assign) BOOL collectsSourceBlockDescriptors;
+// One dictionary per paragraph, heading, code block, thematic break, quote,
+// list, item, table and footnote definition, in document order:
+// OMMarkdownRendererAnchorSourceStartLineKey, ...SourceEndLineKey and
+// ...BlockIDKey. Nil when the last render didn't collect them, parsed with
+// other than the default cmark options, or blanked front matter (the sync
+// parses the text as it is).
+@property (nonatomic, readonly) NSArray *sourceBlockDescriptors;
 
 @end
