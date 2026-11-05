@@ -8024,7 +8024,7 @@ static CGFloat OMDOutlinePanelWidth(NSRect bounds)
 
     // GNUstep's own theme is stored by name rather than by removing the
     // key: at launch a missing GSTheme means "never chosen" and becomes
-    // Adwaita (OMDEnsureDefaultPreferences in main.m).
+    // Adwaita (OMDRegisterDefaultPreferences in main.m).
     if (themeName == nil || [themeName length] == 0) {
         themeName = @"GNUstep";
     }

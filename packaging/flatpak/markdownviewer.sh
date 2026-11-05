@@ -1,11 +1,7 @@
 #!/bin/sh
-# MarkdownViewer's launcher in the Flatpak. The Adwaita theme is the
-# default until the user picks another in Preferences (which writes the
-# same GSTheme default).
+# MarkdownViewer's launcher in the Flatpak. The app itself registers the
+# Adwaita theme as its default until the user picks another in Preferences.
 . /app/share/GNUstep/Makefiles/GNUstep.sh
-if ! defaults read NSGlobalDomain GSTheme >/dev/null 2>&1; then
-    defaults write NSGlobalDomain GSTheme Adwaita
-fi
 # The menu button, as the AppImage seeds it, so Preferences shows the same
 # value the theme draws (written only when unset).
 if ! defaults read MarkdownViewer GnomeThemeMenuStyle >/dev/null 2>&1; then
