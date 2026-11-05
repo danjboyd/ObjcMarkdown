@@ -72,6 +72,14 @@ Drive it with `xdotool` (`export DISPLAY=$(cat $OMD_UI_WORK/display)`).
   stops any `ibus-*` with the session's runtime directory; your desktop's
   ibus is never touched.
 
+## Startup defaults
+
+`tools/dev/check-default-keys.sh` runs the in-tree build on its own Xvfb with
+private defaults: the registered theme still loads, a theme the user set
+globally or on the command line wins, and the app writes none of its default
+keys into `NSGlobalDomain`, where they would reach every other GNUstep app
+(#335). No session needed. It stops only the copies and helpers it started.
+
 ## Mixed line endings
 
 `ObjcMarkdown/OMMarkdownRenderer.m`, `ObjcMarkdownTests/OMMarkdownRendererTests.m`,

@@ -7,9 +7,9 @@
 static NSString * const OMDMathRenderingPolicyDefaultsKey = @"ObjcMarkdownMathRenderingPolicy";
 static NSInteger const OMDMathRenderingPolicyExternalToolsValue = 2;
 #endif
-// GNUstep's global defaults (theme, menu style, window decoration). On
-// macOS NSGlobalDomain is the system's, shared with every app, and none of
-// these keys mean anything there, so nothing is written.
+// The defaults this app starts with (theme, menu style, window decoration),
+// registered for this process only: see OMDRegisterDefaultPreferences. None
+// of these keys mean anything on macOS, so nothing is registered there.
 #if defined(GNUSTEP)
 static NSString * const OMDMenuInterfaceStyleDefaultsKey = @"NSMenuInterfaceStyle";
 static NSString * const OMDWindowDecorationDefaultsKey = @"GSWindowDecoration";
@@ -70,23 +70,6 @@ static NSString *OMDWindowsInstallRoot(void)
 
     return [[[executablePath stringByDeletingLastPathComponent]
         stringByDeletingLastPathComponent] stringByDeletingLastPathComponent];
-}
-
-static NSString *OMDWindowsBundledDefaultsToolPath(void)
-{
-    NSString *bundleRoot = OMDWindowsInstallRoot();
-    NSArray *relativePaths = [NSArray arrayWithObjects:
-        @"runtime\\bin\\defaults.exe",
-        @"clang64\\bin\\defaults.exe",
-        nil];
-
-    for (NSString *relativePath in relativePaths) {
-        NSString *defaultsPath = [bundleRoot stringByAppendingPathComponent:relativePath];
-        if ([[NSFileManager defaultManager] isExecutableFileAtPath:defaultsPath]) {
-            return defaultsPath;
-        }
-    }
-    return @"defaults.exe";
 }
 
 static BOOL OMDWindowsThemeBundleExistsInDirectory(NSString *themesRoot, NSString *themeName)
@@ -169,49 +152,11 @@ static BOOL OMDWindowsBundledExternalMathToolchainAvailable(void)
             OMDWindowsBundledExecutableExists(@"clang64\\texlive\\TinyTeX\\bin\\windows\\dvipng.exe"));
 }
 
-static void OMDEnsureWindowsMenuInterfaceStyle(void)
-{
-    NSTask *task = [[[NSTask alloc] init] autorelease];
-    @try {
-        [task setLaunchPath:OMDWindowsBundledDefaultsToolPath()];
-        [task setArguments:[NSArray arrayWithObjects:@"write",
-                                                     @"NSGlobalDomain",
-                                                     @"NSMenuInterfaceStyle",
-                                                     @"NSWindows95InterfaceStyle",
-                                                     nil]];
-        [task launch];
-        [task waitUntilExit];
-        OMDStartupTrace([NSString stringWithFormat:@"menu style fallback exit=%d",
-                                                   [task terminationStatus]]);
-    } @catch (id exception) {
-        OMDStartupTrace([NSString stringWithFormat:@"menu style fallback threw class=%@ description=%@",
-                                                   NSStringFromClass([exception class]),
-                                                   exception]);
-    }
-}
-
 static void OMDEnsureWindowsDefaultPreferences(void)
 {
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
-    NSDictionary *globalDomain = [defaults persistentDomainForName:NSGlobalDomain];
-    NSMutableDictionary *updatedGlobalDomain = nil;
     BOOL changed = NO;
     id value = nil;
-
-    if (globalDomain != nil) {
-        updatedGlobalDomain = [[globalDomain mutableCopy] autorelease];
-    } else {
-        updatedGlobalDomain = [NSMutableDictionary dictionary];
-    }
-
-    value = [globalDomain objectForKey:OMDThemeDefaultsKey];
-    if (![value isKindOfClass:[NSString class]] || [(NSString *)value length] == 0) {
-        NSString *preferredTheme = OMDPreferredThemeName();
-        if (preferredTheme != nil && [preferredTheme length] > 0) {
-            [updatedGlobalDomain setObject:preferredTheme forKey:OMDThemeDefaultsKey];
-            changed = YES;
-        }
-    }
 
     value = [defaults objectForKey:OMDMathRenderingPolicyDefaultsKey];
     if ((value == nil || ![value respondsToSelector:@selector(integerValue)]) &&
@@ -221,30 +166,7 @@ static void OMDEnsureWindowsDefaultPreferences(void)
         changed = YES;
     }
 
-    value = [globalDomain objectForKey:OMDMenuInterfaceStyleDefaultsKey];
-    if (![value isKindOfClass:[NSString class]] || [(NSString *)value length] == 0) {
-        [updatedGlobalDomain setObject:@"NSWindows95InterfaceStyle"
-                                forKey:OMDMenuInterfaceStyleDefaultsKey];
-        changed = YES;
-    }
-
     if (changed) {
-        [defaults setPersistentDomain:updatedGlobalDomain forName:NSGlobalDomain];
-    }
-
-    value = [defaults objectForKey:OMDMenuInterfaceStyleDefaultsKey];
-    if (![value isKindOfClass:[NSString class]] || [(NSString *)value length] == 0) {
-        [defaults setObject:@"NSWindows95InterfaceStyle" forKey:OMDMenuInterfaceStyleDefaultsKey];
-        changed = YES;
-    }
-
-    if (changed) {
-        [defaults synchronize];
-    }
-
-    value = [[defaults persistentDomainForName:NSGlobalDomain] objectForKey:OMDMenuInterfaceStyleDefaultsKey];
-    if (![value isKindOfClass:[NSString class]] || [(NSString *)value length] == 0) {
-        OMDEnsureWindowsMenuInterfaceStyle();
         [defaults synchronize];
     }
 
@@ -257,67 +179,28 @@ static void OMDEnsureWindowsDefaultPreferences(void)
 }
 #endif
 
-static void OMDEnsureDefaultPreferences(void)
+// Registered, not written (#335). The registration domain lives only in this
+// process, so these reach no other GNUstep app, and it comes last in the
+// search list, so anything the user set wins: a global default (Preferences
+// writes the global GSTheme, as GNUstep's own preferences do), the app's own
+// domain or the command line. This has to run before NSApplication exists:
+// the theme and the backend read their defaults while it starts.
+static void OMDRegisterDefaultPreferences(void)
 {
-    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
-    NSDictionary *globalDomain = [defaults persistentDomainForName:NSGlobalDomain];
-    NSMutableDictionary *updatedGlobalDomain = nil;
-    BOOL changed = NO;
-    id value = nil;
+    NSMutableDictionary *registered = [NSMutableDictionary dictionary];
+    NSString *preferredTheme = OMDPreferredThemeName();
 
-    if (globalDomain != nil) {
-        updatedGlobalDomain = [[globalDomain mutableCopy] autorelease];
-    } else {
-        updatedGlobalDomain = [NSMutableDictionary dictionary];
+    if (preferredTheme != nil && [preferredTheme length] > 0) {
+        [registered setObject:preferredTheme forKey:OMDThemeDefaultsKey];
     }
-
-    value = [globalDomain objectForKey:OMDThemeDefaultsKey];
-    if (![value isKindOfClass:[NSString class]] || [(NSString *)value length] == 0) {
-        NSString *preferredTheme = OMDPreferredThemeName();
-        if (preferredTheme != nil && [preferredTheme length] > 0) {
-            [updatedGlobalDomain setObject:preferredTheme forKey:OMDThemeDefaultsKey];
-            changed = YES;
-        }
-    }
-
-    value = [globalDomain objectForKey:OMDMenuInterfaceStyleDefaultsKey];
-    if (![value isKindOfClass:[NSString class]] || [(NSString *)value length] == 0) {
-        [updatedGlobalDomain setObject:@"NSWindows95InterfaceStyle"
-                                forKey:OMDMenuInterfaceStyleDefaultsKey];
-        changed = YES;
-    }
-
-    value = [globalDomain objectForKey:OMDWindowDecorationDefaultsKey];
-    if (![value isKindOfClass:[NSString class]] || [(NSString *)value length] == 0) {
-        [updatedGlobalDomain setObject:@"Default" forKey:OMDWindowDecorationDefaultsKey];
-        changed = YES;
-    }
-
-    value = [globalDomain objectForKey:OMDBackChecksOffsetsWithoutNetRequestsDefaultsKey];
-    if (![value isKindOfClass:[NSNumber class]]) {
-        [updatedGlobalDomain setObject:[NSNumber numberWithBool:YES]
-                                forKey:OMDBackChecksOffsetsWithoutNetRequestsDefaultsKey];
-        changed = YES;
-    }
-
-    value = [globalDomain objectForKey:OMDBackChecksOffsetsOnScreenDefaultsKey];
-    if (![value isKindOfClass:[NSNumber class]]) {
-        [updatedGlobalDomain setObject:[NSNumber numberWithBool:YES]
-                                forKey:OMDBackChecksOffsetsOnScreenDefaultsKey];
-        changed = YES;
-    }
-
-    value = [globalDomain objectForKey:OMDSuppressAppIconDefaultsKey];
-    if (![value isKindOfClass:[NSNumber class]]) {
-        [updatedGlobalDomain setObject:[NSNumber numberWithInt:1]
-                                forKey:OMDSuppressAppIconDefaultsKey];
-        changed = YES;
-    }
-
-    if (changed) {
-        [defaults setPersistentDomain:updatedGlobalDomain forName:NSGlobalDomain];
-        [defaults synchronize];
-    }
+    [registered setObject:@"NSWindows95InterfaceStyle" forKey:OMDMenuInterfaceStyleDefaultsKey];
+    [registered setObject:@"Default" forKey:OMDWindowDecorationDefaultsKey];
+    [registered setObject:[NSNumber numberWithBool:YES]
+                   forKey:OMDBackChecksOffsetsWithoutNetRequestsDefaultsKey];
+    [registered setObject:[NSNumber numberWithBool:YES]
+                   forKey:OMDBackChecksOffsetsOnScreenDefaultsKey];
+    [registered setObject:[NSNumber numberWithBool:YES] forKey:OMDSuppressAppIconDefaultsKey];
+    [[NSUserDefaults standardUserDefaults] registerDefaults:registered];
 
 #if defined(_WIN32)
     OMDEnsureWindowsDefaultPreferences();
@@ -356,8 +239,8 @@ int main(int argc, char *argv[])
         [[NSProcessInfo processInfo] setProcessName:applicationName];
     }
 #if defined(GNUSTEP)
-    OMDEnsureDefaultPreferences();
-    OMDStartupTrace(@"main: default preferences ensured");
+    OMDRegisterDefaultPreferences();
+    OMDStartupTrace(@"main: default preferences registered");
 #endif
     NSApplication *app = nil;
     @try {
