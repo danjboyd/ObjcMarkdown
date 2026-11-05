@@ -119,11 +119,63 @@ static NSColor *OMDColorAt(NSMutableAttributedString *string, NSString *needle)
         NSNumber *ligature = [styled attribute:NSLigatureAttributeName
                                        atIndex:index
                                 effectiveRange:&effective];
-        XCTAssertNotNil(ligature, @"no ligature attribute at %lu", (unsigned long)index);
-        XCTAssertEqual([ligature intValue], 0, @"ligatures on at %lu", (unsigned long)index);
+        if (OMDSourceTextNeedsLigatureAttribute()) {
+            XCTAssertNotNil(ligature, @"no ligature attribute at %lu", (unsigned long)index);
+            XCTAssertEqual([ligature intValue], 0, @"ligatures on at %lu", (unsigned long)index);
+        } else {
+            // macOS: the source font has its ligatures off instead (#346).
+            XCTAssertNil(ligature, @"ligature attribute at %lu", (unsigned long)index);
+        }
         index = NSMaxRange(effective);
     }
 }
+
+#if !defined(GNUSTEP)
+- (NSString *)glyphsOf346:(NSString *)text attributes:(NSDictionary *)attributes
+{
+    NSTextStorage *storage = [[[NSTextStorage alloc] initWithString:text attributes:attributes] autorelease];
+    NSLayoutManager *layoutManager = [[[NSLayoutManager alloc] init] autorelease];
+    NSTextContainer *container = [[[NSTextContainer alloc] initWithContainerSize:NSMakeSize(2000.0, 200.0)] autorelease];
+    [layoutManager addTextContainer:container];
+    [storage addLayoutManager:layoutManager];
+    [layoutManager ensureLayoutForTextContainer:container];
+    NSMutableString *glyphs = [NSMutableString string];
+    NSUInteger index = 0;
+    for (; index < [layoutManager numberOfGlyphs]; index++) {
+        [glyphs appendFormat:@"%u@%.2f ", (unsigned)[layoutManager CGGlyphAtIndex:index],
+                             [layoutManager locationForGlyphAtIndex:index].x];
+    }
+    return glyphs;
+}
+
+// The source font without ligatures draws the same glyphs, in the same
+// places, as NSLigatureAttributeName = 0 did, in fonts that do form
+// ligatures by default (#346).
+- (void)testSourceFontWithoutLigaturesDrawsLikeTheAttribute
+{
+    NSString *text = @"office fluffy affirm ffl fi fl -> != === www";
+    NSUInteger compared = 0;
+    for (NSString *name in [NSArray arrayWithObjects:@"Hoefler Text", @"Baskerville", @"Palatino", @"Didot", nil]) {
+        NSFont *font = [NSFont fontWithName:name size:13.0];
+        if (font == nil) {
+            continue;
+        }
+        NSString *attributeOff = [self glyphsOf346:text attributes:[NSDictionary dictionaryWithObjectsAndKeys:
+                                                                    font, NSFontAttributeName,
+                                                                    [NSNumber numberWithInt:0], NSLigatureAttributeName, nil]];
+        NSString *fontOff = [self glyphsOf346:text attributes:[NSDictionary dictionaryWithObject:OMDSourceFontWithoutLigatures(font)
+                                                                                          forKey:NSFontAttributeName]];
+        NSString *ligatures = [self glyphsOf346:text attributes:[NSDictionary dictionaryWithObject:font forKey:NSFontAttributeName]];
+        XCTAssertEqualObjects(fontOff, attributeOff, @"%@", name);
+        XCTAssertFalse([ligatures isEqualToString:attributeOff], @"%@ formed no ligatures to turn off", name);
+        compared += 1;
+    }
+    XCTAssertTrue(compared > 0, @"no font with ligatures to compare");
+    NSFont *mono = [NSFont userFixedPitchFontOfSize:13.0];
+    XCTAssertEqualObjects([OMDSourceFontWithoutLigatures(mono) fontName], [mono fontName]);
+    XCTAssertEqual([OMDSourceFontWithoutLigatures(mono) pointSize], [mono pointSize]);
+}
+#endif
 
 // Where markup overlaps, the colour is the one a pass sets last: link,
 // bold, italic, math, inline code, then fenced lines (#346 sets each

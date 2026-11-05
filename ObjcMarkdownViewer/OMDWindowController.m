@@ -7682,10 +7682,13 @@ static CGFloat OMDOutlinePanelWidth(NSRect bounds)
             [storage beginEditing];
             [storage removeAttribute:NSForegroundColorAttributeName
                                range:NSMakeRange(0, [storage length])];
-            // No ligatures in source text, highlighted or not (#125).
-            [storage addAttribute:NSLigatureAttributeName
-                            value:[NSNumber numberWithInt:0]
-                            range:NSMakeRange(0, [storage length])];
+            // No ligatures in source text, highlighted or not (#125); on
+            // macOS the font has them off (#346).
+            if (OMDSourceTextNeedsLigatureAttribute()) {
+                [storage addAttribute:NSLigatureAttributeName
+                                value:[NSNumber numberWithInt:0]
+                                range:NSMakeRange(0, [storage length])];
+            }
             [storage endEditing];
         } @finally {
             _isProgrammaticSourceHighlightUpdate = NO;
@@ -7704,7 +7707,9 @@ static CGFloat OMDOutlinePanelWidth(NSRect bounds)
         [typing setObject:font forKey:NSFontAttributeName];
     }
     [typing setObject:baseColor forKey:NSForegroundColorAttributeName];
-    [typing setObject:[NSNumber numberWithInt:0] forKey:NSLigatureAttributeName];
+    if (OMDSourceTextNeedsLigatureAttribute()) {
+        [typing setObject:[NSNumber numberWithInt:0] forKey:NSLigatureAttributeName];
+    }
     [_sourceTextView setTypingAttributes:typing];
     [typing release];
 }
@@ -7797,7 +7802,9 @@ static CGFloat OMDOutlinePanelWidth(NSRect bounds)
         [typing setObject:font forKey:NSFontAttributeName];
     }
     [typing setObject:baseColor forKey:NSForegroundColorAttributeName];
-    [typing setObject:[NSNumber numberWithInt:0] forKey:NSLigatureAttributeName];
+    if (OMDSourceTextNeedsLigatureAttribute()) {
+        [typing setObject:[NSNumber numberWithInt:0] forKey:NSLigatureAttributeName];
+    }
     [_sourceTextView setTypingAttributes:typing];
     [typing release];
 
@@ -8175,6 +8182,7 @@ static CGFloat OMDOutlinePanelWidth(NSRect bounds)
         }
     }
 
+    resolved = OMDSourceFontWithoutLigatures(resolved);
     [_sourceTextView setFont:resolved];
 
     NSMutableDictionary *typing = nil;
@@ -8185,7 +8193,9 @@ static CGFloat OMDOutlinePanelWidth(NSRect bounds)
         typing = [[NSMutableDictionary alloc] init];
     }
     [typing setObject:resolved forKey:NSFontAttributeName];
-    [typing setObject:[NSNumber numberWithInt:0] forKey:NSLigatureAttributeName];
+    if (OMDSourceTextNeedsLigatureAttribute()) {
+        [typing setObject:[NSNumber numberWithInt:0] forKey:NSLigatureAttributeName];
+    }
     [_sourceTextView setTypingAttributes:typing];
     [typing release];
 
