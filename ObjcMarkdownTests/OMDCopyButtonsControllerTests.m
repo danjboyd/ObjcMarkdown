@@ -137,14 +137,14 @@
 
         // A screen above and below, and the block whose text touches that
         // area's edge: within two screens.
-        NSRect near = NSInsetRect(visible, 0.0, -2.0 * NSHeight(visible));
+        NSRect nearby = NSInsetRect(visible, 0.0, -2.0 * NSHeight(visible));
         BOOL coversVisible = NO;
         for (NSButton *button in buttons) {
             NSNumber *tag = [NSNumber numberWithInteger:[button tag]];
             XCTAssertTrue(NSEqualRects([button frame], [[expected objectForKey:tag] rectValue]),
                           @"button %@ at %@, was at %@", tag, NSStringFromRect([button frame]),
                           NSStringFromRect([[expected objectForKey:tag] rectValue]));
-            XCTAssertTrue(NSIntersectsRect([button frame], near), @"button %@ far from the visible rect", tag);
+            XCTAssertTrue(NSIntersectsRect([button frame], nearby), @"button %@ far from the visible rect", tag);
             XCTAssertEqualObjects([button toolTip], @"Copy code block");
 #if !defined(GNUSTEP)
             XCTAssertEqualObjects([button accessibilityLabel], @"Copy code block");

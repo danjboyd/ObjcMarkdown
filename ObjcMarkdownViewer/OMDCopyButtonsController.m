@@ -338,32 +338,32 @@ static NSInteger OMDCompareCopySlots(id a, id b, void *context)
     // What's visible and a screen above and below, so a button is there
     // before its block scrolls in. Without a scroll view, everything.
     NSRect visible = [textView visibleRect];
-    NSRange near = NSMakeRange(0, [[textView textStorage] length]);
+    NSRange nearby = NSMakeRange(0, [[textView textStorage] length]);
     if ([textView enclosingScrollView] != nil && NSHeight(visible) > 0.0) {
         NSRect area = NSInsetRect(visible, 0.0, -NSHeight(visible));
         NSPoint origin = [textView textContainerOrigin];
         area.origin.x -= origin.x;
         area.origin.y -= origin.y;
         NSRange glyphs = [layoutManager glyphRangeForBoundingRect:area inTextContainer:container];
-        near = [layoutManager characterRangeForGlyphRange:glyphs actualGlyphRange:NULL];
+        nearby = [layoutManager characterRangeForGlyphRange:glyphs actualGlyphRange:NULL];
     }
 
-    // Drop the buttons of blocks no longer near (there are only a few).
+    // Drop the buttons of blocks no longer nearby (there are only a few).
     for (NSNumber *key in [_buttonsBySlot allKeys]) {
         NSRange range = [[[_copySlots objectAtIndex:[key unsignedIntegerValue]] objectForKey:@"range"] rangeValue];
-        if (NSMaxRange(range) < near.location || range.location > NSMaxRange(near)) {
+        if (NSMaxRange(range) < nearby.location || range.location > NSMaxRange(nearby)) {
             [self removeButtonForSlot:key];
         }
     }
 
-    // The first slot that may touch near: blocks don't overlap, so ranges
+    // The first slot that may touch that range: blocks don't overlap, so ranges
     // end in the same order they start.
     NSUInteger low = 0;
     NSUInteger high = [_copySlots count];
     while (low < high) {
         NSUInteger middle = low + (high - low) / 2;
         NSRange range = [[[_copySlots objectAtIndex:middle] objectForKey:@"range"] rangeValue];
-        if (NSMaxRange(range) < near.location) {
+        if (NSMaxRange(range) < nearby.location) {
             low = middle + 1;
         } else {
             high = middle;
@@ -374,7 +374,7 @@ static NSInteger OMDCompareCopySlots(id a, id b, void *context)
     for (; slotIndex < [_copySlots count]; slotIndex++) {
         NSDictionary *slot = [_copySlots objectAtIndex:slotIndex];
         NSRange range = [[slot objectForKey:@"range"] rangeValue];
-        if (range.location > NSMaxRange(near)) {
+        if (range.location > NSMaxRange(nearby)) {
             break;
         }
         NSNumber *key = [NSNumber numberWithUnsignedInteger:slotIndex];
@@ -391,10 +391,15 @@ static NSInteger OMDCompareCopySlots(id a, id b, void *context)
         [button setButtonType:NSMomentaryChangeButton];
         [button setBordered:NO];
         [button setToolTip:toolTip];
-        // The image has no words: name the button for VoiceOver.
+        // The image has no words: name the button for VoiceOver. GNUstep
+        // doesn't declare the method; use it there only if it exists.
+#if defined(GNUSTEP)
         if ([button respondsToSelector:@selector(setAccessibilityLabel:)]) {
-            [button setAccessibilityLabel:toolTip];
+            [button performSelector:@selector(setAccessibilityLabel:) withObject:toolTip];
         }
+#else
+        [button setAccessibilityLabel:toolTip];
+#endif
         id buttonCell = [button cell];
         if (buttonCell != nil && [buttonCell respondsToSelector:@selector(setImageScaling:)]) {
             [buttonCell setImageScaling:NSImageScaleNone];
