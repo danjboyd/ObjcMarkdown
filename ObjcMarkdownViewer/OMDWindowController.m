@@ -5520,6 +5520,11 @@ constrainSplitPosition:(CGFloat)proposedPosition
     if (_sourceEditorContainer == nil || _sourceScrollView == nil) {
         return;
     }
+    // While the editor is hidden, resizing it would lay out the whole source
+    // for nothing (#318). Every mode that shows it lays it out on the way in.
+    if (!OMDViewerPaneLayoutForMode((OMDViewerMode)_viewerMode).sourceVisible) {
+        return;
+    }
 
     NSRect bounds = [_sourceEditorContainer bounds];
     BOOL showBar = [self isFormattingBarVisibleInCurrentMode];
