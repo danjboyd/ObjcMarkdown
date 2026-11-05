@@ -362,6 +362,25 @@ static BOOL OMDParagraphUnchanged(NSAttributedString *current,
 
 // The changed paragraphs within range, which holds the same characters in
 // current and rendered, as NSValues; neighbours are joined.
+NSUInteger OMDParagraphEnd(NSString *text, NSUInteger index, NSUInteger limit)
+{
+    // Not rangeOfString: on GNUstep its cost grows with the range searched,
+    // not the distance to the match, which makes a walk over every paragraph
+    // of a long document quadratic (#354).
+    unichar buffer[256];
+    while (index < limit) {
+        NSUInteger length = MIN((NSUInteger)256, limit - index);
+        [text getCharacters:buffer range:NSMakeRange(index, length)];
+        for (NSUInteger offset = 0; offset < length; offset++) {
+            if (buffer[offset] == '\n') {
+                return index + offset + 1;
+            }
+        }
+        index += length;
+    }
+    return limit;
+}
+
 static NSArray *OMDChangedParagraphs(NSAttributedString *current,
                                      NSAttributedString *rendered,
                                      NSRange range,
@@ -373,10 +392,7 @@ static NSArray *OMDChangedParagraphs(NSAttributedString *current,
     NSUInteger limit = NSMaxRange(range);
     NSRange pending = NSMakeRange(NSNotFound, 0);
     while (index < limit) {
-        NSRange newline = [text rangeOfString:@"\n"
-                                      options:NSLiteralSearch
-                                        range:NSMakeRange(index, limit - index)];
-        NSUInteger end = (newline.location != NSNotFound ? newline.location + 1 : limit);
+        NSUInteger end = OMDParagraphEnd(text, index, limit);
         NSRange paragraph = NSMakeRange(index, end - index);
         if (!OMDParagraphUnchanged(current, rendered, paragraph, positionUpdates)) {
             if (pending.location != NSNotFound && NSMaxRange(pending) == index) {

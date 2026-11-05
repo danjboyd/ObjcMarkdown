@@ -123,6 +123,36 @@ static OMRenderedObject *OMDObjectNearText(NSAttributedString *string, NSString 
 
 // A width changes only the rules under the headings (#318). Editing the
 // span from the first to the last would lay out the text between them again.
+- (void)testParagraphEndsMatchSearchingForNewlines
+{
+    NSMutableArray *cases = [NSMutableArray arrayWithObjects:
+        @"", @"\n", @"\n\n\n", @"no newline", @"trailing\n", @"one\ntwo\nthree",
+        @"crlf\r\nlines\r\n", @"\r\n", @"bare\rreturn\n", @"caf\u00e9\n\u4e16\u754c\nend",
+        @"line\u2028separator\nnext", nil];
+    NSString *longLine = [@"" stringByPaddingToLength:1000 withString:@"x" startingAtIndex:0];
+    [cases addObject:[longLine stringByAppendingString:@"\nafter\n"]];
+    [cases addObject:longLine];
+    // A newline on each side of the scan's buffer boundary.
+    for (NSUInteger length = 254; length <= 258; length++) {
+        [cases addObject:[[@"" stringByPaddingToLength:length withString:@"y" startingAtIndex:0]
+                             stringByAppendingString:@"\nz\n"]];
+    }
+    for (NSString *text in cases) {
+        NSUInteger length = [text length];
+        // Every start, and limits that stop short of the end.
+        for (NSUInteger limit = (length > 5 ? length - 5 : 0); limit <= length; limit++) {
+            for (NSUInteger index = 0; index < limit; index += (length > 300 ? 97 : 1)) {
+                NSRange newline = [text rangeOfString:@"\n"
+                                              options:NSLiteralSearch
+                                                range:NSMakeRange(index, limit - index)];
+                NSUInteger expected = newline.location != NSNotFound ? newline.location + 1 : limit;
+                XCTAssertEqual(OMDParagraphEnd(text, index, limit), expected);
+            }
+        }
+    }
+    XCTAssertEqual(OMDParagraphEnd(@"abc", 3, 3), (NSUInteger)3);
+}
+
 - (void)testWidthChangeEditsOnlyTheChangedParagraphs
 {
     NSString *markdown = @"# One\n\nBody one.\n\n# Two\n\nBody two.\n\n# Three\n\nBody three.\n";

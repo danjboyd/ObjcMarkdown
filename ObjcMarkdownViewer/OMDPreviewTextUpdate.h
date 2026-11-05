@@ -23,3 +23,7 @@ BOOL OMDChangedRangesForRender(NSAttributedString *current,
 // fixes them). Returns the range now holding the new text, or
 // {NSNotFound, 0} if nothing changed.
 NSRange OMDApplyRenderedString(NSTextStorage *storage, NSAttributedString *rendered);
+
+// Where the paragraph starting at index ends: just after its next newline,
+// or at limit if there is none before it.
+NSUInteger OMDParagraphEnd(NSString *text, NSUInteger index, NSUInteger limit);
