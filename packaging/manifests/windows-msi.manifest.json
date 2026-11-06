@@ -33,7 +33,7 @@
   },
   "hostDependencies": {
     "windows": {
-      "msys2Packages": []
+      "msys2Packages": ["patch"]
     }
   },
   "themeInputs": [

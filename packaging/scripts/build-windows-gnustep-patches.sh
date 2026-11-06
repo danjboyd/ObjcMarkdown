@@ -49,6 +49,9 @@ GUI_DLL=gnustep-gui-0.dll
 BASE_URL="https://github.com/gnustep/libs-base/releases/download/base-1_31_1/gnustep-base-$BASE_VERSION.tar.gz"
 BASE_SHA256=e7546f1c978a7c75b676953a360194a61e921cb45a4804497b4f346a460545cd
 BASE_MSYS2_PATCH="$ROOT/packaging/windows/patches/libs-base-bace6f54.patch"
+# Upstream 4a61eee4: clang 23 (gnustep-cli-new v0.1.3) rejects __block on
+# an instance variable (#339).
+BASE_BLOCK_IVAR_PATCH="$ROOT/packaging/windows/patches/libs-base-4a61eee4.patch"
 # Upstream libs-gui commit 3f5efad1b, after 0.32.0 and in the Linux pins:
 # with autohidesScrollers, showing one scroller could hide the other and
 # re-tile without end (the repeated layouts of ObjcMarkdown #121).
@@ -194,7 +197,12 @@ MODE_T_FLAG=-DHAVE_MODE_T=1
 PATCH=patch
 if [[ -x /usr/bin/patch ]]; then
   PATCH=/usr/bin/patch
+elif [[ -n "${MSYS2_LOCATION:-}" && -x "$(cygpath -u "$MSYS2_LOCATION")/usr/bin/patch" ]]; then
+  # gnustep-cli-new v0.1.3's shell has none (#339); the MSI manifest's
+  # msys2Packages put it in the MSYS2 the workflow set up.
+  PATCH="$(cygpath -u "$MSYS2_LOCATION")/usr/bin/patch"
 fi
+echo "patch command: $PATCH"
 JOBS="$(nproc 2>/dev/null || echo 2)"
 
 # gnustep-base
@@ -203,6 +211,7 @@ tar -xzf "$WORK/downloads/gnustep-base-$BASE_VERSION.tar.gz" -C "$WORK"
 (
   cd "$WORK/gnustep-base-$BASE_VERSION"
   "$PATCH" -p1 -i "$BASE_MSYS2_PATCH"
+  "$PATCH" -p1 -i "$BASE_BLOCK_IVAR_PATCH"
   for p in "$ROOT"/packaging/patches/libs-base/*.patch; do
     "$PATCH" -p1 -i "$p"
   done
@@ -212,7 +221,9 @@ tar -xzf "$WORK/downloads/gnustep-base-$BASE_VERSION.tar.gz" -C "$WORK"
   if grep -qE '^#define GS_USE_LIBDISPATCH 0' "$PREFIX/include/GNUstepBase/GSConfig.h"; then
     base_options+=(--disable-libdispatch)
   fi
-  OBJCFLAGS="-Wno-incompatible-pointer-types $MODE_T_FLAG" ./configure --prefix="$PREFIX" "${base_options[@]}" \
+  # clang 23 miscompiles GSPrivateFormat (llvm/llvm-project#231864), which
+  # crashes the app at launch; gnustep-cli-new builds base with this too.
+  OBJCFLAGS="-Wno-incompatible-pointer-types -mllvm -enable-dfa-jump-thread=false $MODE_T_FLAG" ./configure --prefix="$PREFIX" "${base_options[@]}" \
     > "$WORK/base-configure.log" 2>&1 || { tail -40 "$WORK/base-configure.log"; exit 1; }
   # The same features as the DLL it replaces, or stop.
   same_lists "toolchain GSConfig.h" "$(grep -E '^#define' "$PREFIX/include/GNUstepBase/GSConfig.h")" \
