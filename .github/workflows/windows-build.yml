@@ -18,8 +18,9 @@ permissions:
 env:
   # Keep these in step with danjboyd/gnustep-packager's
   # package-gnustep-app.yml at the ref windows-packaging.yml pins.
-  GNUSTEP_CLI_MANIFEST_URL: https://github.com/danjboyd/gnustep-cli-new/releases/download/v0.1.0-dev/release-manifest.json
-  GNUSTEP_CLI_BOOTSTRAP_URL: https://raw.githubusercontent.com/danjboyd/gnustep-cli-new/master/scripts/bootstrap/gnustep-bootstrap.ps1
+  GNUSTEP_CLI_MANIFEST_URL: https://github.com/danjboyd/gnustep-cli-new/releases/download/v0.1.3/release-manifest.json
+  GNUSTEP_CLI_BOOTSTRAP_URL: https://github.com/danjboyd/gnustep-cli-new/releases/download/v0.1.3/gnustep-bootstrap.ps1
+  GNUSTEP_CLI_BOOTSTRAP_SHA256: ef9159c6f27d272eea6f9525029da584def3a88b89d4ce403b37b42f9f374150
   # The same tools-xctest commit as the Linux CI image (ci/linux/Dockerfile).
   TOOLS_XCTEST_REPO: danjboyd/tools-xctest
   TOOLS_XCTEST_COMMIT: 23a8217ebf1a192a2bba2842b13874ff42604cf6
@@ -66,6 +67,8 @@ jobs:
           $env:PATH = (Join-Path '${{ steps.msys2.outputs.msys2-location }}' 'clang64\bin') + ";" + $env:PATH
           curl.exe --fail --location --show-error --connect-timeout 30 --max-time 300 --output $bootstrap $env:GNUSTEP_CLI_BOOTSTRAP_URL
           if ($LASTEXITCODE -ne 0) { throw "bootstrap download failed" }
+          $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $bootstrap).Hash
+          if ($actual -ne $env:GNUSTEP_CLI_BOOTSTRAP_SHA256) { throw "bootstrap sha256 mismatch: $actual" }
           pwsh -NoProfile -ExecutionPolicy Bypass -File $bootstrap --json --yes setup --user --root $root --manifest $env:GNUSTEP_CLI_MANIFEST_URL
           if ($LASTEXITCODE -ne 0) { throw "toolchain setup failed" }
           "GP_GNUSTEP_CLI_ROOT=$root" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
