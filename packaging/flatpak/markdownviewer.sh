@@ -6,6 +6,11 @@
 if ! defaults read NSGlobalDomain GSTheme >/dev/null 2>&1; then
     defaults write NSGlobalDomain GSTheme Adwaita
 fi
+# The menu button, as the AppImage seeds it, so Preferences shows the same
+# value the theme draws (written only when unset).
+if ! defaults read MarkdownViewer GnomeThemeMenuStyle >/dev/null 2>&1; then
+    defaults write MarkdownViewer GnomeThemeMenuStyle primary
+fi
 # Shortcuts use Ctrl, as the menus show, not GNUstep's default Alt: the
 # Command keys are Control, Control moves to Alt and Alternate to Super.
 # Written to the app's domain once, so the user can still change them.
