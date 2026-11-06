@@ -137,6 +137,11 @@ static const NSTimeInterval OMDLivePreviewDebounceInterval = 0.12;
     [_delegate renderCurrentMarkdown];
 }
 
+- (BOOL)hasPendingRender
+{
+    return _interactiveRenderTimer != nil || _livePreviewRenderTimer != nil || _mathArtifactRenderTimer != nil;
+}
+
 - (void)cancelPendingMathArtifactRender
 {
     if (_mathArtifactRenderTimer != nil) {
