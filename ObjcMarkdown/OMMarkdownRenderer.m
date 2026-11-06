@@ -342,22 +342,19 @@ static void OMRemoveAttributeWhereSet(NSMutableAttributedString *output, NSStrin
     }
 }
 
-// GNUstep 0.32's typesetter ignores paragraph spacing; libs-gui after it
-// (90f54cd0, "applies paragraph spacing after a paragraph") honours it.
-// Block gaps are sized blank lines (OMSizeBlockGaps), so spacing set on a
-// paragraph only added to them, once per line in a code block, and the
-// packages (built with the newer libs-gui) laid text out about 1.6 times
-// looser than 0.32 (#245). On GNUstep paragraphs get none, so both look as
-// the gaps intend. It's left out where the styles are made: taking it off
-// the finished text was quadratic in its attribute runs.
+// Block gaps are sized blank lines (OMSizeBlockGaps). GNUstep 0.32's
+// typesetter ignores paragraph spacing, but libs-gui after it (90f54cd0,
+// "applies paragraph spacing after a paragraph") and AppKit honour it, so
+// spacing set on a paragraph only added to the gaps, once per line in a
+// code block: the Linux packages laid text out about 1.6 times looser than
+// 0.32 (#245), and macOS put about a blank line between code lines (#321).
+// Paragraphs get none on every platform, so all look as the gaps intend.
+// It's left out where the styles are made: taking it off the finished text
+// was quadratic in its attribute runs.
 CGFloat OMParagraphSpacingAfter(CGFloat spacing)
 {
-#if defined(GNUSTEP)
     (void)spacing;
     return 0.0;
-#else
-    return spacing;
-#endif
 }
 
 static void OMSizeBlockGaps(NSMutableAttributedString *output,

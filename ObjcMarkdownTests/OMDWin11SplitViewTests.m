@@ -11,6 +11,25 @@
 @interface OMDWin11SplitViewTests : XCTestCase
 @end
 
+// Records, for each resize the split view reports, whether it was a drag.
+@interface OMDSplitResizeRecorder : NSObject
+{
+@public
+    NSUInteger _resizes;
+    NSUInteger _drags;
+}
+@end
+
+@implementation OMDSplitResizeRecorder
+- (void)splitViewDidResize:(NSNotification *)notification
+{
+    _resizes++;
+    if ([(OMDWin11SplitView *)[notification object] omdIsTrackingDivider]) {
+        _drags++;
+    }
+}
+@end
+
 @implementation OMDWin11SplitViewTests
 
 - (void)setUp
@@ -127,5 +146,87 @@ static BOOL OMDTestRectIsIntegral(NSRect rect)
     XCTAssertTrue(NSEqualRects([trailing frame], NSMakeRect(0, 0, 1036, 760)));
     [splitView release];
 }
+
+// The window controller keeps the split as the user's ratio only on a drag.
+// Entering Split in a new tab sized the split view from its first, narrower
+// frame with the panes another mode left, and that resize was kept: the
+// next Split gave the preview 15% of the width.
+- (void)testLayoutResizesAreNotDividerDrags
+{
+    NSView *leading = nil;
+    NSView *trailing = nil;
+    OMDWin11SplitView *splitView = [self newSplitViewWithLeading:&leading trailing:&trailing];
+    OMDSplitResizeRecorder *recorder = [[OMDSplitResizeRecorder alloc] init];
+    [[NSNotificationCenter defaultCenter] addObserver:recorder
+                                             selector:@selector(splitViewDidResize:)
+                                                 name:NSSplitViewDidResizeSubviewsNotification
+                                               object:splitView];
+
+    [leading setFrame:NSMakeRect(0, 0, 900, 760)];
+    [splitView setFrameSize:NSMakeSize(1200, 760)];
+    [splitView adjustSubviews];
+    [splitView setPosition:600.0 ofDividerAtIndex:0];
+    [splitView setFrameSize:NSMakeSize(1200, 732)];
+
+    XCTAssertTrue(recorder->_resizes > 0);
+    XCTAssertEqual(recorder->_drags, (NSUInteger)0);
+    XCTAssertFalse([splitView omdIsTrackingDivider]);
+    [[NSNotificationCenter defaultCenter] removeObserver:recorder];
+    [recorder release];
+    [splitView release];
+}
+
+#if !defined(GNUSTEP)
+// A drag of the divider (the events queued, -mouseDown: tracks them).
+// Cocoa only: libs-gui's tracking loop needs a window on a display.
+- (void)testDividerDragIsTracked
+{
+    NSView *leading = nil;
+    NSView *trailing = nil;
+    OMDWin11SplitView *splitView = [self newSplitViewWithLeading:&leading trailing:&trailing];
+    NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 1036, 760)
+                                                   styleMask:NSWindowStyleMaskBorderless
+                                                     backing:NSBackingStoreBuffered
+                                                       defer:NO];
+    [window setReleasedWhenClosed:NO];
+    [[window contentView] addSubview:splitView];
+    [splitView setPosition:500.0 ofDividerAtIndex:0];
+    OMDSplitResizeRecorder *recorder = [[OMDSplitResizeRecorder alloc] init];
+    [[NSNotificationCenter defaultCenter] addObserver:recorder
+                                             selector:@selector(splitViewDidResize:)
+                                                 name:NSSplitViewDidResizeSubviewsNotification
+                                               object:splitView];
+
+    NSPoint down = [splitView convertPoint:NSMakePoint(500.5, 380.0) toView:nil];
+    NSPoint up = NSMakePoint(down.x - 100.0, down.y);
+    NSEventType types[3] = { NSEventTypeLeftMouseDown, NSEventTypeLeftMouseDragged, NSEventTypeLeftMouseUp };
+    NSEvent *events[3];
+    NSUInteger i = 0;
+    for (i = 0; i < 3; i++) {
+        events[i] = [NSEvent mouseEventWithType:types[i]
+                                       location:(i == 0 ? down : up)
+                                  modifierFlags:0
+                                      timestamp:[[NSProcessInfo processInfo] systemUptime]
+                                   windowNumber:[window windowNumber]
+                                        context:nil
+                                    eventNumber:0
+                                     clickCount:1
+                                       pressure:1.0];
+    }
+    [NSApp postEvent:events[1] atStart:NO];
+    [NSApp postEvent:events[2] atStart:NO];
+    [splitView mouseDown:events[0]];
+
+    XCTAssertTrue(recorder->_drags > 0);
+    XCTAssertTrue(NSWidth([leading frame]) < 500.0);
+    XCTAssertFalse([splitView omdIsTrackingDivider]);
+    [[NSNotificationCenter defaultCenter] removeObserver:recorder];
+    [recorder release];
+    [splitView removeFromSuperview];
+    [window close];
+    [window release];
+    [splitView release];
+}
+#endif
 
 @end

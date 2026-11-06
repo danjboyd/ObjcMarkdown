@@ -13,6 +13,9 @@ static NSString * const OMDUpdateTestDocument =
     @"```\ncode\n```\n\nSecond paragraph.\n\n- one\n- two\n\nLast paragraph.\n";
 
 @interface OMDPreviewTextUpdateTests : XCTestCase
+{
+    NSMutableArray *_editedRanges;
+}
 @end
 
 @implementation OMDPreviewTextUpdateTests
@@ -111,6 +114,58 @@ static OMRenderedObject *OMDObjectNearText(NSAttributedString *string, NSString 
     NSRange title = [[after string] rangeOfString:@"Title"];
     XCTAssertTrue(NSLocationInRange(title.location, renderedRange));
     [self applyFrom:before to:after];
+}
+
+- (void)storageDidProcessEditing:(NSNotification *)notification
+{
+    [_editedRanges addObject:[NSValue valueWithRange:[[notification object] editedRange]]];
+}
+
+// A width changes only the rules under the headings (#318). Editing the
+// span from the first to the last would lay out the text between them again.
+- (void)testWidthChangeEditsOnlyTheChangedParagraphs
+{
+    NSString *markdown = @"# One\n\nBody one.\n\n# Two\n\nBody two.\n\n# Three\n\nBody three.\n";
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    [renderer setLayoutWidth:400.0];
+    NSAttributedString *before = [[[renderer attributedStringFromMarkdown:markdown] copy] autorelease];
+    [renderer setLayoutWidth:200.0];
+    NSAttributedString *after = [[[renderer attributedStringFromMarkdown:markdown] copy] autorelease];
+    XCTAssertEqualObjects([before string], [after string]);
+
+    NSTextStorage *storage = [[[NSTextStorage alloc] init] autorelease];
+    [storage setAttributedString:before];
+    _editedRanges = [NSMutableArray array];
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(storageDidProcessEditing:)
+                                                 name:NSTextStorageDidProcessEditingNotification
+                                               object:storage];
+    NSRange applied = OMDApplyRenderedString(storage, after);
+    [[NSNotificationCenter defaultCenter] removeObserver:self
+                                                    name:NSTextStorageDidProcessEditingNotification
+                                                  object:storage];
+
+    XCTAssertTrue(applied.location != NSNotFound);
+    XCTAssertTrue([_editedRanges count] > 1);
+    NSUInteger bodyTwo = [[after string] rangeOfString:@"Body two"].location;
+    for (NSValue *value in _editedRanges) {
+        XCTAssertFalse(NSLocationInRange(bodyTwo, [value rangeValue]));
+    }
+    XCTAssertFalse(OMDChangedRangesForRender(storage, after, NULL, NULL));
+    _editedRanges = nil;
+}
+
+// Nothing left to do when only unchanged paragraphs lie between the edges.
+- (void)testSameWidthChangesNothing
+{
+    NSString *markdown = @"# One\n\nBody one.\n\n# Two\n\nBody two.\n";
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    [renderer setLayoutWidth:400.0];
+    NSAttributedString *before = [[[renderer attributedStringFromMarkdown:markdown] copy] autorelease];
+    NSAttributedString *after = [[[renderer attributedStringFromMarkdown:markdown] copy] autorelease];
+    NSTextStorage *storage = [[[NSTextStorage alloc] init] autorelease];
+    [storage setAttributedString:before];
+    XCTAssertEqual(OMDApplyRenderedString(storage, after).location, (NSUInteger)NSNotFound);
 }
 
 - (void)testEditsAtTheEdgesAndEmptyDocuments
