@@ -3,11 +3,12 @@
 
 #import <AppKit/AppKit.h>
 
-@class OMMarkdownRenderer;
+@class OMDRenderResult;
 
 @protocol OMDCopyButtonsControllerDelegate <NSObject>
 - (NSTextView *)previewTextView;
-- (OMMarkdownRenderer *)previewRenderer;
+// What the preview shows came from: its code blocks, diagrams and zoom.
+- (OMDRenderResult *)previewRenderResult;
 // Called once the new render is laid out, before the buttons are placed.
 - (void)previewDidLayoutForCopyButtons;
 @end
