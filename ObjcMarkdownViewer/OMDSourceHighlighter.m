@@ -801,6 +801,41 @@ static BOOL OMDIncrementalLines(OMDSourceHighlightState *state,
 
 @implementation OMDSourceHighlighter
 
+NSFont *OMDSourceFontWithoutLigatures(NSFont *font)
+{
+#if defined(GNUSTEP)
+    return font;
+#else
+    if (font == nil) {
+        return nil;
+    }
+    NSArray *off = [NSArray arrayWithObjects:
+        [NSDictionary dictionaryWithObjectsAndKeys:
+            [NSNumber numberWithInt:kLigaturesType], NSFontFeatureTypeIdentifierKey,
+            [NSNumber numberWithInt:kCommonLigaturesOffSelector], NSFontFeatureSelectorIdentifierKey, nil],
+        [NSDictionary dictionaryWithObjectsAndKeys:
+            [NSNumber numberWithInt:kLigaturesType], NSFontFeatureTypeIdentifierKey,
+            [NSNumber numberWithInt:kRareLigaturesOffSelector], NSFontFeatureSelectorIdentifierKey, nil],
+        [NSDictionary dictionaryWithObjectsAndKeys:
+            [NSNumber numberWithInt:kLigaturesType], NSFontFeatureTypeIdentifierKey,
+            [NSNumber numberWithInt:kContextualLigaturesOffSelector], NSFontFeatureSelectorIdentifierKey, nil],
+        nil];
+    NSFontDescriptor *descriptor = [[font fontDescriptor] fontDescriptorByAddingAttributes:
+        [NSDictionary dictionaryWithObject:off forKey:NSFontFeatureSettingsAttribute]];
+    NSFont *withoutLigatures = [NSFont fontWithDescriptor:descriptor size:[font pointSize]];
+    return withoutLigatures != nil ? withoutLigatures : font;
+#endif
+}
+
+BOOL OMDSourceTextNeedsLigatureAttribute(void)
+{
+#if defined(GNUSTEP)
+    return YES;
+#else
+    return NO;
+#endif
+}
+
 // Colours by index into a pass's palette; 0 is the base colour.
 enum {
     OMDColorBase = 0,
@@ -946,7 +981,9 @@ static void OMDPaintMatches(NSRegularExpression *regex, NSString *text, uint8_t 
     [attributedString beginEditing];
     // Source text has no ligatures (#125): GNUstep forms "fi" from U+FB01,
     // which a monospaced font draws in one cell, so columns would shift.
-    [attributedString addAttribute:NSLigatureAttributeName value:[NSNumber numberWithInt:0] range:range];
+    if (OMDSourceTextNeedsLigatureAttribute()) {
+        [attributedString addAttribute:NSLigatureAttributeName value:[NSNumber numberWithInt:0] range:range];
+    }
     NSUInteger runStart = 0;
     while (runStart < range.length) {
         uint8_t color = colors[runStart];

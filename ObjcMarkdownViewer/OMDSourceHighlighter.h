@@ -6,6 +6,15 @@
 extern NSString * const OMDSourceHighlighterOptionHighContrast;
 extern NSString * const OMDSourceHighlighterOptionAccentColor;
 
+// Source text has no ligatures (#125). On macOS the source font itself
+// has its ligature features off (#346): NSLigatureAttributeName on every
+// run made CoreText copy the font for each one, a fifth of the source's
+// layout. GNUstep keeps the attribute, which also stops "fi" becoming
+// U+FB01 there. The same font on GNUstep.
+NSFont *OMDSourceFontWithoutLigatures(NSFont *font);
+// Whether the source's runs need NSLigatureAttributeName = 0 (GNUstep).
+BOOL OMDSourceTextNeedsLigatureAttribute(void);
+
 // What an incremental colouring pass needs to know about the one before it
 // (#333): the lines that pass saw and the edits since. Tell it every edit
 // to the characters. A pass with other colours or options than the last
