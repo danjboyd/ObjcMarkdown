@@ -33,6 +33,8 @@
 - (void)cancelPendingLivePreviewRender;
 - (void)scheduleMathArtifactRefresh;
 - (void)cancelPendingMathArtifactRender;
+// Whether any render is waiting to fire.
+- (BOOL)hasPendingRender;
 
 // Zoom renders switch to debounced after a slow one, and back after a
 // run of fast ones.

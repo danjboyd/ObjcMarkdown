@@ -10,6 +10,8 @@ typedef unsigned short mode_t;
 #import "OMDSourceTextView.h"
 
 @class OMMarkdownRenderer;
+@class OMMarkdownParsingOptions;
+@class OMTheme;
 @class OMDDocumentConverter;
 @class OMDLineNumberRulerView;
 @class OMDFormattingBarController;
@@ -132,6 +134,8 @@ typedef unsigned short mode_t;
     CGFloat _lastRenderedLayoutWidth;
     CGFloat _lastRenderedZoomScale;
     BOOL _previewRenderStale;
+    OMMarkdownParsingOptions *_lastRenderedOptions;
+    OMTheme *_lastRenderedTheme;
     NSInteger _activeLinkedScrollDriver;
     NSString *_sourceVimCommandLine;
     BOOL _externalReloadPromptVisible;

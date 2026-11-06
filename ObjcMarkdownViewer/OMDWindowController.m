@@ -779,6 +779,8 @@ static NSMutableArray *OMDSecondaryWindows(void)
 
 - (void)dealloc
 {
+    [_lastRenderedOptions release];
+    [_lastRenderedTheme release];
 #if !defined(GNUSTEP)
     [[NSNotificationCenter defaultCenter] removeObserver:self name:OMDMarkdownDocumentDidSaveNotification object:nil];
     [[NSNotificationCenter defaultCenter] removeObserver:self name:OMDMarkdownDocumentDidRevertNotification object:nil];
@@ -4681,6 +4683,10 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
     }
     _previewRenderStale = NO;
     _lastRenderedZoomScale = _zoomScale;
+    [_lastRenderedOptions release];
+    _lastRenderedOptions = [[_renderer parsingOptions] copy];
+    [_lastRenderedTheme release];
+    _lastRenderedTheme = [[_renderer theme] retain];
     [self setPreviewUpdating:YES];
     NSTimeInterval renderStart = OMDNow();
     BOOL sampledAsZoomRender = ((renderStart - _lastZoomSliderEventTime) <= OMDZoomAdaptiveSamplingWindow);
@@ -5299,6 +5305,8 @@ constrainSplitPosition:(CGFloat)proposedPosition
         return;
     }
     if (![self isPreviewVisible]) {
+        // The next time the preview shows, it renders with these.
+        _previewRenderStale = YES;
         return;
     }
     [_renderScheduler scheduleMathArtifactRefresh];
@@ -5311,6 +5319,8 @@ constrainSplitPosition:(CGFloat)proposedPosition
         return;
     }
     if (![self isPreviewVisible]) {
+        // The next time the preview shows, it renders with these.
+        _previewRenderStale = YES;
         return;
     }
     [self requestInteractiveRender];
@@ -5659,6 +5669,10 @@ constrainSplitPosition:(CGFloat)proposedPosition
     }
 
     if (_viewerMode == OMDViewerModeEdit) {
+        // A render still to come is dropped here: the preview doesn't have it.
+        if ([_renderScheduler hasPendingRender]) {
+            _previewRenderStale = YES;
+        }
         [_renderScheduler cancelPendingInteractiveRender];
         [_renderScheduler cancelPendingMathArtifactRender];
         [_renderScheduler cancelPendingLivePreviewRender];
@@ -5704,7 +5718,9 @@ constrainSplitPosition:(CGFloat)proposedPosition
         if (!OMDPreviewRenderIsCurrent(_previewRenderStale,
                                        _lastRenderedSourceRevision, _sourceRevision,
                                        _lastRenderedLayoutWidth, [self currentPreviewLayoutWidth],
-                                       _lastRenderedZoomScale, _zoomScale)) {
+                                       _lastRenderedZoomScale, _zoomScale,
+                                       _lastRenderedOptions, [_renderer parsingOptions],
+                                       _lastRenderedTheme, [_renderer theme])) {
             [self renderCurrentMarkdown];
         }
 
