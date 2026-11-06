@@ -4507,8 +4507,9 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
 
 - (NSString *)shareDocumentPath
 {
+    // An imported file (Word, HTML) isn't the Markdown shared.
     if (![self isCurrentDocumentReloadableFromDisk] || _sourceIsDirty ||
-        [self currentDocumentHasNewerDiskVersion]) {
+        [self currentDocumentHasNewerDiskVersion] || [self isImportableDocumentPath:_currentPath]) {
         return nil;
     }
     return _currentPath;
