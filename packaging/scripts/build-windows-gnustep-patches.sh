@@ -49,6 +49,9 @@ GUI_DLL=gnustep-gui-0.dll
 BASE_URL="https://github.com/gnustep/libs-base/releases/download/base-1_31_1/gnustep-base-$BASE_VERSION.tar.gz"
 BASE_SHA256=e7546f1c978a7c75b676953a360194a61e921cb45a4804497b4f346a460545cd
 BASE_MSYS2_PATCH="$ROOT/packaging/windows/patches/libs-base-bace6f54.patch"
+# Upstream 4a61eee4: clang 23 (gnustep-cli-new v0.1.3) rejects __block on
+# an instance variable (#339).
+BASE_BLOCK_IVAR_PATCH="$ROOT/packaging/windows/patches/libs-base-4a61eee4.patch"
 # Upstream libs-gui commit 3f5efad1b, after 0.32.0 and in the Linux pins:
 # with autohidesScrollers, showing one scroller could hide the other and
 # re-tile without end (the repeated layouts of ObjcMarkdown #121).
@@ -208,6 +211,7 @@ tar -xzf "$WORK/downloads/gnustep-base-$BASE_VERSION.tar.gz" -C "$WORK"
 (
   cd "$WORK/gnustep-base-$BASE_VERSION"
   "$PATCH" -p1 -i "$BASE_MSYS2_PATCH"
+  "$PATCH" -p1 -i "$BASE_BLOCK_IVAR_PATCH"
   for p in "$ROOT"/packaging/patches/libs-base/*.patch; do
     "$PATCH" -p1 -i "$p"
   done
