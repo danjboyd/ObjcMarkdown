@@ -666,6 +666,11 @@
             [markdown appendString:@"```\n\n"];
         }
     }
+    return [self decoratedTextViewForMarkdown:markdown];
+}
+
+- (OMDTextView *)decoratedTextViewForMarkdown:(NSString *)markdown
+{
     OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
     [renderer setLayoutWidth:680.0];
     NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
@@ -766,6 +771,52 @@
     [textView setCodeBlockRanges:codeBlocks];
     [textView setBlockquoteRanges:quotes];
     XCTAssertFalse([decorated isEqualToData:plain], @"no card or quote bar in %@", NSStringFromRect(middle));
+}
+
+// A dirty rect at the very top: widened by the card's padding, the rect
+// the lookup gets starts above the view (negative y). The cards and bars
+// of a document that starts with a code block and a quote must still
+// draw (#346; GNUstep's glyphRangeForBoundingRect: once returned a short
+// range for such a rect).
+- (void)testCullingAtTheTopOfTheDocumentDrawsTheSamePixels
+{
+    NSMutableString *markdown = [NSMutableString stringWithString:
+        @"```objc\nNSString *first = @\"top\";\nNSLog(@\"%@\", first);\n```\n\n"
+         "> A quote right after it, long enough to wrap onto a second line in a preview of this width.\n\n"
+         "> [!NOTE]\n> An alert.\n\n"];
+    NSUInteger section = 1;
+    for (; section <= 20; section++) {
+        [markdown appendFormat:@"Paragraph %lu.\n\n```\ncode %lu\n```\n\n> quote %lu\n\n",
+                               (unsigned long)section, (unsigned long)section, (unsigned long)section];
+    }
+    OMDTextView *textView = [self decoratedTextViewForMarkdown:markdown];
+    NSRect rects[] = {
+        NSMakeRect(0.0, 0.0, 712.0, 800.0),
+        NSMakeRect(0.0, 0.0, 712.0, 4.0),
+        NSMakeRect(0.0, 0.0, 712.0, 20.0),
+        NSMakeRect(0.0, 0.0, 712.0, 60.0),
+        NSMakeRect(0.0, 2.0, 712.0, 10.0),
+        NSMakeRect(300.0, 0.0, 100.0, 40.0),
+    };
+    NSUInteger index = 0;
+    for (; index < sizeof(rects) / sizeof(rects[0]); index++) {
+        [OMDTextView setCullsBlockDecorationsForTesting:NO];
+        NSData *everyBlock = [self pixelsOfTextView:textView inRect:rects[index]];
+        [OMDTextView setCullsBlockDecorationsForTesting:YES];
+        NSData *culled = [self pixelsOfTextView:textView inRect:rects[index]];
+        XCTAssertTrue([culled isEqualToData:everyBlock], @"pixels differ in %@", NSStringFromRect(rects[index]));
+    }
+
+    // The first screen shows the top card and the quote bar.
+    NSData *decorated = [self pixelsOfTextView:textView inRect:rects[0]];
+    NSArray *codeBlocks = [[[textView codeBlockRanges] retain] autorelease];
+    NSArray *quotes = [[[textView blockquoteRanges] retain] autorelease];
+    [textView setCodeBlockRanges:nil];
+    [textView setBlockquoteRanges:nil];
+    NSData *plain = [self pixelsOfTextView:textView inRect:rects[0]];
+    [textView setCodeBlockRanges:codeBlocks];
+    [textView setBlockquoteRanges:quotes];
+    XCTAssertFalse([decorated isEqualToData:plain], @"no card or quote bar at the top");
 }
 
 @end
