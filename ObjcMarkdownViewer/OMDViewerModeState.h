@@ -21,3 +21,10 @@ extern NSString *OMDPreviewStatusTextForState(OMDViewerMode mode,
                                                NSUInteger sourceRevision,
                                                NSUInteger renderedRevision);
 
+// Whether the preview already shows what a render would produce, so a mode
+// switch needn't render or lay it out again (#346). Stale means a render was
+// asked for while it couldn't run, as for a setting changed in Edit.
+extern BOOL OMDPreviewRenderIsCurrent(BOOL stale,
+                                      NSUInteger renderedRevision, NSUInteger revision,
+                                      CGFloat renderedWidth, CGFloat width,
+                                      CGFloat renderedZoom, CGFloat zoom);

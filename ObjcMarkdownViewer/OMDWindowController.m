@@ -4669,14 +4669,18 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
 {
     NSString *previewMarkdown = [self markdownForCurrentPreview];
     if (previewMarkdown == nil) {
+        _previewRenderStale = YES;
         [self clearPreviewPresentation];
         [self setPreviewUpdating:NO];
         return;
     }
     if (![self isPreviewVisible]) {
+        _previewRenderStale = YES;
         [self setPreviewUpdating:NO];
         return;
     }
+    _previewRenderStale = NO;
+    _lastRenderedZoomScale = _zoomScale;
     [self setPreviewUpdating:YES];
     NSTimeInterval renderStart = OMDNow();
     BOOL sampledAsZoomRender = ((renderStart - _lastZoomSliderEventTime) <= OMDZoomAdaptiveSamplingWindow);
@@ -5696,7 +5700,13 @@ constrainSplitPosition:(CGFloat)proposedPosition
             }
         }
 
-        [self renderCurrentMarkdown];
+        // Nothing has changed since this text was rendered: keep it and its layout.
+        if (!OMDPreviewRenderIsCurrent(_previewRenderStale,
+                                       _lastRenderedSourceRevision, _sourceRevision,
+                                       _lastRenderedLayoutWidth, [self currentPreviewLayoutWidth],
+                                       _lastRenderedZoomScale, _zoomScale)) {
+            [self renderCurrentMarkdown];
+        }
 
         if (_viewerMode == OMDViewerModeSplit && _sourceTextView != nil) {
             [_window makeFirstResponder:_sourceTextView];

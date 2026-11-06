@@ -3,6 +3,8 @@
 
 #import "OMDViewerModeState.h"
 
+#include <math.h>
+
 OMDViewerPaneLayout OMDViewerPaneLayoutForMode(OMDViewerMode mode)
 {
     OMDViewerPaneLayout layout;
@@ -43,4 +45,15 @@ NSString *OMDPreviewStatusTextForState(OMDViewerMode mode,
         return @"Preview Stale";
     }
     return @"Preview Live";
+}
+
+BOOL OMDPreviewRenderIsCurrent(BOOL stale,
+                               NSUInteger renderedRevision, NSUInteger revision,
+                               CGFloat renderedWidth, CGFloat width,
+                               CGFloat renderedZoom, CGFloat zoom)
+{
+    return !stale &&
+           renderedRevision == revision &&
+           renderedWidth >= 0.0 && fabs(renderedWidth - width) < 0.5 &&
+           fabs(renderedZoom - zoom) < 0.0001;
 }

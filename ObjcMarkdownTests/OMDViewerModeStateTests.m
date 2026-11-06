@@ -41,4 +41,15 @@
     XCTAssertTrue([OMDPreviewStatusTextForState(OMDViewerModeSplit, NO, 8, 8) isEqualToString:@"Preview Live"]);
 }
 
+- (void)testPreviewRenderIsCurrentOnlyWhenNothingChanged
+{
+    XCTAssertTrue(OMDPreviewRenderIsCurrent(NO, 3, 3, 800.0, 800.0, 1.0, 1.0));
+    XCTAssertTrue(OMDPreviewRenderIsCurrent(NO, 3, 3, 800.0, 800.2, 1.0, 1.0));
+    XCTAssertFalse(OMDPreviewRenderIsCurrent(YES, 3, 3, 800.0, 800.0, 1.0, 1.0));
+    XCTAssertFalse(OMDPreviewRenderIsCurrent(NO, 3, 4, 800.0, 800.0, 1.0, 1.0));
+    XCTAssertFalse(OMDPreviewRenderIsCurrent(NO, 3, 3, 800.0, 400.0, 1.0, 1.0));
+    XCTAssertFalse(OMDPreviewRenderIsCurrent(NO, 3, 3, -1.0, -1.0, 1.0, 1.0));
+    XCTAssertFalse(OMDPreviewRenderIsCurrent(NO, 3, 3, 800.0, 800.0, 1.0, 1.25));
+}
+
 @end

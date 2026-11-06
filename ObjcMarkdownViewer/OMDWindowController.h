@@ -130,6 +130,8 @@ typedef unsigned short mode_t;
     NSString *_previewTaskItemsMarkdown;
     NSTimeInterval _lastZoomSliderEventTime;
     CGFloat _lastRenderedLayoutWidth;
+    CGFloat _lastRenderedZoomScale;
+    BOOL _previewRenderStale;
     NSInteger _activeLinkedScrollDriver;
     NSString *_sourceVimCommandLine;
     BOOL _externalReloadPromptVisible;
