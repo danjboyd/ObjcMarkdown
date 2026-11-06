@@ -45,4 +45,64 @@
     XCTAssertEqualWithAccuracy([OMDChromeSmallFont() pointSize], [NSFont smallSystemFontSize], 0.01);
 }
 
+// A long document is laid out for the width beside the vertical scroller
+// before that scroller shows, so it isn't wider than the view once it does
+// (#319; #121 on GNUstep).
+- (NSScrollView *)autohidingScrollViewWithWidth:(CGFloat)width
+{
+    NSScrollView *scrollView = [[[NSScrollView alloc] initWithFrame:NSMakeRect(0.0, 0.0, width, 300.0)] autorelease];
+    [scrollView setHasVerticalScroller:YES];
+    [scrollView setHasHorizontalScroller:YES];
+    [scrollView setAutohidesScrollers:YES];
+    return scrollView;
+}
+
+- (void)testWidthBesideVerticalScrollerOnlyWhenTheScrollerComesAndGoes
+{
+    NSScrollView *noScroller = [self autohidingScrollViewWithWidth:400.0];
+    [noScroller setHasVerticalScroller:NO];
+    XCTAssertEqualWithAccuracy(OMDScrollViewWidthBesideVerticalScroller(noScroller), 0.0, 0.01);
+
+    NSScrollView *alwaysShown = [self autohidingScrollViewWithWidth:400.0];
+    [alwaysShown setAutohidesScrollers:NO];
+    XCTAssertEqualWithAccuracy(OMDScrollViewWidthBesideVerticalScroller(alwaysShown), 0.0, 0.01);
+
+    XCTAssertEqualWithAccuracy(OMDScrollViewWidthBesideVerticalScroller(nil), 0.0, 0.01);
+}
+
+#if defined(GNUSTEP)
+- (void)testWidthBesideVerticalScrollerOnGNUstep
+{
+    NSScrollView *scrollView = [self autohidingScrollViewWithWidth:400.0];
+    NSSize content = [NSScrollView contentSizeForFrameSize:NSMakeSize(400.0, 300.0)
+                                     hasHorizontalScroller:NO
+                                       hasVerticalScroller:NO
+                                                borderType:[scrollView borderType]];
+    XCTAssertEqualWithAccuracy(OMDScrollViewWidthBesideVerticalScroller(scrollView),
+                               content.width - [NSScroller scrollerWidth] - 1.0, 0.01);
+}
+#else
+- (void)testWidthBesideLegacyVerticalScrollerIsTheWidthWhenItShows
+{
+    NSScrollView *scrollView = [self autohidingScrollViewWithWidth:400.0];
+    [scrollView setScrollerStyle:NSScrollerStyleLegacy];
+    NSSize shown = [NSScrollView contentSizeForFrameSize:NSMakeSize(400.0, 300.0)
+                                 horizontalScrollerClass:Nil
+                                   verticalScrollerClass:[NSScroller class]
+                                              borderType:[scrollView borderType]
+                                             controlSize:NSControlSizeRegular
+                                           scrollerStyle:NSScrollerStyleLegacy];
+    CGFloat width = OMDScrollViewWidthBesideVerticalScroller(scrollView);
+    XCTAssertEqualWithAccuracy(width, shown.width, 0.01);
+    XCTAssertTrue(width > 0.0 && width < 400.0);
+}
+
+- (void)testOverlayScrollersTakeNoWidth
+{
+    NSScrollView *scrollView = [self autohidingScrollViewWithWidth:400.0];
+    [scrollView setScrollerStyle:NSScrollerStyleOverlay];
+    XCTAssertEqualWithAccuracy(OMDScrollViewWidthBesideVerticalScroller(scrollView), 0.0, 0.01);
+}
+#endif
+
 @end

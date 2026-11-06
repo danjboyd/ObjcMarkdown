@@ -16,7 +16,9 @@ BOOL OMDChangedRangesForRender(NSAttributedString *current,
                                NSRange *renderedRangeOut);
 
 // Brings storage up to date with rendered by replacing only the changed
-// range, so the layout manager lays out as little as it can. The storage
+// range, so the layout manager lays out as little as it can. When only
+// attributes changed (a new preview width changes the rules under headings,
+// across a document), each changed paragraph is its own edit. The storage
 // ends up holding rendered with its attributes fixed (as any text storage
 // fixes them). Returns the range now holding the new text, or
 // {NSNotFound, 0} if nothing changed.
