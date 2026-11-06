@@ -5,6 +5,8 @@
 
 #include "cmark-gfm.h"
 #include "OMGFMParser.h"
+#include <stdlib.h>
+#include <string.h>
 
 typedef struct {
     NSColor *headingColor;
@@ -797,43 +799,48 @@ static BOOL OMDIncrementalLines(OMDSourceHighlightState *state,
     return YES;
 }
 
-static BOOL OMDRangesIntersect(NSRange left, NSRange right)
-{
-    if (left.length == 0 || right.length == 0) {
-        return NO;
-    }
-    return NSIntersectionRange(left, right).length > 0;
-}
-
 @implementation OMDSourceHighlighter
 
-+ (void)omdApplyRegex:(NSRegularExpression *)regex
-                color:(NSColor *)color
-     attributedString:(NSMutableAttributedString *)attributedString
-              inRange:(NSRange)range
-{
-    if (regex == nil || color == nil || attributedString == nil || range.length == 0) {
-        return;
-    }
-    NSString *text = [attributedString string];
-    if ([text length] == 0) {
-        return;
-    }
+// Colours by index into a pass's palette; 0 is the base colour.
+enum {
+    OMDColorBase = 0,
+    OMDColorHeading,
+    OMDColorBlockquote,
+    OMDColorList,
+    OMDColorCode,
+    OMDColorLink,
+    OMDColorEmphasis,
+    OMDColorMath,
+    OMDColorCount
+};
 
+// Paints color over the part of span inside the buffer's range.
+static void OMDPaintColor(uint8_t *colors, NSRange range, NSRange span, uint8_t color)
+{
+    NSRange inside = NSIntersectionRange(span, range);
+    if (inside.length > 0) {
+        memset(colors + (inside.location - range.location), color, inside.length);
+    }
+}
+
+static void OMDPaintMatches(NSRegularExpression *regex, NSString *text, uint8_t *colors,
+                            NSRange range, uint8_t color)
+{
+    if (regex == nil) {
+        return;
+    }
     NSArray *matches = [regex matchesInString:text options:0 range:range];
     for (NSTextCheckingResult *match in matches) {
-        NSRange matchRange = [match range];
-        if (matchRange.length == 0) {
-            continue;
-        }
-        [attributedString addAttribute:NSForegroundColorAttributeName
-                                 value:color
-                                 range:matchRange];
+        OMDPaintColor(colors, range, [match range], color);
     }
 }
 
 // Colours lines first through last (whole lines, with their endings) as a
-// pass over the whole text would.
+// pass over the whole text would. Each character's final colour is painted
+// into a buffer first, in the order the passes used to set it (a later one
+// wins), then set once per run in text order: setting it pass by pass made
+// six passes over a large text insert runs all through its attribute runs,
+// which grew with the square of its size (#346).
 + (void)omdColorLines:(const OMDSourceLine *)lines
                 first:(NSUInteger)first
                  last:(NSUInteger)last
@@ -847,26 +854,27 @@ static BOOL OMDRangesIntersect(NSRange left, NSRange right)
     if (range.length == 0) {
         return;
     }
-    NSMutableArray *fencedRanges = [NSMutableArray array];
-
-    [attributedString beginEditing];
-    [attributedString addAttribute:NSForegroundColorAttributeName value:baseColor range:range];
-    // Source text has no ligatures (#125): GNUstep forms "fi" from U+FB01,
-    // which a monospaced font draws in one cell, so columns would shift.
-    [attributedString addAttribute:NSLigatureAttributeName value:[NSNumber numberWithInt:0] range:range];
+    NSColor *palettes[OMDColorCount];
+    palettes[OMDColorBase] = baseColor;
+    palettes[OMDColorHeading] = palette.headingColor;
+    palettes[OMDColorBlockquote] = palette.blockquoteColor;
+    palettes[OMDColorList] = palette.listColor;
+    palettes[OMDColorCode] = palette.codeColor;
+    palettes[OMDColorLink] = palette.linkColor;
+    palettes[OMDColorEmphasis] = palette.emphasisColor;
+    palettes[OMDColorMath] = palette.mathColor;
+    uint8_t *colors = (uint8_t *)calloc(range.length, sizeof(uint8_t));
+    if (colors == NULL) {
+        return;
+    }
 
     NSUInteger index = first;
     for (; index <= last; index++) {
         const OMDSourceLine *line = &lines[index];
-        if (line->contentLength == 0) {
+        if (line->contentLength == 0 || line->code == OMDSourceLineFence) {
             continue;
         }
         NSRange contentRange = NSMakeRange(line->start, line->contentLength);
-        if (line->code == OMDSourceLineFence) {
-            [fencedRanges addObject:[NSValue valueWithRange:contentRange]];
-            continue;
-        }
-
         OMDSourceBlockStyle effectiveStyle = (OMDSourceBlockStyle)line->code;
         NSUInteger contentEnd = NSMaxRange(contentRange);
         if (effectiveStyle == OMDSourceBlockStyleNone && line->trimmedStart < contentEnd) {
@@ -885,70 +893,74 @@ static BOOL OMDRangesIntersect(NSRange left, NSRange right)
             }
         }
 
-        NSColor *color = nil;
+        uint8_t color = OMDColorBase;
         switch (effectiveStyle) {
             case OMDSourceBlockStyleHeading:
-                color = palette.headingColor;
+                color = OMDColorHeading;
                 break;
             case OMDSourceBlockStyleBlockquote:
-                color = palette.blockquoteColor;
+                color = OMDColorBlockquote;
                 break;
             case OMDSourceBlockStyleList:
-                color = palette.listColor;
+                color = OMDColorList;
                 break;
             case OMDSourceBlockStyleCode:
-                color = palette.codeColor;
+                color = OMDColorCode;
                 break;
             case OMDSourceBlockStyleNone:
             default:
                 break;
         }
-        if (color != nil) {
-            [attributedString addAttribute:NSForegroundColorAttributeName
-                                     value:color
-                                     range:contentRange];
+        if (color != OMDColorBase && palettes[color] != nil) {
+            OMDPaintColor(colors, range, contentRange, color);
         }
     }
 
     // The inline patterns don't match across a line break, so matching
     // within whole lines finds what matching the whole text would.
-    [self omdApplyRegex:OMDLinkRegex()
-                  color:palette.linkColor
-       attributedString:attributedString
-                inRange:range];
-    [self omdApplyRegex:OMDBoldRegex()
-                  color:palette.emphasisColor
-       attributedString:attributedString
-                inRange:range];
-    [self omdApplyRegex:OMDItalicRegex()
-                  color:palette.emphasisColor
-       attributedString:attributedString
-                inRange:range];
-    // Display math can span lines and blocks: its spans come from the whole
-    // text.
-    for (NSValue *value in displayMath) {
-        NSRange mathRange = NSIntersectionRange([value rangeValue], range);
-        if (OMDRangesIntersect(mathRange, range)) {
-            [attributedString addAttribute:NSForegroundColorAttributeName
-                                     value:palette.mathColor
-                                     range:mathRange];
+    if (palettes[OMDColorLink] != nil) {
+        OMDPaintMatches(OMDLinkRegex(), text, colors, range, OMDColorLink);
+    }
+    if (palettes[OMDColorEmphasis] != nil) {
+        OMDPaintMatches(OMDBoldRegex(), text, colors, range, OMDColorEmphasis);
+        OMDPaintMatches(OMDItalicRegex(), text, colors, range, OMDColorEmphasis);
+    }
+    if (palettes[OMDColorMath] != nil) {
+        // Display math can span lines and blocks: its spans come from the
+        // whole text.
+        for (NSValue *value in displayMath) {
+            OMDPaintColor(colors, range, [value rangeValue], OMDColorMath);
+        }
+        OMDPaintMatches(OMDInlineMathRegex(), text, colors, range, OMDColorMath);
+    }
+    if (palettes[OMDColorCode] != nil) {
+        OMDPaintMatches(OMDInlineCodeRegex(), text, colors, range, OMDColorCode);
+        for (index = first; index <= last; index++) {
+            const OMDSourceLine *line = &lines[index];
+            if (line->contentLength > 0 && line->code == OMDSourceLineFence) {
+                OMDPaintColor(colors, range, NSMakeRange(line->start, line->contentLength), OMDColorCode);
+            }
         }
     }
-    [self omdApplyRegex:OMDInlineMathRegex()
-                  color:palette.mathColor
-       attributedString:attributedString
-                inRange:range];
-    [self omdApplyRegex:OMDInlineCodeRegex()
-                  color:palette.codeColor
-       attributedString:attributedString
-                inRange:range];
 
-    for (NSValue *value in fencedRanges) {
+    [attributedString beginEditing];
+    // Source text has no ligatures (#125): GNUstep forms "fi" from U+FB01,
+    // which a monospaced font draws in one cell, so columns would shift.
+    [attributedString addAttribute:NSLigatureAttributeName value:[NSNumber numberWithInt:0] range:range];
+    NSUInteger runStart = 0;
+    while (runStart < range.length) {
+        uint8_t color = colors[runStart];
+        NSUInteger runEnd = runStart + 1;
+        while (runEnd < range.length && colors[runEnd] == color) {
+            runEnd += 1;
+        }
         [attributedString addAttribute:NSForegroundColorAttributeName
-                                 value:palette.codeColor
-                                 range:[value rangeValue]];
+                                 value:palettes[color]
+                                 range:NSMakeRange(range.location + runStart, runEnd - runStart)];
+        runStart = runEnd;
     }
     [attributedString endEditing];
+    free(colors);
 }
 
 + (NSRange)omdHighlightAttributedString:(NSMutableAttributedString *)attributedString

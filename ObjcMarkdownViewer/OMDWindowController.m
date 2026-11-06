@@ -90,7 +90,12 @@ static BOOL OMDIsTaskToggleActionName(NSString *name)
 {
     return [name isEqualToString:OMDCheckTaskActionName] || [name isEqualToString:OMDUncheckTaskActionName];
 }
-static const NSUInteger OMDSourceSyntaxIncrementalThreshold = 120000;
+// Above this, colouring falls back to the window around the caret. Below
+// it, only the edited block is coloured, which costs 2.8 ms a key at 460 KB
+// and 11 ms at 1.8 MB now that a pass sets each colour run once (#346).
+static const NSUInteger OMDSourceSyntaxIncrementalThreshold = 8000000;
+// Above this, colouring waits longer after a key (unchanged by #346).
+static const NSUInteger OMDSourceSyntaxLargeDocDebounceThreshold = 120000;
 static const NSUInteger OMDSourceSyntaxIncrementalContextChars = 12000;
 static const CGFloat OMDSourceEditorDefaultFontSize = 13.0;
 static const CGFloat OMDSourceEditorMinFontSize = 9.0;
@@ -7525,7 +7530,7 @@ static CGFloat OMDOutlinePanelWidth(NSRect bounds)
     NSTimeInterval delay = OMDSourceSyntaxHighlightDebounceInterval;
     NSTextStorage *storage = [_sourceTextView textStorage];
     NSUInteger length = storage != nil ? [storage length] : 0;
-    if (!_sourceHighlightNeedsFullPass && length > OMDSourceSyntaxIncrementalThreshold) {
+    if (!_sourceHighlightNeedsFullPass && length > OMDSourceSyntaxLargeDocDebounceThreshold) {
         delay = OMDSourceSyntaxHighlightLargeDocDebounceInterval;
     }
     [self scheduleSourceSyntaxHighlightingAfterDelay:delay];
