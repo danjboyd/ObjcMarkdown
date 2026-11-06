@@ -1,0 +1,34 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Daniel Boyd <danieljboyd@icloud.com>
+Date: Thu, 5 Nov 2026 18:45:00 -0600
+Subject: [PATCH] NSControl: -setEnabled: does nothing when the state is
+ unchanged
+
+-setEnabled: marked the control for display even when it was already in
+that state. NSToolbar validates its visible items after events and each
+item's -validate calls -setEnabled:, so every toolbar button redrew after
+every event, and that invalidates the views behind it. In MarkdownViewer
+on Windows this was about 40% of the CPU per typed key
+(danjboyd/ObjcMarkdown#164).
+
+Carried in ObjcMarkdown's Linux and Windows packages; not sent upstream.
+AI assistance: this change and this description were written with
+Claude (Anthropic's Claude Code).
+---
+ Source/NSControl.m | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/Source/NSControl.m b/Source/NSControl.m
+--- a/Source/NSControl.m
++++ b/Source/NSControl.m
+@@ -161,6 +161,10 @@
+  */
+ - (void) setEnabled: (BOOL)flag
+ {
++  if ([self isEnabled] == (flag ? YES : NO))
++    {
++      return;
++    }
+   [[self selectedCell] setEnabled: flag];
+   if (!flag)
+     [self abortEditing];

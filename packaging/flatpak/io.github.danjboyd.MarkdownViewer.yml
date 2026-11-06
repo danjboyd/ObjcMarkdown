@@ -117,6 +117,8 @@ modules:
         path: ../patches/libs-gui/0001-GSLayoutManager-compile-out-the-glyph-run-sanity-che.patch
       - type: patch
         path: ../patches/libs-gui/0002-GSTheme-let-a-theme-turn-GNUstep-drawn-window-decora.patch
+      - type: patch
+        path: ../patches/libs-gui/0003-NSControl-setEnabled-does-nothing-when-unchanged.patch
 
   - name: gnustep-back
     buildsystem: simple
