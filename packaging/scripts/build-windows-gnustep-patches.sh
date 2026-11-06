@@ -194,7 +194,12 @@ MODE_T_FLAG=-DHAVE_MODE_T=1
 PATCH=patch
 if [[ -x /usr/bin/patch ]]; then
   PATCH=/usr/bin/patch
+elif [[ -n "${MSYS2_LOCATION:-}" && -x "$(cygpath -u "$MSYS2_LOCATION")/usr/bin/patch" ]]; then
+  # gnustep-cli-new v0.1.3's shell has none (#339); the MSI manifest's
+  # msys2Packages put it in the MSYS2 the workflow set up.
+  PATCH="$(cygpath -u "$MSYS2_LOCATION")/usr/bin/patch"
 fi
+echo "patch command: $PATCH"
 JOBS="$(nproc 2>/dev/null || echo 2)"
 
 # gnustep-base
