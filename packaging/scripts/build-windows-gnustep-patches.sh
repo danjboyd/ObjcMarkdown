@@ -221,7 +221,9 @@ tar -xzf "$WORK/downloads/gnustep-base-$BASE_VERSION.tar.gz" -C "$WORK"
   if grep -qE '^#define GS_USE_LIBDISPATCH 0' "$PREFIX/include/GNUstepBase/GSConfig.h"; then
     base_options+=(--disable-libdispatch)
   fi
-  OBJCFLAGS="-Wno-incompatible-pointer-types $MODE_T_FLAG" ./configure --prefix="$PREFIX" "${base_options[@]}" \
+  # clang 23 miscompiles GSPrivateFormat (llvm/llvm-project#231864), which
+  # crashes the app at launch; gnustep-cli-new builds base with this too.
+  OBJCFLAGS="-Wno-incompatible-pointer-types -mllvm -enable-dfa-jump-thread=false $MODE_T_FLAG" ./configure --prefix="$PREFIX" "${base_options[@]}" \
     > "$WORK/base-configure.log" 2>&1 || { tail -40 "$WORK/base-configure.log"; exit 1; }
   # The same features as the DLL it replaces, or stop.
   same_lists "toolchain GSConfig.h" "$(grep -E '^#define' "$PREFIX/include/GNUstepBase/GSConfig.h")" \
