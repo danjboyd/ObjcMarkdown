@@ -1395,6 +1395,8 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [_renderer setAsynchronousMathGenerationEnabled:YES];
 #endif
     [_renderer setAllowTableHorizontalOverflow:NO];
+    // Split's sync then needn't parse the source again after each render (#346).
+    [_renderer setCollectsSourceBlockDescriptors:YES];
     [_renderer setZoomScale:_zoomScale];
     [[NSNotificationCenter defaultCenter] addObserver:self
                                              selector:@selector(mathArtifactsDidWarm:)
@@ -4689,6 +4691,7 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
     [self updateRendererLayoutWidth];
     NSTimeInterval markdownStart = perfLogging ? OMDNow() : 0.0;
     NSAttributedString *rendered = [_renderer attributedStringFromMarkdown:previewMarkdown];
+    OMDPreviewSyncUseSourceBlockDescriptors(previewMarkdown, [_renderer sourceBlockDescriptors]);
     OMDStartupTrace([NSString stringWithFormat:@"renderCurrentMarkdown: policy=%ld attachments=%lu renderedLength=%lu markdownLength=%lu",
                                                (long)[self currentMathRenderingPolicy],
                                                (unsigned long)OMDCountAttachmentsInAttributedString(rendered),
@@ -6670,61 +6673,7 @@ static CGFloat OMDOutlinePanelWidth(NSRect bounds)
     if (textView == nil || scrollView == nil) {
         return 0;
     }
-
-    NSString *text = [[textView textStorage] string];
-    NSUInteger length = [text length];
-    if (length == 0) {
-        return 0;
-    }
-
-    NSLayoutManager *layoutManager = [textView layoutManager];
-    NSTextContainer *textContainer = [textView textContainer];
-    if (layoutManager == nil || textContainer == nil) {
-        return 0;
-    }
-    [layoutManager ensureLayoutForTextContainer:textContainer];
-    if ([layoutManager numberOfGlyphs] == 0) {
-        return 0;
-    }
-
-    NSRect visibleRect = [textView visibleRect];
-    if (NSIsEmptyRect(visibleRect)) {
-        visibleRect = [textView bounds];
-    }
-    if (verticalAnchor < 0.0) {
-        verticalAnchor = 0.0;
-    } else if (verticalAnchor > 1.0) {
-        verticalAnchor = 1.0;
-    }
-    NSPoint textOrigin = [textView textContainerOrigin];
-    CGFloat verticalOffset = floor(NSHeight(visibleRect) * verticalAnchor);
-    if (verticalOffset < 1.0) {
-        verticalOffset = 1.0;
-    }
-    CGFloat probeY = [textView isFlipped]
-        ? (NSMinY(visibleRect) + verticalOffset)
-        : (NSMaxY(visibleRect) - verticalOffset);
-    NSPoint probe = NSMakePoint(NSMinX(visibleRect) + 4.0 - textOrigin.x,
-                                probeY - textOrigin.y);
-    if (probe.x < 0.0) {
-        probe.x = 0.0;
-    }
-    if (probe.y < 0.0) {
-        probe.y = 0.0;
-    }
-
-    NSUInteger glyphIndex = [layoutManager glyphIndexForPoint:probe
-                                               inTextContainer:textContainer
-                                fractionOfDistanceThroughGlyph:NULL];
-    if (glyphIndex >= [layoutManager numberOfGlyphs]) {
-        return length - 1;
-    }
-
-    NSUInteger characterIndex = [layoutManager characterIndexForGlyphAtIndex:glyphIndex];
-    if (characterIndex >= length) {
-        return length - 1;
-    }
-    return characterIndex;
+    return OMDVisibleCharacterIndexInTextView(textView, verticalAnchor, NO);
 }
 
 - (BOOL)targetScrollPoint:(NSPoint *)pointOut
