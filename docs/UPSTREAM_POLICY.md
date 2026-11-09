@@ -8,7 +8,8 @@ and signed off on every line before it leaves this machine.
 
 Adopted for ObjcMarkdown on 2026-10-08, from the GNUstep Adwaita theme's
 `Docs/UPSTREAM_POLICY.md` (adopted there 2026-10-06; the text below is
-that policy with this repository's paths). Applies to Dan and to every
+that policy with this repository's paths; libobjc2's entry changed
+2026-11-06). Applies to Dan and to every
 Claude session working for him on this repository, Linux, Windows and
 macOS alike.
 
@@ -43,8 +44,15 @@ content". It says:
 
 What individual maintainers have added:
 
-- **libobjc2 (David Chisnall): no LLM-derived changes or reports at all.**
-  We send nothing to libobjc2.
+- **libobjc2 (David Chisnall): no AI-generated code.** The standard policy
+  applies, with one exception: we send no patches, pull requests or
+  suggested fixes, because David writes the fix himself. Issue reports and
+  comments are welcome, with the usual disclosure line. Code of ours
+  appears only where it explains the problem, such as a short reproducer,
+  and it's labelled as an illustration, not a proposed change. Quoting
+  libobjc2's own source is fine. Every claim still comes from a run
+  (rule 5). (Changed 2026-11-06, Dan: before, we sent nothing to
+  libobjc2 at all.)
 - **libs-base (Richard Frith-Macdonald):** one patch per issue, each with
   the code change, its test in GNUstep's regression framework, and a
   ChangeLog entry. Others on the list asked for one pull request per
