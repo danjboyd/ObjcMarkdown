@@ -5,6 +5,7 @@
 #import <Foundation/Foundation.h>
 
 #import "OMDTextFileSupport.h"
+#import "OMDExternalTools.h"
 
 @interface OMDTextFileSupportTests : XCTestCase
 @end
@@ -155,5 +156,18 @@
     XCTAssertNil(OMDPrintJobTitle(@"", @"  "));
 }
 
+
+// Edge prints its page header and footer (date, title, the temporary page's
+// address) unless told not to; current versions take --no-pdf-header-footer,
+// older ones --print-to-pdf-no-header, so both are passed (#378).
+- (void)testHeadlessPrintToPDFTurnsOffTheHeaderAndFooterOnOldAndNewBrowsers
+{
+    NSArray *arguments = OMDHeadlessPrintToPDFArguments(@"C:/out/doc.pdf", @"file:///C:/tmp/page.html");
+    XCTAssertTrue([arguments containsObject:@"--headless"]);
+    XCTAssertTrue([arguments containsObject:@"--no-pdf-header-footer"]);
+    XCTAssertTrue([arguments containsObject:@"--print-to-pdf-no-header"]);
+    XCTAssertTrue([arguments containsObject:@"--print-to-pdf=C:/out/doc.pdf"]);
+    XCTAssertEqualObjects([arguments lastObject], @"file:///C:/tmp/page.html");
+}
 
 @end

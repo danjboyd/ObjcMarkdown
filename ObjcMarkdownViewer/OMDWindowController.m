@@ -4171,14 +4171,7 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
 
     NSTask *task = [[[NSTask alloc] init] autorelease];
     [task setLaunchPath:browserPath];
-    [task setArguments:[NSArray arrayWithObjects:
-                        @"--headless",
-                        @"--disable-gpu",
-                        @"--allow-file-access-from-files",
-                        @"--no-pdf-header-footer",
-                        [NSString stringWithFormat:@"--print-to-pdf=%@", pdfPath],
-                        [htmlURL absoluteString],
-                        nil]];
+    [task setArguments:OMDHeadlessPrintToPDFArguments(pdfPath, [htmlURL absoluteString])];
 
     // Not pipes: nothing reads them, and Edge logs a few KB to stderr, so
     // it blocked on a full pipe while the app waited for it to exit.
