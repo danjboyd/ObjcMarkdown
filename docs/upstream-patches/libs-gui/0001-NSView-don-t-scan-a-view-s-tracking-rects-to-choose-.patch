@@ -1,0 +1,192 @@
+From d7e5f5f757ed8355af9a5a89199f91147f8342a9 Mon Sep 17 00:00:00 2001
+From: Daniel Boyd <danieljboyd@icloud.com>
+Date: Thu, 5 Nov 2026 17:22:31 -0600
+Subject: [PATCH] NSView: don't scan a view's tracking rects to choose a tag
+
+-addTrackingRect:owner:userData:assumeInside: walked every rect the view
+already had to find the highest tag, so adding n rects was quadratic.  A
+tool tip is a tracking rect, so a view with many tool tips pays this: a
+text view with a tip per link or embedded object, for example.  The tag now
+comes from a counter.  Tags were unique within a view and still are; they
+are now unique across views as well, and a removed rect's tag is no longer
+reused.
+
+Testing: Tests/gui/NSView/trackingRectTags.m replaces -[GSTrackingRect tag]
+with a counting version and adds 1000 rects, so it doesn't depend on timing.
+It checks that adding doesn't call -tag at all, then that tags are positive
+and different, that a rect added after a removal gets a tag no remaining
+rect has, and that another view can add a rect.  Without this change one of
+the 5 checks fails (the count); with it all 5 pass.
+
+Not covered: -removeTrackingRect: still searches the view's rects, so
+removing n rects one at a time is still quadratic.  This change doesn't
+touch that.
+
+AI assistance: this change, its test and this description were written
+with Claude (Anthropic's Claude Code).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ ChangeLog                           |   7 ++
+ Source/NSView.m                     |  20 ++----
+ Tests/gui/NSView/trackingRectTags.m | 102 ++++++++++++++++++++++++++++
+ 3 files changed, 116 insertions(+), 13 deletions(-)
+ create mode 100644 Tests/gui/NSView/trackingRectTags.m
+
+diff --git a/ChangeLog b/ChangeLog
+index 4d9b23ba1..55660308e 100644
+--- a/ChangeLog
++++ b/ChangeLog
+@@ -1,3 +1,10 @@
++2026-11-05  Daniel Boyd <danieljboyd@icloud.com>
++
++	* Source/NSView.m (-addTrackingRect:owner:userData:assumeInside:):
++	Take the next tag from a counter instead of scanning the view's
++	rects for the highest one, which made adding n rects quadratic.
++	* Tests/gui/NSView/trackingRectTags.m: New test.
++
+ 2026-07-01 Michael Hupp <mrtonik@mailbox.org>
+ 
+ 	* Source/NSMenuView.m (GSMenuCross)
+diff --git a/Source/NSView.m b/Source/NSView.m
+index b65dcbb56..6aab92094 100644
+--- a/Source/NSView.m
++++ b/Source/NSView.m
+@@ -3750,19 +3750,13 @@ static NSView* findByTag(NSView *view, NSInteger aTag, NSUInteger *level)
+ 			     userData: (void*)data
+ 			 assumeInside: (BOOL)flag
+ {
+-  NSTrackingRectTag	t;
+-  NSUInteger		i, j;
+-  GSTrackingRect	*m;
+-
+-  t = 0;
+-  j = [_tracking_rects count];
+-  for (i = 0; i < j; ++i)
+-    {
+-      m = (GSTrackingRect*)[_tracking_rects objectAtIndex: i];
+-      if ([m tag] > t)
+-	t = [m tag];
+-    }
+-  ++t;
++  /* Scanning this view's rects for an unused tag would make adding n rects
++   * quadratic, and a tool tip is a tracking rect, so a view can have thousands.
++   * A tag need only be unique within its view; counting makes it so across all.
++   */
++  static NSTrackingRectTag	lastTag = 0;
++  GSTrackingRect		*m;
++  NSTrackingRectTag		t = ++lastTag;
+ 
+   m = [[rectClass alloc] initWithRect: aRect
+ 				  tag: t
+diff --git a/Tests/gui/NSView/trackingRectTags.m b/Tests/gui/NSView/trackingRectTags.m
+new file mode 100644
+index 000000000..d9021e3d3
+--- /dev/null
++++ b/Tests/gui/NSView/trackingRectTags.m
+@@ -0,0 +1,102 @@
++/* Adding a tracking rect mustn't look at the rects a view already has, or
++ * adding n of them is quadratic, and a tool tip is a tracking rect.
++ *
++ * Counts -[GSTrackingRect tag], so the test doesn't depend on timing.
++ */
++#include "Testing.h"
++#include <objc/runtime.h>
++#include <Foundation/NSAutoreleasePool.h>
++#include <Foundation/NSGeometry.h>
++#include <AppKit/NSApplication.h>
++#include <AppKit/NSView.h>
++#include <GNUstepGUI/GSTrackingRect.h>
++
++static unsigned		tagCalls = 0;
++static IMP		originalTag = 0;
++
++static NSTrackingRectTag
++countedTag(id self, SEL _cmd)
++{
++  tagCalls++;
++  return ((NSTrackingRectTag (*)(id, SEL))originalTag)(self, _cmd);
++}
++
++int
++main(int argc, char **argv)
++{
++  NSAutoreleasePool	*pool = [NSAutoreleasePool new];
++  enum { COUNT = 1000 };
++  NSTrackingRectTag	tags[COUNT];
++  NSView		*view;
++  NSView		*other;
++  NSTrackingRectTag	again;
++  NSUInteger		i;
++  BOOL			different = YES;
++  BOOL			positive = YES;
++  Method		method;
++
++  START_SET("tracking rect tags")
++  NS_DURING
++    {
++      [NSApplication sharedApplication];
++    }
++  NS_HANDLER
++    {
++      if ([[localException name] isEqualToString: NSInternalInconsistencyException])
++	SKIP("It looks like GNUstep backend is not yet installed")
++    }
++  NS_ENDHANDLER
++
++  method = class_getInstanceMethod([GSTrackingRect class], @selector(tag));
++  originalTag = method_setImplementation(method, (IMP)countedTag);
++
++  view = [[NSView alloc] initWithFrame: NSMakeRect(0, 0, 100, 1000)];
++  for (i = 0; i < COUNT; i++)
++    {
++      tags[i] = [view addTrackingRect: NSMakeRect(0, i, 100, 1)
++				owner: view
++			     userData: NULL
++			 assumeInside: NO];
++    }
++  printf("%u calls of -tag for %u rects\n", tagCalls, COUNT);
++  PASS(tagCalls == 0, "adding a rect doesn't look at the others' tags");
++
++  for (i = 0; i < COUNT; i++)
++    {
++      if (tags[i] <= 0)
++	positive = NO;
++      if (i > 0 && tags[i] == tags[i - 1])
++	different = NO;
++    }
++  PASS(positive, "tags are positive");
++  PASS(different, "tags are different");
++
++  /* Removing one leaves the rest, and its tag isn't given to a new rect. */
++  [view removeTrackingRect: tags[COUNT - 1]];
++  again = [view addTrackingRect: NSMakeRect(0, 0, 100, 1)
++			  owner: view
++		       userData: NULL
++		   assumeInside: NO];
++  different = YES;
++  for (i = 0; i < COUNT - 1; i++)
++    {
++      if (tags[i] == again)
++	different = NO;
++    }
++  PASS(different, "a new rect's tag differs from the remaining ones");
++
++  /* Another view's rects don't get in the way. */
++  other = [[NSView alloc] initWithFrame: NSMakeRect(0, 0, 100, 100)];
++  PASS([other addTrackingRect: NSMakeRect(0, 0, 10, 10)
++			owner: other
++		     userData: NULL
++		 assumeInside: NO] > 0, "another view can add a rect");
++
++  method_setImplementation(method, originalTag);
++  [other release];
++  [view release];
++  END_SET("tracking rect tags")
++
++  [pool drain];
++  return 0;
++}
+-- 
+2.47.3
+

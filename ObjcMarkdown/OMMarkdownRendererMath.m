@@ -1241,6 +1241,65 @@ static NSString *OMCreateMathTempDirectory(void)
     return created ? path : nil;
 }
 
+// Hex for the ink of math on this theme when it isn't (near) black, else nil.
+// LaTeX draws black; light ink is only needed on dark themes.
+static NSString *OMMathInkHexForTheme(OMTheme *theme)
+{
+    NSColor *ink = [theme.baseTextColor colorUsingColorSpaceName:NSCalibratedRGBColorSpace];
+    if (ink == nil) {
+        return nil;
+    }
+    CGFloat luminance = 0.2126 * [ink redComponent] + 0.7152 * [ink greenComponent] + 0.0722 * [ink blueComponent];
+    if (luminance < 0.5) {
+        return nil;
+    }
+    return [NSString stringWithFormat:@"#%02x%02x%02x",
+            (int)lround([ink redComponent] * 255.0),
+            (int)lround([ink greenComponent] * 255.0),
+            (int)lround([ink blueComponent] * 255.0)];
+}
+
+void OMMathPremultipliedRGBAFromBGRA(const unsigned char *source,
+                                     NSInteger sourceStride,
+                                     unsigned char *destination,
+                                     NSInteger destinationStride,
+                                     NSUInteger width,
+                                     NSUInteger height)
+{
+    if (source == NULL || destination == NULL) {
+        return;
+    }
+    for (NSUInteger y = 0; y < height; y++) {
+        const unsigned char *sourceRow = source + (NSInteger)y * sourceStride;
+        unsigned char *destinationRow = destination + (NSInteger)y * destinationStride;
+        for (NSUInteger x = 0; x < width; x++) {
+            const unsigned char *sourcePixel = sourceRow + x * 4;
+            unsigned char *destinationPixel = destinationRow + x * 4;
+            unsigned int alpha = sourcePixel[3];
+            destinationPixel[0] = (unsigned char)((sourcePixel[2] * alpha + 127) / 255);
+            destinationPixel[1] = (unsigned char)((sourcePixel[1] * alpha + 127) / 255);
+            destinationPixel[2] = (unsigned char)((sourcePixel[0] * alpha + 127) / 255);
+            destinationPixel[3] = (unsigned char)alpha;
+        }
+    }
+}
+
+NSString *OMMathDvipngColorSpec(NSString *inkHex)
+{
+    if (inkHex == nil || [inkHex length] != 7 || [inkHex characterAtIndex:0] != '#') {
+        return nil;
+    }
+    unsigned int rgb = 0;
+    NSScanner *scanner = [NSScanner scannerWithString:[inkHex substringFromIndex:1]];
+    if (![scanner scanHexInt:&rgb] || ![scanner isAtEnd]) {
+        return nil;
+    }
+    return [NSString stringWithFormat:@"rgb %.3f %.3f %.3f",
+            ((rgb >> 16) & 0xff) / 255.0,
+            ((rgb >> 8) & 0xff) / 255.0,
+            (rgb & 0xff) / 255.0];
+}
+
 #if defined(_WIN32)
 static BOOL OMEnsureWindowsGDIPlusStarted(void)
 {
@@ -1358,20 +1417,9 @@ static NSImage *OMWindowsImageFromPNGFile(NSString *path)
             srcStride = -srcStride;
         }
 
+        // GDI+ hands out straight alpha; the rep is premultiplied (#324).
         destStride = (NSUInteger)(width * 4);
-        for (UINT y = 0; y < height; y++) {
-            BYTE *srcRow = srcBase + ((NSUInteger)y * (NSUInteger)srcStride);
-            unsigned char *destRow = destBase + ((NSUInteger)y * destStride);
-            for (UINT x = 0; x < width; x++) {
-                BYTE *srcPixel = srcRow + ((NSUInteger)x * 4);
-                unsigned char *destPixel = destRow + ((NSUInteger)x * 4);
-
-                destPixel[0] = srcPixel[2];
-                destPixel[1] = srcPixel[1];
-                destPixel[2] = srcPixel[0];
-                destPixel[3] = srcPixel[3];
-            }
-        }
+        OMMathPremultipliedRGBAFromBGRA(srcBase, srcStride, destBase, (NSInteger)destStride, width, height);
 
         image = [[[NSImage alloc] initWithSize:NSMakeSize((CGFloat)width,
                                                           (CGFloat)height)] autorelease];
@@ -1391,6 +1439,7 @@ static NSImage *OMWindowsImageFromPNGFile(NSString *path)
 static NSImage *OMPNGImageForMathFormula(NSString *formula,
                                          BOOL displayMath,
                                          CGFloat renderZoom,
+                                         NSString *inkHex,
                                          NSUInteger maximumFormulaLength,
                                          NSTimeInterval externalToolTimeout,
                                          OMMathPerfStats *stats)
@@ -1510,13 +1559,21 @@ static NSImage *OMPNGImageForMathFormula(NSString *formula,
         dpi = 1200;
     }
 
-    NSArray *pngArguments = [NSArray arrayWithObjects:
+    // LaTeX draws black; on a dark theme the ink is the theme's text colour,
+    // as dvisvgm's fill does elsewhere (#324).
+    NSMutableArray *pngArguments = [NSMutableArray arrayWithObjects:
         @"-T", @"tight",
         @"-bg", @"Transparent",
         @"-D", [NSString stringWithFormat:@"%ld", (long)dpi],
-        @"-o", @"formula.png",
-        @"formula.dvi",
         nil];
+    NSString *foreground = OMMathDvipngColorSpec(inkHex);
+    if (foreground != nil) {
+        [pngArguments addObject:@"-fg"];
+        [pngArguments addObject:foreground];
+    }
+    [pngArguments addObject:@"-o"];
+    [pngArguments addObject:@"formula.png"];
+    [pngArguments addObject:@"formula.dvi"];
     NSTimeInterval pngStart = OMNow();
     if (!OMRunTask(OMDviPngExecutablePath(),
                    tempDir,
@@ -1742,23 +1799,6 @@ static void OMScheduleAsyncMathAssetGeneration(NSString *formula,
     });
 }
 
-// Hex for the ink of math on this theme when it isn't (near) black, else nil.
-// LaTeX draws black; light ink is only needed on dark themes.
-static NSString *OMMathInkHexForTheme(OMTheme *theme)
-{
-    NSColor *ink = [theme.baseTextColor colorUsingColorSpaceName:NSCalibratedRGBColorSpace];
-    if (ink == nil) {
-        return nil;
-    }
-    CGFloat luminance = 0.2126 * [ink redComponent] + 0.7152 * [ink greenComponent] + 0.0722 * [ink blueComponent];
-    if (luminance < 0.5) {
-        return nil;
-    }
-    return [NSString stringWithFormat:@"#%02x%02x%02x",
-            (int)lround([ink redComponent] * 255.0),
-            (int)lround([ink greenComponent] * 255.0),
-            (int)lround([ink blueComponent] * 255.0)];
-}
 #endif
 
 // dvisvgm leaves glyph fills unset (black); a fill on the root recolours them.
@@ -1828,11 +1868,7 @@ NSAttributedString *OMMathAttachmentAttributedString(NSString *formula,
     CGFloat zoom = OMMathZoomForFontSize(fontSize);
     CGFloat oversample = OMMathRasterOversampleFactor();
     CGFloat renderZoom = OMMathQuantizedRenderZoom(zoom, oversample);
-#if defined(_WIN32)
-    NSString *inkHex = nil;
-#else
     NSString *inkHex = OMMathInkHexForTheme(theme);
-#endif
     // Ink-coloured renders are cached apart from black ones (printing uses the
     // light theme while the preview may be dark).
     NSString *inkSuffix = inkHex != nil ? [@"|ink=" stringByAppendingString:inkHex] : @"";
@@ -1889,6 +1925,7 @@ NSAttributedString *OMMathAttachmentAttributedString(NSString *formula,
             baseImage = OMPNGImageForMathFormula(formula,
                                                  displayMath,
                                                  renderZoom,
+                                                 inkHex,
                                                  maxFormulaLength,
                                                  externalToolTimeout,
                                                  stats);

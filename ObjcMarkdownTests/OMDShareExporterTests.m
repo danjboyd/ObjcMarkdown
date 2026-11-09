@@ -179,6 +179,12 @@
     XCTAssertEqualObjects([[item folderURL] path], documentPath);
     // What is attached is still the staged copy.
     XCTAssertTrue([[[item fileURL] path] hasPrefix:[OMDShareExporter launchTemporaryDirectory]]);
+
+    // Another Markdown extension than the copy's .md is still the document.
+    NSString *otherPath = [[NSURL fileURLWithPath:
+        [NSTemporaryDirectory() stringByAppendingPathComponent:@"Notes.MARKDOWN"]] path];
+    exporter = [[[OMDShareExporter alloc] initWithSource:[self savedSourceAtPath:otherPath]] autorelease];
+    XCTAssertEqualObjects([[[exporter shareItemForFormat:OMDShareFormatMarkdown error:NULL] folderURL] path], otherPath);
 }
 
 - (void)testShowInFolderOfAConvertedOrUnsavedShareSelectsTheCopy
@@ -188,11 +194,7 @@
     XCTAssertNil([pdf documentURL]);
     XCTAssertEqualObjects([pdf folderURL], [pdf fileURL]);
 
-    // An imported document: its file isn't the Markdown shared.
-    exporter = [[[OMDShareExporter alloc] initWithSource:[self savedSourceAtPath:@"/home/u/Q3 Plan.docx"]] autorelease];
-    XCTAssertNil([[exporter shareItemForFormat:OMDShareFormatMarkdown error:NULL] documentURL]);
-
-    // Unsaved edits: the source has no document path to offer.
+    // Unsaved edits or an import: the source has no document path to offer.
     OMDShareSavedTestSource *edited = [self savedSourceAtPath:@"/home/u/Q3 Plan.md"];
     [edited->_documentPath release];
     edited->_documentPath = nil;
