@@ -74,14 +74,14 @@ NSUInteger OMDTaskItemIndexAtCharacterIndex(NSAttributedString *text, NSUInteger
 {
     NSGraphicsContext *context = [NSGraphicsContext currentContext];
     [self drawDocumentSurface];
-    [self drawCodeBlockBackgrounds];
+    [self drawCodeBlockBackgroundsInRect:dirtyRect];
     [context saveGraphicsState];
     if ([context respondsToSelector:@selector(setImageInterpolation:)]) {
         [context setImageInterpolation:NSImageInterpolationHigh];
     }
     [super drawRect:dirtyRect];
     [context restoreGraphicsState];
-    [self drawBlockquoteLines];
+    [self drawBlockquoteLinesInRect:dirtyRect];
     [self drawRenderedObjectSelection];
 }
 
@@ -117,7 +117,39 @@ NSUInteger OMDTaskItemIndexAtCharacterIndex(NSAttributedString *text, NSUInteger
     }
 }
 
-- (void)drawCodeBlockBackgrounds
+// The characters whose glyphs lie in rect (view coordinates) widened by
+// margin above and below. Cards and quote bars outside it aren't drawn:
+// taking every block's rect on every draw was 6 ms per draw at 460 KB and
+// 24 ms at four times that (#346).
+static BOOL OMDTextViewCullsBlockDecorations = YES;
+
+// Tests draw with culling off and on and compare the pixels.
++ (void)setCullsBlockDecorationsForTesting:(BOOL)culls
+{
+    OMDTextViewCullsBlockDecorations = culls;
+}
+
+- (NSRange)characterRangeForDrawingRect:(NSRect)rect margin:(CGFloat)margin
+{
+    if (!OMDTextViewCullsBlockDecorations) {
+        return NSMakeRange(0, [[self textStorage] length]);
+    }
+    NSLayoutManager *layoutManager = [self layoutManager];
+    NSTextContainer *container = [self textContainer];
+    NSPoint origin = [self textContainerOrigin];
+    NSRect inContainer = NSInsetRect(rect, 0.0, -margin);
+    inContainer.origin.x -= origin.x;
+    inContainer.origin.y -= origin.y;
+    NSRange glyphs = [layoutManager glyphRangeForBoundingRect:inContainer inTextContainer:container];
+    return [layoutManager characterRangeForGlyphRange:glyphs actualGlyphRange:NULL];
+}
+
+static BOOL OMDRangeTouches(NSRange range, NSRange other)
+{
+    return !(NSMaxRange(range) < other.location || range.location > NSMaxRange(other));
+}
+
+- (void)drawCodeBlockBackgroundsInRect:(NSRect)dirtyRect
 {
     if (self.codeBlockBackgroundColor == nil || [self.codeBlockRanges count] == 0) {
         return;
@@ -140,10 +172,11 @@ NSUInteger OMDTaskItemIndexAtCharacterIndex(NSAttributedString *text, NSUInteger
     NSColor *borderColor = self.codeBlockBorderColor;
     CGFloat minX = origin.x + inset.width - paddingX;
     CGFloat maxX = origin.x + [self bounds].size.width - inset.width + paddingX;
+    NSRange visible = [self characterRangeForDrawingRect:dirtyRect margin:(paddingY + borderWidth + 1.0)];
 
     for (NSValue *value in self.codeBlockRanges) {
         NSRange charRange = [value rangeValue];
-        if (charRange.length == 0) {
+        if (charRange.length == 0 || !OMDRangeTouches(charRange, visible)) {
             continue;
         }
 
@@ -189,7 +222,7 @@ NSUInteger OMDTaskItemIndexAtCharacterIndex(NSAttributedString *text, NSUInteger
 
 }
 
-- (void)drawBlockquoteLines
+- (void)drawBlockquoteLinesInRect:(NSRect)dirtyRect
 {
     if (self.blockquoteLineColor == nil || [self.blockquoteRanges count] == 0) {
         return;
@@ -210,10 +243,11 @@ NSUInteger OMDTaskItemIndexAtCharacterIndex(NSAttributedString *text, NSUInteger
     NSPoint origin = [self textContainerOrigin];
     NSSize inset = [self textContainerInset];
     CGFloat lineWidth = self.blockquoteLineWidth > 0.0 ? self.blockquoteLineWidth : 3.0;
+    NSRange visible = [self characterRangeForDrawingRect:dirtyRect margin:1.0];
 
     for (NSValue *value in self.blockquoteRanges) {
         NSRange charRange = [value rangeValue];
-        if (charRange.length == 0) {
+        if (charRange.length == 0 || !OMDRangeTouches(charRange, visible)) {
             continue;
         }
 
