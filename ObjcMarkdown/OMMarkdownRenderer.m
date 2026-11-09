@@ -215,14 +215,66 @@ static OMMarkdownHTMLPolicy OMHTMLPolicyForBlockNode(const OMRenderContext *rend
 }
 
 
+// -convertFont:toHaveTrait: ran for every bold or italic span, about a
+// sixth of a render on macOS (#346), and a document asks for the same few
+// conversions over and over. Keyed by font and traits; renders may run on
+// other threads (Quick Look, printing), hence the lock. Tests turn the cache
+// off to check that the output is the same.
+static NSMutableDictionary *OMFontTraitsCache = nil;
+static NSLock *OMFontTraitsCacheLock = nil;
+static BOOL OMFontTraitsCacheEnabled = YES;
+static const NSUInteger OMFontTraitsCacheLimit = 512;
+
+static void OMFontTraitsCacheSetUp(void)
+{
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        OMFontTraitsCache = [[NSMutableDictionary alloc] init];
+        OMFontTraitsCacheLock = [[NSLock alloc] init];
+    });
+}
+
+OM_EXPORT void OMFontWithTraitsSetCacheEnabledForTesting(BOOL enabled);
+void OMFontWithTraitsSetCacheEnabledForTesting(BOOL enabled)
+{
+    OMFontTraitsCacheSetUp();
+    [OMFontTraitsCacheLock lock];
+    OMFontTraitsCacheEnabled = enabled;
+    [OMFontTraitsCache removeAllObjects];
+    [OMFontTraitsCacheLock unlock];
+}
+
 NSFont *OMFontWithTraits(NSFont *font, NSFontTraitMask traits)
 {
     if (font == nil) {
         return nil;
     }
+    OMFontTraitsCacheSetUp();
+    NSArray *key = [NSArray arrayWithObjects:font, [NSNumber numberWithUnsignedInteger:(NSUInteger)traits], nil];
+    NSFont *cached = nil;
+    BOOL enabled = NO;
+    [OMFontTraitsCacheLock lock];
+    enabled = OMFontTraitsCacheEnabled;
+    if (enabled) {
+        cached = [[[OMFontTraitsCache objectForKey:key] retain] autorelease];
+    }
+    [OMFontTraitsCacheLock unlock];
+    if (cached != nil) {
+        return cached;
+    }
+
     NSFontManager *manager = [NSFontManager sharedFontManager];
     NSFont *converted = [manager convertFont:font toHaveTrait:traits];
-    return converted != nil ? converted : font;
+    NSFont *result = converted != nil ? converted : font;
+    if (enabled) {
+        [OMFontTraitsCacheLock lock];
+        if ([OMFontTraitsCache count] >= OMFontTraitsCacheLimit) {
+            [OMFontTraitsCache removeAllObjects];
+        }
+        [OMFontTraitsCache setObject:result forKey:key];
+        [OMFontTraitsCacheLock unlock];
+    }
+    return result;
 }
 
 static void OMApplyItalicFallbackIfNeeded(NSMutableDictionary *attributes, NSFont *originalFont, NSFont *resolvedFont)

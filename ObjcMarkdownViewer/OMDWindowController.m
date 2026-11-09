@@ -2358,7 +2358,7 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
 {
     for (NSWindow *window in [NSApp windows]) {
         id delegate = [window delegate];
-        if ([delegate isKindOfClass:[OMDWindowController class]] &&
+        if (OMDWindowIsOpen(window) && [delegate isKindOfClass:[OMDWindowController class]] &&
             [((OMDWindowController *)delegate)->_documentTabsController documentTabIndexForLocalPath:path] >= 0) {
             return delegate;
         }
@@ -2372,7 +2372,7 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
 {
     for (NSWindow *window in [NSApp windows]) {
         id delegate = [window delegate];
-        if (![delegate isKindOfClass:[OMDWindowController class]]) {
+        if (!OMDWindowIsOpen(window) || ![delegate isKindOfClass:[OMDWindowController class]]) {
             continue;
         }
         OMDWindowController *controller = (OMDWindowController *)delegate;
@@ -4509,8 +4509,9 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
 
 - (NSString *)shareDocumentPath
 {
+    // An imported file (Word, HTML) isn't the Markdown shared.
     if (![self isCurrentDocumentReloadableFromDisk] || _sourceIsDirty ||
-        [self currentDocumentHasNewerDiskVersion]) {
+        [self currentDocumentHasNewerDiskVersion] || [self isImportableDocumentPath:_currentPath]) {
         return nil;
     }
     return _currentPath;
