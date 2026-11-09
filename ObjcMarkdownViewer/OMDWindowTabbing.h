@@ -36,4 +36,17 @@ static inline BOOL OMDWindowTabbingAvailable(void)
 {
     return [NSWindow instancesRespondToSelector:@selector(addTabbedWindow:ordered:)];
 }
+
+// Whether the window is open: on screen, minimized, or a tab of a group
+// (a tab behind another isn't visible). A closed window stays in [NSApp
+// windows] while something holds it, as the app delegate holds the first
+// window's controller; it has left its group, and must not be shown again
+// for the documents it had (#323).
+static inline BOOL OMDWindowIsOpen(id window)
+{
+    if ([window isVisible] || [window isMiniaturized]) {
+        return YES;
+    }
+    return [window respondsToSelector:@selector(tabbedWindows)] && [[window tabbedWindows] count] > 1;
+}
 #endif

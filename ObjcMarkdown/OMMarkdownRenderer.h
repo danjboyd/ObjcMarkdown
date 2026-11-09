@@ -31,6 +31,22 @@ OM_EXPORT NSString *OMMarkdownWithReadableMath(NSString *markdown);
 // has no PATH to (macOS: MacTeX, Homebrew, MacPorts).
 OM_EXPORT NSArray *OMExecutableSearchDirectories(NSString *pathValue);
 
+// Copies straight-alpha BGRA pixels (GDI+'s 32bppARGB, the Windows math
+// PNGs) into premultiplied RGBA, the layout NSBitmapImageRep assumes without
+// NSAlphaNonpremultipliedBitmapFormat. Copied straight, a transparent white
+// pixel draws as opaque white: invisible on a light page, a white patch on a
+// dark one (#324).
+OM_EXPORT void OMMathPremultipliedRGBAFromBGRA(const unsigned char *source,
+                                               NSInteger sourceStride,
+                                               unsigned char *destination,
+                                               NSInteger destinationStride,
+                                               NSUInteger width,
+                                               NSUInteger height);
+
+// dvipng's -fg colour ("rgb 0.902 0.929 0.953") for a math ink "#rrggbb",
+// or nil if inkHex isn't one.
+OM_EXPORT NSString *OMMathDvipngColorSpec(NSString *inkHex);
+
 // Keys in the dictionaries returned by -headings.
 OM_EXPORT NSString * const OMMarkdownRendererHeadingLevelKey;       // NSNumber, 1-6
 OM_EXPORT NSString * const OMMarkdownRendererHeadingTitleKey;       // NSString, plain text
