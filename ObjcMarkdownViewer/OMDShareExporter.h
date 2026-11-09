@@ -45,7 +45,7 @@ typedef NS_ENUM(NSInteger, OMDShareErrorCode) {
 - (NSAttributedString *)shareRenderedTextForMarkdown:(NSString *)markdown;
 - (BOOL)shareWritePDFForMarkdown:(NSString *)markdown toPath:(NSString *)path;
 // The document's file when the buffer is that file as saved (no unsaved
-// edits, nothing newer on disk), or nil: a Markdown share is then a copy
+// edits, nothing newer on disk, not an import), or nil: a Markdown share is then a copy
 // of it, and Show in Folder selects it (#265).
 - (NSString *)shareDocumentPath;
 @end

@@ -578,6 +578,13 @@ static OMDShareFormat OMDShareFormatForSheetChoice(NSInteger choice)
     [_presenter showShareItemInFolder:_sheetItem];
 }
 
+- (void)emailSheetItemService:(NSArray *)items service:(id)service
+{
+    (void)items;
+    (void)service;
+    [_presenter emailShareItem:_sheetItem forWindow:_window];
+}
+
 - (void)sharingServicePicker:(NSSharingServicePicker *)picker
      didChooseSharingService:(NSSharingService *)service
 {
@@ -590,8 +597,9 @@ static OMDShareFormat OMDShareFormatForSheetChoice(NSInteger choice)
 // In the Message: the app's own Email (draft and paste) and Copy (the
 // rendered document as HTML with inline styles, RTF and text), with the
 // library's titles and images. Files get the library's services, except
-// that for a share of the document as saved Show in Folder shows the
-// document, not its copy in the temporary folder (#304).
+// that for a share of the document as saved Show in Folder, and the Show
+// in Folder of the notice Email leaves, show the document, not its copy in
+// the temporary folder (#304).
 - (NSArray *)sharingServicePicker:(NSSharingServicePicker *)picker
           sharingServicesForItems:(NSArray *)items
           proposedSharingServices:(NSArray *)proposed
@@ -599,7 +607,7 @@ static OMDShareFormat OMDShareFormatForSheetChoice(NSInteger choice)
     (void)picker;
     (void)items;
     if (_sheetChoice != OMDShareEmailInMessageTag) {
-        return [self servicesShowingDocumentInFolder:proposed];
+        return [self servicesShowingDocument:proposed];
     }
     NSSharingService *email = [NSSharingService sharingServiceNamed:NSSharingServiceNameComposeEmail];
     NSSharingService *copy = [NSSharingService sharingServiceNamed:GSSharingServiceNameCopy];
@@ -616,25 +624,36 @@ static OMDShareFormat OMDShareFormatForSheetChoice(NSInteger choice)
     return [NSArray arrayWithObjects:ours, copyRendered, nil];
 }
 
-// proposed with the library's Show in Folder, which shows the file shared,
-// swapped for the presenter's, which shows the sheet item's folderURL.
-// The library's services are new objects each time: matched by title.
-- (NSArray *)servicesShowingDocumentInFolder:(NSArray *)proposed
+// proposed with the library's Show in Folder and Email, which know only the
+// file shared, swapped for the presenter's, which have the sheet item and
+// its folderURL. The library's services are new objects each time: matched
+// by title.
+- (NSArray *)servicesShowingDocument:(NSArray *)proposed
 {
     if ([_sheetItem documentURL] == nil) {
         return proposed;
     }
-    NSSharingService *library = [NSSharingService sharingServiceNamed:GSSharingServiceNameShowInFolder];
+    NSSharingService *folder = [NSSharingService sharingServiceNamed:GSSharingServiceNameShowInFolder];
+    NSSharingService *email = [NSSharingService sharingServiceNamed:NSSharingServiceNameComposeEmail];
     NSMutableArray *services = [NSMutableArray arrayWithCapacity:[proposed count]];
     NSEnumerator *e = [proposed objectEnumerator];
     NSSharingService *service = nil;
     while ((service = [e nextObject]) != nil) {
-        if (library != nil && [[service title] isEqualToString:[library title]]) {
+        NSSharingService *library = nil;
+        SEL action = NULL;
+        if (folder != nil && [[service title] isEqualToString:[folder title]]) {
+            library = folder;
+            action = @selector(showInFolderService:service:);
+        } else if (email != nil && [[service title] isEqualToString:[email title]]) {
+            library = email;
+            action = @selector(emailSheetItemService:service:);
+        }
+        if (library != nil) {
             service = [[[NSSharingService alloc] initWithTitle:[library title]
                                                          image:[library image]
                                                 alternateImage:nil
                                                         target:self
-                                                        action:@selector(showInFolderService:service:)] autorelease];
+                                                        action:action] autorelease];
         }
         [services addObject:service];
     }

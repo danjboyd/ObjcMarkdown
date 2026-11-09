@@ -215,14 +215,66 @@ static OMMarkdownHTMLPolicy OMHTMLPolicyForBlockNode(const OMRenderContext *rend
 }
 
 
+// -convertFont:toHaveTrait: ran for every bold or italic span, about a
+// sixth of a render on macOS (#346), and a document asks for the same few
+// conversions over and over. Keyed by font and traits; renders may run on
+// other threads (Quick Look, printing), hence the lock. Tests turn the cache
+// off to check that the output is the same.
+static NSMutableDictionary *OMFontTraitsCache = nil;
+static NSLock *OMFontTraitsCacheLock = nil;
+static BOOL OMFontTraitsCacheEnabled = YES;
+static const NSUInteger OMFontTraitsCacheLimit = 512;
+
+static void OMFontTraitsCacheSetUp(void)
+{
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        OMFontTraitsCache = [[NSMutableDictionary alloc] init];
+        OMFontTraitsCacheLock = [[NSLock alloc] init];
+    });
+}
+
+OM_EXPORT void OMFontWithTraitsSetCacheEnabledForTesting(BOOL enabled);
+void OMFontWithTraitsSetCacheEnabledForTesting(BOOL enabled)
+{
+    OMFontTraitsCacheSetUp();
+    [OMFontTraitsCacheLock lock];
+    OMFontTraitsCacheEnabled = enabled;
+    [OMFontTraitsCache removeAllObjects];
+    [OMFontTraitsCacheLock unlock];
+}
+
 NSFont *OMFontWithTraits(NSFont *font, NSFontTraitMask traits)
 {
     if (font == nil) {
         return nil;
     }
+    OMFontTraitsCacheSetUp();
+    NSArray *key = [NSArray arrayWithObjects:font, [NSNumber numberWithUnsignedInteger:(NSUInteger)traits], nil];
+    NSFont *cached = nil;
+    BOOL enabled = NO;
+    [OMFontTraitsCacheLock lock];
+    enabled = OMFontTraitsCacheEnabled;
+    if (enabled) {
+        cached = [[[OMFontTraitsCache objectForKey:key] retain] autorelease];
+    }
+    [OMFontTraitsCacheLock unlock];
+    if (cached != nil) {
+        return cached;
+    }
+
     NSFontManager *manager = [NSFontManager sharedFontManager];
     NSFont *converted = [manager convertFont:font toHaveTrait:traits];
-    return converted != nil ? converted : font;
+    NSFont *result = converted != nil ? converted : font;
+    if (enabled) {
+        [OMFontTraitsCacheLock lock];
+        if ([OMFontTraitsCache count] >= OMFontTraitsCacheLimit) {
+            [OMFontTraitsCache removeAllObjects];
+        }
+        [OMFontTraitsCache setObject:result forKey:key];
+        [OMFontTraitsCacheLock unlock];
+    }
+    return result;
 }
 
 static void OMApplyItalicFallbackIfNeeded(NSMutableDictionary *attributes, NSFont *originalFont, NSFont *resolvedFont)
@@ -1123,6 +1175,46 @@ static void OMAppendTextWithMathSpans(NSString *text,
 static NSString *OMUniqueHeadingSlug(NSString *title, NSMutableDictionary *counts);
 static void OMPrepareFootnotes(cmark_node *document);
 
+// The blocks the viewer's preview sync anchors (OMDPreviewSync.m), described
+// the way it describes them: by the same rules, from a tree parsed the same
+// way, so the descriptors are equal (#346).
+static void OMCollectSourceBlockDescriptors(cmark_node *node,
+                                            OMBlockSignatureIndex *signatures,
+                                            NSMutableArray *descriptors)
+{
+    for (; node != NULL; node = cmark_node_next(node)) {
+        cmark_node_type type = cmark_node_get_type(node);
+        BOOL anchored = OMGFMNodeIsTable(node) || type == CMARK_NODE_FOOTNOTE_DEFINITION;
+        switch (type) {
+            case CMARK_NODE_PARAGRAPH:
+            case CMARK_NODE_HEADING:
+            case CMARK_NODE_CODE_BLOCK:
+            case CMARK_NODE_THEMATIC_BREAK:
+            case CMARK_NODE_BLOCK_QUOTE:
+            case CMARK_NODE_LIST:
+            case CMARK_NODE_ITEM:
+                anchored = YES;
+                break;
+            default:
+                break;
+        }
+        NSUInteger startLine = 0;
+        NSUInteger endLine = 0;
+        if (anchored && OMNodeLineBounds(node, &startLine, &endLine)) {
+            NSString *blockID = [signatures blockIDForNodeType:(int)type startLine:startLine endLine:endLine];
+            NSMutableDictionary *descriptor = [NSMutableDictionary dictionaryWithObjectsAndKeys:
+                                               [NSNumber numberWithInteger:(NSInteger)startLine], OMMarkdownRendererAnchorSourceStartLineKey,
+                                               [NSNumber numberWithInteger:(NSInteger)endLine], OMMarkdownRendererAnchorSourceEndLineKey,
+                                               nil];
+            if (blockID != nil && [blockID length] > 0) {
+                [descriptor setObject:blockID forKey:OMMarkdownRendererAnchorBlockIDKey];
+            }
+            [descriptors addObject:descriptor];
+        }
+        OMCollectSourceBlockDescriptors(cmark_node_first_child(node), signatures, descriptors);
+    }
+}
+
 @interface OMMarkdownRenderer ()
 @property (nonatomic, retain) NSArray *codeBlockRanges;
 @property (nonatomic, retain) NSArray *blockquoteRanges;
@@ -1130,6 +1222,7 @@ static void OMPrepareFootnotes(cmark_node *document);
 @property (nonatomic, retain) NSArray *diagramBlocks;
 @property (nonatomic, retain) NSArray *headings;
 @property (nonatomic, retain) NSArray *taskItems;
+@property (nonatomic, retain) NSArray *sourceBlockDescriptors;
 - (NSAttributedString *)om_attributedStringFromMarkdown:(NSString *)markdown;
 @end
 
@@ -1315,6 +1408,7 @@ void OMPerformOnMainThread(void (^block)(void))
     [_diagramBlocks release];
     [_headings release];
     [_taskItems release];
+    [_sourceBlockDescriptors release];
     [_parsingOptions release];
     [_theme release];
     [super dealloc];
@@ -1348,6 +1442,7 @@ void OMPerformOnMainThread(void (^block)(void))
 {
     // No boxes from an earlier render outlive a render that ends early.
     [self setTaskItems:[NSArray array]];
+    [self setSourceBlockDescriptors:nil];
     if (markdown == nil) {
         return [[[NSAttributedString alloc] initWithString:@""] autorelease];
     }
@@ -1368,8 +1463,18 @@ void OMPerformOnMainThread(void (^block)(void))
     const char *bytes = (const char *)[markdownData bytes];
     size_t length = (size_t)[markdownData length];
     NSUInteger cmarkOptions = self.parsingOptions != nil ? [self.parsingOptions cmarkOptions] : (NSUInteger)CMARK_OPT_DEFAULT;
+    NSArray *sourceLines = OMSourceLinesForMarkdown(markdown);
+    OMBlockSignatureIndex *blockSignatures = [[[OMBlockSignatureIndex alloc] initWithSourceLines:sourceLines] autorelease];
     NSTimeInterval parseStart = perfLogging ? OMNow() : 0.0;
     cmark_node *document = OMGFMParseDocument(bytes, length, (int)cmarkOptions);
+    // Before the footnotes are prepared: the sync's parse doesn't do that.
+    NSMutableArray *sourceBlockDescriptors = nil;
+    if (document != NULL && self.collectsSourceBlockDescriptors &&
+        cmarkOptions == (NSUInteger)CMARK_OPT_DEFAULT && markdownForParsing == markdown) {
+        sourceBlockDescriptors = [NSMutableArray array];
+        OMCollectSourceBlockDescriptors(cmark_node_first_child(document), blockSignatures, sourceBlockDescriptors);
+    }
+    [self setSourceBlockDescriptors:sourceBlockDescriptors];
     if (document != NULL) {
         OMPrepareFootnotes(document);
     }
@@ -1405,12 +1510,10 @@ void OMPerformOnMainThread(void (^block)(void))
     NSMutableArray *blockAnchors = [NSMutableArray array];
     NSMutableArray *diagramBlocks = [NSMutableArray array];
     NSMutableArray *consumedDisplayMathLineRanges = [NSMutableArray array];
-    NSArray *sourceLines = OMSourceLinesForMarkdown(markdown);
     OMMathPerfStats stats = {0};
     OMRenderContext renderContext;
     renderContext.parsingOptions = self.parsingOptions;
     renderContext.sourceLines = sourceLines;
-    OMBlockSignatureIndex *blockSignatures = [[[OMBlockSignatureIndex alloc] initWithSourceLines:sourceLines] autorelease];
     renderContext.blockSignatures = blockSignatures;
     renderContext.blockAnchors = blockAnchors;
     renderContext.diagramBlocks = diagramBlocks;

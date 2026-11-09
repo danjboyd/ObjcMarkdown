@@ -365,9 +365,10 @@ static NSError *OMDShareMissingTextError(BOOL selectionOnly)
                                                  renderedText:[self renderedTextForSelection:selectionOnly]] autorelease];
     if (format == OMDShareFormatMarkdown && !selectionOnly &&
         [_source respondsToSelector:@selector(shareDocumentPath)]) {
+        // Whatever the document's extension (.markdown, .MD), the copy has
+        // its text as saved.
         NSString *documentPath = [_source shareDocumentPath];
-        // An imported document's file isn't the Markdown shared.
-        if ([documentPath length] > 0 && [[documentPath pathExtension] isEqualToString:extension]) {
+        if ([documentPath length] > 0) {
             [item setDocumentURL:[NSURL fileURLWithPath:documentPath]];
         }
     }
