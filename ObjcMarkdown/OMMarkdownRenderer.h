@@ -25,6 +25,19 @@ OM_EXPORT BOOL OMMarkdownTextContainsMath(NSString *raw);
 // can't draw), for readers that show TeX as it is: mail, chats.
 OM_EXPORT NSString *OMMarkdownWithReadableMath(NSString *markdown);
 
+// The Markdown with each $...$ and $$...$$ formula replaced by a token of
+// letters and digits, which an HTML renderer keeps as text. The tokens share
+// a prefix found nowhere in markdown or avoid (pass the HTML the Markdown
+// renders to, which may spell text through entities), so replacing them
+// later never touches the document's own words. Each formula is added to
+// formulas as [formula, NSNumber display, token]. For pages that put
+// typeset math back in place of the tokens (printing on Windows, #364).
+OM_EXPORT NSString *OMMarkdownWithMathPlaceholders(NSString *markdown, NSString *avoid, NSMutableArray *formulas);
+
+// A formula typeset by the bundled TeX, in black, as PNG bytes at dpi; nil
+// when TeX isn't available. Windows only for now (nil elsewhere).
+OM_EXPORT NSData *OMMathPNGDataForFormula(NSString *formula, BOOL display, NSInteger dpi);
+
 // Where the renderer looks for its external tools (latex, dvisvgm,
 // tree-sitter), in order: the directories of pathValue (a PATH), then where
 // the platform's installers put them, which an app opened from the Finder
