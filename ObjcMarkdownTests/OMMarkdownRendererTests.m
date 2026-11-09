@@ -13,6 +13,9 @@
 #import "OMMermaidERLayout.h"
 #import "OMTestPaths.h"
 
+// OMMarkdownRendererTables.m: turns the #346 skip off and on.
+OM_EXPORT void OMPipeTableSetSkipsUnusedRowHeightsForTesting(BOOL skips);
+
 static NSArray *OMDTestExecutableCandidateNames(NSString *name)
 {
     if (name == nil || [name length] == 0) {
@@ -562,6 +565,95 @@ static BOOL OMDMathToolchainAvailable(void)
     NSString *joined = [[[rendered string] componentsSeparatedByCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]]
                         componentsJoinedByString:@""];
     XCTAssertTrue([joined rangeOfString:@"Supercalifragilisticexpialidocious-and-then-some-more"].location != NSNotFound);
+}
+
+// Every attribute run of a rendered string, with values printed by content
+// (fonts by name and size, table grids by their edges, attachments by size)
+// and without pointers, so two renders can be compared exactly.
+- (NSString *)attributeDumpOf346:(NSAttributedString *)rendered
+{
+    NSMutableString *dump = [NSMutableString stringWithString:[rendered string]];
+    NSRegularExpression *pointer = [NSRegularExpression regularExpressionWithPattern:@"0x[0-9a-fA-F]+" options:0 error:NULL];
+    NSUInteger index = 0;
+    while (index < [rendered length]) {
+        NSRange run;
+        NSDictionary *attributes = [rendered attributesAtIndex:index effectiveRange:&run];
+        [dump appendFormat:@"\n%@", NSStringFromRange(run)];
+        for (NSString *key in [[attributes allKeys] sortedArrayUsingSelector:@selector(compare:)]) {
+            id value = [attributes objectForKey:key];
+            NSString *text = nil;
+            if ([value isKindOfClass:[NSFont class]]) {
+                text = [NSString stringWithFormat:@"%@ %.3f", [value fontName], [value pointSize]];
+            } else if ([value isKindOfClass:[OMTextTable class]]) {
+                OMTextTable *table = value;
+                text = [NSString stringWithFormat:@"table edges=%@ rows=%lu border=%.3f",
+                        [[table columnEdges] componentsJoinedByString:@","],
+                        (unsigned long)[table rowCount], [table borderWidth]];
+            } else if ([value isKindOfClass:[NSTextAttachment class]]) {
+                id<NSTextAttachmentCell> cell = [(NSTextAttachment *)value attachmentCell];
+                text = [NSString stringWithFormat:@"attachment %@ %@", NSStringFromClass([(id)cell class]),
+                        NSStringFromSize([cell cellSize])];
+            } else {
+                text = [value description];
+            }
+            text = [pointer stringByReplacingMatchesInString:text options:0 range:NSMakeRange(0, [text length]) withTemplate:@"0x"];
+            [dump appendFormat:@" | %@=%@", key, text];
+        }
+        index = NSMaxRange(run);
+    }
+    return dump;
+}
+
+// Text tables don't lay out their cells for row heights nobody reads
+// (#346). The skip must not change a single attribute of the output.
+- (void)testTextTablesRenderTheSameWithoutUnusedRowHeights
+{
+    NSMutableString *markdown = [NSMutableString string];
+    [markdown appendString:@"| Area | Notes | Count |\n| :--- | :---: | ---: |\n"
+                           "| Parsing | Handles standard pipe table delimiter rows, **bold**, _emphasis_ and `inline code`. | 1 |\n"
+                           "| Rendering | Output should stay column-aligned and legible, with a [link](https://example.org) and an escaped \\| pipe. | 22 |\n"
+                           "| | empty first cell | 333 |\n"
+                           "| Long | Supercalifragilisticexpialidocious-and-then-some-more-without-any-break | 4 |\n\n"];
+    [markdown appendString:@"| a | b | c | d | e | f | g | h |\n|---|---|---|---|---|---|---|---|\n"
+                           "| one | two | three | four | five | six | seven | eight |\n"
+                           "| a longer cell that wraps | b | c | d | e | f | g | h |\n\n"];
+    [markdown appendString:@"| Only | Header |\n| --- | --- |\n\n"];
+    [markdown appendString:@"- In a list:\n\n  | x | y |\n  |---|---|\n  | 1 | 2 |\n\n"];
+    [markdown appendString:@"> In a quote:\n>\n> | x | y |\n> |---|---|\n> | quoted cell with more words in it | 2 |\n\n"];
+    NSUInteger section = 1;
+    for (; section <= 5; section++) {
+        [markdown appendFormat:@"## Section %lu\n\nA paragraph with **important text**, _emphasis_, inline `code`.\n\n"
+                                "| Item | Value |\n|---|---|\n| Alpha | 123 |\n| Beta | 456 |\n\n", (unsigned long)section];
+    }
+
+    CGFloat widths[] = { 680.0, 300.0, 140.0, 0.0 };
+    CGFloat zooms[] = { 1.0, 1.5 };
+    NSUInteger tables = 0;
+    NSUInteger w = 0;
+    for (; w < sizeof(widths) / sizeof(widths[0]); w++) {
+        NSUInteger z = 0;
+        for (; z < sizeof(zooms) / sizeof(zooms[0]); z++) {
+            NSUInteger overflow = 0;
+            for (; overflow < 2; overflow++) {
+                OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+                [renderer setLayoutWidth:widths[w]];
+                [renderer setZoomScale:zooms[z]];
+                [renderer setAllowTableHorizontalOverflow:(overflow == 1)];
+
+                OMPipeTableSetSkipsUnusedRowHeightsForTesting(NO);
+                NSString *measured = [self attributeDumpOf346:[renderer attributedStringFromMarkdown:markdown]];
+                OMPipeTableSetSkipsUnusedRowHeightsForTesting(YES);
+                NSString *skipped = [self attributeDumpOf346:[renderer attributedStringFromMarkdown:markdown]];
+
+                XCTAssertEqualObjects(skipped, measured, @"width %.0f zoom %.1f overflow %lu",
+                                      widths[w], zooms[z], (unsigned long)overflow);
+                if ([skipped rangeOfString:@"table edges="].location != NSNotFound) {
+                    tables += 1;
+                }
+            }
+        }
+    }
+    XCTAssertTrue(tables > 0, @"no text table was rendered");
 }
 
 - (void)testWrappedTextTableFillsTheLineLikeAHeadingRule

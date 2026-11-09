@@ -3,8 +3,13 @@
 
 #import <XCTest/XCTest.h>
 #import <AppKit/AppKit.h>
+#import <dispatch/dispatch.h>
 #import "OMMarkdownRenderer.h"
 #import "OMMarkdownParsingOptions.h"
+#import "OMTextTable.h"
+
+// OMMarkdownRenderer.m: turns the #346 font-traits cache off and on.
+OM_EXPORT void OMFontWithTraitsSetCacheEnabledForTesting(BOOL enabled);
 
 #ifndef OM_SPEC_DIR
 #define OM_SPEC_DIR "Spec"
@@ -548,5 +553,139 @@ static NSArray *OMSpecFailedChecks(OMSpecExample *example, NSAttributedString *r
                    [[regressions subarrayWithRange:NSMakeRange(0, MIN((NSUInteger)40, [regressions count]))]
                     componentsJoinedByString:@"\n"]);
 }
+
+@end
+
+// Every attribute run of a rendered string, with values printed by content
+// (fonts by name and size, table grids by their edges, attachments by size)
+// and without pointers, so two renders can be compared exactly.
+static NSString *OMFontCacheAttributeDump(NSAttributedString *rendered)
+{
+    NSMutableString *dump = [NSMutableString stringWithString:[rendered string]];
+    NSRegularExpression *pointer = [NSRegularExpression regularExpressionWithPattern:@"0x[0-9a-fA-F]+" options:0 error:NULL];
+    NSUInteger index = 0;
+    while (index < [rendered length]) {
+        NSRange run;
+        NSDictionary *attributes = [rendered attributesAtIndex:index effectiveRange:&run];
+        [dump appendFormat:@"\n%@", NSStringFromRange(run)];
+        for (NSString *key in [[attributes allKeys] sortedArrayUsingSelector:@selector(compare:)]) {
+            id value = [attributes objectForKey:key];
+            NSString *text = nil;
+            if ([value isKindOfClass:[NSFont class]]) {
+                text = [NSString stringWithFormat:@"%@ %.3f", [value fontName], [value pointSize]];
+            } else if ([value isKindOfClass:[OMTextTable class]]) {
+                OMTextTable *table = value;
+                text = [NSString stringWithFormat:@"table edges=%@ rows=%lu",
+                        [[table columnEdges] componentsJoinedByString:@","], (unsigned long)[table rowCount]];
+            } else if ([value isKindOfClass:[NSTextAttachment class]]) {
+                id<NSTextAttachmentCell> cell = [(NSTextAttachment *)value attachmentCell];
+                text = [NSString stringWithFormat:@"attachment %@ %@", NSStringFromClass([(id)cell class]),
+                        NSStringFromSize([cell cellSize])];
+            } else {
+                text = [value description];
+            }
+            text = [pointer stringByReplacingMatchesInString:text options:0 range:NSMakeRange(0, [text length]) withTemplate:@"0x"];
+            [dump appendFormat:@" | %@=%@", key, text];
+        }
+        index = NSMaxRange(run);
+    }
+    return dump;
+}
+
+@interface OMFontTraitsCacheTests : XCTestCase
+@end
+
+@implementation OMFontTraitsCacheTests
+
+// OMFontWithTraits caches its conversions (#346). The cache must not change
+// a single attribute: the whole spec, the GFM extensions and a document
+// heavy in nested emphasis render the same with it off, cold and warm.
+- (void)testRendersTheSameWithTheFontTraitsCache
+{
+    NSString *specDir = [NSString stringWithUTF8String:OM_SPEC_DIR];
+    NSMutableArray *documents = [NSMutableArray array];
+    NSString *name = nil;
+    for (name in [NSArray arrayWithObjects:@"spec.txt", @"extensions.txt", nil]) {
+        NSString *text = [NSString stringWithContentsOfFile:[specDir stringByAppendingPathComponent:name]
+                                                   encoding:NSUTF8StringEncoding
+                                                      error:NULL];
+        XCTAssertNotNil(text, @"%@ not found under %@", name, specDir);
+        if (text != nil) {
+            [documents addObject:text];
+        }
+    }
+    [documents addObject:@"# Heading with **bold** and _italic_\n\n"
+                          "## Level two ***both*** and `code`\n\n"
+                          "###### Level six *em*\n\n"
+                          "Plain, **bold**, *italic*, ***bold italic***, **bold with *nested italic* inside**, "
+                          "_under_ __double__, ~~struck **bold**~~, [link with **bold**](https://example.org).\n\n"
+                          "> Quote with **bold** and *italic*.\n>\n> > Nested *quote*.\n\n"
+                          "- item **one**\n  - nested *two*\n- [ ] task with ***three***\n- [x] done _four_\n\n"
+                          "1. ordered **bold**\n2. ordered *italic*\n\n"
+                          "| **Head** | *Head* |\n|---|---|\n| **cell** | ***cell*** |\n\n"
+                          "Footnote ref[^1] with **bold**.\n\n[^1]: The *note* with **bold**.\n"];
+
+    CGFloat zooms[] = { 1.0, 1.5, 0.75 };
+    NSUInteger z = 0;
+    for (; z < sizeof(zooms) / sizeof(zooms[0]); z++) {
+        NSUInteger d = 0;
+        for (; d < [documents count]; d++) {
+            NSString *markdown = [documents objectAtIndex:d];
+            OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+            [renderer setLayoutWidth:680.0];
+            [renderer setZoomScale:zooms[z]];
+
+            OMFontWithTraitsSetCacheEnabledForTesting(NO);
+            NSString *uncached = OMFontCacheAttributeDump([renderer attributedStringFromMarkdown:markdown]);
+            OMFontWithTraitsSetCacheEnabledForTesting(YES);
+            NSString *cold = OMFontCacheAttributeDump([renderer attributedStringFromMarkdown:markdown]);
+            NSString *warm = OMFontCacheAttributeDump([renderer attributedStringFromMarkdown:markdown]);
+
+            XCTAssertEqualObjects(cold, uncached, @"document %lu zoom %.2f, cold cache", (unsigned long)d, zooms[z]);
+            XCTAssertEqualObjects(warm, uncached, @"document %lu zoom %.2f, warm cache", (unsigned long)d, zooms[z]);
+        }
+    }
+    OMFontWithTraitsSetCacheEnabledForTesting(YES);
+}
+
+#if !defined(GNUSTEP)
+// Renders on several threads at once share the cache (Quick Look and
+// printing render off the main thread on macOS; GNUstep's AppKit doesn't).
+- (void)testFontTraitsCacheIsSafeAcrossThreads
+{
+    NSString *markdown = @"Some **bold**, *italic* and ***both*** text, ten times over.\n\n";
+    NSMutableString *document = [NSMutableString string];
+    NSUInteger i = 0;
+    for (; i < 50; i++) {
+        [document appendString:markdown];
+    }
+    OMMarkdownRenderer *reference = [[[OMMarkdownRenderer alloc] init] autorelease];
+    NSString *expected = OMFontCacheAttributeDump([reference attributedStringFromMarkdown:document]);
+
+    NSMutableArray *results = [NSMutableArray array];
+    NSLock *resultsLock = [[[NSLock alloc] init] autorelease];
+    dispatch_group_t group = dispatch_group_create();
+    dispatch_queue_t queue = dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0);
+    for (i = 0; i < 8; i++) {
+        dispatch_group_async(group, queue, ^{
+            NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
+            OMFontWithTraitsSetCacheEnabledForTesting(YES);
+            OMMarkdownRenderer *renderer = [[OMMarkdownRenderer alloc] init];
+            NSString *dump = OMFontCacheAttributeDump([renderer attributedStringFromMarkdown:document]);
+            [renderer release];
+            [resultsLock lock];
+            [results addObject:dump];
+            [resultsLock unlock];
+            [pool drain];
+        });
+    }
+    dispatch_group_wait(group, DISPATCH_TIME_FOREVER);
+    dispatch_release(group);
+    XCTAssertEqual([results count], (NSUInteger)8);
+    for (NSString *dump in results) {
+        XCTAssertEqualObjects(dump, expected);
+    }
+}
+#endif
 
 @end

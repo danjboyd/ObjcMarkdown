@@ -528,6 +528,17 @@ static CGFloat OMPipeTableMeasuredTextHeight(NSAttributedString *segment,
     return height;
 }
 
+// The text-table path asks only for column widths, and laying out every
+// cell for row heights nobody reads was about a fifth of a render (#346).
+// Tests turn the skip off to check that the output is the same.
+static BOOL OMPipeTableSkipsUnusedRowHeights = YES;
+
+OM_EXPORT void OMPipeTableSetSkipsUnusedRowHeightsForTesting(BOOL skips);
+void OMPipeTableSetSkipsUnusedRowHeightsForTesting(BOOL skips)
+{
+    OMPipeTableSkipsUnusedRowHeights = skips;
+}
+
 static CGFloat OMPipeTableRoundToPixel(CGFloat value)
 {
     return floor(value + 0.5);
@@ -608,8 +619,10 @@ static BOOL OMPipeTableComputeLayout(NSArray *visibleRows,
     }
 
     NSMutableArray *rowHeights = [NSMutableArray arrayWithCapacity:rowCount];
+    BOOL wantsRowHeights = (rowHeightsOut != NULL || totalHeightOut != NULL ||
+                            !OMPipeTableSkipsUnusedRowHeights);
     NSUInteger rowIndex = 0;
-    for (; rowIndex < rowCount; rowIndex++) {
+    for (; wantsRowHeights && rowIndex < rowCount; rowIndex++) {
         CGFloat lineHeight = (rowIndex == 0 ? headerLineHeight : bodyLineHeight);
         CGFloat contentHeight = lineHeight;
         if (attributedRows != nil && [attributedRows count] == rowCount) {
