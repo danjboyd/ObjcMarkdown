@@ -4,6 +4,9 @@
 #import <XCTest/XCTest.h>
 #import "OMDPreviewSync.h"
 #import "OMMarkdownRenderer.h"
+#import "OMMarkdownParsingOptions.h"
+#include "cmark-gfm.h"
+#import <AppKit/AppKit.h>
 
 @interface OMDPreviewSyncTests : XCTestCase
 @end
@@ -414,6 +417,148 @@ static NSDictionary *OMDAnchor(NSUInteger sourceStartLine,
                                                                      targetLocation,
                                                                      anchors);
     XCTAssertEqual(mappedToSource, expectedToSource);
+}
+
+// Documents with every kind of block the sync anchors, and the ways a
+// renderer's parse could differ from the sync's.
+- (NSArray *)syncCorpus346
+{
+    NSMutableArray *documents = [NSMutableArray array];
+    NSString *specDir = [NSString stringWithUTF8String:OM_SPEC_DIR];
+    for (NSString *name in [NSArray arrayWithObjects:@"spec.txt", @"extensions.txt", nil]) {
+        NSString *text = [NSString stringWithContentsOfFile:[specDir stringByAppendingPathComponent:name]
+                                                   encoding:NSUTF8StringEncoding
+                                                      error:NULL];
+        XCTAssertNotNil(text, @"%@ not found under %@", name, specDir);
+        // Without their front matter, which the renderer blanks (tested below).
+        if ([text hasPrefix:@"---"]) {
+            NSRange end = [text rangeOfString:@"\n...\n" options:0 range:NSMakeRange(3, [text length] - 3)];
+            if (end.location == NSNotFound) {
+                end = [text rangeOfString:@"\n---\n" options:0 range:NSMakeRange(3, [text length] - 3)];
+            }
+            text = end.location != NSNotFound ? [text substringFromIndex:NSMaxRange(end)] : nil;
+        }
+        if (text != nil) {
+            [documents addObject:text];
+        }
+    }
+    NSMutableString *mixed = [NSMutableString stringWithString:
+        @"# Title\n\nPara with a footnote[^a] and another[^b].\n\n"
+         "Setext\n------\n\n- one\n  - nested\n    1. ordered\n- [ ] task\n\n> quote\n>\n> > nested quote\n\n"
+         "```objc\ncode\n```\n\n    indented code\n\n***\n\n<div>\nhtml block\n</div>\n\n"
+         "| a | b |\n|---|---|\n| 1 | 2 |\n\n$$\nx^2\n$$\n\n[^a]: Note a.\n[^b]: Note b,\n    on two lines.\n\n"
+         "[ref]: https://example.org\n\nSame paragraph.\n\nSame paragraph.\n"];
+    [documents addObject:mixed];
+    [documents addObject:[mixed stringByReplacingOccurrencesOfString:@"\n" withString:@"\r\n"]];
+    return documents;
+}
+
+// The renderer's own parse describes the blocks exactly as the sync's
+// parse does (#346), or not at all.
+- (void)testRendererSourceBlockDescriptorsEqualTheSyncsOwn
+{
+    for (NSString *markdown in [self syncCorpus346]) {
+        OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+        [renderer setCollectsSourceBlockDescriptors:YES];
+        [renderer attributedStringFromMarkdown:markdown];
+        NSArray *expected = OMDPreviewSyncSourceBlockDescriptors(markdown);
+        XCTAssertTrue([expected count] > 5);
+        XCTAssertEqualObjects([renderer sourceBlockDescriptors], expected);
+    }
+
+    // Front matter is blanked for the render but not for the sync: none.
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    [renderer setCollectsSourceBlockDescriptors:YES];
+    [renderer attributedStringFromMarkdown:@"---\ntitle: x\n---\n\n# Heading\n\nText.\n"];
+    XCTAssertNil([renderer sourceBlockDescriptors]);
+    // Other cmark options: none.
+    OMMarkdownParsingOptions *options = [OMMarkdownParsingOptions defaultOptions];
+    [options setCmarkOptions:(CMARK_OPT_DEFAULT | CMARK_OPT_SMART)];
+    [renderer setParsingOptions:options];
+    [renderer attributedStringFromMarkdown:@"# Heading\n\nText.\n"];
+    XCTAssertNil([renderer sourceBlockDescriptors]);
+    // Not asked for: none.
+    OMMarkdownRenderer *plain = [[[OMMarkdownRenderer alloc] init] autorelease];
+    [plain attributedStringFromMarkdown:@"# Heading\n\nText.\n"];
+    XCTAssertNil([plain sourceBlockDescriptors]);
+}
+
+// Mapping with the render's descriptors gives what mapping with the sync's
+// own parse gave, both ways, all through each document.
+- (void)testSyncWithTheRenderersDescriptorsMapsTheSame
+{
+    for (NSString *markdown in [self syncCorpus346]) {
+        OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+        [renderer setCollectsSourceBlockDescriptors:YES];
+        NSString *preview = [[renderer attributedStringFromMarkdown:markdown] string];
+        NSArray *anchors = [renderer blockAnchors];
+        NSUInteger step = MAX((NSUInteger)1, [markdown length] / 300);
+
+        // The sync's own parse: prime it with another text's blocks first.
+        OMDPreviewSyncUseSourceBlockDescriptors(@"other", [NSArray array]);
+        NSMutableArray *ownToPreview = [NSMutableArray array];
+        NSMutableArray *ownToSource = [NSMutableArray array];
+        NSUInteger location = 0;
+        for (; location < [markdown length]; location += step) {
+            [ownToPreview addObject:[NSNumber numberWithUnsignedInteger:
+                OMDMapSourceLocationWithBlockAnchors(markdown, location, preview, anchors)]];
+        }
+        for (location = 0; location < [preview length]; location += step) {
+            [ownToSource addObject:[NSNumber numberWithUnsignedInteger:
+                OMDMapTargetLocationWithBlockAnchors(markdown, preview, location, anchors)]];
+        }
+
+        OMDPreviewSyncUseSourceBlockDescriptors([[markdown mutableCopy] autorelease], [renderer sourceBlockDescriptors]);
+        NSMutableArray *primedToPreview = [NSMutableArray array];
+        NSMutableArray *primedToSource = [NSMutableArray array];
+        for (location = 0; location < [markdown length]; location += step) {
+            [primedToPreview addObject:[NSNumber numberWithUnsignedInteger:
+                OMDMapSourceLocationWithBlockAnchors(markdown, location, preview, anchors)]];
+        }
+        for (location = 0; location < [preview length]; location += step) {
+            [primedToSource addObject:[NSNumber numberWithUnsignedInteger:
+                OMDMapTargetLocationWithBlockAnchors(markdown, preview, location, anchors)]];
+        }
+        XCTAssertEqualObjects(primedToPreview, ownToPreview);
+        XCTAssertEqualObjects(primedToSource, ownToSource);
+    }
+}
+
+// The visible character found laying out only as far as it is the one a
+// full layout finds (#346), after edits, all down a long source.
+- (void)testVisibleCharacterIndexNeedsNoFullLayout
+{
+    NSMutableString *source = [NSMutableString string];
+    NSUInteger line = 0;
+    for (; line < 4000; line++) {
+        [source appendFormat:@"Line %lu of a long source, long enough to wrap now and then %@.\n",
+                             (unsigned long)line, (line % 7 == 0 ? @"with some more words added to it here" : @"")];
+    }
+    NSTextView *textView = [[[NSTextView alloc] initWithFrame:NSMakeRect(0.0, 0.0, 400.0, 600.0)] autorelease];
+    [textView setVerticallyResizable:YES];
+    [textView setMaxSize:NSMakeSize(400.0, 1.0e8)];
+    [[textView textStorage] setAttributedString:[[[NSAttributedString alloc] initWithString:source] autorelease]];
+    NSScrollView *scrollView = [[[NSScrollView alloc] initWithFrame:NSMakeRect(0.0, 0.0, 400.0, 600.0)] autorelease];
+    [scrollView setDocumentView:textView];
+    [[textView layoutManager] ensureLayoutForTextContainer:[textView textContainer]];
+    [textView sizeToFit];
+
+    CGFloat positions[] = { 0.0, 0.1, 0.5, 0.9, 1.0 };
+    CGFloat anchors[] = { 0.0, 0.35, 1.0 };
+    NSUInteger p = 0;
+    for (; p < 5; p++) {
+        // An edit above invalidates the layout below it, as typing does.
+        [[textView textStorage] replaceCharactersInRange:NSMakeRange(10, 0) withString:@"x"];
+        CGFloat maxY = MAX(0.0, NSHeight([textView frame]) - 600.0);
+        [[scrollView contentView] scrollToPoint:NSMakePoint(0.0, floor(maxY * positions[p]))];
+        [scrollView reflectScrolledClipView:[scrollView contentView]];
+        NSUInteger a = 0;
+        for (; a < 3; a++) {
+            NSUInteger bounded = OMDVisibleCharacterIndexInTextView(textView, anchors[a], NO);
+            NSUInteger full = OMDVisibleCharacterIndexInTextView(textView, anchors[a], YES);
+            XCTAssertEqual(bounded, full, @"position %.1f anchor %.2f", positions[p], anchors[a]);
+        }
+    }
 }
 
 @end

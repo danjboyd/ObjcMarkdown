@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #import "OMDPreviewSync.h"
+#import <AppKit/AppKit.h>
 
 #include "cmark-gfm.h"
 #include "OMGFMParser.h"
@@ -1100,7 +1101,7 @@ static void OMDCollectSourceBlockDescriptors(cmark_node *node,
     }
 }
 
-static NSArray *OMDSourceBlockDescriptorsForMarkdown(NSString *sourceText)
+NSArray *OMDPreviewSyncSourceBlockDescriptors(NSString *sourceText)
 {
     if (sourceText == nil || [sourceText length] == 0) {
         return [NSArray array];
@@ -1137,12 +1138,23 @@ static NSArray *OMDSourceBlockDescriptorsForMarkdownCached(NSString *sourceText)
         return OMDCachedSourceDescriptors != nil ? OMDCachedSourceDescriptors : [NSArray array];
     }
 
-    NSArray *descriptors = OMDSourceBlockDescriptorsForMarkdown(sourceText);
+    NSArray *descriptors = OMDPreviewSyncSourceBlockDescriptors(sourceText);
     [OMDCachedSourceDescriptorText release];
     OMDCachedSourceDescriptorText = [sourceText copy];
     [OMDCachedSourceDescriptors release];
     OMDCachedSourceDescriptors = [descriptors copy];
     return OMDCachedSourceDescriptors != nil ? OMDCachedSourceDescriptors : [NSArray array];
+}
+
+void OMDPreviewSyncUseSourceBlockDescriptors(NSString *sourceText, NSArray *descriptors)
+{
+    if (sourceText == nil || descriptors == nil) {
+        return;
+    }
+    [OMDCachedSourceDescriptorText release];
+    OMDCachedSourceDescriptorText = [sourceText copy];
+    [OMDCachedSourceDescriptors release];
+    OMDCachedSourceDescriptors = [descriptors copy];
 }
 
 static NSString *OMDAnchorBlockID(NSDictionary *anchor)
@@ -1708,4 +1720,66 @@ NSUInteger OMDMapTargetLocationWithBlockAnchors(NSString *sourceText,
         mapped = sourceLength;
     }
     return mapped;
+}
+
+NSUInteger OMDVisibleCharacterIndexInTextView(NSTextView *textView,
+                                              CGFloat verticalAnchor,
+                                              BOOL layoutEverything)
+{
+    NSString *text = [[textView textStorage] string];
+    NSUInteger length = [text length];
+    NSLayoutManager *layoutManager = [textView layoutManager];
+    NSTextContainer *textContainer = [textView textContainer];
+    if (textView == nil || length == 0 || layoutManager == nil || textContainer == nil) {
+        return 0;
+    }
+
+    NSRect visibleRect = [textView visibleRect];
+    if (NSIsEmptyRect(visibleRect)) {
+        visibleRect = [textView bounds];
+    }
+    if (verticalAnchor < 0.0) {
+        verticalAnchor = 0.0;
+    } else if (verticalAnchor > 1.0) {
+        verticalAnchor = 1.0;
+    }
+    NSPoint textOrigin = [textView textContainerOrigin];
+    CGFloat verticalOffset = floor(NSHeight(visibleRect) * verticalAnchor);
+    if (verticalOffset < 1.0) {
+        verticalOffset = 1.0;
+    }
+    CGFloat probeY = [textView isFlipped]
+        ? (NSMinY(visibleRect) + verticalOffset)
+        : (NSMaxY(visibleRect) - verticalOffset);
+    NSPoint probe = NSMakePoint(NSMinX(visibleRect) + 4.0 - textOrigin.x,
+                                probeY - textOrigin.y);
+    if (probe.x < 0.0) {
+        probe.x = 0.0;
+    }
+    if (probe.y < 0.0) {
+        probe.y = 0.0;
+    }
+
+    // Layout runs from the top, so laying out as far as the probe gives the
+    // same glyph there as laying out everything.
+    if (layoutEverything ||
+        ![layoutManager respondsToSelector:@selector(ensureLayoutForBoundingRect:inTextContainer:)]) {
+        [layoutManager ensureLayoutForTextContainer:textContainer];
+    } else {
+        NSRect upToProbe = NSMakeRect(0.0, 0.0, MAX([textContainer containerSize].width, probe.x + 1.0), probe.y + 1.0);
+        [layoutManager ensureLayoutForBoundingRect:upToProbe inTextContainer:textContainer];
+    }
+
+    NSUInteger glyphIndex = [layoutManager glyphIndexForPoint:probe
+                                               inTextContainer:textContainer
+                                fractionOfDistanceThroughGlyph:NULL];
+    if (![layoutManager isValidGlyphIndex:glyphIndex]) {
+        return length - 1;
+    }
+
+    NSUInteger characterIndex = [layoutManager characterIndexForGlyphAtIndex:glyphIndex];
+    if (characterIndex >= length) {
+        return length - 1;
+    }
+    return characterIndex;
 }
