@@ -50,6 +50,15 @@ BOOL OMDIsMarkdownExtension(NSString *extension)
            [lower isEqualToString:@"mdown"];
 }
 
+NSString *OMDShareMarkdownExtension(NSString *documentPath, NSString *fallback)
+{
+    NSString *own = [documentPath pathExtension];
+    if ([own length] > 0 && OMDIsMarkdownExtension(own)) {
+        return own;
+    }
+    return fallback;
+}
+
 static BOOL OMDIsPlainTextNoHighlightExtension(NSString *extension)
 {
     if (extension == nil || [extension length] == 0) {

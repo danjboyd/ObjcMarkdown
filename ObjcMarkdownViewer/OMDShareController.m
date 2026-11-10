@@ -404,8 +404,12 @@ static OMDShareFormat OMDShareFormatForSheetChoice(NSInteger choice)
 // document, not there yet.
 - (NSArray *)placeholderItemsForChoice:(NSInteger)choice
 {
+    NSString *extension = [OMDShareExporter fileExtensionForFormat:(OMDShareFormat)choice];
+    if ((OMDShareFormat)choice == OMDShareFormatMarkdown && [[_source shareSourceExtension] length] > 0) {
+        extension = [_source shareSourceExtension];
+    }
     NSString *name = [[OMDShareExporter safeFileBaseName:[_source shareBaseName]]
-                         stringByAppendingPathExtension:[OMDShareExporter fileExtensionForFormat:(OMDShareFormat)choice]];
+                         stringByAppendingPathExtension:extension];
     return [NSArray arrayWithObject:[NSURL fileURLWithPath:
         [[OMDShareExporter temporaryRootDirectory] stringByAppendingPathComponent:name]]];
 }
