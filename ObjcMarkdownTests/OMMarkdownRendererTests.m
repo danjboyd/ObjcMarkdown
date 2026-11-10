@@ -13,6 +13,9 @@
 #import "OMMermaidERLayout.h"
 #import "OMTestPaths.h"
 
+// OMMarkdownRendererTables.m: turns the #346 skip off and on.
+OM_EXPORT void OMPipeTableSetSkipsUnusedRowHeightsForTesting(BOOL skips);
+
 static NSArray *OMDTestExecutableCandidateNames(NSString *name)
 {
     if (name == nil || [name length] == 0) {
@@ -564,6 +567,95 @@ static BOOL OMDMathToolchainAvailable(void)
     XCTAssertTrue([joined rangeOfString:@"Supercalifragilisticexpialidocious-and-then-some-more"].location != NSNotFound);
 }
 
+// Every attribute run of a rendered string, with values printed by content
+// (fonts by name and size, table grids by their edges, attachments by size)
+// and without pointers, so two renders can be compared exactly.
+- (NSString *)attributeDumpOf346:(NSAttributedString *)rendered
+{
+    NSMutableString *dump = [NSMutableString stringWithString:[rendered string]];
+    NSRegularExpression *pointer = [NSRegularExpression regularExpressionWithPattern:@"0x[0-9a-fA-F]+" options:0 error:NULL];
+    NSUInteger index = 0;
+    while (index < [rendered length]) {
+        NSRange run;
+        NSDictionary *attributes = [rendered attributesAtIndex:index effectiveRange:&run];
+        [dump appendFormat:@"\n%@", NSStringFromRange(run)];
+        for (NSString *key in [[attributes allKeys] sortedArrayUsingSelector:@selector(compare:)]) {
+            id value = [attributes objectForKey:key];
+            NSString *text = nil;
+            if ([value isKindOfClass:[NSFont class]]) {
+                text = [NSString stringWithFormat:@"%@ %.3f", [value fontName], [value pointSize]];
+            } else if ([value isKindOfClass:[OMTextTable class]]) {
+                OMTextTable *table = value;
+                text = [NSString stringWithFormat:@"table edges=%@ rows=%lu border=%.3f",
+                        [[table columnEdges] componentsJoinedByString:@","],
+                        (unsigned long)[table rowCount], [table borderWidth]];
+            } else if ([value isKindOfClass:[NSTextAttachment class]]) {
+                id<NSTextAttachmentCell> cell = [(NSTextAttachment *)value attachmentCell];
+                text = [NSString stringWithFormat:@"attachment %@ %@", NSStringFromClass([(id)cell class]),
+                        NSStringFromSize([cell cellSize])];
+            } else {
+                text = [value description];
+            }
+            text = [pointer stringByReplacingMatchesInString:text options:0 range:NSMakeRange(0, [text length]) withTemplate:@"0x"];
+            [dump appendFormat:@" | %@=%@", key, text];
+        }
+        index = NSMaxRange(run);
+    }
+    return dump;
+}
+
+// Text tables don't lay out their cells for row heights nobody reads
+// (#346). The skip must not change a single attribute of the output.
+- (void)testTextTablesRenderTheSameWithoutUnusedRowHeights
+{
+    NSMutableString *markdown = [NSMutableString string];
+    [markdown appendString:@"| Area | Notes | Count |\n| :--- | :---: | ---: |\n"
+                           "| Parsing | Handles standard pipe table delimiter rows, **bold**, _emphasis_ and `inline code`. | 1 |\n"
+                           "| Rendering | Output should stay column-aligned and legible, with a [link](https://example.org) and an escaped \\| pipe. | 22 |\n"
+                           "| | empty first cell | 333 |\n"
+                           "| Long | Supercalifragilisticexpialidocious-and-then-some-more-without-any-break | 4 |\n\n"];
+    [markdown appendString:@"| a | b | c | d | e | f | g | h |\n|---|---|---|---|---|---|---|---|\n"
+                           "| one | two | three | four | five | six | seven | eight |\n"
+                           "| a longer cell that wraps | b | c | d | e | f | g | h |\n\n"];
+    [markdown appendString:@"| Only | Header |\n| --- | --- |\n\n"];
+    [markdown appendString:@"- In a list:\n\n  | x | y |\n  |---|---|\n  | 1 | 2 |\n\n"];
+    [markdown appendString:@"> In a quote:\n>\n> | x | y |\n> |---|---|\n> | quoted cell with more words in it | 2 |\n\n"];
+    NSUInteger section = 1;
+    for (; section <= 5; section++) {
+        [markdown appendFormat:@"## Section %lu\n\nA paragraph with **important text**, _emphasis_, inline `code`.\n\n"
+                                "| Item | Value |\n|---|---|\n| Alpha | 123 |\n| Beta | 456 |\n\n", (unsigned long)section];
+    }
+
+    CGFloat widths[] = { 680.0, 300.0, 140.0, 0.0 };
+    CGFloat zooms[] = { 1.0, 1.5 };
+    NSUInteger tables = 0;
+    NSUInteger w = 0;
+    for (; w < sizeof(widths) / sizeof(widths[0]); w++) {
+        NSUInteger z = 0;
+        for (; z < sizeof(zooms) / sizeof(zooms[0]); z++) {
+            NSUInteger overflow = 0;
+            for (; overflow < 2; overflow++) {
+                OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+                [renderer setLayoutWidth:widths[w]];
+                [renderer setZoomScale:zooms[z]];
+                [renderer setAllowTableHorizontalOverflow:(overflow == 1)];
+
+                OMPipeTableSetSkipsUnusedRowHeightsForTesting(NO);
+                NSString *measured = [self attributeDumpOf346:[renderer attributedStringFromMarkdown:markdown]];
+                OMPipeTableSetSkipsUnusedRowHeightsForTesting(YES);
+                NSString *skipped = [self attributeDumpOf346:[renderer attributedStringFromMarkdown:markdown]];
+
+                XCTAssertEqualObjects(skipped, measured, @"width %.0f zoom %.1f overflow %lu",
+                                      widths[w], zooms[z], (unsigned long)overflow);
+                if ([skipped rangeOfString:@"table edges="].location != NSNotFound) {
+                    tables += 1;
+                }
+            }
+        }
+    }
+    XCTAssertTrue(tables > 0, @"no text table was rendered");
+}
+
 - (void)testWrappedTextTableFillsTheLineLikeAHeadingRule
 {
     OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
@@ -785,6 +877,124 @@ static BOOL OMDMathToolchainAvailable(void)
     XCTAssertEqual([directories indexOfObject:@"/opt/tools/bin" inRange:NSMakeRange(1, [directories count] - 1)],
                    (NSUInteger)NSNotFound);
     XCTAssertTrue([OMExecutableSearchDirectories(nil) containsObject:@"/usr/bin"]);
+}
+
+// Windows math PNGs (dvipng -bg Transparent, read through GDI+) come as
+// straight-alpha BGRA; the rep they go into is premultiplied. Copied as they
+// were, the transparent background (white, alpha 0) drew as a white patch
+// on a dark page (#324).
+- (void)testWindowsMathPixelsArePremultipliedForTheBitmapRep
+{
+    const unsigned char bgra[16] = {
+        255, 255, 255, 0,     // transparent background: white, alpha 0
+        0, 0, 0, 255,         // opaque black ink
+        230, 237, 243, 128,   // half-covered light ink (#f3ede6 as BGRA)
+        10, 20, 30, 255       // opaque colour: channels swapped, kept
+    };
+    unsigned char rgba[16];
+    memset(rgba, 0xAA, sizeof(rgba));
+    OMMathPremultipliedRGBAFromBGRA(bgra, 8, rgba, 8, 2, 2);
+
+    const unsigned char expected[16] = {
+        0, 0, 0, 0,
+        0, 0, 0, 255,
+        122, 119, 115, 128,
+        30, 20, 10, 255
+    };
+    for (NSUInteger i = 0; i < 16; i++) {
+        XCTAssertEqual(rgba[i], expected[i], @"byte %lu", (unsigned long)i);
+    }
+}
+
+- (void)testWindowsMathPixelsHonourTheSourceAndDestinationStrides
+{
+    // Two 1-pixel rows, the source padded to 8 bytes a row, the destination to 12.
+    const unsigned char bgra[16] = {
+        255, 0, 0, 255,   9, 9, 9, 9,
+        0, 0, 255, 255,   9, 9, 9, 9
+    };
+    unsigned char rgba[24];
+    memset(rgba, 0xAA, sizeof(rgba));
+    OMMathPremultipliedRGBAFromBGRA(bgra, 8, rgba, 12, 1, 2);
+    XCTAssertEqual(rgba[0], 0);
+    XCTAssertEqual(rgba[2], 255);
+    XCTAssertEqual(rgba[4], 0xAA, @"padding past the row is left alone");
+    XCTAssertEqual(rgba[12], 255);
+    XCTAssertEqual(rgba[14], 0);
+}
+
+- (void)testDvipngForegroundIsTheMathInk
+{
+    XCTAssertEqualObjects(OMMathDvipngColorSpec(@"#e6edf3"), @"rgb 0.902 0.929 0.953");
+    XCTAssertEqualObjects(OMMathDvipngColorSpec(@"#ffffff"), @"rgb 1.000 1.000 1.000");
+    XCTAssertNil(OMMathDvipngColorSpec(nil));
+    XCTAssertNil(OMMathDvipngColorSpec(@"e6edf3"));
+    XCTAssertNil(OMMathDvipngColorSpec(@"#e6edfz"));
+    XCTAssertNil(OMMathDvipngColorSpec(@"#fff"));
+}
+
+// Draws a 2x1 BGRA formula image over a dark page and returns the page's
+// pixels; premultiply NO copies the pixels as 0.2.6 did (#324).
+static NSBitmapImageRep *OMTestMathOverDarkPage(const unsigned char *bgra, BOOL premultiply)
+{
+    NSBitmapImageRep *formula = [[[NSBitmapImageRep alloc]
+        initWithBitmapDataPlanes:NULL pixelsWide:2 pixelsHigh:1 bitsPerSample:8 samplesPerPixel:4
+                        hasAlpha:YES isPlanar:NO colorSpaceName:NSCalibratedRGBColorSpace
+                     bytesPerRow:8 bitsPerPixel:32] autorelease];
+    unsigned char *data = [formula bitmapData];
+    if (premultiply) {
+        OMMathPremultipliedRGBAFromBGRA(bgra, 8, data, 8, 2, 1);
+    } else {
+        for (NSUInteger i = 0; i < 8; i += 4) {
+            data[i] = bgra[i + 2];
+            data[i + 1] = bgra[i + 1];
+            data[i + 2] = bgra[i];
+            data[i + 3] = bgra[i + 3];
+        }
+    }
+
+    NSBitmapImageRep *page = [[[NSBitmapImageRep alloc]
+        initWithBitmapDataPlanes:NULL pixelsWide:2 pixelsHigh:1 bitsPerSample:8 samplesPerPixel:4
+                        hasAlpha:YES isPlanar:NO colorSpaceName:NSCalibratedRGBColorSpace
+                     bytesPerRow:8 bitsPerPixel:32] autorelease];
+    NSGraphicsContext *context = [NSGraphicsContext graphicsContextWithBitmapImageRep:page];
+    if (context == nil) {
+        return nil;
+    }
+    [NSGraphicsContext saveGraphicsState];
+    [NSGraphicsContext setCurrentContext:context];
+    [[NSColor colorWithCalibratedRed:0.05 green:0.07 blue:0.09 alpha:1.0] setFill];
+    NSRectFill(NSMakeRect(0, 0, 2, 1));
+    NSImage *image = [[[NSImage alloc] initWithSize:NSMakeSize(2, 1)] autorelease];
+    [image addRepresentation:formula];
+    [image drawInRect:NSMakeRect(0, 0, 2, 1) fromRect:NSZeroRect operation:NSCompositeSourceOver fraction:1.0];
+    [context flushGraphics];
+    [NSGraphicsContext restoreGraphicsState];
+    return page;
+}
+
+// What the user sees: the converted formula image over a dark page leaves
+// the page dark where the formula has no ink.
+- (void)testWindowsMathImageLeavesADarkPageDarkOutsideTheInk
+{
+    const unsigned char bgra[8] = { 255, 255, 255, 0,   243, 237, 230, 255 };
+    NSBitmapImageRep *page = OMTestMathOverDarkPage(bgra, YES);
+    unsigned char *pixels = [page bitmapData];
+    if (page == nil || pixels == NULL || (pixels[4] == 0 && pixels[7] == 0)) {
+        // GNUstep may leave a bitmap context unpainted (AGENTS.md); nothing to check then.
+        NSLog(@"#324 drawing check skipped: the bitmap context drew nothing");
+        return;
+    }
+    NSBitmapImageRep *straight = OMTestMathOverDarkPage(bgra, NO);
+    unsigned char *straightPixels = [straight bitmapData];
+    NSLog(@"#324 transparent pixel over a dark page: premultiplied rgb(%d,%d,%d), straight copy rgb(%d,%d,%d)",
+          pixels[0], pixels[1], pixels[2],
+          straightPixels != NULL ? straightPixels[0] : -1,
+          straightPixels != NULL ? straightPixels[1] : -1,
+          straightPixels != NULL ? straightPixels[2] : -1);
+    XCTAssertLessThan(pixels[0], 40, @"background pixel stays dark, not white");
+    XCTAssertLessThan(pixels[1], 40);
+    XCTAssertGreaterThan(pixels[4], 200, @"ink pixel is the light ink");
 }
 
 #if defined(__APPLE__)
