@@ -1,0 +1,84 @@
+{
+  "status": "COMPILE_LINK_ONLY_VERIFIED_LOCAL_NOT_RUNTIME_TESTED",
+  "target_head": "572df1ad9b6898f606d161c763b607bb5a2d35b7",
+  "baseline": "e459f582119c601d85c405cd5d35dcfba6fb1ae3",
+  "evidence": "All8 source/header/PNG bytes verified read-only against exact remote head; reconstructed Notice SHA matched actual remote bytes. No production edits.",
+  "production_source_sha256": {
+    "ObjcMarkdownViewer/OMDShareNotice.m": "089e5c1259692cc0133e15bdfd7b1c667ee18c3dd7329b44ed1bd57dfd67a7d2",
+    "ObjcMarkdownViewer/OMDShareNotice.h": "53f23f6fe933ff5f11a70c8d9ddbd62614ca1af025023868133dd1e703b04d33",
+    "ObjcMarkdownViewer/OMDShareItem.m": "5dc99a9215b07b6733c4563ebdd196a09a8c333428659b3efce22f76d20573c5",
+    "ObjcMarkdownViewer/OMDShareItem.h": "c8656f4da8dd446c6a1b27d9ba17a57fd971aa3d0af151b4e07dadc8faa87634",
+    "ObjcMarkdownViewer/OMDSharePresenter.h": "92a2decdf7679f6abdb9e7541e6385326d2185401d290c30fe566500c54ee747",
+    "ObjcMarkdownViewer/OMDViewerImages.m": "4088683948575d90110440d78cc592ad1543a57985cd4cd0c1a41d2cc872a808",
+    "ObjcMarkdownViewer/OMDViewerImages.h": "c6dd5c45fd577e14e15d8e1502e4f309c3ef7e2bdbca9f5a6680a365152d5569",
+    "Resources/icons/omd-share-file-symbolic.png": "933988113896104077cbc9bf640d2a09d00dfd97d9bd79e7509b8797899223f3"
+  },
+  "fixture_sha256": {
+    "tools/dev/fixtures/OMDShareNoticeFixture.m": "69ceb4d4d6ddc840cd0ee5920b28523cf7fd883bb4a08f71c56243596580f312",
+    "tools/dev/fixtures/GNUmakefile.notice-fixture": "7143fd99dc6d26321941f05bb7f0cf119eb833505f9232662ff1ffa43558f9bb"
+  },
+  "package_runtime_reference": {
+    "asset_version": "0.2.7",
+    "asset_sha256": "52e4bb1bf74d91b443947f5bc24109a5396b3b4fd49faac39279e65e5977b4af",
+    "asset_usage": "Only proposed SDK/runtime/theme reference for development fixture, not a new installed #389 package or normal-UAT claim. No new extraction/exec.",
+    "build_sdk_image": "ghcr.io/danjboyd/objcmarkdown-ci@sha256:1494c94dc5e4f4a06e15fffcc646c9be33504450c437eb055e72c9b970716819",
+    "adwaita_commit": "d27427234a861093405715a795a1da51c542a989",
+    "adwaita_binary_sha256": "6bb51ff0eaa85c12655f7c4b5ece63c0d429a6c093a26f10f2dd6248a435c2d7"
+  },
+  "production_git_blob_sha": {
+    "ObjcMarkdownViewer/OMDShareNotice.m": "ac3720ef0d41bf2eda0711247d93ea218990ecc6",
+    "ObjcMarkdownViewer/OMDShareNotice.h": "d9505e300fa7b66dade4705e84999113fb09e830",
+    "ObjcMarkdownViewer/OMDShareItem.m": "7861be5010385ceee697429069fa8066b67a11b0",
+    "ObjcMarkdownViewer/OMDShareItem.h": "3d84877972083738486ec2358296729108a5fd0b",
+    "ObjcMarkdownViewer/OMDSharePresenter.h": "ca982af379fde474970d28d6931802dd80d2bd7c",
+    "ObjcMarkdownViewer/OMDViewerImages.m": "5887f6efd796d78687d8097d6104443719fa3f58",
+    "ObjcMarkdownViewer/OMDViewerImages.h": "466c3a0155b1efca2ac92652485ae263360cea91",
+    "Resources/icons/omd-share-file-symbolic.png": "82ed8d42e9cd19df772c8d816877cfd73bf56809"
+  },
+  "local_compile_link_check": {
+    "head": "572df1ad9b6898f606d161c763b607bb5a2d35b7",
+    "local_compile_link_only": true,
+    "app_executed": false,
+    "binary": "/tmp/omd389-link-only-ynpof1y5/build/OMDShareNoticeFixture.app/OMDShareNoticeFixture",
+    "binary_sha256": "7650573789aa2a86d90c013a09a4521657143231e42432dddad34e59f45b619b",
+    "build_id": "1ada269c69a57e5a43026206e178f9ed1e49f0e5",
+    "needed": [
+      "libgnustep-gui.so.0.32",
+      "libgnustep-base.so.1.31",
+      "libobjc.so.4.6",
+      "libm.so.6",
+      "libc.so.6"
+    ],
+    "unresolved_OMD_symbols": false,
+    "resource": {
+      "path": "/tmp/omd389-link-only-ynpof1y5/build/OMDShareNoticeFixture.app/Resources/omd-share-file-symbolic.png",
+      "sha256": "933988113896104077cbc9bf640d2a09d00dfd97d9bd79e7509b8797899223f3",
+      "matches_exact_head": true
+    },
+    "toolchain": {
+      "clang": "Debian19.1.7(3+b1),x86_64-pc-linux-gnu",
+      "gnu_make": "4.4.1",
+      "gnustep_make": "2.9.3",
+      "objc_runtime_flag": "gnustep-2.2",
+      "libraries": {
+        "libgnustep-base.so.1.31": {
+          "path": "/usr/GNUstep/System/Library/Libraries/libgnustep-base.so.1.31.1",
+          "sha256": "b27956c4a17f509c89c2cf603583bc4097ef409389288dde6ba99587f909aa4c",
+          "packaged_hash_match": false
+        },
+        "libgnustep-gui.so.0.32": {
+          "path": "/usr/GNUstep/System/Library/Libraries/libgnustep-gui.so.0.32.0",
+          "sha256": "2f07d25cdea10161a62cfbcda0206e8eb7100892ab22de653064e0d2cc471297",
+          "packaged_hash_match": false
+        },
+        "libobjc.so.4.6": {
+          "path": "/usr/GNUstep/System/Library/Libraries/libobjc.so.4.6",
+          "sha256": "a7605de1b649218929f4f4e9f4622a8205e64b6db1580fba276f931145beddbc",
+          "packaged_hash_match": null
+        }
+      }
+    },
+    "private_defaults_files": [],
+    "note": "No binary run or installed package/theme loaded; build diagnostics only. Warning about unknown *_RESOURCES keys originates in private copy of host GNUstep.conf."
+  }
+}

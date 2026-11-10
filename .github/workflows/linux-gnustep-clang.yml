@@ -6,6 +6,12 @@ on:
       - main
   pull_request:
   workflow_dispatch:
+    inputs:
+      notice_fixture:
+        description: Build and inspect only the pinned PR389 fallback-view fixture
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
@@ -13,6 +19,7 @@ permissions:
 
 jobs:
   build-and-test:
+    if: ${{ github.event_name != 'workflow_dispatch' || !inputs.notice_fixture }}
     # GitHub-hosted, in the CI image (ci/linux/Dockerfile, built by
     # ci-image.yml) pinned by digest: update the pin when the image changes.
     runs-on: ubuntu-24.04
@@ -39,3 +46,53 @@ jobs:
           set -euo pipefail
           # The GUI tests need a display.
           xvfb-run -a ./scripts/ci/run-linux-ci.sh
+
+  notice-fixture-build-only:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.notice_fixture }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ghcr.io/danjboyd/objcmarkdown-ci@sha256:1494c94dc5e4f4a06e15fffcc646c9be33504450c437eb055e72c9b970716819
+      options: --cpus 2 --memory 4g --pids-limit 256 --mount type=tmpfs,destination=/omd389,tmpfs-size=1073741824,tmpfs-mode=0700
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout reviewed harness at the dispatch commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          path: reviewed
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: /tools/dev/fixtures/
+      - name: Checkout exact production head without submodules
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: 572df1ad9b6898f606d161c763b607bb5a2d35b7
+          path: production
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /ObjcMarkdownViewer/OMDShareNotice.m
+            /ObjcMarkdownViewer/OMDShareNotice.h
+            /ObjcMarkdownViewer/OMDShareItem.m
+            /ObjcMarkdownViewer/OMDShareItem.h
+            /ObjcMarkdownViewer/OMDSharePresenter.h
+            /ObjcMarkdownViewer/OMDViewerImages.m
+            /ObjcMarkdownViewer/OMDViewerImages.h
+            /Resources/icons/omd-share-file-symbolic.png
+      - name: Compile four units and statically verify runtime cohort
+        shell: bash
+        run: bash reviewed/tools/dev/fixtures/build-notice-fixture.sh reviewed/tools/dev/fixtures production
+      - name: Export successful fixture only, no runtime or application payload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: omd389-fixture-${{ github.run_id }}-${{ github.run_attempt }}
+          path: /omd389/export/
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0

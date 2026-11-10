@@ -1,0 +1,10 @@
+# Unexecuted review draft. Stage the exact source bytes in a private VM build
+# directory as GNUmakefile before invoking gmake under the reviewed SDK.
+# GNUstep recursive make expects that canonical filename; -f alone is insufficient.
+include $(GNUSTEP_MAKEFILES)/common.make
+APP_NAME = OMDShareNoticeFixture
+OMDShareNoticeFixture_OBJC_FILES = OMDShareNoticeFixture.m OMDShareNotice.m OMDShareItem.m OMDViewerImages.m
+OMDShareNoticeFixture_RESOURCE_FILES = omd-share-file-symbolic.png
+OMDShareNoticeFixture_OBJCFLAGS += -fblocks
+ADDITIONAL_INCLUDE_DIRS += -I$(OMD_SOURCE)/ObjcMarkdownViewer
+include $(GNUSTEP_MAKEFILES)/application.make
