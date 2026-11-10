@@ -233,9 +233,10 @@ static NSButton *OMDShareNoticeButton(NSString *title, NSRect frame, id target, 
     if (hasFile) {
         OMDShareFileDragView *icon = [[[OMDShareFileDragView alloc] initWithFrame:
             NSMakeRect(margin, height - margin - iconSize, iconSize, iconSize)] autorelease];
-#if defined(GNUSTEP) && !defined(_WIN32)
-        // Icon themes no longer carry coloured file icons, and GNUstep's own
-        // is a question mark: the app's page.
+#if defined(GNUSTEP)
+        // Icon themes no longer carry coloured file icons, and on Windows
+        // GNUstep's workspace doesn't ask the shell; its own is a question
+        // mark: the app's page.
         NSImage *fileIcon = OMDSymbolicImageNamed(@"omd-share-file-symbolic");
 #else
         NSImage *fileIcon = [[NSWorkspace sharedWorkspace] iconForFile:[[item fileURL] path]];
