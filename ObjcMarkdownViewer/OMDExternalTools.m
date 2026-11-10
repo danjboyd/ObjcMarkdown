@@ -347,3 +347,16 @@ BOOL OMDShouldOpenURLForUserNavigation(NSURL *url)
     }
     return [OMDAllowedLinkSchemes() containsObject:scheme];
 }
+
+NSArray *OMDHeadlessPrintToPDFArguments(NSString *pdfPath, NSString *url)
+{
+    return [NSArray arrayWithObjects:
+            @"--headless",
+            @"--disable-gpu",
+            @"--allow-file-access-from-files",
+            @"--no-pdf-header-footer",
+            @"--print-to-pdf-no-header",
+            [NSString stringWithFormat:@"--print-to-pdf=%@", pdfPath],
+            url,
+            nil];
+}
