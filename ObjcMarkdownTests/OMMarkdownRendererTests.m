@@ -3305,6 +3305,94 @@ static NSRange OMFootnoteAnchorRange(NSAttributedString *rendered, NSString *anc
     XCTAssertEqualObjects([boxFonts[0] fontName], [boxFonts[1] fontName]);
 }
 
+#if !defined(GNUSTEP)
+- (void)testWrappedListTextAlignsWithTextAfterMarker
+{
+    NSArray *items = [NSArray arrayWithObjects:
+        @"- Wrapped bullet content continues for enough words to span more than one line at this width and reveal its text alignment.\n",
+        @"- [ ] Wrapped open task content continues for enough words to span more than one line at this width and reveal its text alignment.\n",
+        @"- [x] Wrapped checked task content continues for enough words to span more than one line at this width and reveal its text alignment.\n",
+        @"100. Wrapped numbered content continues for enough words to span more than one line at this width and reveal its text alignment.\n",
+        @"100. [x] Wrapped numbered task content continues for enough words to span more than one line at this width and reveal its text alignment.\n",
+        @"- Outer item\n  - Wrapped nested content continues for enough words to span more than one line at this width and reveal its text alignment.\n",
+        nil];
+    CGFloat zooms[] = { 1.0, 1.4 };
+    NSUInteger z = 0;
+    for (; z < sizeof(zooms) / sizeof(zooms[0]); z++) {
+        for (NSString *markdown in items) {
+            OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+            [renderer setZoomScale:zooms[z]];
+            [renderer setLayoutWidth:240.0];
+            NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
+            NSTextStorage *storage = [[[NSTextStorage alloc] initWithAttributedString:rendered] autorelease];
+            NSLayoutManager *layout = [[[NSLayoutManager alloc] init] autorelease];
+            NSTextContainer *container = [[[NSTextContainer alloc] initWithContainerSize:NSMakeSize(240.0, 10000.0)] autorelease];
+            [container setLineFragmentPadding:0.0];
+            [layout addTextContainer:container];
+            [storage addLayoutManager:layout];
+            [layout ensureLayoutForTextContainer:container];
+
+            NSString *text = [rendered string];
+            NSRange word = [text rangeOfString:@"Wrapped"];
+            XCTAssertNotEqual(word.location, (NSUInteger)NSNotFound, @"%@", markdown);
+            if (word.location == NSNotFound) {
+                continue;
+            }
+            NSUInteger firstTextGlyph = [layout glyphIndexForCharacterAtIndex:word.location];
+            NSRange firstLineGlyphs;
+            [layout lineFragmentUsedRectForGlyphAtIndex:firstTextGlyph effectiveRange:&firstLineGlyphs];
+            NSUInteger continuation = NSMaxRange(firstLineGlyphs);
+            NSRange paragraph = [text paragraphRangeForRange:NSMakeRange(word.location, 0)];
+            NSUInteger paragraphEnd = [layout glyphIndexForCharacterAtIndex:NSMaxRange(paragraph) - 1];
+            XCTAssertLessThan(continuation, paragraphEnd, @"list item did not wrap: %@", markdown);
+            if (continuation >= paragraphEnd) {
+                continue;
+            }
+            CGFloat firstX = [layout locationForGlyphAtIndex:firstTextGlyph].x;
+            CGFloat continuationX = [layout locationForGlyphAtIndex:continuation].x;
+            XCTAssertEqualWithAccuracy(firstX, continuationX, 0.35,
+                                       @"%@ at %.1fx: %.2f vs %.2f", markdown, zooms[z], firstX, continuationX);
+        }
+    }
+}
+- (void)testSecondParagraphAlignsWithWrappedListText
+{
+    NSArray *items = [NSArray arrayWithObjects:
+        @"- Wrapped bullet content continues for enough words to span more than one line at a narrow preview width.\n\n  Follow-up paragraph inside this same item.\n",
+        @"- [x] Wrapped checked task content continues for enough words to span more than one line at a narrow preview width.\n\n  Follow-up paragraph inside this same item.\n",
+        nil];
+    CGFloat zooms[] = { 1.0, 1.4 };
+    NSUInteger z = 0;
+    for (; z < sizeof(zooms) / sizeof(zooms[0]); z++) {
+        for (NSString *markdown in items) {
+            OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+            [renderer setZoomScale:zooms[z]];
+            [renderer setLayoutWidth:240.0];
+            NSAttributedString *rendered = [renderer attributedStringFromMarkdown:markdown];
+            NSString *text = [rendered string];
+            NSRange first = [text rangeOfString:@"Wrapped"];
+            NSRange second = [text rangeOfString:@"Follow-up"];
+            XCTAssertNotEqual(first.location, (NSUInteger)NSNotFound);
+            XCTAssertNotEqual(second.location, (NSUInteger)NSNotFound);
+            if (first.location == NSNotFound || second.location == NSNotFound) {
+                continue;
+            }
+            NSTextStorage *storage = [[[NSTextStorage alloc] initWithAttributedString:rendered] autorelease];
+            NSLayoutManager *layout = [[[NSLayoutManager alloc] init] autorelease];
+            NSTextContainer *container = [[[NSTextContainer alloc] initWithContainerSize:NSMakeSize(240.0, 10000.0)] autorelease];
+            [container setLineFragmentPadding:0.0];
+            [layout addTextContainer:container];
+            [storage addLayoutManager:layout];
+            [layout ensureLayoutForTextContainer:container];
+            CGFloat firstX = [layout locationForGlyphAtIndex:[layout glyphIndexForCharacterAtIndex:first.location]].x;
+            CGFloat secondX = [layout locationForGlyphAtIndex:[layout glyphIndexForCharacterAtIndex:second.location]].x;
+            XCTAssertEqualWithAccuracy(firstX, secondX, 0.35,
+                                       @"%@ at %.1fx: %.2f vs %.2f", markdown, zooms[z], firstX, secondX);
+        }
+    }
+}
+#endif
+
 #if defined(GNUSTEP)
 // A character of the text the body font lacks draws in a font that has it:
 // the footnote back-link's U+21A9 drew as "?" on Windows (#252), in Tahoma
