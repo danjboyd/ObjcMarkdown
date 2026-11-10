@@ -400,6 +400,8 @@ static NSInteger OMDCompareCopySlots(id a, id b, void *context)
         }
 #else
         [button setAccessibilityLabel:toolTip];
+        [button setAccessibilityElement:YES];
+        [button setAccessibilityRole:NSAccessibilityButtonRole];
 #endif
         id buttonCell = [button cell];
         if (buttonCell != nil && [buttonCell respondsToSelector:@selector(setImageScaling:)]) {

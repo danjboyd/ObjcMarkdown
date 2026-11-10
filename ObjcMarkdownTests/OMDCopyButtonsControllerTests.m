@@ -7,6 +7,9 @@
 #import "OMDTextView.h"
 #import "OMMarkdownRenderer.h"
 #import "OMDRenderResult.h"
+#if !defined(GNUSTEP)
+#import <math.h>
+#endif
 
 @interface OMDTextView (CopyCodeBlockTesting)
 - (BOOL)copyCodeBlockAtIndex:(NSUInteger)blockIndex toPasteboard:(NSPasteboard *)pasteboard;
@@ -85,6 +88,58 @@
 }
 - (void)previewDidLayoutForCopyButtons { }
 @end
+
+#if !defined(GNUSTEP)
+// Check reachability through the actual accessibility children, not just a
+// label set on an otherwise unreachable button.
+static BOOL OMDAXTreeContainsCopyButton(id element, NSButton *button,
+                                        NSMutableSet *visited, NSUInteger depth)
+{
+    if (element == nil || depth > 16) {
+        return NO;
+    }
+    NSValue *identity = [NSValue valueWithPointer:(void *)element];
+    if ([visited containsObject:identity]) {
+        return NO;
+    }
+    [visited addObject:identity];
+
+    if ([element respondsToSelector:@selector(accessibilityRole)] &&
+        [element respondsToSelector:@selector(accessibilityLabel)] &&
+        [element respondsToSelector:@selector(accessibilityFrame)]) {
+        NSRect frame = [element accessibilityFrame];
+        NSRect expected = [button accessibilityFrame];
+        if ([[element accessibilityRole] isEqualToString:NSAccessibilityButtonRole] &&
+            [[element accessibilityLabel] isEqualToString:@"Copy code block"] &&
+            fabs(NSMidX(frame) - NSMidX(expected)) < 1.0 &&
+            fabs(NSMidY(frame) - NSMidY(expected)) < 1.0 &&
+            fabs(NSWidth(frame) - NSWidth(expected)) < 1.0 &&
+            fabs(NSHeight(frame) - NSHeight(expected)) < 1.0) {
+            return YES;
+        }
+    }
+
+    if ([element respondsToSelector:@selector(accessibilityChildren)]) {
+        for (id child in [element accessibilityChildren]) {
+            if (OMDAXTreeContainsCopyButton(child, button, visited, depth + 1)) {
+                return YES;
+            }
+        }
+    }
+    return NO;
+}
+
+static BOOL OMDAXChildrenContainCopyButton(NSArray *children, NSButton *button)
+{
+    NSMutableSet *visited = [NSMutableSet set];
+    for (id child in children) {
+        if (OMDAXTreeContainsCopyButton(child, button, visited, 0)) {
+            return YES;
+        }
+    }
+    return NO;
+}
+#endif
 
 @interface OMDCopyButtonsControllerTests : XCTestCase
 @end
@@ -221,6 +276,56 @@
     [scrollView removeFromSuperview];
     [window release];
 }
+
+#if !defined(GNUSTEP)
+- (void)testVisibleCopyButtonIsReachableThroughAccessibilityChildren
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    OMDTextView *textView = [self textViewForMarkdown:[self markdownWithCodeBlocks:3] renderer:renderer];
+    NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0.0, 0.0, 640.0, 600.0)
+                                                   styleMask:NSBorderlessWindowMask
+                                                     backing:NSBackingStoreBuffered
+                                                       defer:YES];
+    NSScrollView *scrollView = [[[NSScrollView alloc] initWithFrame:NSMakeRect(0.0, 0.0, 640.0, 600.0)] autorelease];
+    [scrollView setDocumentView:textView];
+    [[window contentView] addSubview:scrollView];
+    OMDCopyButtonsTestPreview *preview = [[[OMDCopyButtonsTestPreview alloc] initWithTextView:textView renderer:renderer] autorelease];
+    OMDCopyButtonsController *controller = [[OMDCopyButtonsController alloc] initWithDelegate:preview];
+    [controller updateCodeBlockButtons];
+
+    NSButton *visibleButton = nil;
+    for (NSButton *button in [self buttonsInView:textView]) {
+        if (NSIntersectsRect([button frame], [textView visibleRect])) {
+            visibleButton = button;
+            break;
+        }
+    }
+    XCTAssertNotNil(visibleButton);
+    if (visibleButton != nil) {
+        XCTAssertTrue([visibleButton isAccessibilityElement]);
+        NSArray *children = [textView accessibilityChildren];
+        XCTAssertTrue(OMDAXChildrenContainCopyButton(children, visibleButton),
+                      @"visible copy button is absent from preview accessibilityChildren (%lu children)",
+                      (unsigned long)[children count]);
+        NSArray *windowChildren = [window accessibilityChildren];
+        XCTAssertNotNil(windowChildren);
+        if (windowChildren != nil) {
+            XCTAssertTrue(OMDAXChildrenContainCopyButton(windowChildren, visibleButton),
+                          @"visible copy button is absent from window accessibilityChildren");
+        }
+        NSArray *navigation = [textView accessibilityChildrenInNavigationOrder];
+        if (navigation != nil) {
+            XCTAssertTrue(OMDAXChildrenContainCopyButton(navigation, visibleButton),
+                          @"visible copy button is absent from preview navigation order");
+        }
+    }
+
+    [controller removeCopyButtons];
+    [controller release];
+    [scrollView removeFromSuperview];
+    [window release];
+}
+#endif
 
 // Keyboard and VoiceOver users reach the copy action without the button:
 // Edit > Copy Code Block copies the block holding the selection.
