@@ -78,6 +78,67 @@
 }
 @end
 
+// Test-only wrapper for the opt-in unique-board check. It forwards the one
+// copy operation and keeps stage results without retaining or logging text.
+@interface OMDObservingPasteboard : NSObject
+{
+    NSPasteboard *_pasteboard;
+    NSArray *_typesAfterDeclaration;
+    NSInteger _declarationChangeCount;
+    BOOL _didDeclare;
+    BOOL _didWrite;
+    BOOL _writeResult;
+}
+- (instancetype)initWithPasteboard:(NSPasteboard *)pasteboard;
+- (NSInteger)declareTypes:(NSArray *)types owner:(id)owner;
+- (BOOL)setString:(NSString *)string forType:(NSString *)type;
+- (NSArray *)types;
+- (NSString *)stringForType:(NSString *)type;
+- (NSArray *)typesAfterDeclaration;
+- (NSInteger)declarationChangeCount;
+- (BOOL)didDeclare;
+- (BOOL)didWrite;
+- (BOOL)writeResult;
+@end
+
+@implementation OMDObservingPasteboard
+- (instancetype)initWithPasteboard:(NSPasteboard *)pasteboard
+{
+    self = [super init];
+    if (self != nil) {
+        _pasteboard = [pasteboard retain];
+    }
+    return self;
+}
+- (NSInteger)declareTypes:(NSArray *)types owner:(id)owner
+{
+    _didDeclare = YES;
+    _declarationChangeCount = [_pasteboard declareTypes:types owner:owner];
+    [_typesAfterDeclaration release];
+    _typesAfterDeclaration = [[_pasteboard types] copy];
+    return _declarationChangeCount;
+}
+- (BOOL)setString:(NSString *)string forType:(NSString *)type
+{
+    _didWrite = YES;
+    _writeResult = [_pasteboard setString:string forType:type];
+    return _writeResult;
+}
+- (NSArray *)types { return [_pasteboard types]; }
+- (NSString *)stringForType:(NSString *)type { return [_pasteboard stringForType:type]; }
+- (NSArray *)typesAfterDeclaration { return _typesAfterDeclaration; }
+- (NSInteger)declarationChangeCount { return _declarationChangeCount; }
+- (BOOL)didDeclare { return _didDeclare; }
+- (BOOL)didWrite { return _didWrite; }
+- (BOOL)writeResult { return _writeResult; }
+- (void)dealloc
+{
+    [_pasteboard release];
+    [_typesAfterDeclaration release];
+    [super dealloc];
+}
+@end
+
 // The preview a copy-buttons controller works for: a text view, in a
 // scroll view or not, and the renderer that drew it.
 @interface OMDCopyButtonsTestPreview : NSObject <OMDCopyButtonsControllerDelegate>
@@ -418,6 +479,33 @@ static BOOL OMDAXChildrenContainCopyButton(NSArray *children, NSButton *button)
     XCTAssertNil([readbackFailure stringForType:NSStringPboardType]);
 }
 
+// Exercise the observing wrapper with an in-memory board before any opt-in run.
+- (void)testObservingPasteboardForwardsCopyWithoutService
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    OMDTextView *textView = [self textViewForMarkdown:[self markdownWithCodeBlocks:3] renderer:renderer];
+    NSString *text = [[textView textStorage] string];
+    NSUInteger characterIndex = [text rangeOfString:@"block 2"].location;
+    XCTAssertNotEqual(characterIndex, (NSUInteger)NSNotFound);
+    if (characterIndex == NSNotFound) {
+        return;
+    }
+
+    OMDRecordingPasteboard *recording = [[[OMDRecordingPasteboard alloc] init] autorelease];
+    OMDObservingPasteboard *observer = [[[OMDObservingPasteboard alloc]
+        initWithPasteboard:(NSPasteboard *)recording] autorelease];
+    NSUInteger blockIndex = [textView codeBlockIndexAtCharacterIndex:characterIndex];
+    XCTAssertTrue([textView copyCodeBlockAtIndex:blockIndex toPasteboard:(NSPasteboard *)observer]);
+    XCTAssertTrue([observer didDeclare]);
+    XCTAssertTrue([observer didWrite]);
+    XCTAssertTrue([observer writeResult]);
+    XCTAssertEqual([observer declarationChangeCount], (NSInteger)1);
+    XCTAssertEqualObjects([observer typesAfterDeclaration], [NSArray arrayWithObject:NSStringPboardType]);
+    XCTAssertEqualObjects([observer types], [NSArray arrayWithObject:NSStringPboardType]);
+    XCTAssertEqualObjects([observer stringForType:NSStringPboardType],
+                          [recording stringForType:NSStringPboardType]);
+}
+
 // Run separately when the clipboard service is free. The recording test above
 // covers the copy path during ordinary suite runs without contacting pasteboardd.
 - (void)testCopyCodeBlockWritesToRealPasteboardWhenRequested
@@ -434,22 +522,57 @@ static BOOL OMDAXChildrenContainCopyButton(NSArray *children, NSButton *button)
         return;
     }
 
+    NSUInteger blockIndex = [textView codeBlockIndexAtCharacterIndex:index];
+    XCTAssertNotEqual(blockIndex, (NSUInteger)NSNotFound);
+    if (blockIndex == NSNotFound) {
+        return;
+    }
+
     NSPasteboard *pasteboard = [NSPasteboard pasteboardWithUniqueName];
-    XCTAssertNotNil(pasteboard, @"unique pasteboard could not be created");
     if (pasteboard == nil) {
+        NSLog(@"OMD unique pasteboard stage=creation created=NO name=(nil)");
+        XCTFail(@"unique pasteboard could not be created");
         return;
     }
     @try {
-        XCTAssertTrue([textView copyCodeBlockAtIndex:[textView codeBlockIndexAtCharacterIndex:index]
-                                        toPasteboard:pasteboard]);
-        XCTAssertEqualObjects([pasteboard types], [NSArray arrayWithObject:NSStringPboardType]);
-        NSString *copied = [pasteboard stringForType:NSStringPboardType];
-        XCTAssertNotNil(copied, @"unique pasteboard string readback failed");
-        if (copied == nil) {
+        NSString *name = [pasteboard name];
+        if (name == nil || [name isEqualToString:NSGeneralPboard]) {
+            NSLog(@"OMD unique pasteboard stage=creation created=YES name=%@", name);
+            XCTFail(@"unique pasteboard name missing or general");
             return;
         }
-        XCTAssertTrue([copied rangeOfString:@"NSLog(@\"block 2\");"].location != NSNotFound, @"%@", copied);
-        XCTAssertTrue([copied rangeOfString:@"block 1"].location == NSNotFound, @"%@", copied);
+
+        OMDObservingPasteboard *observer = [[[OMDObservingPasteboard alloc] initWithPasteboard:pasteboard] autorelease];
+        BOOL helperResult = [textView copyCodeBlockAtIndex:blockIndex toPasteboard:(NSPasteboard *)observer];
+        NSArray *declaredTypes = [observer typesAfterDeclaration];
+        NSArray *readbackTypes = [observer types];
+        NSString *copied = [observer stringForType:NSStringPboardType];
+        NSRange range = [[[textView codeBlockRanges] objectAtIndex:blockIndex] rangeValue];
+        BOOL matchesExpected = copied != nil &&
+            [copied isEqualToString:[text substringWithRange:range]];
+
+        NSString *stage = @"success";
+        if (![observer didDeclare] || ![observer didWrite]) {
+            stage = @"copy-path";
+        } else if (![declaredTypes containsObject:NSStringPboardType]) {
+            stage = @"declaration";
+        } else if (![observer writeResult]) {
+            stage = @"write";
+        } else if (![readbackTypes containsObject:NSStringPboardType] || !matchesExpected) {
+            stage = @"readback";
+        }
+        NSLog(@"OMD unique pasteboard stage=%@ created=YES name=%@ declareChangeCount=%ld "
+              @"declareTypes=%@ didWrite=%d writeResult=%d helperResult=%d "
+              @"readbackTypes=%@ readbackStringPresent=%d readbackStringLength=%lu "
+              @"readbackMatchesExpected=%d",
+              stage, name, (long)[observer declarationChangeCount], declaredTypes,
+              [observer didWrite], [observer writeResult], helperResult,
+              readbackTypes, copied != nil, (unsigned long)[copied length], matchesExpected);
+        XCTAssertEqual(helperResult, [observer writeResult]);
+        XCTAssertEqualObjects(stage, @"success", @"unique pasteboard failed at %@ stage", stage);
+    } @catch (NSException *exception) {
+        NSLog(@"OMD unique pasteboard stage=exception exceptionName=%@", [exception name]);
+        XCTFail(@"unique pasteboard operation threw %@", [exception name]);
     } @finally {
         [pasteboard releaseGlobally];
     }
