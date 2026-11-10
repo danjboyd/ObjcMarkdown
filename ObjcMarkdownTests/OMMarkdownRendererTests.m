@@ -15,6 +15,7 @@
 
 // OMMarkdownRendererTables.m: turns the #346 skip off and on.
 OM_EXPORT void OMPipeTableSetSkipsUnusedRowHeightsForTesting(BOOL skips);
+OM_EXPORT void OMTextTableSetCachesCellWidthsForTesting(BOOL caches);
 
 static NSArray *OMDTestExecutableCandidateNames(NSString *name)
 {
@@ -604,9 +605,10 @@ static BOOL OMDMathToolchainAvailable(void)
     return dump;
 }
 
-// Text tables don't lay out their cells for row heights nobody reads
-// (#346). The skip must not change a single attribute of the output.
-- (void)testTextTablesRenderTheSameWithoutUnusedRowHeights
+// Tables in many shapes: alignment, inline markup, links, an escaped pipe,
+// empty cells, an unbreakable word, many columns, header only, in a list
+// and a quote, and repeated small ones.
+- (NSString *)tableHeavyMarkdown346
 {
     NSMutableString *markdown = [NSMutableString string];
     [markdown appendString:@"| Area | Notes | Count |\n| :--- | :---: | ---: |\n"
@@ -625,6 +627,14 @@ static BOOL OMDMathToolchainAvailable(void)
         [markdown appendFormat:@"## Section %lu\n\nA paragraph with **important text**, _emphasis_, inline `code`.\n\n"
                                 "| Item | Value |\n|---|---|\n| Alpha | 123 |\n| Beta | 456 |\n\n", (unsigned long)section];
     }
+    return markdown;
+}
+
+// Text tables don't lay out their cells for row heights nobody reads
+// (#346). The skip must not change a single attribute of the output.
+- (void)testTextTablesRenderTheSameWithoutUnusedRowHeights
+{
+    NSString *markdown = [self tableHeavyMarkdown346];
 
     CGFloat widths[] = { 680.0, 300.0, 140.0, 0.0 };
     CGFloat zooms[] = { 1.0, 1.5 };
@@ -648,6 +658,41 @@ static BOOL OMDMathToolchainAvailable(void)
                 XCTAssertEqualObjects(skipped, measured, @"width %.0f zoom %.1f overflow %lu",
                                       widths[w], zooms[z], (unsigned long)overflow);
                 if ([skipped rangeOfString:@"table edges="].location != NSNotFound) {
+                    tables += 1;
+                }
+            }
+        }
+    }
+    XCTAssertTrue(tables > 0, @"no text table was rendered");
+}
+
+// Each cell is measured once per table (#346). The cache must not change a
+// single attribute of the output.
+- (void)testTextTablesRenderTheSameWithCellWidthsMeasuredOnce
+{
+    NSString *markdown = [self tableHeavyMarkdown346];
+    CGFloat widths[] = { 680.0, 300.0, 140.0, 0.0 };
+    CGFloat zooms[] = { 1.0, 1.5 };
+    NSUInteger tables = 0;
+    NSUInteger w = 0;
+    for (; w < sizeof(widths) / sizeof(widths[0]); w++) {
+        NSUInteger z = 0;
+        for (; z < sizeof(zooms) / sizeof(zooms[0]); z++) {
+            NSUInteger overflow = 0;
+            for (; overflow < 2; overflow++) {
+                OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+                [renderer setLayoutWidth:widths[w]];
+                [renderer setZoomScale:zooms[z]];
+                [renderer setAllowTableHorizontalOverflow:(overflow == 1)];
+
+                OMTextTableSetCachesCellWidthsForTesting(NO);
+                NSString *measuredEachTime = [self attributeDumpOf346:[renderer attributedStringFromMarkdown:markdown]];
+                OMTextTableSetCachesCellWidthsForTesting(YES);
+                NSString *measuredOnce = [self attributeDumpOf346:[renderer attributedStringFromMarkdown:markdown]];
+
+                XCTAssertEqualObjects(measuredOnce, measuredEachTime, @"width %.0f zoom %.1f overflow %lu",
+                                      widths[w], zooms[z], (unsigned long)overflow);
+                if ([measuredOnce rangeOfString:@"table edges="].location != NSNotFound) {
                     tables += 1;
                 }
             }
@@ -3234,9 +3279,13 @@ static NSRange OMFootnoteAnchorRange(NSAttributedString *rendered, NSString *anc
     NSString *text = [rendered string];
     unichar markers[4] = { 0x25E6, 0x25AA, 0x2611, 0x2610 };
     NSFont *boxFonts[2] = { nil, nil };
-    // Coverage is checked where a fallback font is installed (Linux, Windows).
+    // Coverage is checked where a fallback font is installed.
     BOOL fallbackInstalled = [NSFont fontWithName:@"DejaVuSans" size:12.0] != nil ||
                              [NSFont fontWithName:@"SegoeUISymbol" size:12.0] != nil;
+#if !defined(GNUSTEP)
+    // On macOS Apple Symbols is the covering fallback (#376).
+    fallbackInstalled = fallbackInstalled || [NSFont fontWithName:@"AppleSymbols" size:12.0] != nil;
+#endif
     NSUInteger i = 0;
     for (i = 0; i < 4; i++) {
         NSRange found = [text rangeOfString:[NSString stringWithCharacters:&markers[i] length:1]];

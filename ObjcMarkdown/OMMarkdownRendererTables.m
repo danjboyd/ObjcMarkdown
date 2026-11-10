@@ -397,6 +397,35 @@ static NSMutableArray *OMPipeTableColumnWidthsInPoints(NSArray *visibleRows,
     return widths;
 }
 
+// Each cell's text was measured with -size two or three times per table:
+// for the column widths, the wrap check and its alignment (#346). While a
+// table renders, its widths are kept here, by object, so each is measured
+// once. Per thread, since renders also run off the main thread on macOS.
+// Tests turn it off to check that the output is the same.
+static __thread NSMapTable *OMTextTableCellWidths = nil;
+static BOOL OMTextTableCachesCellWidths = YES;
+
+OM_EXPORT void OMTextTableSetCachesCellWidthsForTesting(BOOL caches);
+void OMTextTableSetCachesCellWidthsForTesting(BOOL caches)
+{
+    OMTextTableCachesCellWidths = caches;
+}
+
+// The width -size gives for segment, from the table's cache when it has it.
+static CGFloat OMTextTableNaturalWidth(NSAttributedString *segment)
+{
+    NSMapTable *cache = OMTextTableCellWidths;
+    NSNumber *cached = cache != nil ? [cache objectForKey:segment] : nil;
+    if (cached != nil) {
+        return [cached doubleValue];
+    }
+    CGFloat width = [segment size].width;
+    if (cache != nil) {
+        [cache setObject:[NSNumber numberWithDouble:width] forKey:segment];
+    }
+    return width;
+}
+
 static NSMutableArray *OMPipeTableAttributedColumnWidthsInPoints(NSArray *attributedRows,
                                                                  NSUInteger columnCount,
                                                                  CGFloat scale)
@@ -419,9 +448,8 @@ static NSMutableArray *OMPipeTableAttributedColumnWidthsInPoints(NSArray *attrib
             NSAttributedString *segment = (columnIndex < [row count] ? [row objectAtIndex:columnIndex] : nil);
             CGFloat measured = 0.0;
             if (segment != nil && [segment length] > 0) {
-                NSSize textSize = [segment size];
                 // Small guard band prevents edge clipping from font metric rounding.
-                measured = ceil(textSize.width + (1.0 * scale));
+                measured = ceil(OMTextTableNaturalWidth(segment) + (1.0 * scale));
             }
             if (measured < minimumWidth) {
                 measured = minimumWidth;
@@ -938,7 +966,7 @@ static NSAttributedString *OMPipeTableAttachmentAttributedString(NSArray *attrib
 
 static CGFloat OMTextTableSegmentWidth(NSAttributedString *segment)
 {
-    return [segment length] > 0 ? ceil([segment size].width) : 0.0;
+    return [segment length] > 0 ? ceil(OMTextTableNaturalWidth(segment)) : 0.0;
 }
 
 static NSAttributedString *OMTextTableTrimTrailingSpaces(NSAttributedString *segment)
@@ -1459,6 +1487,12 @@ void OMRenderGFMTable(cmark_node *node,
 
     NSUInteger objectStart = [output length];
     NSString *tableMarkdown = OMSourceTextForNodeLines(node, renderContext);
+    NSMapTable *outerCellWidths = OMTextTableCellWidths;
+    OMTextTableCellWidths = OMTextTableCachesCellWidths
+        ? [[NSMapTable alloc] initWithKeyOptions:(NSPointerFunctionsStrongMemory | NSPointerFunctionsObjectPointerPersonality)
+                                    valueOptions:NSPointerFunctionsStrongMemory
+                                        capacity:16]
+        : nil;
     OMRenderPipeTable(rows,
                       alignments,
                       theme,
@@ -1471,6 +1505,8 @@ void OMRenderGFMTable(cmark_node *node,
                       tableMarkdown,
                       cellNodes,
                       renderContext);
+    [OMTextTableCellWidths release];
+    OMTextTableCellWidths = outerCellWidths;
     // A table laid out as text is no attachment; anything inside its cells
     // (math, images) is tagged on its own.
     BOOL laidOutAsText = (objectStart < [output length] &&

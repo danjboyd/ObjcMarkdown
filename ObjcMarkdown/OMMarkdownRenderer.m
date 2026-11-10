@@ -558,7 +558,12 @@ static NSFont *OMListMarkerFallbackFont(unichar character, CGFloat size)
 {
     static NSArray *candidates = nil;
     if (candidates == nil) {
+#if !defined(GNUSTEP)
+        // Apple Symbols covers both task boxes on macOS (#376).
+        candidates = [[NSArray alloc] initWithObjects:@"AppleSymbols", @"DejaVuSans", @"SegoeUISymbol", @"FreeSans", nil];
+#else
         candidates = [[NSArray alloc] initWithObjects:@"DejaVuSans", @"SegoeUISymbol", @"FreeSans", nil];
+#endif
     }
     NSUInteger index = 0;
     for (index = 0; index <= [candidates count]; index++) {
