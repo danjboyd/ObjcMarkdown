@@ -7,6 +7,7 @@
 #import "OMMarkdownRenderer.h"
 
 #include <stdlib.h>
+#include <string.h>
 
 #if defined(GNUSTEP)
 #define OMDPasteboardTypeHTML NSHTMLPboardType
@@ -46,14 +47,11 @@ static void OMDAddInlineStyles(NSMutableString *html)
     OMDReplaceAll(html, @"<blockquote>", @"<blockquote style=\"margin:0;padding:0 12px;border-left:3px solid #d0d7de;color:#59636e\">");
 }
 
-NSString *OMDClipboardHTMLFromMarkdown(NSString *markdown)
+// cmark-gfm's HTML for already-prepared Markdown, with task boxes as
+// characters and the inline styles. Nil if cmark fails.
+static NSMutableString *OMDHTMLFragmentFromSource(NSString *source)
 {
-    if (markdown == nil) {
-        return nil;
-    }
-    // Mail and chats show TeX as it is, and cmark would drop its backslashes
-    // before punctuation ("\," became ","): formulas as readable text.
-    NSData *utf8 = [OMMarkdownWithReadableMath(markdown) dataUsingEncoding:NSUTF8StringEncoding];
+    NSData *utf8 = [source dataUsingEncoding:NSUTF8StringEncoding];
     cmark_node *document = OMGFMParseDocument((const char *)[utf8 bytes],
                                               (size_t)[utf8 length],
                                               CMARK_OPT_DEFAULT);
@@ -77,6 +75,94 @@ NSString *OMDClipboardHTMLFromMarkdown(NSString *markdown)
                                  options:0
                                    range:NSMakeRange(0, [fragment length])];
     OMDAddInlineStyles(fragment);
+    return fragment;
+}
+
+NSString *OMDClipboardHTMLFromMarkdown(NSString *markdown)
+{
+    if (markdown == nil) {
+        return nil;
+    }
+    // Mail and chats show TeX as it is, and cmark would drop its backslashes
+    // before punctuation ("\," became ","): formulas as readable text.
+    NSMutableString *fragment = OMDHTMLFragmentFromSource(OMMarkdownWithReadableMath(markdown));
+    if (fragment == nil) {
+        return nil;
+    }
+    return [NSString stringWithFormat:@"<meta charset=\"utf-8\">%@", fragment];
+}
+
+static NSString *OMDHTMLEscapedText(NSString *text)
+{
+    NSMutableString *escaped = [NSMutableString stringWithString:(text != nil ? text : @"")];
+    OMDReplaceAll(escaped, @"&", @"&amp;");
+    OMDReplaceAll(escaped, @"<", @"&lt;");
+    OMDReplaceAll(escaped, @">", @"&gt;");
+    OMDReplaceAll(escaped, @"\"", @"&quot;");
+    return escaped;
+}
+
+// A PNG's size in pixels, from its IHDR chunk. NO if it isn't a PNG.
+static BOOL OMDPNGPixelSize(NSData *png, NSUInteger *width, NSUInteger *height)
+{
+    static const unsigned char signature[8] = { 0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a };
+    if ([png length] < 24) {
+        return NO;
+    }
+    const unsigned char *bytes = (const unsigned char *)[png bytes];
+    if (memcmp(bytes, signature, 8) != 0 || memcmp(bytes + 12, "IHDR", 4) != 0) {
+        return NO;
+    }
+    *width = ((NSUInteger)bytes[16] << 24) | ((NSUInteger)bytes[17] << 16) |
+             ((NSUInteger)bytes[18] << 8) | (NSUInteger)bytes[19];
+    *height = ((NSUInteger)bytes[20] << 24) | ((NSUInteger)bytes[21] << 16) |
+              ((NSUInteger)bytes[22] << 8) | (NSUInteger)bytes[23];
+    return (*width > 0 && *height > 0);
+}
+
+NSString *OMDPrintHTMLFromMarkdown(NSString *markdown, OMDMathImageProvider provider)
+{
+    if (markdown == nil) {
+        return nil;
+    }
+    NSMutableArray *formulas = [NSMutableArray array];
+    // The tokens avoid the document's own text and the HTML it renders to
+    // (where an entity can spell a token), so only formulas are replaced.
+    NSString *plain = OMDHTMLFragmentFromSource(markdown);
+    NSString *source = OMMarkdownWithMathPlaceholders(markdown, plain, formulas);
+    NSMutableString *fragment = OMDHTMLFragmentFromSource(source);
+    if (fragment == nil) {
+        return nil;
+    }
+    NSUInteger i = [formulas count];
+    while (i > 0) {
+        i -= 1;
+        NSArray *entry = [formulas objectAtIndex:i];
+        NSString *formula = [entry objectAtIndex:0];
+        BOOL display = [[entry objectAtIndex:1] boolValue];
+        NSString *readable = OMDHTMLEscapedText([OMMarkdownWithReadableMath(
+            [NSString stringWithFormat:(display ? @"$$%@$$" : @"$%@$"), formula])
+            stringByReplacingOccurrencesOfString:@"\\" withString:@""]);
+        NSString *replacement = readable;
+        NSData *png = provider != NULL ? provider(formula, display) : nil;
+        NSUInteger width = 0;
+        NSUInteger height = 0;
+        if (png != nil && OMDPNGPixelSize(png, &width, &height)) {
+            // Rendered at OMDPrintMathDPI for 10 pt TeX; the page's text is
+            // 12 pt, so 1.2 times the image's size at that resolution.
+            CGFloat scale = 96.0 * 1.2 / (CGFloat)OMDPrintMathDPI;
+            NSString *img = [NSString stringWithFormat:
+                @"<img class=\"math\" alt=\"%@\" src=\"data:image/png;base64,%@\" "
+                @"style=\"width:%.1fpx;height:%.1fpx;vertical-align:middle\">",
+                readable,
+                [png base64EncodedStringWithOptions:0],
+                width * scale, height * scale];
+            replacement = display
+                ? [NSString stringWithFormat:@"<span style=\"display:block;text-align:center;margin:0.4em 0\">%@</span>", img]
+                : img;
+        }
+        OMDReplaceAll(fragment, [entry objectAtIndex:2], replacement);
+    }
     return [NSString stringWithFormat:@"<meta charset=\"utf-8\">%@", fragment];
 }
 
