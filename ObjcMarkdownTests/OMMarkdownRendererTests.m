@@ -3279,9 +3279,13 @@ static NSRange OMFootnoteAnchorRange(NSAttributedString *rendered, NSString *anc
     NSString *text = [rendered string];
     unichar markers[4] = { 0x25E6, 0x25AA, 0x2611, 0x2610 };
     NSFont *boxFonts[2] = { nil, nil };
-    // Coverage is checked where a fallback font is installed (Linux, Windows).
+    // Coverage is checked where a fallback font is installed.
     BOOL fallbackInstalled = [NSFont fontWithName:@"DejaVuSans" size:12.0] != nil ||
                              [NSFont fontWithName:@"SegoeUISymbol" size:12.0] != nil;
+#if !defined(GNUSTEP)
+    // On macOS Apple Symbols is the covering fallback (#376).
+    fallbackInstalled = fallbackInstalled || [NSFont fontWithName:@"AppleSymbols" size:12.0] != nil;
+#endif
     NSUInteger i = 0;
     for (i = 0; i < 4; i++) {
         NSRange found = [text rangeOfString:[NSString stringWithCharacters:&markers[i] length:1]];
