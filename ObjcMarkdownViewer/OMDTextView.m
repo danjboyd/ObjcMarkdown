@@ -70,6 +70,39 @@ NSUInteger OMDTaskItemIndexAtCharacterIndex(NSAttributedString *text, NSUInteger
     [super dealloc];
 }
 
+#if !defined(GNUSTEP)
+- (NSArray *)accessibilityChildrenIncludingVisibleCopyButtons:(NSArray *)baseChildren
+{
+    NSMutableArray *children = baseChildren != nil ? [[baseChildren mutableCopy] autorelease] : [NSMutableArray array];
+    // Quick Look uses this text view without linking the viewer's buttons.
+    Class copyButtonClass = NSClassFromString(@"OMDCodeCopyButton");
+    if (copyButtonClass == Nil) {
+        return children;
+    }
+    NSRect visible = [self visibleRect];
+    for (NSView *subview in [self subviews]) {
+        if ([subview isKindOfClass:copyButtonClass] &&
+            [subview isAccessibilityElement] && ![subview isHidden] &&
+            NSIntersectsRect([subview frame], visible) &&
+            ![children containsObject:subview]) {
+            [children addObject:subview];
+        }
+    }
+    return children;
+}
+
+- (NSArray *)accessibilityChildren
+{
+    return [self accessibilityChildrenIncludingVisibleCopyButtons:[super accessibilityChildren]];
+}
+
+- (NSArray *)accessibilityChildrenInNavigationOrder
+{
+    NSArray *navigation = [super accessibilityChildrenInNavigationOrder];
+    return [self accessibilityChildrenIncludingVisibleCopyButtons:(navigation != nil ? navigation : [super accessibilityChildren])];
+}
+#endif
+
 - (void)drawRect:(NSRect)dirtyRect
 {
     NSGraphicsContext *context = [NSGraphicsContext currentContext];
