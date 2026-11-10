@@ -14,7 +14,7 @@
     "Resources/icons/omd-share-file-symbolic.png": "933988113896104077cbc9bf640d2a09d00dfd97d9bd79e7509b8797899223f3"
   },
   "fixture_sha256": {
-    "tools/dev/fixtures/OMDShareNoticeFixture.m": "69ceb4d4d6ddc840cd0ee5920b28523cf7fd883bb4a08f71c56243596580f312",
+    "tools/dev/fixtures/OMDShareNoticeFixture.m": "d75f6f28572c1ca4d832ccffd67b97496711e5d8f441eb2fa325b29b00e91734",
     "tools/dev/fixtures/GNUmakefile.notice-fixture": "7143fd99dc6d26321941f05bb7f0cf119eb833505f9232662ff1ffa43558f9bb"
   },
   "package_runtime_reference": {

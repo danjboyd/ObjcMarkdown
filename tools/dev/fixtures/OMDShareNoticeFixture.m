@@ -7,6 +7,16 @@
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
+#include <time.h>
+
+static void OMDTraceStage(const char *stage)
+{
+    struct timespec now = {0, 0};
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    fprintf(stderr, "FIXTURE_STAGE pid=%ld monotonic=%lld.%09ld %s\n",
+            (long)getpid(), (long long)now.tv_sec, now.tv_nsec, stage);
+    fflush(stderr);
+}
 
 static NSView *OMDFixtureFindIcon(NSView *view, NSUInteger *count)
 {
@@ -62,13 +72,17 @@ static NSView *OMDFixtureFindIcon(NSView *view, NSUInteger *count)
 - (void)applicationDidFinishLaunching:(NSNotification *)notification
 {
     (void)notification;
+    OMDTraceStage("delegate.enter");
     _owner = [[NSWindow alloc] initWithContentRect:NSMakeRect(100, 100, 640, 320)
                                        styleMask:(NSTitledWindowMask | NSClosableWindowMask)
                                          backing:NSBackingStoreBuffered
                                            defer:NO];
+    OMDTraceStage("owner.init.return");
     [_owner setReleasedWhenClosed:NO];
     [_owner setTitle:@"Share notice fixture - private synthetic file"];
+    OMDTraceStage("owner.order.enter");
     [_owner makeKeyAndOrderFront:nil];
+    OMDTraceStage("owner.order.return");
 
     OMDShareItem *item = [[[OMDShareItem alloc]
         initWithTitle:@"Synthetic fixture"
@@ -77,21 +91,25 @@ static NSView *OMDFixtureFindIcon(NSView *view, NSUInteger *count)
          renderedText:nil] autorelease];
     // Public production entry point and real item. No presenter/service action
     // is invoked; the fixture sends no input, drag, mail or clipboard request.
+    OMDTraceStage("notice.show.enter");
     [OMDShareNotice showNoticeWithMessage:@"Synthetic file ready for visual inspection."
                                shareItem:item
                                presenter:nil
                                forWindow:_owner];
+    OMDTraceStage("notice.show.return");
     [NSTimer scheduledTimerWithTimeInterval:0.5 target:self
                                   selector:@selector(recordReady:)
                                   userInfo:nil repeats:NO];
     [NSTimer scheduledTimerWithTimeInterval:40.0 target:self
                                   selector:@selector(finish:)
                                   userInfo:nil repeats:NO];
+    OMDTraceStage("delegate.timers.scheduled");
 }
 
 - (void)recordReady:(NSTimer *)timer
 {
     (void)timer;
+    OMDTraceStage("ready.timer.enter");
     NSUInteger count = 0;
     NSView *icon = nil;
     for (NSWindow *window in [NSApp windows]) {
@@ -159,10 +177,14 @@ int main(int argc, char **argv)
         return 2;
     }
     [[NSProcessInfo processInfo] setProcessName:@"OMDShareNoticeFixture"];
+    OMDTraceStage("app.shared.enter");
     [NSApplication sharedApplication];
+    OMDTraceStage("app.shared.return");
     OMDShareNoticeFixture *fixture = [[OMDShareNoticeFixture alloc] initWithSyntheticPath:path];
     [NSApp setDelegate:fixture];
+    OMDTraceStage("app.run.enter");
     [NSApp run];
+    OMDTraceStage("app.run.return");
     int result = [fixture failed] ? 1 : 0;
     [NSApp setDelegate:nil];
     [fixture release];
