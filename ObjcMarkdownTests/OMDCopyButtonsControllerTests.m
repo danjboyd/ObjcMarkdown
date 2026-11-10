@@ -12,6 +12,46 @@
 - (BOOL)copyCodeBlockAtIndex:(NSUInteger)blockIndex toPasteboard:(NSPasteboard *)pasteboard;
 @end
 
+// Records the copy command without contacting the system pasteboard.
+@interface OMDRecordingPasteboard : NSObject
+{
+    NSArray *_declaredTypes;
+    NSString *_copiedString;
+}
+- (NSArray *)types;
+- (NSString *)stringForType:(NSString *)type;
+@end
+
+@implementation OMDRecordingPasteboard
+- (NSInteger)declareTypes:(NSArray *)types owner:(id)owner
+{
+    (void)owner;
+    [_declaredTypes release];
+    _declaredTypes = [types copy];
+    return (NSInteger)[_declaredTypes count];
+}
+- (BOOL)setString:(NSString *)string forType:(NSString *)type
+{
+    if (_declaredTypes == nil || ![_declaredTypes containsObject:type]) {
+        return NO;
+    }
+    [_copiedString release];
+    _copiedString = [string copy];
+    return YES;
+}
+- (NSArray *)types { return _declaredTypes; }
+- (NSString *)stringForType:(NSString *)type
+{
+    return [_declaredTypes containsObject:type] ? _copiedString : nil;
+}
+- (void)dealloc
+{
+    [_declaredTypes release];
+    [_copiedString release];
+    [super dealloc];
+}
+@end
+
 // The preview a copy-buttons controller works for: a text view, in a
 // scroll view or not, and the renderer that drew it.
 @interface OMDCopyButtonsTestPreview : NSObject <OMDCopyButtonsControllerDelegate>
@@ -199,18 +239,47 @@
     XCTAssertEqual([textView codeBlockIndexAtCharacterIndex:second.location], (NSUInteger)1);
     XCTAssertTrue([textView validateMenuItem:item]);
 
-    NSPasteboard *pasteboard = [NSPasteboard pasteboardWithUniqueName];
+    OMDRecordingPasteboard *pasteboard = [[[OMDRecordingPasteboard alloc] init] autorelease];
     XCTAssertTrue([textView copyCodeBlockAtIndex:[textView codeBlockIndexAtCharacterIndex:second.location]
-                                    toPasteboard:pasteboard]);
+                                    toPasteboard:(NSPasteboard *)pasteboard]);
+    XCTAssertEqualObjects([pasteboard types], [NSArray arrayWithObject:NSStringPboardType]);
     NSString *copied = [pasteboard stringForType:NSStringPboardType];
     XCTAssertTrue([copied rangeOfString:@"NSLog(@\"block 2\");"].location != NSNotFound, @"%@", copied);
     XCTAssertTrue([copied rangeOfString:@"block 1"].location == NSNotFound, @"%@", copied);
-    [pasteboard releaseGlobally];
 
     NSRange paragraph = [text rangeOfString:@"A paragraph between"];
     [textView setSelectedRange:NSMakeRange(paragraph.location, 0)];
     XCTAssertEqual([textView codeBlockIndexAtCharacterIndex:paragraph.location], (NSUInteger)NSNotFound);
     XCTAssertFalse([textView validateMenuItem:item]);
+}
+
+// Run separately when the clipboard service is free. The recording test above
+// covers the copy path during ordinary suite runs without contacting pasteboardd.
+- (void)testCopyCodeBlockWritesToRealPasteboardWhenRequested
+{
+    XCTSkipUnless([[[[NSProcessInfo processInfo] environment] objectForKey:@"OMD_TEST_REAL_PASTEBOARD"] isEqualToString:@"1"],
+                  @"Set OMD_TEST_REAL_PASTEBOARD=1 for the separate clipboard integration check");
+
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    OMDTextView *textView = [self textViewForMarkdown:[self markdownWithCodeBlocks:3] renderer:renderer];
+    NSString *text = [[textView textStorage] string];
+    NSUInteger index = [text rangeOfString:@"block 2"].location;
+    XCTAssertNotEqual(index, (NSUInteger)NSNotFound);
+    if (index == NSNotFound) {
+        return;
+    }
+
+    NSPasteboard *pasteboard = [NSPasteboard pasteboardWithUniqueName];
+    @try {
+        XCTAssertTrue([textView copyCodeBlockAtIndex:[textView codeBlockIndexAtCharacterIndex:index]
+                                        toPasteboard:pasteboard]);
+        XCTAssertEqualObjects([pasteboard types], [NSArray arrayWithObject:NSStringPboardType]);
+        NSString *copied = [pasteboard stringForType:NSStringPboardType];
+        XCTAssertTrue([copied rangeOfString:@"NSLog(@\"block 2\");"].location != NSNotFound, @"%@", copied);
+        XCTAssertTrue([copied rangeOfString:@"block 1"].location == NSNotFound, @"%@", copied);
+    } @finally {
+        [pasteboard releaseGlobally];
+    }
 }
 
 // A right click in a code block offers Copy Code Block.
