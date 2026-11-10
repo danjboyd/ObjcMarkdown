@@ -4504,7 +4504,7 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
 
 - (NSString *)shareSourceExtension
 {
-    return [[self defaultSaveMarkdownFileName] pathExtension];
+    return OMDShareMarkdownExtension(_currentPath, [[self defaultSaveMarkdownFileName] pathExtension]);
 }
 
 - (NSString *)shareDocumentPath

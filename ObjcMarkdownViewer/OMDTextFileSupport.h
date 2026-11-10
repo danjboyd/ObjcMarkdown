@@ -7,6 +7,10 @@
 NSString *OMDTrimmedString(NSString *value);
 NSString *OMDDiskFingerprintForFileAttributes(NSDictionary *attributes);
 BOOL OMDIsMarkdownExtension(NSString *extension);
+// The extension a shared copy of the document gets: a saved Markdown file
+// keeps its own, as written (long.markdown, UPPER.MD), anything else gets
+// fallback (#372).
+NSString *OMDShareMarkdownExtension(NSString *documentPath, NSString *fallback);
 NSString *OMDVerbatimSyntaxTokenForExtension(NSString *extension);
 NSString *OMDMarkdownCodeFenceWrappedText(NSString *text, NSString *languageToken);
 BOOL OMDDataAppearsBinary(NSData *data);

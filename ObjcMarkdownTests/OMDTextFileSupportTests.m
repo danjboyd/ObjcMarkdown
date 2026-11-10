@@ -156,4 +156,16 @@
 }
 
 
+// The Share panel names a saved document's copy with its own extension, as
+// written, not always .md (#372).
+- (void)testShareMarkdownExtensionKeepsTheDocumentsOwn
+{
+    XCTAssertEqualObjects(OMDShareMarkdownExtension(@"C:/Docs/long.markdown", @"md"), @"markdown");
+    XCTAssertEqualObjects(OMDShareMarkdownExtension(@"C:/Docs/UPPER.MD", @"md"), @"MD");
+    XCTAssertEqualObjects(OMDShareMarkdownExtension(@"C:/Docs/notes.mdown", @"md"), @"mdown");
+    XCTAssertEqualObjects(OMDShareMarkdownExtension(@"C:/Docs/report.docx", @"md"), @"md");
+    XCTAssertEqualObjects(OMDShareMarkdownExtension(@"C:/Docs/README", @"md"), @"md");
+    XCTAssertEqualObjects(OMDShareMarkdownExtension(nil, @"md"), @"md");
+}
+
 @end
