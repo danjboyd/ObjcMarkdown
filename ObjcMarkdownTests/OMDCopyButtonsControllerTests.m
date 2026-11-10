@@ -20,21 +20,39 @@
 {
     NSArray *_declaredTypes;
     NSString *_copiedString;
+    BOOL _rejectDeclaration;
+    BOOL _rejectWrite;
+    BOOL _hideReadback;
+    BOOL _didDeclare;
+    BOOL _didAttemptWrite;
 }
 - (NSArray *)types;
 - (NSString *)stringForType:(NSString *)type;
+- (void)setRejectDeclaration:(BOOL)reject;
+- (void)setRejectWrite:(BOOL)reject;
+- (void)setHideReadback:(BOOL)hide;
+- (BOOL)didDeclare;
+- (BOOL)didAttemptWrite;
 @end
 
 @implementation OMDRecordingPasteboard
 - (NSInteger)declareTypes:(NSArray *)types owner:(id)owner
 {
     (void)owner;
+    _didDeclare = YES;
+    if (_rejectDeclaration) {
+        return 0;
+    }
     [_declaredTypes release];
     _declaredTypes = [types copy];
     return (NSInteger)[_declaredTypes count];
 }
 - (BOOL)setString:(NSString *)string forType:(NSString *)type
 {
+    _didAttemptWrite = YES;
+    if (_rejectWrite) {
+        return NO;
+    }
     if (_declaredTypes == nil || ![_declaredTypes containsObject:type]) {
         return NO;
     }
@@ -42,11 +60,16 @@
     _copiedString = [string copy];
     return YES;
 }
-- (NSArray *)types { return _declaredTypes; }
+- (NSArray *)types { return _hideReadback ? nil : _declaredTypes; }
 - (NSString *)stringForType:(NSString *)type
 {
-    return [_declaredTypes containsObject:type] ? _copiedString : nil;
+    return !_hideReadback && [_declaredTypes containsObject:type] ? _copiedString : nil;
 }
+- (void)setRejectDeclaration:(BOOL)reject { _rejectDeclaration = reject; }
+- (void)setRejectWrite:(BOOL)reject { _rejectWrite = reject; }
+- (void)setHideReadback:(BOOL)hide { _hideReadback = hide; }
+- (BOOL)didDeclare { return _didDeclare; }
+- (BOOL)didAttemptWrite { return _didAttemptWrite; }
 - (void)dealloc
 {
     [_declaredTypes release];
@@ -358,6 +381,43 @@ static BOOL OMDAXChildrenContainCopyButton(NSArray *children, NSButton *button)
     XCTAssertFalse([textView validateMenuItem:item]);
 }
 
+// Each failure stage is simulated in memory; this test never calls pasteboardd.
+- (void)testCopyCodeBlockDistinguishesPasteboardFailureStages
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    OMDTextView *textView = [self textViewForMarkdown:[self markdownWithCodeBlocks:3] renderer:renderer];
+    NSString *text = [[textView textStorage] string];
+    NSUInteger characterIndex = [text rangeOfString:@"block 2"].location;
+    XCTAssertNotEqual(characterIndex, (NSUInteger)NSNotFound);
+    if (characterIndex == NSNotFound) {
+        return;
+    }
+    NSUInteger blockIndex = [textView codeBlockIndexAtCharacterIndex:characterIndex];
+
+    OMDRecordingPasteboard *declarationFailure = [[[OMDRecordingPasteboard alloc] init] autorelease];
+    [declarationFailure setRejectDeclaration:YES];
+    XCTAssertFalse([textView copyCodeBlockAtIndex:blockIndex toPasteboard:(NSPasteboard *)declarationFailure]);
+    XCTAssertTrue([declarationFailure didDeclare]);
+    XCTAssertTrue([declarationFailure didAttemptWrite]);
+    XCTAssertNil([declarationFailure types]);
+
+    OMDRecordingPasteboard *writeFailure = [[[OMDRecordingPasteboard alloc] init] autorelease];
+    [writeFailure setRejectWrite:YES];
+    XCTAssertFalse([textView copyCodeBlockAtIndex:blockIndex toPasteboard:(NSPasteboard *)writeFailure]);
+    XCTAssertTrue([writeFailure didDeclare]);
+    XCTAssertTrue([writeFailure didAttemptWrite]);
+    XCTAssertEqualObjects([writeFailure types], [NSArray arrayWithObject:NSStringPboardType]);
+    XCTAssertNil([writeFailure stringForType:NSStringPboardType]);
+
+    OMDRecordingPasteboard *readbackFailure = [[[OMDRecordingPasteboard alloc] init] autorelease];
+    [readbackFailure setHideReadback:YES];
+    XCTAssertTrue([textView copyCodeBlockAtIndex:blockIndex toPasteboard:(NSPasteboard *)readbackFailure]);
+    XCTAssertTrue([readbackFailure didDeclare]);
+    XCTAssertTrue([readbackFailure didAttemptWrite]);
+    XCTAssertNil([readbackFailure types]);
+    XCTAssertNil([readbackFailure stringForType:NSStringPboardType]);
+}
+
 // Run separately when the clipboard service is free. The recording test above
 // covers the copy path during ordinary suite runs without contacting pasteboardd.
 - (void)testCopyCodeBlockWritesToRealPasteboardWhenRequested
@@ -375,11 +435,19 @@ static BOOL OMDAXChildrenContainCopyButton(NSArray *children, NSButton *button)
     }
 
     NSPasteboard *pasteboard = [NSPasteboard pasteboardWithUniqueName];
+    XCTAssertNotNil(pasteboard, @"unique pasteboard could not be created");
+    if (pasteboard == nil) {
+        return;
+    }
     @try {
         XCTAssertTrue([textView copyCodeBlockAtIndex:[textView codeBlockIndexAtCharacterIndex:index]
                                         toPasteboard:pasteboard]);
         XCTAssertEqualObjects([pasteboard types], [NSArray arrayWithObject:NSStringPboardType]);
         NSString *copied = [pasteboard stringForType:NSStringPboardType];
+        XCTAssertNotNil(copied, @"unique pasteboard string readback failed");
+        if (copied == nil) {
+            return;
+        }
         XCTAssertTrue([copied rangeOfString:@"NSLog(@\"block 2\");"].location != NSNotFound, @"%@", copied);
         XCTAssertTrue([copied rangeOfString:@"block 1"].location == NSNotFound, @"%@", copied);
     } @finally {

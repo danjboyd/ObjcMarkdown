@@ -969,8 +969,7 @@ static BOOL OMDRangeTouches(NSRange range, NSRange other)
         return NO;
     }
     [pasteboard declareTypes:[NSArray arrayWithObject:NSStringPboardType] owner:nil];
-    [pasteboard setString:[text substringWithRange:range] forType:NSStringPboardType];
-    return YES;
+    return [pasteboard setString:[text substringWithRange:range] forType:NSStringPboardType];
 }
 
 - (void)copyCodeBlockAtIndex:(NSUInteger)blockIndex
