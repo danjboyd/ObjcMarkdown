@@ -6,6 +6,7 @@
 #import "OMDCopyButtonsController.h"
 #import "OMDTextView.h"
 #import "OMMarkdownRenderer.h"
+#import "OMRenderedObject.h"
 #if !defined(GNUSTEP)
 #import <math.h>
 #endif
@@ -87,7 +88,7 @@
 
 @implementation OMDRecordingCopyButtonsController
 - (void)setTestPasteboard:(NSPasteboard *)pasteboard { _testPasteboard = pasteboard; }
-- (NSPasteboard *)copyCodeBlockPasteboard { return _testPasteboard; }
+- (NSPasteboard *)copyPasteboard { return _testPasteboard; }
 @end
 
 // The preview a copy-buttons controller works for: a text view, in a
@@ -421,6 +422,65 @@ static BOOL OMDAXChildrenContainCopyButton(NSArray *children, NSButton *button)
     [controller setTestPasteboard:(NSPasteboard *)failure];
     [controller performSelector:@selector(copyCodeBlock:) withObject:button];
     XCTAssertNil([controller valueForKey:@"copyFeedbackButton"]);
+    [controller hideCopyFeedback];
+}
+
+- (void)testDisplayMathCopyFeedbackOnlyAfterSuccessfulWrite
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    OMDTextView *textView = [self textViewForMarkdown:@"Before.\n\nAfter.\n" renderer:renderer];
+    // Exercise the attachment-backed button path without an external math tool.
+    OMRenderedObject *object = [[[OMRenderedObject alloc] initWithKind:OMRenderedObjectKindDisplayMath
+                                                                source:@"x^2 + y^2"
+                                                              markdown:@"$$x^2 + y^2$$"
+                                                       sourceLineRange:NSMakeRange(1, 1)] autorelease];
+    NSAttributedString *attachment = [[[NSAttributedString alloc] initWithString:@"X"
+        attributes:[NSDictionary dictionaryWithObject:object forKey:OMRenderedObjectAttributeName]] autorelease];
+    [[textView textStorage] setAttributedString:attachment];
+    OMDCopyButtonsTestPreview *preview = [[[OMDCopyButtonsTestPreview alloc]
+        initWithTextView:textView renderer:renderer] autorelease];
+    OMDRecordingCopyButtonsController *controller = [[[OMDRecordingCopyButtonsController alloc]
+        initWithDelegate:preview] autorelease];
+    NSButton *button = [[[NSButton alloc] init] autorelease];
+    [button setTag:0];
+    OMDRecordingPasteboard *failure = [[[OMDRecordingPasteboard alloc] init] autorelease];
+    [failure setRejectWrite:YES];
+    [controller setTestPasteboard:(NSPasteboard *)failure];
+    [controller performSelector:@selector(copyDisplayMathBlock:) withObject:button];
+    XCTAssertTrue([failure didAttemptWrite], @"display-math action did not reach the board");
+    XCTAssertNil([controller valueForKey:@"copyFeedbackButton"]);
+
+    OMDRecordingPasteboard *success = [[[OMDRecordingPasteboard alloc] init] autorelease];
+    [controller setTestPasteboard:(NSPasteboard *)success];
+    [controller performSelector:@selector(copyDisplayMathBlock:) withObject:button];
+    XCTAssertNotNil([success stringForType:NSStringPboardType]);
+    XCTAssertEqual([controller valueForKey:@"copyFeedbackButton"], button);
+    [controller hideCopyFeedback];
+}
+
+- (void)testDiagramCopyFeedbackOnlyAfterSuccessfulWrite
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    OMDTextView *textView = [self textViewForMarkdown:@"```mermaid\nflowchart TD\n  A --> B\n```\n" renderer:renderer];
+    XCTAssertEqual([[renderer diagramBlocks] count], (NSUInteger)1);
+    OMDCopyButtonsTestPreview *preview = [[[OMDCopyButtonsTestPreview alloc]
+        initWithTextView:textView renderer:renderer] autorelease];
+    OMDRecordingCopyButtonsController *controller = [[[OMDRecordingCopyButtonsController alloc]
+        initWithDelegate:preview] autorelease];
+    NSButton *button = [[[NSButton alloc] init] autorelease];
+    [button setTag:0];
+    OMDRecordingPasteboard *failure = [[[OMDRecordingPasteboard alloc] init] autorelease];
+    [failure setRejectWrite:YES];
+    [controller setTestPasteboard:(NSPasteboard *)failure];
+    [controller performSelector:@selector(copyDiagramBlock:) withObject:button];
+    XCTAssertTrue([failure didAttemptWrite], @"diagram action did not reach the board");
+    XCTAssertNil([controller valueForKey:@"copyFeedbackButton"]);
+
+    OMDRecordingPasteboard *success = [[[OMDRecordingPasteboard alloc] init] autorelease];
+    [controller setTestPasteboard:(NSPasteboard *)success];
+    [controller performSelector:@selector(copyDiagramBlock:) withObject:button];
+    XCTAssertNotNil([success stringForType:NSStringPboardType]);
+    XCTAssertEqual([controller valueForKey:@"copyFeedbackButton"], button);
     [controller hideCopyFeedback];
 }
 
