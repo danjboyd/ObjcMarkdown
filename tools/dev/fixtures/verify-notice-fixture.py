@@ -20,7 +20,7 @@ def build_id(path):
 
 def inputs(review, source):
     manifest = review / 'omd389-fixture-source-manifest.json'
-    assert sha(manifest) == '955a450c96c2832b5758d94124cc0fdf9546b01fc2e2e364ae88f9c84cf3556a'
+    assert sha(manifest) == '038f66f5fb2baf84f13f4db2b8c45ba87f5b7186323727367ecd9e6d8946bd9c'
     data = json.loads(manifest.read_text())
     assert data['target_head'] == '572df1ad9b6898f606d161c763b607bb5a2d35b7'
     assert subprocess.check_output(['git', '-C', str(source), 'rev-parse', 'HEAD'], text=True).strip() == data['target_head']

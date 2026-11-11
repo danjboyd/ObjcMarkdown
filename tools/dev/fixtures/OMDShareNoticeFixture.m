@@ -8,6 +8,11 @@
 #include <string.h>
 #include <unistd.h>
 #include <time.h>
+#include <stdint.h>
+#include <inttypes.h>
+#include <stdlib.h>
+
+static char OMDFixtureIdentityNonce[65];
 
 static void OMDTraceStage(const char *stage)
 {
@@ -125,10 +130,12 @@ static NSView *OMDFixtureFindIcon(NSView *view, NSUInteger *count)
     OMDTraceStage("ready.timer.enter");
     NSUInteger count = 0;
     NSView *icon = nil;
+    NSWindow *shareWindow = nil;
     for (NSWindow *window in [NSApp windows]) {
         NSView *candidate = OMDFixtureFindIcon([window contentView], &count);
         if (candidate != nil) {
             icon = candidate;
+            shareWindow = window;
         }
     }
     NSImage *image = [icon isKindOfClass:[NSImageView class]]
@@ -141,6 +148,22 @@ static NSView *OMDFixtureFindIcon(NSView *view, NSUInteger *count)
         [self finish:nil];
         return;
     }
+    // The exact icon-containing NSWindow supplies the Share XID, never a title search.
+    uintptr_t ownerXID = (uintptr_t)[_owner windowRef];
+    uintptr_t shareXID = (uintptr_t)[shareWindow windowRef];
+    if (shareWindow == nil || shareWindow == _owner || [icon window] != shareWindow ||
+        ![shareWindow isKindOfClass:[NSPanel class]] ||
+        ![[shareWindow title] isEqualToString:@"Share"] ||
+        ![[_owner title] isEqualToString:@"Share notice fixture - private synthetic file"] ||
+        ownerXID == 0 || shareXID == 0 || ownerXID == shareXID ||
+        ownerXID > UINT32_MAX || shareXID > UINT32_MAX) {
+        _failed = YES;
+        fprintf(stderr, "FIXTURE_INVALID native window identity missing\n");
+        [self finish:nil];
+        return;
+    }
+    fprintf(stdout, "FIXTURE_XIDS pid=%ld nonce=%s owner=0x%" PRIxPTR " share=0x%" PRIxPTR "\n",
+            (long)getpid(), OMDFixtureIdentityNonce, ownerXID, shareXID);
     fprintf(stdout, "FIXTURE_READY pid=%ld theme=%s class=%s image=%s\n",
             (long)getpid(), [[[GSTheme theme] name] UTF8String],
             [NSStringFromClass([icon class]) UTF8String], [[image name] UTF8String]);
@@ -190,6 +213,15 @@ int main(int argc, char **argv)
         [pool drain];
         return 2;
     }
+    const char *identityNonce = getenv("OMD_FIXTURE_IDENTITY_NONCE");
+    if (identityNonce == NULL || strlen(identityNonce) != 64 ||
+        strspn(identityNonce, "0123456789abcdef") != 64) {
+        fprintf(stderr, "FIXTURE_INVALID per-launch identity nonce missing\n");
+        [pool drain];
+        return 2;
+    }
+    memcpy(OMDFixtureIdentityNonce, identityNonce, 64);
+    OMDFixtureIdentityNonce[64] = '\0';
     [[NSProcessInfo processInfo] setProcessName:@"OMDShareNoticeFixture"];
     OMDTraceStage("app.shared.enter");
     [NSApplication sharedApplication];
