@@ -6,6 +6,7 @@
 #import "OMDCopyButtonsController.h"
 #import "OMDTextView.h"
 #import "OMMarkdownRenderer.h"
+#import "OMDRenderResult.h"
 #import "OMRenderedObject.h"
 #if !defined(GNUSTEP)
 #import <math.h>
@@ -118,7 +119,10 @@
     [super dealloc];
 }
 - (NSTextView *)previewTextView { return _textView; }
-- (OMMarkdownRenderer *)previewRenderer { return _renderer; }
+- (OMDRenderResult *)previewRenderResult
+{
+    return [OMDRenderResult resultOfRenderer:_renderer markdown:nil sourceRevision:0];
+}
 - (void)previewDidLayoutForCopyButtons { }
 @end
 
@@ -456,6 +460,52 @@ static BOOL OMDAXChildrenContainCopyButton(NSArray *children, NSButton *button)
     XCTAssertNotNil([success stringForType:NSStringPboardType]);
     XCTAssertEqual([controller valueForKey:@"copyFeedbackButton"], button);
     [controller hideCopyFeedback];
+}
+
+- (void)testStyledDisplayMathFromInstalledUATFixtureHasCopyButton
+{
+    NSString *markdown = @"# Installed Copy and Quick Look UAT\n\n"
+        @"This private fixture contains only synthetic text.\n\n"
+        @"## Copy code\n\n```text\nCODE_SENTINEL_359_028_A7C2\n```\n\n"
+        @"## Copy diagram source\n\n```mermaid\nflowchart LR\n"
+        @"    MERMAID_SENTINEL_359_028_B4D1[Start] --> End\n```\n\n"
+        @"## Copy display math source\n\n$$\n"
+        @"MATH_SENTINEL_359_028_C6F3 = 2 + 2\n$$\n\n"
+        @"## Quick Look structure\n\n- First item\n  - Nested item\n"
+        @"- Second item\n\n| Label | Value |\n| --- | --- |\n"
+        @"| Synthetic | 42 |\n\n[Local anchor](#copy-code)\n";
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    OMDTextView *textView = [self textViewForMarkdown:markdown renderer:renderer];
+    NSTextStorage *storage = [textView textStorage];
+    NSRange mathRange = [[storage string] rangeOfString:@"MATH_SENTINEL_359_028_C6F3"];
+    XCTAssertNotEqual(mathRange.location, NSNotFound);
+    if (mathRange.location == NSNotFound) {
+        return;
+    }
+    XCTAssertNil([storage attribute:OMRenderedObjectAttributeName atIndex:mathRange.location effectiveRange:NULL]);
+
+    OMDCopyButtonsTestPreview *preview = [[[OMDCopyButtonsTestPreview alloc]
+        initWithTextView:textView renderer:renderer] autorelease];
+    OMDRecordingCopyButtonsController *controller = [[[OMDRecordingCopyButtonsController alloc]
+        initWithDelegate:preview] autorelease];
+    [controller updateCodeBlockButtons];
+    NSButton *mathButton = nil;
+    for (NSButton *button in [self buttonsInView:textView]) {
+        if ([[button toolTip] isEqualToString:@"Copy equation source"]) {
+            mathButton = button;
+            break;
+        }
+    }
+    XCTAssertNotNil(mathButton);
+    if (mathButton != nil) {
+        OMDRecordingPasteboard *board = [[[OMDRecordingPasteboard alloc] init] autorelease];
+        [controller setTestPasteboard:(NSPasteboard *)board];
+        [controller performSelector:@selector(copyDisplayMathBlock:) withObject:mathButton];
+        XCTAssertEqualObjects([board stringForType:NSStringPboardType],
+                              @"MATH_SENTINEL_359_028_C6F3 = 2 + 2");
+    }
+    [controller removeCopyButtons];
+    [controller release];
 }
 
 - (void)testDiagramCopyFeedbackOnlyAfterSuccessfulWrite

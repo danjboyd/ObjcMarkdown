@@ -61,6 +61,8 @@ OM_EXPORT NSString * const OMMarkdownRendererHeadingAnchorAttributeName;
 OM_EXPORT NSString * const OMMarkdownRendererFootnoteAnchorAttributeName;
 // Attribute on a GitHub alert quote ("> [!NOTE]" ...): the NSColor for its bar.
 OM_EXPORT NSString * const OMMarkdownRendererBlockquoteColorAttributeName;
+// Formula source on styled-text display math, for preview Copy controls.
+OM_EXPORT NSString * const OMMarkdownRendererDisplayMathSourceAttributeName;
 
 // Keys in the dictionaries returned by -taskItems.
 OM_EXPORT NSString * const OMMarkdownRendererTaskItemCheckedKey;         // NSNumber, BOOL

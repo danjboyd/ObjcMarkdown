@@ -39,6 +39,7 @@
 #import "OMDStatusBarController.h"
 #import "OMDCopyButtonsController.h"
 #import "OMDRenderScheduler.h"
+#import "OMDRenderResult.h"
 #import "OMDPreviewTextUpdate.h"
 #import "OMDViewerDefaults.h"
 #import "OMDViewerImages.h"
@@ -874,6 +875,7 @@ static NSMutableArray *OMDSecondaryWindows(void)
     [_workspaceMainContainer release];
     [_sidebarContainer release];
     [_renderer release];
+    [_appliedResult release];
     [_previewTaskItems release];
     [_previewTaskItemsMarkdown release];
     [_sourceTextView release];
@@ -4603,7 +4605,7 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
         NSString *text = [_textView string];
         return NSMaxRange(previewRange) <= [text length] ? [text substringWithRange:previewRange] : nil;
     }
-    return OMDShareMarkdownForPreviewRange(_currentMarkdown, previewRange, [_renderer blockAnchors]);
+    return OMDShareMarkdownForPreviewRange(_currentMarkdown, previewRange, [_appliedResult blockAnchors]);
 }
 
 - (NSString *)shareSelectedSourceText
@@ -4692,6 +4694,10 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
     [self updateRendererLayoutWidth];
     NSTimeInterval markdownStart = perfLogging ? OMDNow() : 0.0;
     NSAttributedString *rendered = [_renderer attributedStringFromMarkdown:previewMarkdown];
+    [_appliedResult release];
+    _appliedResult = [[OMDRenderResult resultOfRenderer:_renderer
+                                               markdown:previewMarkdown
+                                         sourceRevision:revisionAtRenderStart] retain];
     OMDPreviewSyncUseSourceBlockDescriptors(previewMarkdown, [_renderer sourceBlockDescriptors]);
     OMDStartupTrace([NSString stringWithFormat:@"renderCurrentMarkdown: policy=%ld attachments=%lu renderedLength=%lu markdownLength=%lu",
                                                (long)[self currentMathRenderingPolicy],
@@ -4706,7 +4712,7 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
     OMDApplyRenderedString([_textView textStorage], rendered);
     _isProgrammaticPreviewUpdate = NO;
     [_previewTaskItems release];
-    _previewTaskItems = [[_renderer taskItems] copy];
+    _previewTaskItems = [[_appliedResult taskItems] copy];
     [_previewTaskItemsMarkdown release];
     _previewTaskItemsMarkdown = [previewMarkdown copy];
     [self logPreviewStyleDiagnosticsForRenderedString:rendered];
@@ -4718,7 +4724,7 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
         OMDTextView *codeView = (OMDTextView *)_textView;
         [codeView setDocumentBackgroundColor:nil];
         [codeView setDocumentBorderColor:nil];
-        [codeView setCodeBlockRanges:[_renderer codeBlockRanges]];
+        [codeView setCodeBlockRanges:[_appliedResult codeBlockRanges]];
         OMTheme *theme = [_renderer theme];
         [codeView setCodeBlockBackgroundColor:(theme.codeBackgroundColor != nil
                                                ? theme.codeBackgroundColor
@@ -4735,7 +4741,7 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
         [codeView setCodeBlockPadding:NSMakeSize(20.0, 14.0)];
         [codeView setCodeBlockCornerRadius:6.0];
         [codeView setCodeBlockBorderWidth:1.0];
-        [codeView setBlockquoteRanges:[_renderer blockquoteRanges]];
+        [codeView setBlockquoteRanges:[_appliedResult blockquoteRanges]];
         [codeView setBlockquoteLineColor:(theme.blockquoteBorderColor != nil
                                           ? theme.blockquoteBorderColor
                                           : [NSColor colorWithCalibratedWhite:0.82 alpha:1.0])];
@@ -5633,7 +5639,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
         sourceAnchorLocation = OMDMapTargetLocationWithBlockAnchors(sourceAnchorText,
                                                                     previewText,
                                                                     previewLocation,
-                                                                    [_renderer blockAnchors]);
+                                                                    [_appliedResult blockAnchors]);
         preserveViewportAnchor = YES;
     } else if (previousMode == OMDViewerModeSplit && mode == OMDViewerModeRead) {
         if (_sourceTextView != nil) {
@@ -5716,7 +5722,7 @@ constrainSplitPosition:(CGFloat)proposedPosition
             NSUInteger previewLocation = OMDMapSourceLocationWithBlockAnchors(sourceText,
                                                                               sourceAnchorLocation,
                                                                               previewText,
-                                                                              [_renderer blockAnchors]);
+                                                                              [_appliedResult blockAnchors]);
             if (preserveViewportAnchor) {
                 [self scrollPreviewToCharacterIndex:previewLocation
                                      verticalAnchor:OMDLinkedScrollViewportAnchor];
@@ -6827,7 +6833,7 @@ static CGFloat OMDOutlinePanelWidth(NSRect bounds)
     NSUInteger previewLocation = OMDMapSourceLocationWithBlockAnchors(sourceText,
                                                                       sourceLocation,
                                                                       previewText,
-                                                                      [_renderer blockAnchors]);
+                                                                      [_appliedResult blockAnchors]);
     _isProgrammaticScrollSync = YES;
     [self scrollPreviewToCharacterIndex:previewLocation verticalAnchor:OMDLinkedScrollViewportAnchor];
     _isProgrammaticScrollSync = NO;
@@ -6854,7 +6860,7 @@ static CGFloat OMDOutlinePanelWidth(NSRect bounds)
     NSUInteger sourceLocation = OMDMapTargetLocationWithBlockAnchors(sourceText,
                                                                      previewText,
                                                                      previewLocation,
-                                                                     [_renderer blockAnchors]);
+                                                                     [_appliedResult blockAnchors]);
     _isProgrammaticScrollSync = YES;
     [self scrollSourceToCharacterIndex:sourceLocation verticalAnchor:OMDLinkedScrollViewportAnchor];
     _isProgrammaticScrollSync = NO;
@@ -6936,7 +6942,7 @@ static CGFloat OMDOutlinePanelWidth(NSRect bounds)
     NSUInteger previewLocation = OMDMapSourceLocationWithBlockAnchors(sourceText,
                                                                       sourceLocation,
                                                                       previewText,
-                                                                      [_renderer blockAnchors]);
+                                                                      [_appliedResult blockAnchors]);
     _isProgrammaticScrollSync = YES;
     [self scrollPreviewToCharacterIndex:previewLocation verticalAnchor:0.35];
     _isProgrammaticScrollSync = NO;
@@ -6969,7 +6975,7 @@ static CGFloat OMDOutlinePanelWidth(NSRect bounds)
     NSUInteger sourceLocation = OMDMapTargetLocationWithBlockAnchors(sourceText,
                                                                      previewText,
                                                                      previewLocation,
-                                                                     [_renderer blockAnchors]);
+                                                                     [_appliedResult blockAnchors]);
     if (atPreviewEnd) {
         sourceLocation = sourceLength;
     }
@@ -7795,9 +7801,9 @@ static CGFloat OMDOutlinePanelWidth(NSRect bounds)
     return _textView;
 }
 
-- (OMMarkdownRenderer *)previewRenderer
+- (OMDRenderResult *)previewRenderResult
 {
-    return _renderer;
+    return _appliedResult;
 }
 
 - (void)previewDidLayoutForCopyButtons
@@ -9166,7 +9172,7 @@ static NSRange OMDCharacterRangeForSourceLines(NSString *source, NSRange lineRan
     if (_textView == nil || ![self hasLoadedDocument] || range.location == NSNotFound) {
         return NSMakeRange(NSNotFound, 0);
     }
-    return OMDSourceLineRangeForPreviewRange(range, [_renderer blockAnchors]);
+    return OMDSourceLineRangeForPreviewRange(range, [_appliedResult blockAnchors]);
 }
 
 - (void)textView:(OMDTextView *)textView revealSourceOfPreviewRange:(NSRange)range
@@ -9391,7 +9397,7 @@ static NSRange OMDCharacterRangeForSourceLines(NSString *source, NSRange lineRan
         return nil;
     }
     if ([self isPreviewVisible]) {
-        return [_renderer headings];
+        return [_appliedResult headings];
     }
     if (_currentDocumentRenderMode == OMDDocumentRenderModeVerbatim || _currentMarkdown == nil) {
         return nil;
@@ -9493,7 +9499,7 @@ static NSRange OMDCharacterRangeForSourceLines(NSString *source, NSRange lineRan
     if ([anchor length] == 0) {
         return nil;
     }
-    NSArray *headings = [_renderer headings];
+    NSArray *headings = [_appliedResult headings];
     for (NSDictionary *heading in headings) {
         if ([[heading objectForKey:OMMarkdownRendererHeadingAnchorKey] isEqualToString:anchor]) {
             return heading;

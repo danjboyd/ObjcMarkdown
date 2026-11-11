@@ -2300,7 +2300,13 @@ void OMAppendDisplayMathFormula(NSString *formula,
                             formula,
                             [NSString stringWithFormat:@"$$\n%@\n$$", OMTrimmedCellText(formula)]);
     } else {
+        NSUInteger textStart = [output length];
         OMAppendMathText(output, OMReadableMathFallbackString(formula), mathAttrs);
+        if ([output length] > textStart) {
+            [output addAttribute:OMMarkdownRendererDisplayMathSourceAttributeName
+                          value:formula
+                          range:NSMakeRange(textStart, [output length] - textStart)];
+        }
     }
 }
 

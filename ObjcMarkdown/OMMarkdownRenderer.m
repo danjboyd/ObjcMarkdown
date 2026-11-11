@@ -24,6 +24,7 @@ NSString * const OMMarkdownRendererHeadingSourceLineKey = @"OMMarkdownRendererHe
 NSString * const OMMarkdownRendererHeadingAnchorAttributeName = @"OMMarkdownRendererHeadingAnchor";
 NSString * const OMMarkdownRendererFootnoteAnchorAttributeName = @"OMMarkdownRendererFootnoteAnchor";
 NSString * const OMMarkdownRendererBlockquoteColorAttributeName = @"OMMarkdownRendererBlockquoteColor";
+NSString * const OMMarkdownRendererDisplayMathSourceAttributeName = @"OMMarkdownRendererDisplayMathSource";
 NSString * const OMMarkdownRendererTaskItemCheckedKey = @"OMMarkdownRendererTaskItemChecked";
 NSString * const OMMarkdownRendererTaskItemSourceLineKey = @"OMMarkdownRendererTaskItemSourceLine";
 NSString * const OMMarkdownRendererTaskItemSourceLocationKey = @"OMMarkdownRendererTaskItemSourceLocation";

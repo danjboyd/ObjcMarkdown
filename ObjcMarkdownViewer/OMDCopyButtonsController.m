@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #import "OMDCopyButtonsController.h"
+#import "OMDRenderResult.h"
 #import "OMDLayoutMetrics.h"
 #import "OMDCodeCopyButton.h"
 #import "OMDTextView.h"
@@ -101,7 +102,7 @@ static const NSTimeInterval OMDCopyFeedbackDisplayInterval = 0.95;
 - (void)updateCodeBlockButtons
 {
     NSTextView *textView = [_delegate previewTextView];
-    OMMarkdownRenderer *renderer = [_delegate previewRenderer];
+    OMDRenderResult *renderResult = [_delegate previewRenderResult];
     [self hideCopyFeedback];
 
     if (_codeBlockButtons == nil) {
@@ -115,8 +116,8 @@ static const NSTimeInterval OMDCopyFeedbackDisplayInterval = 0.95;
     [_copySlots removeAllObjects];
     [self observeClipViewOfTextView:textView];
 
-    NSArray *codeRanges = [renderer codeBlockRanges];
-    NSArray *diagramBlocks = [renderer diagramBlocks];
+    NSArray *codeRanges = [renderResult codeBlockRanges];
+    NSArray *diagramBlocks = [renderResult diagramBlocks];
     NSArray *displayMathRanges = [self displayMathObjectRanges];
 
     NSLayoutManager *layoutManager = [textView layoutManager];
@@ -188,6 +189,15 @@ static const NSTimeInterval OMDCopyFeedbackDisplayInterval = 0.95;
             for (; location < NSMaxRange(effective); location++) {
                 [ranges addObject:[NSValue valueWithRange:NSMakeRange(location, 1)]];
             }
+        } else if (object == nil) {
+            NSRange mathRange;
+            NSString *formula = [storage attribute:OMMarkdownRendererDisplayMathSourceAttributeName
+                                           atIndex:index
+                                    effectiveRange:&mathRange];
+            effective = mathRange;
+            if (formula != nil && [formula length] > 0) {
+                [ranges addObject:[NSValue valueWithRange:mathRange]];
+            }
         }
         index = NSMaxRange(effective);
     }
@@ -206,12 +216,15 @@ static const NSTimeInterval OMDCopyFeedbackDisplayInterval = 0.95;
     OMRenderedObject *object = [[textView textStorage] attribute:OMRenderedObjectAttributeName
                                                           atIndex:range.location
                                                    effectiveRange:NULL];
-    if (object == nil) {
+    NSString *source = object != nil ? [object source]
+        : [[textView textStorage] attribute:OMMarkdownRendererDisplayMathSourceAttributeName
+                                   atIndex:range.location effectiveRange:NULL];
+    if (source == nil) {
         return;
     }
     NSPasteboard *pasteboard = [self copyPasteboard];
     [pasteboard declareTypes:[NSArray arrayWithObject:NSStringPboardType] owner:nil];
-    BOOL copied = [pasteboard setString:[[object source] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]]
+    BOOL copied = [pasteboard setString:[source stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]]
                                forType:NSStringPboardType];
     if (copied && [sender isKindOfClass:[NSButton class]]) {
         [self showCopyFeedbackForButton:(NSButton *)sender];
@@ -254,7 +267,7 @@ static NSInteger OMDCompareCopySlots(id a, id b, void *context)
 - (BOOL)frameForCopySlot:(NSDictionary *)slot frame:(NSRect *)frameOut
 {
     NSTextView *textView = [_delegate previewTextView];
-    OMMarkdownRenderer *renderer = [_delegate previewRenderer];
+    OMDRenderResult *renderResult = [_delegate previewRenderResult];
     NSLayoutManager *layoutManager = [textView layoutManager];
     NSTextContainer *container = [textView textContainer];
     NSRange charRange = [[slot objectForKey:@"range"] rangeValue];
@@ -270,7 +283,7 @@ static NSInteger OMDCompareCopySlots(id a, id b, void *context)
     if ([[slot objectForKey:@"matchEdge"] boolValue]) {
         // A code block's text runs to the line end less its tail inset.
         NSRect fragment = [layoutManager lineFragmentRectForGlyphAtIndex:glyphRange.location effectiveRange:NULL];
-        CGFloat codeTailInset = 20.0 * ([renderer zoomScale] > 0.0 ? [renderer zoomScale] : 1.0);
+        CGFloat codeTailInset = 20.0 * ([renderResult zoomScale] > 0.0 ? [renderResult zoomScale] : 1.0);
         CGFloat right = NSMaxX(fragment) - [container lineFragmentPadding] - codeTailInset;
         blockRect.size.width = MAX(1.0, right - NSMinX(blockRect));
     }
@@ -425,9 +438,9 @@ static NSInteger OMDCompareCopySlots(id a, id b, void *context)
 
 - (void)copyDiagramBlock:(id)sender
 {
-    OMMarkdownRenderer *renderer = [_delegate previewRenderer];
+    OMDRenderResult *renderResult = [_delegate previewRenderResult];
     NSInteger index = [sender tag];
-    NSArray *blocks = [renderer diagramBlocks];
+    NSArray *blocks = [renderResult diagramBlocks];
     if (index < 0 || index >= (NSInteger)[blocks count]) {
         return;
     }
@@ -575,9 +588,9 @@ static NSInteger OMDCompareCopySlots(id a, id b, void *context)
 - (void)copyCodeBlock:(id)sender
 {
     NSTextView *textView = [_delegate previewTextView];
-    OMMarkdownRenderer *renderer = [_delegate previewRenderer];
+    OMDRenderResult *renderResult = [_delegate previewRenderResult];
     NSInteger index = [sender tag];
-    NSArray *ranges = [renderer codeBlockRanges];
+    NSArray *ranges = [renderResult codeBlockRanges];
     if (index < 0 || index >= (NSInteger)[ranges count]) {
         return;
     }
