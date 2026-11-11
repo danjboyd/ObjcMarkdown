@@ -24,6 +24,7 @@ permissions:
 
 jobs:
   build-and-test:
+    if: github.event_name != 'workflow_dispatch' || github.ref != 'refs/heads/diagnostic-392-unique-pasteboard-4437'
     runs-on: macos-15
     timeout-minutes: 30
     steps:
@@ -118,6 +119,55 @@ jobs:
             macos/build/*.dmg
             macos/build/*.appcast.xml
           if-no-files-found: error
+
+  unique-pasteboard-diagnostic:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/diagnostic-392-unique-pasteboard-4437'
+    runs-on: macos-15
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 4437e9197bd19d3973a3dc2886bac9244c23173c
+          submodules: true
+          persist-credentials: false
+
+      - name: Verify exact diagnostic source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/diagnostic-392-unique-pasteboard-4437'
+          test "$(git rev-parse HEAD)" = '4437e9197bd19d3973a3dc2886bac9244c23173c'
+          test "$(git rev-parse HEAD^{tree})" = '285310ca0233a280820afe138826b54711902b3e'
+          printf '%s  %s\n' \
+            '45a635b788a8d68a07a6e821bd2b1b113ac38e9ba7bc06b6e0b3fcf1de7b94ab' \
+            'ObjcMarkdownTests/OMDCopyButtonsControllerTests.m' | shasum -a 256 -c -
+
+      - name: Build only the test bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          make -C macos ARCHS=arm64 OMD_WERROR=1 "$PWD/macos/build/ObjcMarkdownTests.xctest"
+          codesign --verify macos/build/ObjcMarkdownTests.xctest
+          shasum -a 256 macos/build/ObjcMarkdownTests.xctest/Contents/MacOS/ObjcMarkdownTests
+
+      - name: One unique-pasteboard method
+        shell: bash
+        run: |
+          set -uo pipefail
+          test_log="$RUNNER_TEMP/omd-392-unique-pasteboard.log"
+          OMD_TEST_REAL_PASTEBOARD=1 xcrun xctest \
+            -XCTest OMDCopyButtonsControllerTests/testCopyCodeBlockWritesToRealPasteboardWhenRequested \
+            "$PWD/macos/build/ObjcMarkdownTests.xctest" > "$test_log" 2>&1
+          test_exit=$?
+          /usr/bin/grep -E 'OMD unique pasteboard stage=|Executed [0-9]+ tests?' "$test_log" || true
+          printf 'xctest_exit=%s\n' "$test_exit"
+          if ! /usr/bin/grep -Eq 'Executed 1 test,' "$test_log"; then
+            printf 'test_scope=unexpected\n'
+            exit 1
+          fi
+          exit "$test_exit"
 
   publish-release-assets:
     if: github.ref_type == 'tag'
