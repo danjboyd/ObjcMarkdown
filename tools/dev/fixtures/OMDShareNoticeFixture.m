@@ -40,6 +40,7 @@ static NSView *OMDFixtureFindIcon(NSView *view, NSUInteger *count)
     NSWindow *_owner;
     BOOL _failed;
     BOOL _finished;
+    BOOL _tracedErrorPresentation;
 }
 - (instancetype)initWithSyntheticPath:(NSString *)path;
 - (BOOL)failed;
@@ -53,6 +54,7 @@ static NSView *OMDFixtureFindIcon(NSView *view, NSUInteger *count)
     self = [super init];
     if (self != nil) {
         _syntheticPath = [path copy];
+        _tracedErrorPresentation = NO;
     }
     return self;
 }
@@ -67,6 +69,17 @@ static NSView *OMDFixtureFindIcon(NSView *view, NSUInteger *count)
 - (BOOL)failed
 {
     return _failed;
+}
+
+- (NSError *)application:(NSApplication *)application
+        willPresentError:(NSError *)error
+{
+    (void)application;
+    if (!_tracedErrorPresentation) {
+        _tracedErrorPresentation = YES;
+        OMDTraceStage("launch.error.will-present");
+    }
+    return error;
 }
 
 - (void)applicationDidFinishLaunching:(NSNotification *)notification
