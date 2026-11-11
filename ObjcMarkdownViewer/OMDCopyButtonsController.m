@@ -27,6 +27,7 @@ static const NSTimeInterval OMDCopyFeedbackDisplayInterval = 0.95;
 - (void)removeButtonForSlot:(NSNumber *)slot;
 - (void)applyCopyButtonDefaultAppearance:(NSButton *)button;
 - (void)showCopyFeedbackForButton:(NSButton *)button;
+- (NSPasteboard *)copyPasteboard;
 @end
 
 @implementation OMDCopyButtonsController
@@ -209,12 +210,14 @@ static const NSTimeInterval OMDCopyFeedbackDisplayInterval = 0.95;
     if (object == nil) {
         return;
     }
-    NSPasteboard *pasteboard = [NSPasteboard generalPasteboard];
+    NSPasteboard *pasteboard = [self copyPasteboard];
     [pasteboard declareTypes:[NSArray arrayWithObject:NSStringPboardType] owner:nil];
-    [pasteboard setString:[[object source] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]]
-                  forType:NSStringPboardType];
-    if ([sender isKindOfClass:[NSButton class]]) {
+    BOOL copied = [pasteboard setString:[[object source] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]]
+                               forType:NSStringPboardType];
+    if (copied && [sender isKindOfClass:[NSButton class]]) {
         [self showCopyFeedbackForButton:(NSButton *)sender];
+    } else if (!copied) {
+        [self hideCopyFeedback];
     }
 }
 
@@ -435,12 +438,14 @@ static NSInteger OMDCompareCopySlots(id a, id b, void *context)
         return;
     }
 
-    NSPasteboard *pasteboard = [NSPasteboard generalPasteboard];
+    NSPasteboard *pasteboard = [self copyPasteboard];
     [pasteboard declareTypes:[NSArray arrayWithObject:NSStringPboardType] owner:nil];
-    [pasteboard setString:source forType:NSStringPboardType];
+    BOOL copied = [pasteboard setString:source forType:NSStringPboardType];
 
-    if ([sender isKindOfClass:[NSButton class]]) {
+    if (copied && [sender isKindOfClass:[NSButton class]]) {
         [self showCopyFeedbackForButton:(NSButton *)sender];
+    } else if (!copied) {
+        [self hideCopyFeedback];
     }
 }
 
@@ -584,13 +589,20 @@ static NSInteger OMDCompareCopySlots(id a, id b, void *context)
     }
 
     NSString *snippet = [fullText substringWithRange:range];
-    NSPasteboard *pasteboard = [NSPasteboard generalPasteboard];
+    NSPasteboard *pasteboard = [self copyPasteboard];
     [pasteboard declareTypes:[NSArray arrayWithObject:NSStringPboardType] owner:nil];
-    [pasteboard setString:snippet forType:NSStringPboardType];
+    BOOL copied = [pasteboard setString:snippet forType:NSStringPboardType];
 
-    if ([sender isKindOfClass:[NSButton class]]) {
+    if (copied && [sender isKindOfClass:[NSButton class]]) {
         [self showCopyFeedbackForButton:(NSButton *)sender];
+    } else if (!copied) {
+        [self hideCopyFeedback];
     }
+}
+
+- (NSPasteboard *)copyPasteboard
+{
+    return [NSPasteboard generalPasteboard];
 }
 
 @end
