@@ -342,6 +342,12 @@ static void OMDUseEllipsisCharacters(NSMenu *menu)
                                                               action:@selector(copy:)
                                                        keyEquivalent:@"c"];
     [copyItem setTarget:nil];
+    // The preview's code block at the selection, for keyboard and VoiceOver
+    // users as much as the block's copy button (#346).
+    NSMenuItem *copyCodeBlockItem = (NSMenuItem *)[editMenu addItemWithTitle:@"Copy Code Block"
+                                                                       action:@selector(copyCodeBlockAtSelection:)
+                                                                keyEquivalent:@""];
+    [copyCodeBlockItem setTarget:nil];
     NSMenuItem *pasteItem = (NSMenuItem *)[editMenu addItemWithTitle:@"Paste"
                                                                action:@selector(paste:)
                                                         keyEquivalent:@"v"];

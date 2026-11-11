@@ -70,6 +70,39 @@ NSUInteger OMDTaskItemIndexAtCharacterIndex(NSAttributedString *text, NSUInteger
     [super dealloc];
 }
 
+#if !defined(GNUSTEP)
+- (NSArray *)accessibilityChildrenIncludingVisibleCopyButtons:(NSArray *)baseChildren
+{
+    NSMutableArray *children = baseChildren != nil ? [[baseChildren mutableCopy] autorelease] : [NSMutableArray array];
+    // Quick Look uses this text view without linking the viewer's buttons.
+    Class copyButtonClass = NSClassFromString(@"OMDCodeCopyButton");
+    if (copyButtonClass == Nil) {
+        return children;
+    }
+    NSRect visible = [self visibleRect];
+    for (NSView *subview in [self subviews]) {
+        if ([subview isKindOfClass:copyButtonClass] &&
+            [subview isAccessibilityElement] && ![subview isHidden] &&
+            NSIntersectsRect([subview frame], visible) &&
+            ![children containsObject:subview]) {
+            [children addObject:subview];
+        }
+    }
+    return children;
+}
+
+- (NSArray *)accessibilityChildren
+{
+    return [self accessibilityChildrenIncludingVisibleCopyButtons:[super accessibilityChildren]];
+}
+
+- (NSArray *)accessibilityChildrenInNavigationOrder
+{
+    NSArray *navigation = [super accessibilityChildrenInNavigationOrder];
+    return [self accessibilityChildrenIncludingVisibleCopyButtons:(navigation != nil ? navigation : [super accessibilityChildren])];
+}
+#endif
+
 - (void)drawRect:(NSRect)dirtyRect
 {
     NSGraphicsContext *context = [NSGraphicsContext currentContext];
@@ -907,6 +940,91 @@ static BOOL OMDRangeTouches(NSRange range, NSRange other)
     return [super writeSelectionToPasteboard:pboard type:type];
 }
 
+#pragma mark - Code blocks
+
+- (NSUInteger)codeBlockIndexAtCharacterIndex:(NSUInteger)characterIndex
+{
+    NSUInteger index = 0;
+    for (NSValue *value in self.codeBlockRanges) {
+        NSRange range = [value rangeValue];
+        if (characterIndex >= range.location && characterIndex < NSMaxRange(range)) {
+            return index;
+        }
+        if (range.location > characterIndex) {
+            break;
+        }
+        index++;
+    }
+    return NSNotFound;
+}
+
+- (BOOL)copyCodeBlockAtIndex:(NSUInteger)blockIndex toPasteboard:(NSPasteboard *)pasteboard
+{
+    if (blockIndex >= [self.codeBlockRanges count]) {
+        return NO;
+    }
+    NSRange range = [[self.codeBlockRanges objectAtIndex:blockIndex] rangeValue];
+    NSString *text = [[self textStorage] string];
+    if (NSMaxRange(range) > [text length]) {
+        return NO;
+    }
+    [pasteboard declareTypes:[NSArray arrayWithObject:NSStringPboardType] owner:nil];
+    return [pasteboard setString:[text substringWithRange:range] forType:NSStringPboardType];
+}
+
+- (void)copyCodeBlockAtIndex:(NSUInteger)blockIndex
+{
+    [self copyCodeBlockAtIndex:blockIndex toPasteboard:[NSPasteboard generalPasteboard]];
+}
+
+- (IBAction)copyCodeBlockAtSelection:(id)sender
+{
+    [self copyCodeBlockAtIndex:[self codeBlockIndexAtCharacterIndex:[self selectedRange].location]];
+}
+
+- (void)copyCodeBlockFromMenu:(id)sender
+{
+    [self copyCodeBlockAtIndex:(NSUInteger)[sender tag]];
+}
+
+- (BOOL)validateUserInterfaceItem:(id<NSValidatedUserInterfaceItem>)item
+{
+    if ([item action] == @selector(copyCodeBlockAtSelection:)) {
+        return [self codeBlockIndexAtCharacterIndex:[self selectedRange].location] != NSNotFound;
+    }
+    if ([NSTextView instancesRespondToSelector:@selector(validateUserInterfaceItem:)]) {
+        return [super validateUserInterfaceItem:item];
+    }
+    return YES;
+}
+
+// GNUstep validates menu items here.
+- (BOOL)validateMenuItem:(NSMenuItem *)item
+{
+    if ([item action] == @selector(copyCodeBlockAtSelection:)) {
+        return [self codeBlockIndexAtCharacterIndex:[self selectedRange].location] != NSNotFound;
+    }
+    if ([NSTextView instancesRespondToSelector:@selector(validateMenuItem:)]) {
+        return [super validateMenuItem:item];
+    }
+    return YES;
+}
+
+// "Copy Code Block" in the text menu of a click inside a code block.
+- (void)addCopyCodeBlockItemToMenu:(NSMenu *)menu forCharacterIndex:(NSUInteger)characterIndex
+{
+    NSUInteger blockIndex = [self codeBlockIndexAtCharacterIndex:characterIndex];
+    if (blockIndex == NSNotFound) {
+        return;
+    }
+    NSMenuItem *item = (NSMenuItem *)[menu addItemWithTitle:@"Copy Code Block"
+                                                      action:@selector(copyCodeBlockFromMenu:)
+                                               keyEquivalent:@""];
+    [item setTarget:self];
+    [item setTag:(NSInteger)blockIndex];
+    [item setEnabled:YES];
+}
+
 #pragma mark - Context menu
 
 - (NSMenu *)renderedObjectMenuForEvent:(NSEvent *)event
@@ -1124,21 +1242,25 @@ static BOOL OMDRangeTouches(NSRange range, NSRange other)
 // its Cut and Paste mean nothing in the preview, so the preview has its own.
 - (NSMenu *)textMenuForEvent:(NSEvent *)event
 {
-    if (![self offersRevealInSource]) {
-        return nil;
-    }
     NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
     NSUInteger index = [self characterIndexNearestPoint:point];
     if (index == NSNotFound) {
         return nil;
     }
-    _contextTextRange = [self contextTextRangeAtCharacterIndex:index];
+    BOOL reveal = [self offersRevealInSource];
+    if (!reveal && [self codeBlockIndexAtCharacterIndex:index] == NSNotFound) {
+        return nil;
+    }
     NSMenu *menu = [[[NSMenu alloc] initWithTitle:@"Text"] autorelease];
     [menu setAutoenablesItems:NO];
     NSMenuItem *item = (NSMenuItem *)[menu addItemWithTitle:@"Copy" action:@selector(copy:) keyEquivalent:@""];
     [item setTarget:self];
     [item setEnabled:([self selectedRange].length > 0)];
-    [self addRevealInSourceItemToMenu:menu];
+    [self addCopyCodeBlockItemToMenu:menu forCharacterIndex:index];
+    if (reveal) {
+        _contextTextRange = [self contextTextRangeAtCharacterIndex:index];
+        [self addRevealInSourceItemToMenu:menu];
+    }
     return menu;
 }
 #endif
@@ -1168,13 +1290,21 @@ static BOOL OMDRangeTouches(NSRange range, NSRange other)
     menu = [super menuForEvent:event];
 #if !defined(GNUSTEP)
     // AppKit's own text menu (it may select the clicked word first), with
-    // Reveal in Source after it.
-    if ([self offersRevealInSource]) {
-        NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
-        NSUInteger index = [self characterIndexNearestPoint:point];
-        if (index != NSNotFound) {
+    // Copy Code Block and Reveal in Source after it.
+    NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
+    NSUInteger index = [self characterIndexNearestPoint:point];
+    BOOL inCodeBlock = (index != NSNotFound && [self codeBlockIndexAtCharacterIndex:index] != NSNotFound);
+    BOOL reveal = (index != NSNotFound && [self offersRevealInSource]);
+    if (inCodeBlock || reveal) {
+        menu = (menu != nil) ? [[menu copy] autorelease] : [[[NSMenu alloc] initWithTitle:@"Text"] autorelease];
+        if (inCodeBlock) {
+            if ([menu numberOfItems] > 0) {
+                [menu addItem:[NSMenuItem separatorItem]];
+            }
+            [self addCopyCodeBlockItemToMenu:menu forCharacterIndex:index];
+        }
+        if (reveal) {
             _contextTextRange = [self contextTextRangeAtCharacterIndex:index];
-            menu = (menu != nil) ? [[menu copy] autorelease] : [[[NSMenu alloc] initWithTitle:@"Text"] autorelease];
             [self addRevealInSourceItemToMenu:menu];
         }
     }
