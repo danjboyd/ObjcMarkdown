@@ -495,6 +495,8 @@ static BOOL OMDAXChildrenContainCopyButton(NSArray *children, NSButton *button)
     OMDObservingPasteboard *observer = [[[OMDObservingPasteboard alloc]
         initWithPasteboard:(NSPasteboard *)recording] autorelease];
     NSUInteger blockIndex = [textView codeBlockIndexAtCharacterIndex:characterIndex];
+    NSRange expectedRange = [[[textView codeBlockRanges] objectAtIndex:blockIndex] rangeValue];
+    NSString *expected = [text substringWithRange:expectedRange];
     XCTAssertTrue([textView copyCodeBlockAtIndex:blockIndex toPasteboard:(NSPasteboard *)observer]);
     XCTAssertTrue([observer didDeclare]);
     XCTAssertTrue([observer didWrite]);
@@ -502,8 +504,8 @@ static BOOL OMDAXChildrenContainCopyButton(NSArray *children, NSButton *button)
     XCTAssertEqual([observer declarationChangeCount], (NSInteger)1);
     XCTAssertEqualObjects([observer typesAfterDeclaration], [NSArray arrayWithObject:NSStringPboardType]);
     XCTAssertEqualObjects([observer types], [NSArray arrayWithObject:NSStringPboardType]);
-    XCTAssertEqualObjects([observer stringForType:NSStringPboardType],
-                          [recording stringForType:NSStringPboardType]);
+    XCTAssertEqualObjects([observer stringForType:NSStringPboardType], expected);
+    XCTAssertEqualObjects([recording stringForType:NSStringPboardType], expected);
 }
 
 // Run separately when the clipboard service is free. The recording test above
