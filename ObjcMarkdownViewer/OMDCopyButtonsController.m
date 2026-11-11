@@ -26,6 +26,7 @@ static const NSTimeInterval OMDCopyFeedbackDisplayInterval = 0.95;
 - (void)removeButtonForSlot:(NSNumber *)slot;
 - (void)applyCopyButtonDefaultAppearance:(NSButton *)button;
 - (void)showCopyFeedbackForButton:(NSButton *)button;
+- (NSPasteboard *)copyCodeBlockPasteboard;
 @end
 
 @implementation OMDCopyButtonsController
@@ -583,13 +584,20 @@ static NSInteger OMDCompareCopySlots(id a, id b, void *context)
     }
 
     NSString *snippet = [fullText substringWithRange:range];
-    NSPasteboard *pasteboard = [NSPasteboard generalPasteboard];
+    NSPasteboard *pasteboard = [self copyCodeBlockPasteboard];
     [pasteboard declareTypes:[NSArray arrayWithObject:NSStringPboardType] owner:nil];
-    [pasteboard setString:snippet forType:NSStringPboardType];
+    BOOL copied = [pasteboard setString:snippet forType:NSStringPboardType];
 
-    if ([sender isKindOfClass:[NSButton class]]) {
+    if (copied && [sender isKindOfClass:[NSButton class]]) {
         [self showCopyFeedbackForButton:(NSButton *)sender];
+    } else if (!copied) {
+        [self hideCopyFeedback];
     }
+}
+
+- (NSPasteboard *)copyCodeBlockPasteboard
+{
+    return [NSPasteboard generalPasteboard];
 }
 
 @end

@@ -77,6 +77,19 @@
 }
 @end
 
+// Supplies an in-memory board to the actual preview button action.
+@interface OMDRecordingCopyButtonsController : OMDCopyButtonsController
+{
+    NSPasteboard *_testPasteboard;
+}
+- (void)setTestPasteboard:(NSPasteboard *)pasteboard;
+@end
+
+@implementation OMDRecordingCopyButtonsController
+- (void)setTestPasteboard:(NSPasteboard *)pasteboard { _testPasteboard = pasteboard; }
+- (NSPasteboard *)copyCodeBlockPasteboard { return _testPasteboard; }
+@end
+
 // The preview a copy-buttons controller works for: a text view, in a
 // scroll view or not, and the renderer that drew it.
 @interface OMDCopyButtonsTestPreview : NSObject <OMDCopyButtonsControllerDelegate>
@@ -375,6 +388,40 @@ static BOOL OMDAXChildrenContainCopyButton(NSArray *children, NSButton *button)
     [textView setSelectedRange:NSMakeRange(paragraph.location, 0)];
     XCTAssertEqual([textView codeBlockIndexAtCharacterIndex:paragraph.location], (NSUInteger)NSNotFound);
     XCTAssertFalse([textView validateMenuItem:item]);
+}
+
+// The actual preview action uses an in-memory board; no pasteboard service.
+- (void)testPreviewCopyButtonFeedbackOnlyAfterSuccessfulWrite
+{
+    OMMarkdownRenderer *renderer = [[[OMMarkdownRenderer alloc] init] autorelease];
+    OMDTextView *textView = [self textViewForMarkdown:[self markdownWithCodeBlocks:1] renderer:renderer];
+    OMDCopyButtonsTestPreview *preview = [[[OMDCopyButtonsTestPreview alloc]
+        initWithTextView:textView renderer:renderer] autorelease];
+    OMDRecordingCopyButtonsController *controller = [[[OMDRecordingCopyButtonsController alloc]
+        initWithDelegate:preview] autorelease];
+    [controller updateCodeBlockButtons];
+    NSArray *buttons = [self buttonsInView:textView];
+    XCTAssertEqual([buttons count], (NSUInteger)1);
+    if ([buttons count] != 1) return;
+    NSButton *button = [buttons objectAtIndex:0];
+
+    OMDRecordingPasteboard *failure = [[[OMDRecordingPasteboard alloc] init] autorelease];
+    [failure setRejectWrite:YES];
+    [controller setTestPasteboard:(NSPasteboard *)failure];
+    [controller performSelector:@selector(copyCodeBlock:) withObject:button];
+    XCTAssertTrue([failure didAttemptWrite]);
+    XCTAssertNil([controller valueForKey:@"copyFeedbackButton"]);
+
+    OMDRecordingPasteboard *success = [[[OMDRecordingPasteboard alloc] init] autorelease];
+    [controller setTestPasteboard:(NSPasteboard *)success];
+    [controller performSelector:@selector(copyCodeBlock:) withObject:button];
+    XCTAssertTrue([success didAttemptWrite]);
+    XCTAssertNotNil([success stringForType:NSStringPboardType]);
+    XCTAssertEqual([controller valueForKey:@"copyFeedbackButton"], button);
+    [controller setTestPasteboard:(NSPasteboard *)failure];
+    [controller performSelector:@selector(copyCodeBlock:) withObject:button];
+    XCTAssertNil([controller valueForKey:@"copyFeedbackButton"]);
+    [controller hideCopyFeedback];
 }
 
 // Each failure stage is simulated in memory; this test never calls pasteboardd.
