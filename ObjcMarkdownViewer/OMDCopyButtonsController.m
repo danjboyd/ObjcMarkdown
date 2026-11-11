@@ -189,6 +189,15 @@ static const NSTimeInterval OMDCopyFeedbackDisplayInterval = 0.95;
             for (; location < NSMaxRange(effective); location++) {
                 [ranges addObject:[NSValue valueWithRange:NSMakeRange(location, 1)]];
             }
+        } else if (object == nil) {
+            NSRange mathRange;
+            NSString *formula = [storage attribute:OMMarkdownRendererDisplayMathSourceAttributeName
+                                           atIndex:index
+                                    effectiveRange:&mathRange];
+            effective = mathRange;
+            if (formula != nil && [formula length] > 0) {
+                [ranges addObject:[NSValue valueWithRange:mathRange]];
+            }
         }
         index = NSMaxRange(effective);
     }
@@ -207,12 +216,15 @@ static const NSTimeInterval OMDCopyFeedbackDisplayInterval = 0.95;
     OMRenderedObject *object = [[textView textStorage] attribute:OMRenderedObjectAttributeName
                                                           atIndex:range.location
                                                    effectiveRange:NULL];
-    if (object == nil) {
+    NSString *source = object != nil ? [object source]
+        : [[textView textStorage] attribute:OMMarkdownRendererDisplayMathSourceAttributeName
+                                   atIndex:range.location effectiveRange:NULL];
+    if (source == nil) {
         return;
     }
     NSPasteboard *pasteboard = [self copyPasteboard];
     [pasteboard declareTypes:[NSArray arrayWithObject:NSStringPboardType] owner:nil];
-    BOOL copied = [pasteboard setString:[[object source] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]]
+    BOOL copied = [pasteboard setString:[source stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]]
                                forType:NSStringPboardType];
     if (copied && [sender isKindOfClass:[NSButton class]]) {
         [self showCopyFeedbackForButton:(NSButton *)sender];
