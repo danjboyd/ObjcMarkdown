@@ -166,13 +166,14 @@ static NSView *OMDFixtureFindIcon(NSView *view, NSUInteger *count)
 int main(int argc, char **argv)
 {
     NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
-    BOOL hasThemeArgument = (argc == 4 && strcmp(argv[2], "-GSTheme") == 0 && argv[3][0] != '\0');
-    if (argc != 2 && !hasThemeArgument) {
-        fprintf(stderr, "usage: OMDShareNoticeFixture /absolute/private/synthetic.md [-GSTheme name]\n");
+    BOOL hasThemeArgument = (argc == 3 && strcmp(argv[1], "-GSTheme") == 0 && argv[2][0] != '\0');
+    if (argc != 1 && !hasThemeArgument) {
+        fprintf(stderr, "usage: OMD_FIXTURE_PATH=/absolute/private/synthetic.md OMDShareNoticeFixture [-GSTheme name]\n");
         [pool drain];
         return 2;
     }
-    NSString *path = [NSString stringWithUTF8String:argv[1]];
+    NSString *path = [[[NSProcessInfo processInfo] environment]
+        objectForKey:@"OMD_FIXTURE_PATH"];
     NSString *root = [[[NSProcessInfo processInfo] environment]
         objectForKey:@"OMD_FIXTURE_ROOT"];
     NSString *resolvedPath = [path stringByResolvingSymlinksInPath];

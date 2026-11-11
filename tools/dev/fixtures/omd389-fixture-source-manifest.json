@@ -1,8 +1,8 @@
 {
-  "status": "SOURCE_PROPOSAL_ONE_SHOT_ERROR_OBSERVER_NOT_RUNTIME_TESTED",
+  "status": "SOURCE_PROPOSAL_ENV_PATH_DISCRIMINATOR_NOT_BUILT_OR_RUN",
   "target_head": "572df1ad9b6898f606d161c763b607bb5a2d35b7",
   "baseline": "e459f582119c601d85c405cd5d35dcfba6fb1ae3",
-  "evidence": "Exact production inputs unchanged. Fixture adds one public error-presentation observer returning original NSError; source-only review, pinned CI compile/link result pending.",
+  "evidence": "Production inputs unchanged. Path-only fixture launch contract removes positional document-open input; retained #6684 comparator is historical. No new compile, artifact or execution claim.",
   "production_source_sha256": {
     "ObjcMarkdownViewer/OMDShareNotice.m": "089e5c1259692cc0133e15bdfd7b1c667ee18c3dd7329b44ed1bd57dfd67a7d2",
     "ObjcMarkdownViewer/OMDShareNotice.h": "53f23f6fe933ff5f11a70c8d9ddbd62614ca1af025023868133dd1e703b04d33",
@@ -14,7 +14,7 @@
     "Resources/icons/omd-share-file-symbolic.png": "933988113896104077cbc9bf640d2a09d00dfd97d9bd79e7509b8797899223f3"
   },
   "fixture_sha256": {
-    "tools/dev/fixtures/OMDShareNoticeFixture.m": "091745fd5ab1e4b8da3d7159e385b9086850dd5ff8716a48047dc94639335145",
+    "tools/dev/fixtures/OMDShareNoticeFixture.m": "67715593f0a9fbb34be1e7886002a4a5f84b236e21ca9f7484416e683681b67c",
     "tools/dev/fixtures/GNUmakefile.notice-fixture": "7143fd99dc6d26321941f05bb7f0cf119eb833505f9232662ff1ffa43558f9bb"
   },
   "package_runtime_reference": {
@@ -90,5 +90,20 @@
     "error_content_logged": false,
     "new_fixture_compiled": false,
     "new_fixture_executed": false
+  },
+  "path_delivery_source_review": {
+    "baseline_fixture_commit": "2dd29aa3fe280d266d5ae16d6c5f4118173e0d6f",
+    "baseline_fixture_sha256": "091745fd5ab1e4b8da3d7159e385b9086850dd5ff8716a48047dc94639335145",
+    "environment_key": "OMD_FIXTURE_PATH",
+    "gnu_default_argv": [
+      "ELF",
+      "-GSTheme",
+      "GNUstep"
+    ],
+    "share_and_delegate_source_unchanged": true,
+    "new_fixture_compiled": false,
+    "new_fixture_executed": false,
+    "historical_comparator_ask": 6684,
+    "historical_hook_is_caller_or_modal_proof": false
   }
 }
