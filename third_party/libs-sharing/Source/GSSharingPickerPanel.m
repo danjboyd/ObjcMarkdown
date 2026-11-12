@@ -10,6 +10,7 @@
 
 #import "GSSharingPickerPanel.h"
 #import "GSSharingRclone.h"
+#import "GSSharingFileDrag.h"
 
 #ifndef GS_HAS_SHARING_SERVICES
 
@@ -48,14 +49,19 @@ static GSSharingPickerPanel *GSSharingShowingPanel = nil;
 
 - (void) mouseDown: (NSEvent *)event
 {
+  NSEvent *dragEvent;
+
   if (_fileURL == nil)
     {
       return;
     }
+  dragEvent = GSSharingFileDragStartEvent(event);
+  if (dragEvent == nil || _fileURL == nil)
+    return;
   [self dragFile: [_fileURL path]
         fromRect: [self bounds]
        slideBack: YES
-           event: event];
+           event: dragEvent];
 }
 
 - (NSDragOperation) draggingSourceOperationMaskForLocal: (BOOL)isLocal
