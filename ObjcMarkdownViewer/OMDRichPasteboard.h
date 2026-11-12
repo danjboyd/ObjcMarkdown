@@ -9,6 +9,18 @@
 // stripped there). Nil for nil.
 NSString *OMDClipboardHTMLFromMarkdown(NSString *markdown);
 
+// The resolution OMDPrintHTMLFromMarkdown expects its formula images at.
+#define OMDPrintMathDPI 300
+
+// Returns a formula typeset as PNG bytes at OMDPrintMathDPI, or nil.
+typedef NSData *(*OMDMathImageProvider)(NSString *formula, BOOL display);
+
+// The document as HTML for printing and PDF on Windows (#364): like
+// OMDClipboardHTMLFromMarkdown, but each formula is the provider's image,
+// sized for the page's 12 pt text, and readable text where the provider
+// gives none (or provider is NULL). Nil for nil.
+NSString *OMDPrintHTMLFromMarkdown(NSString *markdown, OMDMathImageProvider provider);
+
 // Copy Rendered (#173): puts the rendered document on the pasteboard as
 // HTML (from the Markdown), RTF (from the preview's text, when there is
 // one) and plain text, so pasting into Teams, Outlook or an email body

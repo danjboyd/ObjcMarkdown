@@ -6,6 +6,27 @@
 
 #import "OMDRichPasteboard.h"
 #import "OMDWindowsClipboard.h"
+#import "OMMarkdownRenderer.h"
+
+// A PNG header only: 300 x 60 pixels, enough for the size the page reads.
+static NSData *OMDTestMathPNG(NSString *formula, BOOL display)
+{
+    static const unsigned char header[24] = {
+        0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a,
+        0, 0, 0, 13, 'I', 'H', 'D', 'R',
+        0, 0, 0x01, 0x2c, 0, 0, 0, 0x3c
+    };
+    (void)formula;
+    (void)display;
+    return [NSData dataWithBytes:header length:sizeof(header)];
+}
+
+static NSData *OMDTestNoMathPNG(NSString *formula, BOOL display)
+{
+    (void)formula;
+    (void)display;
+    return nil;
+}
 
 @interface OMDRichPasteboardTests : XCTestCase
 @end
@@ -129,6 +150,67 @@
 {
     NSString *html = OMDClipboardHTMLFromMarkdown(@"Type `$x^2$` for a square.\n");
     [self assertHTML:html contains:@">$x^2$</code>"];
+}
+
+- (void)testMathPlaceholdersSkipCodeAndKeepTheFormulas
+{
+    NSMutableArray *formulas = [NSMutableArray array];
+    NSString *source = OMMarkdownWithMathPlaceholders(@"A $x^2$ and `$y$`.\n\n$$\\int_0^1 f$$\n", nil, formulas);
+    XCTAssertEqualObjects(source, @"A OMMATH0Q0Z and `$y$`.\n\nOMMATH0Q1Z\n");
+    XCTAssertEqual([formulas count], (NSUInteger)2);
+    XCTAssertEqualObjects([[formulas objectAtIndex:0] objectAtIndex:0], @"x^2");
+    XCTAssertFalse([[[formulas objectAtIndex:0] objectAtIndex:1] boolValue]);
+    XCTAssertEqualObjects([[formulas objectAtIndex:0] objectAtIndex:2], @"OMMATH0Q0Z");
+    XCTAssertEqualObjects([[formulas objectAtIndex:1] objectAtIndex:0], @"\\int_0^1 f");
+    XCTAssertTrue([[[formulas objectAtIndex:1] objectAtIndex:1] boolValue]);
+}
+
+- (void)testMathPlaceholdersAvoidTheDocumentsOwnText
+{
+    NSMutableArray *formulas = [NSMutableArray array];
+    NSString *source = OMMarkdownWithMathPlaceholders(@"OMMATH0Q0Z $x$\n", @"OMMATH1Q", formulas);
+    XCTAssertEqualObjects(source, @"OMMATH0Q0Z OMMATH2Q0Z\n");
+}
+
+// A document that spells a token itself, in prose, in code and through an
+// entity, keeps those words: only the formula is replaced (#364 review).
+- (void)testPrintHTMLLeavesLiteralTokenTextAlone
+{
+    NSString *markdown = @"Text OMMATH0Q0Z and `OMMATH0Q0Z` and &#79;MMATH1Q0Z beside $x^2$.\n\n"
+                         @"```\nOMMATH0Q0Z\n```\n\nThe old fixed token: OMMATHPH0Z.\n";
+    NSString *html = OMDPrintHTMLFromMarkdown(markdown, OMDTestMathPNG);
+    [self assertHTML:html contains:@"The old fixed token: OMMATHPH0Z."];
+    [self assertHTML:html contains:@"Text OMMATH0Q0Z and "];
+    [self assertHTML:html contains:@">OMMATH0Q0Z</code>"];
+    [self assertHTML:html contains:@"and OMMATH1Q0Z beside <img class=\"math\""];
+    [self assertHTML:html contains:@"OMMATH0Q0Z\n</code></pre>"];
+    NSUInteger images = [[html componentsSeparatedByString:@"<img class=\"math\""] count] - 1;
+    XCTAssertEqual(images, (NSUInteger)1, @"%@", html);
+}
+
+- (void)testPrintHTMLPutsTypesetMathInPlace
+{
+    NSString *html = OMDPrintHTMLFromMarkdown(@"Area $x^2$ here, `$y$`.\n\n$$\\int_0^1 f(x)\\,dx$$\n", OMDTestMathPNG);
+    XCTAssertTrue([html rangeOfString:@"OMMATH"].location == NSNotFound, @"%@", html);
+    // 300 x 60 pixels at 300 dpi for 10 pt TeX, shown for 12 pt text.
+    [self assertHTML:html contains:@"Area <img class=\"math\" alt=\"x"];
+    [self assertHTML:html contains:@"style=\"width:115.2px;height:23.0px;vertical-align:middle\">"];
+    [self assertHTML:html contains:@"src=\"data:image/png;base64,iVBORw0KGgo"];
+    [self assertHTML:html contains:@"<span style=\"display:block;text-align:center;margin:0.4em 0\"><img class=\"math\""];
+    [self assertHTML:html contains:@">$y$</code>"];
+}
+
+- (void)testPrintHTMLFallsBackToReadableMath
+{
+    NSString *markdown = @"Area $x^2$ here.\n\n$$\\int_0^1 f(x)\\,dx$$\n";
+    NSString *withoutTeX = OMDPrintHTMLFromMarkdown(markdown, OMDTestNoMathPNG);
+    NSString *noProvider = OMDPrintHTMLFromMarkdown(markdown, NULL);
+    XCTAssertEqualObjects(withoutTeX, noProvider);
+    XCTAssertTrue([noProvider rangeOfString:@"OMMATH"].location == NSNotFound, @"%@", noProvider);
+    XCTAssertTrue([noProvider rangeOfString:@"$"].location == NSNotFound, @"%@", noProvider);
+    XCTAssertTrue([noProvider rangeOfString:@"<img"].location == NSNotFound, @"%@", noProvider);
+    [self assertHTML:noProvider contains:@"\u222B"];
+    [self assertHTML:noProvider contains:@"Area x"];
 }
 
 - (void)testRTFHasNoAttachmentPlaceholders
