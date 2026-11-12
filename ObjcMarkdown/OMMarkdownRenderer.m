@@ -34,9 +34,16 @@ NSString * const OMMarkdownRendererDiagramSourceKey = @"OMMarkdownRendererDiagra
 
 // Indent of a list item's content, so every block in an item (not only its
 // first line) lines up under the item's text. Zero outside lists.
+static NSString * const OMListContentIndentKey = @"contentIndent";
+
 CGFloat OMListContentIndent(const OMRenderContext *renderContext, CGFloat scale)
 {
-    NSUInteger depth = (renderContext != NULL && renderContext->listStack != nil) ? [renderContext->listStack count] : 0;
+    NSArray *listStack = renderContext != NULL ? renderContext->listStack : nil;
+    NSNumber *measured = [[listStack lastObject] objectForKey:OMListContentIndentKey];
+    if (measured != nil) {
+        return (CGFloat)[measured doubleValue];
+    }
+    NSUInteger depth = [listStack count];
     return depth > 0 ? ((CGFloat)depth * 18.0 + 20.0) * scale : 0.0;
 }
 
@@ -558,7 +565,12 @@ static NSFont *OMListMarkerFallbackFont(unichar character, CGFloat size)
 {
     static NSArray *candidates = nil;
     if (candidates == nil) {
+#if !defined(GNUSTEP)
+        // Apple Symbols covers both task boxes on macOS (#376).
+        candidates = [[NSArray alloc] initWithObjects:@"AppleSymbols", @"DejaVuSans", @"SegoeUISymbol", @"FreeSans", nil];
+#else
         candidates = [[NSArray alloc] initWithObjects:@"DejaVuSans", @"SegoeUISymbol", @"FreeSans", nil];
+#endif
     }
     NSUInteger index = 0;
     for (index = 0; index <= [candidates count]; index++) {
@@ -2037,6 +2049,13 @@ static void OMRenderListItem(cmark_node *node,
         taskLocation = OMTaskItemSourceLocation(node, taskChecked, renderContext);
     }
     OMAppendListMarker(output, prefix, attributes);
+    // Match wrapped lines to the text after the marker, whose width depends
+    // on the marker character and its fallback font (#381).
+    CGFloat prefixWidth = [[output attributedSubstringFromRange:NSMakeRange(startLocation, [prefix length])] size].width;
+    CGFloat listIndent = (CGFloat)([listStack count] * 18.0 * scale);
+    CGFloat contentIndent = listIndent + prefixWidth;
+    [OMListContext(listStack) setObject:[NSNumber numberWithDouble:contentIndent]
+                              forKey:OMListContentIndentKey];
     if (taskLocation != NSNotFound && renderContext->taskItems != nil) {
         // The box is the prefix's next-to-last character; a space follows it.
         NSRange boxRange = NSMakeRange(startLocation + [prefix length] - 2, 1);
@@ -2071,7 +2090,6 @@ static void OMRenderListItem(cmark_node *node,
 
     NSUInteger endLocation = [output length];
     CGFloat baseIndent = (CGFloat)(quoteLevel * 20.0 * scale);
-    CGFloat listIndent = (CGFloat)([listStack count] * 18.0 * scale);
     NSFont *font = [attributes objectForKey:NSFontAttributeName];
     CGFloat fontSize = font != nil ? [font pointSize] : (theme.baseFont != nil ? [theme.baseFont pointSize] * scale : 16.0 * scale);
     BOOL hasNestedList = NO;
@@ -2088,7 +2106,7 @@ static void OMRenderListItem(cmark_node *node,
         spacingAfter = 2.0 * scale;
     }
     NSParagraphStyle *style = OMParagraphStyleWithIndent(baseIndent + listIndent,
-                                                        baseIndent + listIndent + 20.0 * scale,
+                                                        baseIndent + contentIndent,
                                                         spacingAfter,
                                                         0.0,
                                                         1.5,

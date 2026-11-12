@@ -1442,7 +1442,8 @@ static NSImage *OMPNGImageForMathFormula(NSString *formula,
                                          NSString *inkHex,
                                          NSUInteger maximumFormulaLength,
                                          NSTimeInterval externalToolTimeout,
-                                         OMMathPerfStats *stats)
+                                         OMMathPerfStats *stats,
+                                         NSData **pngDataOut)
 {
     if (!OMMathBackendAvailable() ||
         formula == nil ||
@@ -1595,6 +1596,14 @@ static NSImage *OMPNGImageForMathFormula(NSString *formula,
     if (stats != NULL) {
         stats->dvisvgmRuns += 1;
         stats->dvisvgmSeconds += (OMNow() - pngStart);
+    }
+
+    // A caller that wants the file itself (an HTML page for printing, #364)
+    // gets its bytes instead of a decoded image.
+    if (pngDataOut != NULL) {
+        *pngDataOut = [NSData dataWithContentsOfFile:pngPath];
+        [[NSFileManager defaultManager] removeItemAtPath:tempDir error:NULL];
+        return nil;
     }
 
     NSImage *image = OMWindowsImageFromPNGFile(pngPath);
@@ -1928,7 +1937,8 @@ NSAttributedString *OMMathAttachmentAttributedString(NSString *formula,
                                                  inkHex,
                                                  maxFormulaLength,
                                                  externalToolTimeout,
-                                                 stats);
+                                                 stats,
+                                                 NULL);
             if (baseImage == nil) {
                 if (stats != NULL) {
                     stats->mathFailures += 1;
@@ -2224,6 +2234,81 @@ NSString *OMMarkdownWithReadableMath(NSString *markdown)
         [result replaceCharactersInRange:span withString:escaped];
     }
     return result;
+}
+
+static void OMReplaceFoundMath(NSRange span, NSRange formula, BOOL display, void *context)
+{
+    [(NSMutableArray *)context addObject:[NSArray arrayWithObjects:
+        [NSValue valueWithRange:span], [NSValue valueWithRange:formula],
+        [NSNumber numberWithBool:display], nil]];
+}
+
+// A token prefix that occurs nowhere in the given texts, so replacing the
+// tokens later can only ever hit the ones made here.
+static NSString *OMMathPlaceholderPrefix(NSString *markdown, NSString *avoid)
+{
+    NSUInteger nonce = 0;
+    for (;;) {
+        NSString *prefix = [NSString stringWithFormat:@"OMMATH%luQ", (unsigned long)nonce];
+        if ([markdown rangeOfString:prefix].location == NSNotFound &&
+            (avoid == nil || [avoid rangeOfString:prefix].location == NSNotFound)) {
+            return prefix;
+        }
+        nonce += 1;
+    }
+}
+
+NSString *OMMarkdownWithMathPlaceholders(NSString *markdown, NSString *avoid, NSMutableArray *formulas)
+{
+    if (markdown == nil || [markdown rangeOfString:@"$"].location == NSNotFound) {
+        return markdown;
+    }
+    NSMutableArray *spans = [NSMutableArray array];
+    OMScanMathSpans(markdown, OMReplaceFoundMath, spans);
+    if ([spans count] == 0) {
+        return markdown;
+    }
+    NSString *prefix = OMMathPlaceholderPrefix(markdown, avoid);
+    NSMutableString *result = [NSMutableString stringWithString:markdown];
+    NSMutableArray *tokens = [NSMutableArray array];
+    NSUInteger count = [spans count];
+    NSUInteger i = 0;
+    for (i = 0; i < count; i++) {
+        NSArray *found = [spans objectAtIndex:i];
+        NSRange formula = [[found objectAtIndex:1] rangeValue];
+        // The Z ends each token, so token 1 is never taken for part of 11.
+        NSString *token = [NSString stringWithFormat:@"%@%luZ", prefix, (unsigned long)i];
+        [tokens addObject:token];
+        [formulas addObject:[NSArray arrayWithObjects:
+            [markdown substringWithRange:formula], [found objectAtIndex:2], token, nil]];
+    }
+    // From the end, so earlier ranges stay valid.
+    for (i = count; i > 0; i--) {
+        NSRange span = [[[spans objectAtIndex:i - 1] objectAtIndex:0] rangeValue];
+        [result replaceCharactersInRange:span withString:[tokens objectAtIndex:i - 1]];
+    }
+    return result;
+}
+
+NSData *OMMathPNGDataForFormula(NSString *formula, BOOL display, NSInteger dpi)
+{
+#if defined(_WIN32)
+    NSData *data = nil;
+    OMPNGImageForMathFormula(formula,
+                             display,
+                             (CGFloat)dpi / 96.0,
+                             nil,
+                             0,
+                             20.0,
+                             NULL,
+                             &data);
+    return data;
+#else
+    (void)formula;
+    (void)display;
+    (void)dpi;
+    return nil;
+#endif
 }
 
 BOOL OMMarkdownTextContainsMath(NSString *raw)

@@ -4086,6 +4086,11 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
     return [htmlData writeToFile:path atomically:YES];
 }
 
+static NSData *OMDPrintMathImage(NSString *formula, BOOL display)
+{
+    return OMMathPNGDataForFormula(formula, display, OMDPrintMathDPI);
+}
+
 // Without pandoc: cmark-gfm's HTML, the same as Copy Rendered puts on the
 // clipboard (math as readable TeX), so headings, tables and code keep their
 // look (#169).
@@ -4098,7 +4103,13 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
     if (markdown == nil) {
         markdown = _currentMarkdown;
     }
-    NSString *fragment = OMDClipboardHTMLFromMarkdown(markdown);
+    // Math typeset by the bundled TeX when the math setting uses it, as
+    // the preview does; readable text otherwise (#364).
+    OMDMathImageProvider provider = NULL;
+    if ([self currentMathRenderingPolicy] == OMMarkdownMathRenderingPolicyExternalTools) {
+        provider = OMDPrintMathImage;
+    }
+    NSString *fragment = OMDPrintHTMLFromMarkdown(markdown, provider);
     if (fragment == nil) {
         return NO;
     }
@@ -4171,14 +4182,7 @@ static NSMenuItem *OMDMenuItemWithAction(NSMenu *menu, SEL action)
 
     NSTask *task = [[[NSTask alloc] init] autorelease];
     [task setLaunchPath:browserPath];
-    [task setArguments:[NSArray arrayWithObjects:
-                        @"--headless",
-                        @"--disable-gpu",
-                        @"--allow-file-access-from-files",
-                        @"--no-pdf-header-footer",
-                        [NSString stringWithFormat:@"--print-to-pdf=%@", pdfPath],
-                        [htmlURL absoluteString],
-                        nil]];
+    [task setArguments:OMDHeadlessPrintToPDFArguments(pdfPath, [htmlURL absoluteString])];
 
     // Not pipes: nothing reads them, and Edge logs a few KB to stderr, so
     // it blocked on a full pipe while the app waited for it to exit.
