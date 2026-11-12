@@ -56,6 +56,26 @@
     (void)isLocal;
     return NSDragOperationCopy;
 }
+
+// The page is a symbolic image: drawn by a borderless button cell, which
+// themes tint as they tint button images. An image view isn't tinted, so
+// in a dark theme the page was dark on dark. libs-sharing's picker panel
+// draws its page this way, and is tinted.
+- (void)drawRect:(NSRect)rect
+{
+    NSImage *image = [self image];
+    NSString *name = [image name];
+    if (image == nil || !([name hasSuffix:@"-symbolic"] || [name hasSuffix:@"Template"])) {
+        [super drawRect:rect];
+        return;
+    }
+    NSButtonCell *cell = [[NSButtonCell alloc] initImageCell:image];
+    [cell setBordered:NO];
+    [cell setImagePosition:NSImageOnly];
+    [cell setHighlightsBy:NSNoCellMask];
+    [cell drawWithFrame:[self bounds] inView:self];
+    [cell release];
+}
 #else
 - (NSDragOperation)draggingSession:(NSDraggingSession *)session
     sourceOperationMaskForDraggingContext:(NSDraggingContext)context
@@ -233,9 +253,10 @@ static NSButton *OMDShareNoticeButton(NSString *title, NSRect frame, id target, 
     if (hasFile) {
         OMDShareFileDragView *icon = [[[OMDShareFileDragView alloc] initWithFrame:
             NSMakeRect(margin, height - margin - iconSize, iconSize, iconSize)] autorelease];
-#if defined(GNUSTEP) && !defined(_WIN32)
-        // Icon themes no longer carry coloured file icons, and GNUstep's own
-        // is a question mark: the app's page.
+#if defined(GNUSTEP)
+        // Icon themes no longer carry coloured file icons, and on Windows
+        // GNUstep's workspace doesn't ask the shell; its own is a question
+        // mark: the app's page.
         NSImage *fileIcon = OMDSymbolicImageNamed(@"omd-share-file-symbolic");
 #else
         NSImage *fileIcon = [[NSWorkspace sharedWorkspace] iconForFile:[[item fileURL] path]];
