@@ -4508,7 +4508,7 @@ static NSData *OMDPrintMathImage(NSString *formula, BOOL display)
 
 - (NSString *)shareSourceExtension
 {
-    return [[self defaultSaveMarkdownFileName] pathExtension];
+    return OMDShareMarkdownExtension(_currentPath, [[self defaultSaveMarkdownFileName] pathExtension]);
 }
 
 - (NSString *)shareDocumentPath
