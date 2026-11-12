@@ -18,6 +18,12 @@ BOOL OMDOpenFolderInFileManager(NSString *folder);
 // opens the folder that holds it.
 BOOL OMDRevealPathInFileManager(NSString *path);
 
+// The arguments that have a headless Edge or Chrome print the page at url to
+// pdfPath, without the browser's page header and footer (date, title, the
+// page's address): --no-pdf-header-footer for current versions and
+// --print-to-pdf-no-header for older ones, which ignore the other (#378).
+NSArray *OMDHeadlessPrintToPDFArguments(NSString *pdfPath, NSString *url);
+
 #if defined(_WIN32)
 BOOL OMDWindowsBundledExternalMathToolchainAvailable(void);
 NSString *OMDHTMLEscapedString(NSString *value);
