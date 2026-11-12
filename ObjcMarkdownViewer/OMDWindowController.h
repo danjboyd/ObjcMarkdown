@@ -12,6 +12,7 @@ typedef unsigned short mode_t;
 @class OMMarkdownRenderer;
 @class OMDDocumentConverter;
 @class OMDLineNumberRulerView;
+@class OMDSourceHighlightState;
 @class OMDFormattingBarController;
 @class GSVVimBindingController;
 @class OMDDocumentTabsController;
@@ -94,6 +95,8 @@ typedef unsigned short mode_t;
     NSTimer *_previewStatusAutoHideTimer;
     NSTimer *_linkedScrollDriverResetTimer;
     NSTimer *_sourceSyntaxHighlightTimer;
+    // The source editor's edits since its last colouring pass (#333).
+    OMDSourceHighlightState *_sourceHighlightState;
     NSTimer *_recoveryAutosaveTimer;
     NSTimer *_externalFileMonitorTimer;
     NSView *_launchOverlayView;
