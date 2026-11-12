@@ -11,11 +11,11 @@
 - (void)testPressAndReleaseNeverBeginDragEvenFarFromOrigin
 {
     NSPoint start = NSMakePoint(20, 30);
-    NSPoint far = NSMakePoint(120, 130);
+    NSPoint distant = NSMakePoint(120, 130);
     XCTAssertFalse(GSSharingFileDragShouldBegin(start, start, NSLeftMouseDown));
-    XCTAssertFalse(GSSharingFileDragShouldBegin(start, far, NSLeftMouseUp));
-    XCTAssertFalse(GSSharingFileDragShouldBegin(start, far, NSMouseMoved));
-    XCTAssertFalse(GSSharingFileDragShouldBegin(start, far, NSRightMouseDragged));
+    XCTAssertFalse(GSSharingFileDragShouldBegin(start, distant, NSLeftMouseUp));
+    XCTAssertFalse(GSSharingFileDragShouldBegin(start, distant, NSMouseMoved));
+    XCTAssertFalse(GSSharingFileDragShouldBegin(start, distant, NSRightMouseDragged));
 }
 
 - (void)testSmallJitterDoesNotBeginDrag
