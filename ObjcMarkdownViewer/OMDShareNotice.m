@@ -3,6 +3,9 @@
 
 #import "OMDShareNotice.h"
 #import "OMDViewerImages.h"
+#if defined(GNUSTEP)
+#import "GSSharingFileDrag.h"
+#endif
 
 // The shared file's icon, which drags the file into a mail or a chat.
 #if defined(GNUSTEP)
@@ -42,7 +45,10 @@
         return;
     }
 #if defined(GNUSTEP)
-    [self dragFile:[_fileURL path] fromRect:[self bounds] slideBack:YES event:event];
+    NSEvent *dragEvent = GSSharingFileDragStartEvent(event);
+    if (dragEvent != nil && _fileURL != nil) {
+        [self dragFile:[_fileURL path] fromRect:[self bounds] slideBack:YES event:dragEvent];
+    }
 #else
     NSDraggingItem *item = [[[NSDraggingItem alloc] initWithPasteboardWriter:_fileURL] autorelease];
     [item setDraggingFrame:[self bounds] contents:[self image]];
