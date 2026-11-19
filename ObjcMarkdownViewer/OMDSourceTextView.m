@@ -198,6 +198,15 @@ static NSUInteger OMDPositionAfterRemovingRange(NSUInteger position, NSRange rem
 - (void)omdDrawSelectedSyntaxOverlayInRect:(NSRect)dirtyRect;
 @end
 
+#if defined(GNUSTEP)
+// GNUstep's NSTextView implements these (NSTextView_actions.m), but its
+// NSResponder.h doesn't declare them as Cocoa's does.
+@interface NSTextView (OMDDocumentSelectionActions)
+- (void)moveToBeginningOfDocumentAndModifySelection:(id)sender;
+- (void)moveToEndOfDocumentAndModifySelection:(id)sender;
+@end
+#endif
+
 @implementation OMDSourceTextView
 
 // The source is Markdown, kept as typed: macOS's smart quotes, dashes and
@@ -702,6 +711,19 @@ logKeyDown:
     }
 
     unichar key = [chars characterAtIndex:0];
+    // GNUstep's default key bindings have Control-Home/End and
+    // Shift-Home/End but not Control-Shift-Home/End: select to the start
+    // or end of the document here, as other editors do.
+    if (normalized == (NSControlKeyMask | NSShiftKeyMask)) {
+        if (key == NSHomeFunctionKey) {
+            [self moveToBeginningOfDocumentAndModifySelection:self];
+            return YES;
+        }
+        if (key == NSEndFunctionKey) {
+            [self moveToEndOfDocumentAndModifySelection:self];
+            return YES;
+        }
+    }
     if (hasControl && key >= 1 && key <= 26) {
         key = (unichar)('a' + (key - 1));
     }
