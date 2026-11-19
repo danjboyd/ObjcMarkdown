@@ -702,6 +702,19 @@ logKeyDown:
     }
 
     unichar key = [chars characterAtIndex:0];
+    // GNUstep's default key bindings have Control-Home/End and
+    // Shift-Home/End but not Control-Shift-Home/End: select to the start
+    // or end of the document here, as other editors do.
+    if (normalized == (NSControlKeyMask | NSShiftKeyMask)) {
+        if (key == NSHomeFunctionKey) {
+            [self moveToBeginningOfDocumentAndModifySelection:self];
+            return YES;
+        }
+        if (key == NSEndFunctionKey) {
+            [self moveToEndOfDocumentAndModifySelection:self];
+            return YES;
+        }
+    }
     if (hasControl && key >= 1 && key <= 26) {
         key = (unichar)('a' + (key - 1));
     }

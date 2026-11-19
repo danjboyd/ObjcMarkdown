@@ -338,6 +338,40 @@
     [view release];
 }
 
+- (void)testControlShiftEndSelectsToEndOfDocument
+{
+    OMDSourceTextView *view = [self newSourceView];
+    [view setString:@"first line\nsecond line\nthird"];
+    [view setSelectedRange:NSMakeRange(5, 0)];
+    unichar end = NSEndFunctionKey;
+    NSEvent *event = [self shortcutEventWithCharactersIgnoringModifiers:[NSString stringWithCharacters:&end length:1]
+                                                              modifiers:(NSControlKeyMask | NSShiftKeyMask)];
+
+    [view keyDown:event];
+
+    NSRange selection = [view selectedRange];
+    XCTAssertEqual(selection.location, (NSUInteger)5);
+    XCTAssertEqual(NSMaxRange(selection), [[view string] length]);
+    [view release];
+}
+
+- (void)testControlShiftHomeSelectsToStartOfDocument
+{
+    OMDSourceTextView *view = [self newSourceView];
+    [view setString:@"first line\nsecond line\nthird"];
+    [view setSelectedRange:NSMakeRange(15, 0)];
+    unichar home = NSHomeFunctionKey;
+    NSEvent *event = [self shortcutEventWithCharactersIgnoringModifiers:[NSString stringWithCharacters:&home length:1]
+                                                              modifiers:(NSControlKeyMask | NSShiftKeyMask)];
+
+    [view keyDown:event];
+
+    NSRange selection = [view selectedRange];
+    XCTAssertEqual(selection.location, (NSUInteger)0);
+    XCTAssertEqual(selection.length, (NSUInteger)15);
+    [view release];
+}
+
 - (void)testKeyDownRoutesNonShortcutInputToVimWhenHandled
 {
     OMDSourceTextViewShortcutSpy *view = [self newShortcutSpyView];
